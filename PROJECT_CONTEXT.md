@@ -66,9 +66,9 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
 ## 4. Tech stack
 
 **Unity (the app)**
-- **Unity 6 LTS. Everyone on the exact same editor version** (pick one in hour 1, write it here: `6000.0.____`).
-- Meta XR All-in-One SDK (Core, Interaction SDK, MR Utility Kit), OpenXR plugin 1.13+ (required for the simulator on Mac)
-- Meta XR Simulator (Windows, or Apple Silicon Mac; Mac support is officially experimental, expect some fiddling)
+- **Unity 6.6, editor `6000.6.7f1`. Everyone on this exact version.** (Matches Hudson's working Meta XR test project.)
+- Meta XR All-in-One SDK `com.meta.xr.sdk.all` **207.0.1** (Core, Interaction SDK, MR Utility Kit), OpenXR plugin `com.unity.xr.openxr` **1.18.0** with the Meta XR feature group enabled, Input System **1.20.1**, URP **17.6.0**
+- Meta XR Simulator **v207.1**, installed separately (Windows: `C:\Program Files\MetaXRSimulator\v207.1`; Apple Silicon Mac is officially experimental, expect some fiddling). See 6.1 for setup.
 - `com.unity.webrtc` (screen streaming), `glTFast` (runtime GLB loading for CAD), `NativeWebSocket` (WS client that works on Android), `com.unity.nuget.newtonsoft-json`
 - TextMeshPro, DOTween (free) for animation, XCharts for charts
 - Render pipeline: URP, Android target for Quest, Vulkan
@@ -118,7 +118,7 @@ Rules:
 ## 6. Unity project layout and team git rules (read this, merge conflicts kill hackathons)
 
 ```
-forge/
+gatorhack-dubz/                   <- repo root
   PROJECT_CONTEXT.md
   CLAUDE.md
   unity/                          <- the Unity project
@@ -142,6 +142,37 @@ Rules:
 3. **Only Hudson edits `Main.unity`.** Everyone else builds in their own sandbox scene (`Assets/_Forge/<Module>/<Module>Sandbox.unity`) and ships **prefabs**. Integration = dropping prefabs into Main.
 4. Only touch files in your own module folder. `Packages/manifest.json` and Project Settings changes are announced in chat first.
 5. Commit and push small and often. Pull before you start each chunk.
+
+### 6.1 Unity setup (one-time, per machine)
+
+**If `unity/` is already in the repo (teammates):**
+1. Install Unity Hub, then editor **6000.6.7f1** with the **Android Build Support** module (includes OpenJDK + Android SDK/NDK). Android is only needed for the Quest build, but install it now so nobody has to switch later.
+2. Install the **Meta XR Simulator** v207.1: https://developers.meta.com/horizon/downloads/package/meta-xr-simulator-windows/ (or in Unity: `Window > Meta > Meta XR Simulator` > Install).
+3. Clone the repo, then in Unity Hub: **Add > Add project from disk** and pick `gatorhack-dubz/unity`. First open takes a while (packages resolve from `Packages/manifest.json`).
+4. Run the simulator check below.
+
+**Creating the project (Hudson, once):**
+1. Unity Hub > **New project** > editor `6000.6.7f1` > template **Universal 3D (URP)**. Name `unity`, location the repo root, so the project lands at `gatorhack-dubz/unity/`. Turn off Unity Cloud and Unity Version Control.
+2. Add the `.gitignore` (Unity standard) and `.gitattributes` (LFS) at the repo root **before the first commit** so `Library/` never enters history.
+3. `Edit > Project Settings > Editor`: Asset Serialization = **Force Text**, Version Control = **Visible Meta Files** (Force Text is the default).
+4. Packages: add these to `unity/Packages/manifest.json` (or install them by name in Package Manager):
+   ```json
+   "com.meta.xr.sdk.all": "207.0.1",
+   "com.unity.xr.openxr": "1.18.0",
+   "com.unity.inputsystem": "1.20.1"
+   ```
+   When Unity asks to enable the new Input System backend and restart, say yes.
+5. `Edit > Project Settings > XR Plug-in Management`: on the **Windows/Standalone** tab tick **OpenXR**, then tick the **Meta XR** feature group. Do the same on the **Android** tab. Use OpenXR, not the legacy Oculus plugin.
+6. `Meta > Tools > Project Setup Tool`: **Fix All**, then **Apply All**, for both Standalone and Android.
+7. Create the `Assets/_Forge/...` folders from section 6 and save `Assets/_Forge/Core/Main.unity`.
+8. Close Unity, commit, push.
+
+**Simulator check (everyone):**
+1. Camera rig: `Window > Meta > Building Blocks > Camera Rig` (or the `OVRCameraRig` prefab). Delete the default `Main Camera`.
+2. Click the **Meta XR Simulator** toggle in the toolbar next to Play (or `Window > Meta > Meta XR Simulator > Activate`), then press Play.
+3. In the simulator window: **Inputs** panel, set left/right to keyboard + mouse. **Choose environment** picks a synthetic room (living room, game room, bedroom...); these rooms have tables for MRUK testing.
+4. For passthrough + MRUK scenes: set Passthrough and Scene support to **Supported** in `OVRProjectConfig` (Project Setup Tool can do this). If passthrough shows black, re-run the Project Setup Tool and check URP post-processing/HDR isn't overwriting alpha.
+5. Play-mode logs are in `unity/Logs/Editor.log`.
 
 ---
 
@@ -290,7 +321,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 3. **Messaging:** WhatsApp Cloud API with test number. Decided.
 4. **CAD engine:** build123d unless Hudson's repos give something better. **Pending repo review.**
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
-6. **Unity version:** fill in.
+6. **Unity version:** `6000.6.7f1` (Unity 6.6), Meta XR SDK 207.0.1, OpenXR 1.18.0, simulator v207.1. Decided.
 7. **Pet model:** Adrian picks in hour 1.
 
 ---
