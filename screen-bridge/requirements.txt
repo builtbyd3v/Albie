@@ -1,0 +1,3 @@
+mss==10.2.0
+pillow==13.0.0
+websockets==17.3
