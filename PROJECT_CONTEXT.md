@@ -4,6 +4,15 @@
 > "Forge" (project) and "Bit" (pet) are placeholder names. Rename freely.
 > v2: switched to Unity + Meta XR SDK. Laptop-first until the Quest 3 arrives.
 
+## 0. Status (update this as you go)
+
+**2026-10-23, Hudson (Core):**
+- **Done:** Unity project pushed in `unity/` (6000.6.7f1, Meta XR SDK 207.0.1, OpenXR 1.18.0, all Meta setup fixes applied). Teammates: clone and open it, see 6.1; no SDK setup needed.
+- **Done:** `Assets/_Forge/Core/Main.unity`: passthrough camera rig + MRUK. In the simulator it loads the synthetic room (27 anchors) and `DeskLocator` finds the `TABLE` (drawn blue). Verified in Play mode.
+- **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
+- **Next (Hudson):** `ForgePanel` prefab + the "unfold" around the desk (placeholder panels), then `DesktopRig` (WASD fallback), then `ForgeNet` (WS/REST client). Until `ForgePanel` lands, use a plain world-space Canvas.
+- **Unclaimed in repo:** `CAD_PLAN.md` and `hub/cad/spike/` exist locally on Hudson's machine but aren't committed; whoever owns CAD, commit them from your side.
+
 ---
 
 ## 1. The pitch
@@ -143,36 +152,34 @@ Rules:
 4. Only touch files in your own module folder. `Packages/manifest.json` and Project Settings changes are announced in chat first.
 5. Commit and push small and often. Pull before you start each chunk.
 
-### 6.1 Unity setup (one-time, per machine)
+### 6.1 Unity setup (teammates: ~20 min, mostly downloads)
 
-**If `unity/` is already in the repo (teammates):**
-1. Install Unity Hub, then editor **6000.6.7f1** with the **Android Build Support** module (includes OpenJDK + Android SDK/NDK). Android is only needed for the Quest build, but install it now so nobody has to switch later.
-2. Install the **Meta XR Simulator** v207.1: https://developers.meta.com/horizon/downloads/package/meta-xr-simulator-windows/ (or in Unity: `Window > Meta > Meta XR Simulator` > Install).
-3. Clone the repo, then in Unity Hub: **Add > Add project from disk** and pick `gatorhack-dubz/unity`. First open takes a while (packages resolve from `Packages/manifest.json`).
-4. Run the simulator check below.
+The project is in the repo with all packages and settings already configured (Meta XR SDK, OpenXR, Project Setup Tool fixes, passthrough/scene support). **You don't redo any of that.** You only install the things that live on your machine, not in the repo:
 
-**Creating the project (Hudson, once):**
-1. Unity Hub > **New project** > editor `6000.6.7f1` > template **Universal 3D (URP)**. Name `unity`, location the repo root, so the project lands at `gatorhack-dubz/unity/`. Turn off Unity Cloud and Unity Version Control.
-2. Add the `.gitignore` (Unity standard) and `.gitattributes` (LFS) at the repo root **before the first commit** so `Library/` never enters history.
-3. `Edit > Project Settings > Editor`: Asset Serialization = **Force Text**, Version Control = **Visible Meta Files** (Force Text is the default).
-4. Packages: add these to `unity/Packages/manifest.json` (or install them by name in Package Manager):
-   ```json
-   "com.meta.xr.sdk.all": "207.0.1",
-   "com.unity.xr.openxr": "1.18.0",
-   "com.unity.inputsystem": "1.20.1"
-   ```
-   When Unity asks to enable the new Input System backend and restart, say yes.
-5. `Edit > Project Settings > XR Plug-in Management`: on the **Windows/Standalone** tab tick **OpenXR**, then tick the **Meta XR** feature group. Do the same on the **Android** tab. Use OpenXR, not the legacy Oculus plugin.
-6. `Meta > Tools > Project Setup Tool`: **Fix All**, then **Apply All**, for both Standalone and Android.
-7. Create the `Assets/_Forge/...` folders from section 6 and save `Assets/_Forge/Core/Main.unity`.
-8. Close Unity, commit, push.
+1. **Unity Hub** and editor **6000.6.7f1** (exact version). Add the **Android Build Support** module (with OpenJDK + SDK/NDK) if you'll build for the Quest; not needed for the simulator.
+2. **Meta XR Simulator v207.1** (Windows): https://developers.meta.com/horizon/downloads/package/meta-xr-simulator-windows/ (Apple Silicon Mac is experimental.)
+3. **Git LFS**: `git lfs install` once, then `git clone https://github.com/hudmarr/gatorhack-dubz.git`.
+4. Unity Hub > **Add > Add project from disk** > pick `gatorhack-dubz/unity`. First open takes 5 to 15 min while Unity downloads packages from `Packages/manifest.json`. Sign in to Unity Hub; no Asset Store purchase is needed (Meta packages come from the Unity registry).
+5. Open `Assets/_Forge/Core/Main.unity` to test, or your own sandbox scene. Don't save changes to Main (section 6 rule 3).
+
+If the console shows red errors right after the first import, wait for importing to finish and click into the editor once; a transient Meta Audio `UnityEditor.GUID` error clears itself on the next compile.
 
 **Simulator check (everyone):**
-1. Camera rig: `Window > Meta > Building Blocks > Camera Rig` (or the `OVRCameraRig` prefab). Delete the default `Main Camera`.
-2. Click the **Meta XR Simulator** toggle in the toolbar next to Play (or `Window > Meta > Meta XR Simulator > Activate`), then press Play.
-3. In the simulator window: **Inputs** panel, set left/right to keyboard + mouse. **Choose environment** picks a synthetic room (living room, game room, bedroom...); these rooms have tables for MRUK testing.
-4. For passthrough + MRUK scenes: set Passthrough and Scene support to **Supported** in `OVRProjectConfig` (Project Setup Tool can do this). If passthrough shows black, re-run the Project Setup Tool and check URP post-processing/HDR isn't overwriting alpha.
-5. Play-mode logs are in `unity/Logs/Editor.log`.
+1. `Window > Meta > Meta XR Simulator > Activate` (or the simulator toggle next to Play), then press Play in `Main.unity`.
+2. The simulator window opens. In its **Inputs** panel set left/right to keyboard + mouse. **Choose environment** picks a synthetic room; the default living room has one table.
+3. Pass: the console prints `[DeskLocator] Room ... loaded: N anchors, 1 table(s)` and `Desk at ...`, and the table is drawn blue in the simulator window. The Unity Game view stays black; passthrough only renders in the simulator window.
+4. Play-mode logs are also in `unity/Logs/Editor.log`.
+
+**Where things moved in SDK 207:** the Project Setup Tool is at `Edit > Project Settings > Meta XR` (no `Meta > Tools` menu). Building Blocks and the simulator are under `Window > Meta`.
+
+**Rebuilding Main:** `Forge > Build Main Scene` regenerates `Main.unity` from code (`Assets/_Forge/Core/Editor/MainSceneBuilder.cs`). Core owner only.
+
+**Coding agents driving the editor (optional):** the project has Unity's Pipeline package, so a Claude Code session can control an open editor with the `unity` CLI (`unity command ...`, `unity command eval '<C#>'`). Install the CLI (`irm https://unity.com/install.ps1 | iex` on Windows), keep Unity open on the project, and run commands from inside `unity/`. The skill is in `.claude/skills/unity-cli`. In a sandboxed agent `unity status` can wrongly say "no instances"; try `unity command` anyway.
+
+<details><summary>How the project was created (reference only, already done)</summary>
+
+Unity Hub > New project > 6000.6.7f1 > Universal 3D (URP), name `unity`, in the repo root, Unity Cloud/VCS off. Installed `com.meta.xr.sdk.all` 207.0.1 (My Assets), `com.unity.xr.openxr` 1.18.0 and `com.unity.inputsystem` 1.20.1 (Unity Registry), `com.unity.pipeline` (`unity pipeline install`). XR Plug-in Management: OpenXR + Meta XR feature group on Windows and Android. Project Setup Tool: Fix All on both tabs; graphics API forced to D3D11 on Windows; Subsampled Layout on; Application SpaceWarp left off (smears UI panels); Platform SDK items (DUC, app ID) ignored.
+</details>
 
 ---
 
