@@ -1,0 +1,62 @@
+# Unity (project lives in unity/)
+unity/[Ll]ibrary/
+unity/[Tt]emp/
+unity/[Oo]bj/
+unity/[Bb]uild/
+unity/[Bb]uilds/
+unity/[Ll]ogs/
+unity/[Uu]ser[Ss]ettings/
+unity/[Mm]emoryCaptures/
+unity/[Rr]ecordings/
+
+# Asset meta data should only be ignored when the corresponding asset is also ignored
+!unity/[Aa]ssets/**/*.meta
+
+# IDE / generated
+.vs/
+.vscode/
+.idea/
+unity/*.csproj
+unity/*.unityproj
+unity/*.sln
+unity/*.slnx
+unity/*.suo
+unity/*.user
+unity/*.userprefs
+unity/*.pidb
+unity/*.booproj
+unity/*.svd
+unity/*.pdb
+unity/*.mdb
+unity/*.opendb
+unity/*.VC.db
+unity/*.pidb.meta
+unity/*.pdb.meta
+unity/*.mdb.meta
+unity/.vsconfig
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+unity/sysinfo.txt
+unity/crashlytics-build.properties
+
+# Unity-generated streaming assets / addressables
+unity/[Aa]ssets/[Ss]treamingAssets/aa/*
+unity/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+
+# Python (hub, forge-sdk)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Node (screen-bridge)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
