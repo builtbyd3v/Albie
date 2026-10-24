@@ -78,6 +78,9 @@ public static class ForgeTheme
     /// <summary>UI material for graphite panel backgrounds (rounded, gradient, rim light).</summary>
     public static Material PanelSurface => panel != null ? panel : panel = Load<Material>("PanelSurface");
 
+    /// <summary>A mode's white dock icon (Resources/ForgeLook/DockIcons/{modeId}.svg, imported as a sprite), or null.</summary>
+    public static Sprite DockIcon(string modeId) => Resources.Load<Sprite>("ForgeLook/DockIcons/" + modeId);
+
     static T Load<T>(string name) where T : Object
     {
         var asset = Resources.Load<T>("ForgeLook/" + name);
