@@ -32,11 +32,12 @@ namespace Forge.Pet
         [Header("Voice barge-in")]
         [SerializeField, Tooltip("Talking over the gator cuts it off, no button needed (mic permission must already be granted).")]
         bool voiceBargeIn = true;
+        // Defaults from an AirPods run: speech 0.05-0.3, noise floor 0.006, the gator's echo ~0.01 x its output level.
         [SerializeField, Tooltip("Mic RMS (0..1) that can count as the user talking over the gator.")]
-        float bargeLevel = 0.06f;
-        [SerializeField, Tooltip("Mic RMS must also be this many times the gator's output level (rejects its own echo). Raise it if the gator cuts itself off.")]
-        float echoRatio = 1.5f;
-        [SerializeField, Tooltip("Seconds of loud speech before it counts (ignores bumps and short noises).")]
+        float bargeLevel = 0.03f;
+        [SerializeField, Tooltip("Mic RMS must also be above this share of the gator's output level (rejects its own echo). Raise it if the gator cuts itself off.")]
+        float echoShare = 0.2f;
+        [SerializeField, Tooltip("Seconds of speech before it counts; quiet gaps between syllables count down instead of resetting.")]
         float bargeSeconds = 0.3f;
 
         ITextToSpeech _tts;
@@ -116,8 +117,9 @@ namespace Forge.Pet
 
         void CheckBargeIn()
         {
-            float echo = _talk != null ? _talk.Level * echoRatio : 0f;
-            _loudFor = _monitor.Level >= bargeLevel && _monitor.Level >= echo ? _loudFor + Time.deltaTime : 0f;
+            float echo = _talk != null ? _talk.Level * echoShare : 0f;
+            bool loud = _monitor.Level >= bargeLevel && _monitor.Level >= echo;
+            _loudFor = loud ? _loudFor + Time.deltaTime : Mathf.Max(0f, _loudFor - Time.deltaTime);
             if (_loudFor < bargeSeconds) return;
             var hub = _monitor;
             _monitor = null;
