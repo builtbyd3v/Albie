@@ -60,11 +60,12 @@ def _label(target: Any) -> int:
     return int(target.item() if isinstance(target, torch.Tensor) else target)
 
 
-def build(dataset: Dataset, cell: int = 32, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
+def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
     """Returns (atlas image, {cell, cols, index}, [{id, label_idx}]).
 
     Cell `i` sits at column `i % cols`, row `i // cols` counted from the top. Datasets bigger than
-    fit in a 2048 px atlas are truncated with a warning.
+    fit in a 2048 px atlas are truncated with a warning (64 px cells: 1,024 images, ML_PLAN 11).
+    Small images are upscaled nearest-neighbor so CIFAR's 32 px stays crisp instead of blurry.
     """
     n = len(dataset)
     max_cells = (MAX_TEXTURE // cell) ** 2
@@ -80,7 +81,8 @@ def build(dataset: Dataset, cell: int = 32, split: str = "val") -> tuple[Image.I
         img, target = _raw_item(dataset, i)
         thumb = to_pil(img)
         if thumb.size != (cell, cell):
-            thumb = thumb.resize((cell, cell), Image.Resampling.BILINEAR)
+            upscale = thumb.width < cell and thumb.height < cell
+            thumb = thumb.resize((cell, cell), Image.Resampling.NEAREST if upscale else Image.Resampling.BILINEAR)
         atlas.paste(thumb, ((i % cols) * cell, (i // cols) * cell))
         sid = sample_id(i, split)
         index[sid] = i
