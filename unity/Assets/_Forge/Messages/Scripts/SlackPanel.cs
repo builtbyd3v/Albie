@@ -537,11 +537,11 @@ public class SlackPanel : MonoBehaviour
             {
                 float maxBubbleW = Mathf.Min(rw * 0.76f, 360f);
                 float bubbleW = Mathf.Min(maxBubbleW, Mathf.Max(90f, card.PreferredBubbleWidth(maxBubbleW)));
-                float ch = card.Measure(bubbleW);
+                float bubbleH = card.Measure(bubbleW);
                 float x = card.Message != null && card.Message.isMe ? rw - bubbleW - 4f : 4f;
-                SlackUi.Place((RectTransform)card.transform, x, y, bubbleW, ch);
-                card.Layout(bubbleW, ch);
-                y += ch + CardGap;
+                SlackUi.Place((RectTransform)card.transform, x, y, bubbleW, bubbleH);
+                card.Layout(bubbleW, bubbleH);
+                y += bubbleH + CardGap;
                 continue;
             }
             float inset = card.Message != null && card.Message.isMe ? MeInset : 0f;
