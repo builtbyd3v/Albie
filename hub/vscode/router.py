@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from agent.watcher import watcher
 from events import VscodeEvent
 
 router = APIRouter(prefix="/vscode", tags=["vscode"])
@@ -15,4 +16,5 @@ router = APIRouter(prefix="/vscode", tags=["vscode"])
 @router.post("/event")
 async def event(ev: VscodeEvent, request: Request) -> dict[str, bool]:
     await request.app.state.bus.publish("vscode.event", ev)
+    watcher.notify("vscode.event", ev)  # Bit may speak up (agent/watcher.py)
     return {"ok": True}
