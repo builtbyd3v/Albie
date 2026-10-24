@@ -104,6 +104,9 @@ public class Workspace : MonoBehaviour
 
     readonly List<OpenItem> openItems = new List<OpenItem>();
     readonly Dictionary<string, SavedPose> saved = new Dictionary<string, SavedPose>();  // "mode/item"
+    // The outer edge of the open items on each side (left, right) after the last layout: an angle (deg, curved) or an
+    // x offset (m, flat), for BesidePose.
+    readonly float[] sideEdge = new float[2];
 
     /// <summary>Id of the open mode, or null when everything is folded.</summary>
     public string ActiveMode { get; private set; }
@@ -725,15 +728,23 @@ public class Workspace : MonoBehaviour
             PlaceInRow(o, eye, along * side, -0.08f);
             edge = along + half;
         }
+        sideEdge[side > 0 ? 1 : 0] = edge;
     }
 
     // Place an item in the row around the eyes: `along` is an angle (deg, curved) or an x offset (m, flat), `up`
     // is the height above the eyes. Panels stay clear of the desk top. Returns the item's height in the desk frame.
     float PlaceInRow(OpenItem o, Vector3 eye, float along, float up, float extraRadius = 0f)
     {
+        RowPose(eye, along, up, Size(o), o.panel != null, extraRadius, out o.position, out o.rotation);
+        o.facing = layout == WorkspaceLayout.Curved ? PanelFacing.FaceMe : PanelFacing.Straight;
+        return o.position.y;
+    }
+
+    // The pose of a slot in the row (see PlaceInRow) for a panel or a volume of `size`.
+    void RowPose(Vector3 eye, float along, float up, Vector2 size, bool isPanel, float extraRadius, out Vector3 pos, out Quaternion rot)
+    {
         float r = panelRadius + extraRadius;
         bool curved = layout == WorkspaceLayout.Curved;
-        Vector3 pos;
         if (curved)
         {
             float a = along * Mathf.Deg2Rad;
@@ -744,21 +755,62 @@ public class Workspace : MonoBehaviour
             pos = eye + new Vector3(along, up, r);
         }
 
-        if (o.panel == null)
+        if (!isPanel)
         {
             // Floating volume: base below the slot center, turned to face the user (curved) or straight (flat).
             pos.y = Mathf.Max(pos.y - 0.15f, 0.02f);
-            o.rotation = curved ? Quaternion.LookRotation(Flat(pos - eye), Vector3.up) : Quaternion.identity;
+            rot = curved ? Quaternion.LookRotation(Flat(pos - eye), Vector3.up) : Quaternion.identity;
         }
         else
         {
-            pos.y = Mathf.Max(pos.y, Size(o).y * 0.5f + 0.03f);
+            pos.y = Mathf.Max(pos.y, size.y * 0.5f + 0.03f);
             // Panel faces the eyes (a canvas reads correctly when its +Z points away from the viewer).
-            o.rotation = curved ? Quaternion.LookRotation(pos - eye, Vector3.up) : Quaternion.identity;
+            rot = curved ? Quaternion.LookRotation(pos - eye, Vector3.up) : Quaternion.identity;
         }
-        o.position = pos;
-        o.facing = curved ? PanelFacing.FaceMe : PanelFacing.Straight;
-        return pos.y;
+    }
+
+    // ---- For things laid out with the open mode that aren't in it (WorkspaceExtras) ----
+
+    /// <summary>The eyes in the desk frame as the layout uses them (clamped to a sane seat).</summary>
+    public Vector3 LayoutEye => ClampEye(presence.EyeInFrame());
+
+    /// <summary>
+    /// The middle of the top edge of the open mode's highest middle panel (Above, else Main) and its rotation, in the
+    /// desk frame, where it's laid out. No mode open: where Main's top edge would be.
+    /// </summary>
+    public void TopEdge(out Vector3 position, out Quaternion rotation)
+    {
+        OpenItem top = Find(WorkspaceSlot.Above);
+        if (top == null || top.panel == null) top = Find(WorkspaceSlot.Main);
+        Vector2 size;
+        if (top != null && top.panel != null)
+        {
+            size = top.motion != null ? top.restSize : top.panel.SizeMeters;
+            position = top.position;
+            rotation = top.rotation;
+        }
+        else
+        {
+            size = PanelSize(WorkspaceSlot.Main);
+            RowPose(LayoutEye, 0f, -0.08f, size, true, 0f, out position, out rotation);
+        }
+        position += rotation * Vector3.up * (size.y * 0.5f);
+    }
+
+    /// <summary>
+    /// Where a panel of <paramref name="size"/> goes just outside what the open mode has on one side (+1 right,
+    /// -1 left), in the row's next place out, a little below the eyes. Desk frame.
+    /// </summary>
+    public void BesidePose(int side, Vector2 size, out Vector3 position, out Quaternion rotation)
+    {
+        bool curved = layout == WorkspaceLayout.Curved;
+        float r = panelRadius;
+        float edge = ActiveMode != null ? sideEdge[side > 0 ? 1 : 0] : 0f;
+        float gap = 2f * (curved ? panelGap / r * Mathf.Rad2Deg : panelGap);  // a little apart: it isn't one of the mode's
+        float half = curved ? Mathf.Atan2(size.x * 0.5f, r) * Mathf.Rad2Deg : size.x * 0.5f;
+        float along = edge + gap + half;
+        if (curved) along = Mathf.Max(sideAngle, along);
+        RowPose(LayoutEye, along * (side > 0 ? 1f : -1f), -0.05f, size, true, 0f, out position, out rotation);
     }
 
     OpenItem Find(WorkspaceSlot slot)

@@ -1,15 +1,15 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
 Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event,
-the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8) and screen.status (the screen-bridge supervisor, hub/screens;
-docs/PET_AGENT_CONTRACT.md Addendum F). The ML and pet models from section 7 still belong to their owners; add
-them next to these.
+the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8), screen.status (the screen-bridge supervisor, hub/screens;
+docs/PET_AGENT_CONTRACT.md Addendum F) and the desk extras (ui.widgets, timers.updated, notes.updated,
+movie.state). The ML and pet models from section 7 still belong to their owners; add them next to these.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -312,6 +312,72 @@ class NotifyDigest(BaseModel):
         )
 
 
+# Desk extras (hub/desk): the focus timer, notes and the movie screen. Bit adds them on top of any mode and they stay
+# open across mode switches. Proposed contract additions: hub/README "Desk (timer, notes, movie)".
+
+WidgetState = Literal["open", "minimized", "closed"]
+
+
+class UiWidgets(BaseModel):
+    """Which desk extras are showing. Always the whole map, so a client that connects later gets the layout."""
+    timer: WidgetState = "closed"     # the timers: minimized = one dot showing the one that ends soonest
+    notes: WidgetState = "closed"     # minimized = the notes dot
+    movie: WidgetState = "closed"
+
+
+class TimerState(BaseModel):
+    """One focus timer. Unity counts down from remaining_s when the event arrives (the Quest's clock isn't the
+    laptop's); the hub sends the list again on every change and when one rings. Ringing lasts until it's stopped."""
+    timer_id: str
+    label: str                        # "Focus" unless the user named it; unique ("tea 2")
+    status: Literal["running", "paused", "ringing"]
+    duration_s: float                 # the whole run, including time added
+    remaining_s: float
+
+
+class TimersUpdated(BaseModel):
+    """Every timer: ringing first, then by time left. The first is the one the minimized dot shows. Empty = none."""
+    timers: list[TimerState] = []
+
+
+class Note(BaseModel):
+    id: str
+    text: str
+    done: bool = False
+    created_at: float                 # unix seconds
+    updated_at: float
+
+
+class NotesUpdated(BaseModel):
+    """Every note, newest first. last_removed is what Undo brings back (null when there's nothing to undo)."""
+    notes: list[Note] = []
+    last_removed: Note | None = None
+
+
+class MovieInfo(BaseModel):
+    movie_id: str                     # file name in .data/media without .mp4
+    title: str
+    year: int | None = None
+    duration_s: float | None = None
+    url: str                          # hub path for ForgeNet.Url: /movie/files/<id>.mp4 (byte ranges, so seeking works)
+    subtitles_url: str | None = None  # /movie/files/<id>.en.srt when there is one
+
+
+class MovieState(BaseModel):
+    """The movie screen. Unity's VideoPlayer keeps time and reports it (POST /movie/position); the hub estimates
+    position_s in between. A deliberate jump (seek, skip, play from the start) bumps seek_rev: Unity seeks to
+    position_s when seek_rev changes and otherwise leaves the player alone."""
+    status: Literal["closed", "playing", "paused"] = "closed"
+    movie: MovieInfo | None = None
+    position_s: float = 0.0
+    volume: float = 0.8               # 0..1
+    seek_rev: int = 0
+
+
+def _body(payload: BaseModel | dict[str, Any]) -> dict[str, Any]:
+    return payload.model_dump() if isinstance(payload, BaseModel) else payload
+
+
 class EventBus:
     STICKY = frozenset({"cad.model_updated", "cad.view"})  # default set replayed to clients that connect later
 
@@ -319,17 +385,25 @@ class EventBus:
         self._clients: set[WebSocket] = set()
         self._last: dict[str, dict[str, Any]] = {}
         self.sticky: set[str] = set(self.STICKY if sticky is None else sticky)
+        self._current: dict[str, Callable[[], BaseModel | dict[str, Any]]] = {}
 
     def make_sticky(self, type_: str) -> None:
         """Replay the last `type_` payload to late joiners too (modules register their own, e.g. screen.status)."""
         self.sticky.add(type_)
 
+    def sticky_fresh(self, type_: str, current: Callable[[], BaseModel | dict[str, Any]]) -> None:
+        """Replay `type_` to clients that connect later from `current()`, not from the last payload sent: for state
+        that moves on its own, like the timers' remaining time or the movie's position."""
+        self._current[type_] = current
+
     def latest(self, prefix: str = "") -> dict[str, dict[str, Any]]:
         """Last sticky payload per type: lets a client without a WebSocket poll for state."""
-        return {t: m["payload"] for t, m in self._last.items() if t.startswith(prefix)}
+        out = {t: m["payload"] for t, m in self._last.items() if t.startswith(prefix)}
+        out.update({t: _body(current()) for t, current in self._current.items() if t.startswith(prefix)})
+        return out
 
     async def publish(self, type_: str, payload: BaseModel | dict[str, Any]) -> None:
-        body = payload.model_dump() if isinstance(payload, BaseModel) else payload
+        body = _body(payload)
         message = {"type": type_, "payload": body}
         if type_ in self.sticky:
             self._last[type_] = message
@@ -346,6 +420,8 @@ class EventBus:
         self._clients.add(ws)
         for message in list(self._last.values()):
             await ws.send_json(message)
+        for type_, current in list(self._current.items()):
+            await ws.send_json({"type": type_, "payload": _body(current())})
 
     def detach(self, ws: WebSocket) -> None:
         self._clients.discard(ws)

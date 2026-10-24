@@ -12,6 +12,16 @@
 - **Done: slide the dock along the desk.** On a long desk it can now sit in front of you. Hold the right controller's grip (middle finger) while pointing anywhere on the dock and drag it left or right (middle mouse button in desktop mode). Or point at either end of the dock: a ‹ or › fades in, and each press moves it 15 cm. It stays on the desk with 12 cm free at each end (the whistle's spot and the crew egg's corner), dims the arrow that can't go further, remembers where you put it at that edge, and starts centered again at another edge or table. The hub status words moved above the corner light.
 - **Done: the whistle sits beside the dock.** Once the dock shows on a table, that table's whistle sits just past the dock's right end and slides with it (‹ ›, going round the desk); it stays there while the dock is away.
 
+**2026-10-24, Hudson (desk extras, branch `desk/timer-notes-movie`, PR #39):**
+- **Done: desk extras, hub + Unity**, things Albie adds on top of any mode that stay open across mode switches, fold when you stand up and come back when you sit:
+  - **Focus timers**, named, up to 5 ("Albie, set a focus timer for an hour", "and a 4 minute tea timer"): pills just above the main panel (above ML's Training), soonest at the bottom, a rim of light draining; ringing they pulse and chime (a bell built in code) until Stop; +5 min.
+  - **Notes** ("add that to my notes", "pull up my notes"): beside the open panels; check off, remove with Undo.
+  - **Movie** ("put the movie on"): a big screen high over the desk streaming `hub/.data/media/*.mp4` from the hub (resumes where you stopped, subtitles, quieter while Albie talks).
+  - **Dots:** the timers and the notes minimize into a neon dot (the soonest timer's minutes / the open count). Tap to open there; hold to carry it.
+- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 11 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`. In Main they sit under the Workspace: `DeskBootstrap` adds them at runtime to any scene with a Workspace that lacks them (so a Main rebuilt by any branch's builder has them), and Main's builder adds them too. Proposed contract: hub/README "Desk (timers, notes, movie)".
+- Core changes: `Workspace.TopEdge` / `BesidePose` / `LayoutEye` (read-only helpers), `PanelManipulator.AddMinimize` + `PointedAt`, `EventBus.sticky_fresh` (hub). Main.unity itself is unchanged.
+- The pet's name in the extras' UI is one field (`DeskExtras.assistantName`, "Albie").
+
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
 - **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).
 - **Done: polish.**
@@ -310,6 +320,8 @@ Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datast
 Proposed voice addition: `stt.start` gains `facing: bool = false` (wake turns only; true = the user faced Albie at speech onset). Albie answers a hands-free turn only if it names him or the user faced him (facing counts as the name, minus `hub/agent/addressed.py` word rules: talk to a person, fragments, filler alone). An unnamed `require_name` turn (follow-up while looking away) is dropped; "stop" needs the name too.
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
+
+Proposed desk additions (focus timers, notes, movie screen: `/timers`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`, panel IDs `timer`, `notes`, `movie`): `hub/README.md` "Desk (timers, notes, movie)".
 
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 

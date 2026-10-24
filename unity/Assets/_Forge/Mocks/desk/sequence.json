@@ -1,0 +1,209 @@
+[
+  {
+    "at": 0.5,
+    "type": "timers.updated",
+    "payload": {
+      "timers": [
+        {
+          "timer_id": "t4c2a1",
+          "label": "Focus",
+          "status": "running",
+          "duration_s": 3600.0,
+          "remaining_s": 2538.0
+        }
+      ]
+    }
+  },
+  {
+    "at": 0.5,
+    "type": "ui.widgets",
+    "payload": {
+      "timer": "open",
+      "notes": "closed",
+      "movie": "closed"
+    }
+  },
+  {
+    "at": 2.0,
+    "type": "notes.updated",
+    "payload": {
+      "notes": [
+        {
+          "id": "n1f2e77",
+          "text": "Push the demo build by 3",
+          "done": true,
+          "created_at": 1793028600.0,
+          "updated_at": 1793030100.0
+        },
+        {
+          "id": "n08bd42",
+          "text": "Re-record the fallback ML run",
+          "done": false,
+          "created_at": 1793023200.0,
+          "updated_at": 1793023200.0
+        }
+      ],
+      "last_removed": null
+    }
+  },
+  {
+    "at": 2.0,
+    "type": "ui.widgets",
+    "payload": {
+      "timer": "open",
+      "notes": "open",
+      "movie": "closed"
+    }
+  },
+  {
+    "at": 3.5,
+    "type": "timers.updated",
+    "payload": {
+      "timers": [
+        {
+          "timer_id": "t9e07b",
+          "label": "tea",
+          "status": "running",
+          "duration_s": 240.0,
+          "remaining_s": 25.0
+        },
+        {
+          "timer_id": "t4c2a1",
+          "label": "Focus",
+          "status": "running",
+          "duration_s": 3600.0,
+          "remaining_s": 2535
+        }
+      ]
+    }
+  },
+  {
+    "at": 5.0,
+    "type": "notes.updated",
+    "payload": {
+      "notes": [
+        {
+          "id": "n3a91c0",
+          "text": "Ask Adrian about the gator's jump timing",
+          "done": false,
+          "created_at": 1793030340.0,
+          "updated_at": 1793030340.0
+        },
+        {
+          "id": "n1f2e77",
+          "text": "Push the demo build by 3",
+          "done": true,
+          "created_at": 1793028600.0,
+          "updated_at": 1793030100.0
+        },
+        {
+          "id": "n08bd42",
+          "text": "Re-record the fallback ML run",
+          "done": false,
+          "created_at": 1793023200.0,
+          "updated_at": 1793023200.0
+        }
+      ],
+      "last_removed": null
+    }
+  },
+  {
+    "at": 9.0,
+    "type": "ui.widgets",
+    "payload": {
+      "timer": "open",
+      "notes": "minimized",
+      "movie": "closed"
+    }
+  },
+  {
+    "at": 11.0,
+    "type": "movie.state",
+    "payload": {
+      "status": "playing",
+      "movie": {
+        "movie_id": "obsession",
+        "title": "Obsession",
+        "year": 2025,
+        "duration_s": 6519.8,
+        "url": "/movie/files/obsession.mp4",
+        "subtitles_url": "/movie/files/obsession.en.srt"
+      },
+      "position_s": 1200.0,
+      "volume": 0.8,
+      "seek_rev": 1
+    }
+  },
+  {
+    "at": 11.0,
+    "type": "ui.widgets",
+    "payload": {
+      "timer": "open",
+      "notes": "minimized",
+      "movie": "open"
+    }
+  },
+  {
+    "at": 16.0,
+    "type": "movie.state",
+    "payload": {
+      "status": "playing",
+      "movie": {
+        "movie_id": "obsession",
+        "title": "Obsession",
+        "year": 2025,
+        "duration_s": 6519.8,
+        "url": "/movie/files/obsession.mp4",
+        "subtitles_url": "/movie/files/obsession.en.srt"
+      },
+      "position_s": 1205.0,
+      "volume": 0.4,
+      "seek_rev": 1
+    }
+  },
+  {
+    "at": 28.5,
+    "type": "timers.updated",
+    "payload": {
+      "timers": [
+        {
+          "timer_id": "t9e07b",
+          "label": "tea",
+          "status": "ringing",
+          "duration_s": 240.0,
+          "remaining_s": 0
+        },
+        {
+          "timer_id": "t4c2a1",
+          "label": "Focus",
+          "status": "running",
+          "duration_s": 3600.0,
+          "remaining_s": 2510
+        }
+      ]
+    }
+  },
+  {
+    "at": 28.5,
+    "type": "pet.say",
+    "payload": {
+      "pet_id": "bit",
+      "text": "Time's up! Your tea timer is done."
+    }
+  },
+  {
+    "at": 34.0,
+    "type": "timers.updated",
+    "payload": {
+      "timers": [
+        {
+          "timer_id": "t4c2a1",
+          "label": "Focus",
+          "status": "running",
+          "duration_s": 3600.0,
+          "remaining_s": 2504
+        }
+      ]
+    }
+  }
+]
