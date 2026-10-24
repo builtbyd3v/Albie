@@ -10,7 +10,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2373450314488642489, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
       propertyPath: m_text
-      value: Rocket
+      value: Design
       objectReference: {fileID: 0}
     - target: {fileID: 3408495683672727638, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
       propertyPath: m_Name

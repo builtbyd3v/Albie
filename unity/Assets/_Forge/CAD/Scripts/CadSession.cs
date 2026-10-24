@@ -13,6 +13,7 @@ using UnityEngine.Networking;
 /// Hub mode: REST to the hub through ForgeNet, and ForgeNet's /ws events (cad.model_updated, cad.view,
 /// cad.regen_failed) for changes made anywhere (sliders, Bit's voice tools, VS Code saves).
 /// Mock mode: the hub's mocks, hub off. The hub address is ForgeNet's (one setting for the Quest).
+/// The hub has a library of designs (rocket, quadcopter, ...); one is open, and everything acts on it.
 /// </summary>
 public class CadSession : MonoBehaviour
 {
@@ -28,22 +29,26 @@ public class CadSession : MonoBehaviour
     public bool IsMock { get; private set; }
     public CadUpdate Latest { get; private set; }  // last version shown, for subscribers that arrive late
     public CadParams Params { get; private set; }
+    public CadPartList Parts { get; private set; } = new CadPartList();
     public CadView View { get; private set; } = new CadView { explode = false };
     public string Status { get; private set; } = "Connecting to the hub...";
     public int MockIndex => mockIndex;
+    public int MockCount => IsMock && mockPart >= 0 ? mocks.parts[mockPart].versions.Count : 0;
 
     public event Action<CadUpdate> ModelChanged;
     public event Action ParamsChanged;
+    public event Action PartsChanged;
     public event Action<CadView> ViewChanged;
     public event Action<string> StatusChanged;
     public event Action<CadFlight> FlightReady;
 
-    int mockIndex = -1;
+    int mockPart = -1, mockIndex = -1;
     readonly List<int> mockHistory = new List<int>();
     bool fetching;
     CadModelUpdated pending;  // newest version announced while a fetch was running
 
     static string HubLabel => "Hub " + ForgeNet.Url("").TrimEnd('/');
+    List<CadMockSet.Version> MockVersions => mocks.parts[mockPart].versions;
 
     /// <summary>The scene's session; created on first use, falling back to these mocks.</summary>
     public static CadSession Get(CadMockSet fallbackMocks)
@@ -94,9 +99,10 @@ public class CadSession : MonoBehaviour
         Ready = true;
         if (IsMock)
         {
-            if (mocks == null || mocks.versions.Count == 0) { SetStatus("No hub and no mocks."); yield break; }
+            if (mocks == null || mocks.parts.Count == 0) { SetStatus("No hub and no mocks."); yield break; }
             SetStatus("Mock mode (hub off): sliders jump to the nearest stored design.");
-            ShowMockVersion(0);
+            RefreshParts();
+            ShowMockPart(0);
         }
         else StartHub();
     }
@@ -105,6 +111,7 @@ public class CadSession : MonoBehaviour
     {
         IsMock = false;
         SetStatus(HubLabel);
+        RefreshParts();
         // The hub replays the current model to every client that connects, so ForgeNet usually has it already.
         if (ForgeNet.TryGetLast<CadView>(ForgeEvents.CadViewType, out var view) && view != null) ApplyView(view);
         if (ForgeNet.TryGetLast<CadModelUpdated>(ForgeEvents.CadModelUpdatedType, out var info) && info != null) OnModelUpdated(info);
@@ -118,6 +125,48 @@ public class CadSession : MonoBehaviour
         if (IsMock) { ShowMockVersion(NearestMock(changes)); return; }
         SetStatus("Regenerating...");
         StartCoroutine(Post("/cad/params", JsonConvert.SerializeObject(changes)));
+    }
+
+    public void ApplyPreset(CadPreset preset)
+    {
+        if (preset == null) return;
+        if (IsMock) { ShowMockVersion(NearestMock(preset.parameters)); return; }
+        SetStatus($"Applying {preset.name}...");
+        StartCoroutine(Post("/cad/preset", JsonConvert.SerializeObject(new { name = preset.name })));
+    }
+
+    /// <summary>Open another design from the library (its latest version comes back as a model update).</summary>
+    public void OpenPart(string part)
+    {
+        if (string.IsNullOrEmpty(part) || part == Params?.part) return;
+        if (IsMock)
+        {
+            int index = mocks.IndexOf(part);
+            if (index < 0) { SetStatus($"No mock of {part}."); return; }
+            ShowMockPart(index);
+            return;
+        }
+        SetStatus("Opening...");
+        StartCoroutine(Post("/cad/part", JsonConvert.SerializeObject(new { part })));
+    }
+
+    /// <summary>Re-read the library (a new part script shows up without a restart).</summary>
+    public void RefreshParts()
+    {
+        if (IsMock)
+        {
+            if (mocks?.partList == null) return;
+            Parts = JsonConvert.DeserializeObject<CadPartList>(mocks.partList.text);
+            if (mockPart >= 0) MarkActive(mocks.parts[mockPart].part);
+            PartsChanged?.Invoke();
+            return;
+        }
+        StartCoroutine(GetText("/cad/parts", text =>
+        {
+            if (text == null) return;
+            Parts = JsonConvert.DeserializeObject<CadPartList>(text);
+            PartsChanged?.Invoke();
+        }));
     }
 
     public void Undo()
@@ -143,10 +192,10 @@ public class CadSession : MonoBehaviour
 
     public void RequestFlight()
     {
-        if (Latest == null) return;
+        if (Latest == null || Params == null || !Params.Has("flight")) return;
         if (IsMock)
         {
-            var file = mocks.versions[mockIndex].flight;
+            var file = MockVersions[mockIndex].flight;
             if (file != null) FlightReady?.Invoke(JsonConvert.DeserializeObject<CadFlight>(file.text));
             return;
         }
@@ -161,12 +210,20 @@ public class CadSession : MonoBehaviour
 
     public void StepMock(int delta)
     {
-        if (IsMock) ShowMockVersion(Mathf.Clamp(mockIndex + delta, 0, mocks.versions.Count - 1));
+        if (IsMock) ShowMockVersion(Mathf.Clamp(mockIndex + delta, 0, MockVersions.Count - 1));
     }
 
     public void ShowMockVersion(int index)
     {
-        if (IsMock && index >= 0 && index < mocks.versions.Count && index != mockIndex) ShowMock(index, record: true);
+        if (IsMock && mockPart >= 0 && index >= 0 && index < MockVersions.Count && index != mockIndex) ShowMock(index, record: true);
+    }
+
+    /// <summary>Open the design after the current one (sandbox key P).</summary>
+    public void NextPart()
+    {
+        if (Parts.parts.Count == 0) return;
+        int i = Parts.parts.FindIndex(p => p.part == Params?.part);
+        OpenPart(Parts.parts[(i + 1) % Parts.parts.Count].part);
     }
 
     // Hub
@@ -200,7 +257,7 @@ public class CadSession : MonoBehaviour
         else if (status == ForgeNetStatus.Live) SetStatus(HubLabel);
     }
 
-    /// <summary>Download one version's model, metadata and the current parameter list, then show it.</summary>
+    /// <summary>Download one version's model, metadata and parameter list, then show it.</summary>
     IEnumerator Fetch(CadModelUpdated info)
     {
         fetching = true;
@@ -208,12 +265,18 @@ public class CadSession : MonoBehaviour
         string metadata = null, parameters = null;
         yield return GetBytes($"/cad/model.glb?v={info.version}", b => glb = b);
         yield return GetText($"/cad/metadata.json?v={info.version}", t => metadata = t);
-        yield return GetText("/cad/params", t => parameters = t);
+        yield return GetText($"/cad/params?v={info.version}", t => parameters = t);
         if (glb != null && metadata != null)
         {
+            bool newPart = Params == null || (info.part != null && info.part != Params.part);
             if (parameters != null) Params = JsonConvert.DeserializeObject<CadParams>(parameters);
-            if (Status == "Regenerating...") SetStatus(HubLabel);
+            if (Status == "Regenerating..." || Status == "Opening..." || Status.StartsWith("Applying")) SetStatus(HubLabel);
             Publish(new CadUpdate { info = info, glb = glb, metadata = metadata });
+            if (newPart)
+            {
+                MarkActive(Params?.part);
+                RefreshParts();  // its version number, and anything added to the library meanwhile
+            }
         }
         fetching = false;
 
@@ -298,6 +361,16 @@ public class CadSession : MonoBehaviour
 
     // Mocks
 
+    void ShowMockPart(int part)
+    {
+        mockPart = part;
+        mockIndex = -1;
+        mockHistory.Clear();
+        ApplyView(new CadView { explode = false });  // part IDs differ per design
+        ShowMock(0, record: true);
+        MarkActive(mocks.parts[part].part);
+    }
+
     void ShowMock(int index, bool record)
     {
         var info = MockEnvelope(index);
@@ -305,13 +378,13 @@ public class CadSession : MonoBehaviour
         info.previousVersion = mockIndex >= 0 ? MockEnvelope(mockIndex).version : (int?)null;
         mockIndex = index;
         if (record) mockHistory.Add(index);
-        var v = mocks.versions[index];
+        var v = MockVersions[index];
         Params = JsonConvert.DeserializeObject<CadParams>(v.parameters.text);
         Publish(new CadUpdate { info = info, glb = v.glb.bytes, metadata = v.metadata.text });
     }
 
     CadModelUpdated MockEnvelope(int index) =>
-        JsonConvert.DeserializeObject<CadEnvelope<CadModelUpdated>>(mocks.versions[index].modelUpdated.text).payload;
+        JsonConvert.DeserializeObject<CadEnvelope<CadModelUpdated>>(MockVersions[index].modelUpdated.text).payload;
 
     /// <summary>Each mock's changed_ids is relative to the one before it; recompute them for other jumps.</summary>
     void MockDiff(int from, int to, CadModelUpdated info)
@@ -326,7 +399,7 @@ public class CadSession : MonoBehaviour
     }
 
     HashSet<string> MockObjectIds(int index) => new HashSet<string>(
-        JObject.Parse(mocks.versions[index].metadata.text)["objects"].Select(o => (string)o["id"]));
+        JObject.Parse(MockVersions[index].metadata.text)["objects"].Select(o => (string)o["id"]));
 
     /// <summary>
     /// The stored design that best has what was asked for: closest on the changed parameters first,
@@ -336,7 +409,7 @@ public class CadSession : MonoBehaviour
     {
         int best = mockIndex;
         double bestScore = double.MaxValue;
-        for (int i = 0; i < mocks.versions.Count; i++)
+        for (int i = 0; i < MockVersions.Count; i++)
         {
             var candidate = MockEnvelope(i).parameters;
             double score = 0;
@@ -357,6 +430,14 @@ public class CadSession : MonoBehaviour
     }
 
     // Shared
+
+    void MarkActive(string part)
+    {
+        if (string.IsNullOrEmpty(part)) return;
+        Parts.active = part;
+        foreach (var p in Parts.parts) p.active = p.part == part;
+        PartsChanged?.Invoke();
+    }
 
     void Publish(CadUpdate update)
     {

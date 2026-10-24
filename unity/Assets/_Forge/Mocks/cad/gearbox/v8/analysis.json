@@ -1,0 +1,179 @@
+{
+  "mass_g": 1040.9,
+  "cg_gltf": [
+    0.01238,
+    0.04775,
+    -9e-05
+  ],
+  "size_mm": [
+    118.0,
+    90.0,
+    95.5
+  ],
+  "part_count": 10,
+  "breakdown": [
+    {
+      "id": "HOUSING_BOTTOM",
+      "mass_g": 308.04
+    },
+    {
+      "id": "HOUSING_TOP",
+      "mass_g": 308.04
+    },
+    {
+      "id": "INPUT_SHAFT",
+      "mass_g": 23.68
+    },
+    {
+      "id": "PINION",
+      "mass_g": 28.29
+    },
+    {
+      "id": "BEARING_IN_FRONT",
+      "mass_g": 18.13
+    },
+    {
+      "id": "BEARING_IN_BACK",
+      "mass_g": 18.13
+    },
+    {
+      "id": "OUTPUT_SHAFT",
+      "mass_g": 25.65
+    },
+    {
+      "id": "GEAR",
+      "mass_g": 274.7
+    },
+    {
+      "id": "BEARING_OUT_FRONT",
+      "mass_g": 18.13
+    },
+    {
+      "id": "BEARING_OUT_BACK",
+      "mass_g": 18.13
+    }
+  ],
+  "metrics": [
+    {
+      "id": "rim",
+      "label": "Pinion rim",
+      "value": 5.375,
+      "unit": "mm",
+      "display": "5.4 mm",
+      "status": "ok",
+      "min": 0.0,
+      "max": 12.0,
+      "bands": [
+        {
+          "to": 1.7999999999999998,
+          "status": "bad"
+        },
+        {
+          "to": 3.75,
+          "status": "warn"
+        },
+        {
+          "to": 12.0,
+          "status": "ok"
+        }
+      ],
+      "note": "solid"
+    },
+    {
+      "id": "ratio",
+      "label": "Ratio",
+      "value": 3.0,
+      "unit": "",
+      "display": "3.00 : 1",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "speed",
+      "label": "Output speed",
+      "value": 1000.0,
+      "unit": "rpm",
+      "display": "1000 rpm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "torque",
+      "label": "Output torque",
+      "value": 1.47,
+      "unit": "N m",
+      "display": "1.47 N m",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "centre",
+      "label": "Centre distance",
+      "value": 45.0,
+      "unit": "mm",
+      "display": "45.0 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "pinion",
+      "label": "Pinion teeth",
+      "value": 15.0,
+      "unit": "",
+      "display": "15",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "mass",
+      "label": "Mass",
+      "value": 1040.8991,
+      "unit": "g",
+      "display": "1.04 kg",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "size",
+      "label": "Size",
+      "value": 118.0,
+      "unit": "mm",
+      "display": "118 x 90 x 96 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "parts",
+      "label": "Parts",
+      "value": 10.0,
+      "unit": "",
+      "display": "10",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    }
+  ]
+}
