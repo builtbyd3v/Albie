@@ -267,7 +267,8 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
 - **Delegate:** Grok's only tool. `agent.tool_call { pet_id, call_id, name, args }` (proposed, broadcast, companion `pet.state thinking`);
   the bridge maps it to Thinking. The runner's answer is spoken with `force_message` and not re-captioned.
 - **Whistles:** `GatorMrukAdapter.whistleTemplate` is cloned onto every MRUK `TABLE` (`WhistleButton.SetTable`); each sits on its table's
-  near-right corner and re-places when the user walks up from another side. Pressing one makes that table the desk (keep-out baked)
+  near-right corner and re-places when the user walks up from another side; once the `DeskDock` shows on that table it sits just
+  past the dock's right end instead and slides with it (`DeskDock.TryGetRightSide`, Core). Pressing one makes that table the desk (keep-out baked)
   before `GatorSummon` (subscribed to the static `WhistleButton.AnyPressed`) hops the gator there.
 - **Follow-up:** `GatorFollowUp` keeps listening hands-free 15 s after an answer (`PushToTalk.BeginHandsFree(15)`); no reply →
   `GatorController.WanderAway()` (back turned, walks to a far wander point, idles). A whistle summon that ends without a question does the same.
