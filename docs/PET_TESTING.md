@@ -10,13 +10,17 @@ Project: `unity/` (Unity 6000.6.7f1). Keep **one** Unity editor open at a time (
      cache is truncated: quit Unity, delete the named `Library/PackageCache/<package>@...` folders, reopen.
 2. Menu **Forge ▸ Pet ▸ Build All**. Console should end with `[GatorSetup] BuildAll summary: ... RESULT: OK`.
    It generates: `Assets/_Forge/Pet/Materials/M_Gator_URP.mat`, `Animation/AC_Gator.controller`,
-   `Prefabs/GatorAssistant.prefab`, `Scenes/PetSandbox.unity` (desktop), `Scenes/PetSandboxXR.unity` (simulator).
-3. Sanity: open `Prefabs/GatorAssistant.prefab`; the gator must be green/textured (not pink), ~0.45 m tall.
+   `Prefabs/GatorAssistant.prefab`, `Scenes/PetSandbox.unity` (desktop), `Scenes/PetSandboxXR.unity` (simulator) and
+   `Prefabs/PetRuntime.prefab` (what Main instantiates; also **Forge ▸ Pet ▸ 8. Build PetRuntime Prefab** on its own).
+   Then **Forge ▸ Messages ▸ Build Prefabs** for the digest cards.
+3. Sanity: open `Prefabs/GatorAssistant.prefab`; the gator must be green/textured (not pink), ~0.12 m tall. With PR 26
+   merged the build log says `jaw bone`; otherwise `no jaw bone` and the mouth stays shut (expected).
 
 ## 1. Desktop sandbox (no headset, no hub) — 5 min
 
-Open `Assets/_Forge/Pet/Scenes/PetSandbox.unity` → **Play**. `StreamingAssets/pet_config.json` is `eventSource: "mock"`,
-so the agent is faked inside Unity.
+Open `Assets/_Forge/Pet/Scenes/PetSandbox.unity` → **Play**. The sandbox gator carries a `MockEventSource` (added by the
+scene builder, never on the prefab), so the agent is faked inside Unity whatever `StreamingAssets/pet_config.json` says
+(it defaults to `"hub"` now). Console: `[GatorAgentBridge] ... -> MockEventSource (sandbox)`.
 
 | Check | Expect |
 |---|---|
@@ -30,25 +34,28 @@ so the agent is faked inside Unity.
 | **Roll off the desk** | **H** to hop onto the desk, walk/wait until it's near an edge, then **R** (repeat until it rolls the right way): it falls to the floor, lies on its back (Death pose, dizzy → dead eyes) for 2.5 s, stands up and hops back onto the desk. Rolling on the floor never falls. |
 | **Desk hop** | **H**: gator jumps onto the desk cube (lands on the edge nearest you, faces you) and from then on wanders only on the desk top. **G**: hops back down to the floor. |
 | **Desk keep-out** | Console: `[GatorSandboxNav] Desk keep-out 0.60 x 0.50 m at ...` (MR / PetMain: `[GatorMrukAdapter] Desk keep-out ...`, `(incl. DeskDock)` once the mode buttons show). **H**: it lands *beside* the front-middle of the desk, never in it, and wander trips never end in the 0.6 × 0.45 m zone at the edge nearest you (laptop + DeskDock buttons). Hop up, wait until it's next to the zone, **R** until it rolls into it: after the dizzy pause it scoots out to the nearer side. `GatorController.IsInKeepOut` / `EvacuateKeepOut()`; toggle with `keepOutEnabled` on the adapter / sandbox nav. |
-| Push-to-talk (typed) | Press **Space** → gator goes Listening and a text field opens at the bottom. Type a question, **Enter** → Thinking → caption streams the (fake) answer → Answering (bounce) → Wandering. Esc cancels. |
+| Push-to-talk (typed, sandbox only) | Press **Space** → gator goes Listening and a text field opens at the bottom (`TypedSpeechToText`, only on the sandbox instance). Type a question, **Enter** → Thinking → caption streams the (fake) answer → Answering (bounce) → Wandering. Esc cancels. |
 | Coding task flow | Type something with an imperative verb, e.g. `fix the bug in the websocket handler` → Thinking → Working (caption shows progress %) → **TaskComplete spin** → caption "Done! Changes are on a new branch." |
 
 Console must stay free of errors/warnings from `Forge.Pet` scripts. One benign log: `[GatorMrukAdapter] No DeskLocator and no MRUK ... idle`.
 
-## 2. Real WebSocket path to the hub (fake agent) — 5 min
+## 2. Live hub from the sandbox — 5 min
 
 ```bash
-cd hub && FAKE_AGENT=1 .venv/bin/python -m agent                      # agent only, no CAD deps
-# or the full hub (CAD + agent):  FAKE_AGENT=1 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+cd hub && FAKE_AGENT=1 SCREEN_BRIDGE=0 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000   # the one hub process
+# SCREEN_BRIDGE=0 skips the screen bridge (Chrome + VS Code sharing) while you only test the pet.
 # see hub/README.md "Agent module (pet)" for install; check: curl localhost:8000/health
 ```
-Set `unity/Assets/StreamingAssets/pet_config.json` → `"eventSource": "hub"` (hubUrl `ws://127.0.0.1:8000/ws/agent`; plain `/ws` is the CAD event bus and will not answer the pet). Play the sandbox again:
-- hub log prints `ws connected` then `hello client=unity pet=bit project=gatorhack`.
-- Space → type → Enter: same visible flow as §1, but events now come from the hub (`pet.state`, `agent.partial_answer`, …).
+Unity talks to the hub only through Core's `ForgeNet` (`/ws`; the address is `hubUrl` on the ForgeNet object or PlayerPrefs
+`Forge.HubUrl`, default `http://localhost:8000`). In the sandbox scene select `GatorAssistant` and **untick the
+`MockEventSource` component** (it overrides the config while enabled), then Play:
+- console: `[GatorAgentBridge] ... -> hub via ForgeNet`, `[ForgeNet] Live at http://localhost:8000`, `[AgentClient] hello sent over ForgeNet`.
+- Voice: say "Hey Bit, ..." (WakeListener), or hold **Space** (HubSpeechToText streams the mic), or whistle (**F**). Events come
+  back from the hub (`stt.*`, `pet.state`, `agent.partial_answer`, `tts.*`, …). There is no typed text path to the hub any more.
 - Optional: `hub/.venv/bin/python hub/scripts/ws_smoke.py "where is the websocket handler?" --mode qa` prints the raw event stream.
-Set `eventSource` back to `"mock"` before committing.
+Re-tick `MockEventSource` before committing the scene (or just don't save it).
 
-Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/python -m agent` (or `uvicorn main:app`) from a normal terminal, then ask a real question about the repo.
+Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000`, then ask a real question about the repo.
 
 ## 3. Meta XR Simulator — 10 min
 
@@ -57,19 +64,27 @@ Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/python -m agent`
 3. Simulator window: **Inputs** → keyboard + mouse; **Choose environment** → a room with a table (default living room / office).
 4. Expect in the console: `[DeskLocator] Room ... 1 table(s)`, `Desk at ...`, then `[GatorMrukAdapter] ... desk surface 1.1×0.6 m` and `floor surface ...`.
    In the simulator: the table is drawn blue, the gator runs to you, and ~1 s after the table is found it **hops onto the desk** and wanders there.
-5. Press the right controller's primary button (simulator maps it to a key, see its Inputs panel) to push-to-talk; with no mic in the simulator the typed field is used.
+5. Press the right controller's primary button (simulator maps it to a key, see its Inputs panel) to push-to-talk; with the
+   mock enabled the typed field opens, with it disabled (hub) the mic streams.
 6. Deactivate the simulator afterwards (same menu) or normal Play stays routed to it.
 
-## 4. Integrating into Hudson's Main.unity (Hudson)
+## 4. Bit in Main.unity
 
-Drop `Prefabs/GatorAssistant.prefab` into `Main.unity`, add a `GatorMrukAdapter` next to `DeskLocator` (or on the prefab) and wire
-`DeskLocator.deskFound → GatorMrukAdapter.OnDeskFound` (if not wired, the adapter hooks itself up at runtime). That's all;
-the pet never references scene objects by name.
+Core's **Forge ▸ Build Main Scene** instantiates `Assets/_Forge/Pet/Prefabs/PetRuntime.prefab` (built by step 0.2); nothing
+is placed by hand. Run the hub, Play `Main`, walk up to a table and sit (desktop rig: `E`). Expect, in order, `[Arrival]` lines:
+`Near the desk.` → `Hop onto the desk.` → `Landed on the desk.` → `Seated.` → `POST /messages/digest.` → `Digest: N message(s);
+waiting for Bit to say it.` / `Digest: nothing new.` → `Waiting for screen.status 'sharing'` → `Opened mode 'code'` (or
+`'screens'` until Core renames it). Walk away: `Away: following the user.` and Bit hops down. The crew egg appears only
+while the code mode is open; close it and the crew goes quiet (`[GatorCrew] Code mode closed: crew muted.`). A
+`pet.state working` with `target_panel` from the hub walks Bit to that panel. With PR 26 merged his mouth moves while he
+speaks. Click a Messages card: `messages.focus` goes to the hub and Bit reads it out.
 
 ## Where to look when something's off
 
 - Pink gator → re-run **Forge ▸ Pet ▸ 1. Fix Material (URP)**; the pack's `SoftSurfaceGraph` shader graph must import.
 - Gator doesn't move → it isn't on a NavMesh: in the sandbox `GatorSandboxNav` builds the floor/desk surfaces in `Awake`; check its fields are wired (re-run Build All).
 - Feet slide → tune `GatorController.walkSpeed/runSpeed` (0.6 / 1.8 m/s) on the prefab.
-- Hub mode but nothing happens → `AgentClient.Status` in the inspector; the hub must be reachable from the device (Quest: laptop LAN IP or `adb reverse tcp:8000 tcp:8000`).
+- Hub mode but nothing happens → `ForgeNet` status (the DeskDock's dot: green live, amber mock) and `AgentClient.Status` in the inspector; the hub must be reachable from the device (Quest: laptop LAN IP in `Forge.HubUrl` or `adb reverse tcp:8000 tcp:8000`).
+- Bit doesn't hop up in Main → the `[Arrival]` log says why (`No desk surface yet`: the room has no TABLE, or MRUK hasn't loaded). `Hub not live; digest skipped` is normal without the hub.
+- Space does nothing in Main → there is no typed text box there by design; talk (WakeListener / hold Space with a mic) or whistle.
 - Logs: `unity/Logs/Editor.log`; hub: terminal running uvicorn.

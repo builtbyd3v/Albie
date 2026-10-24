@@ -7,10 +7,16 @@ namespace Forge.Pet
 {
     /// <summary>
     /// The ONLY pet script that references Meta types (MRUK). Turns the scanned room into
-    /// GatorNavSurfaces: the desk top ("DeskNav") and the floor with furniture holes ("FloorNav"),
-    /// then hops the gator onto the desk. See docs/PET_AGENT_CONTRACT.md Addendum A.
+    /// GatorNavSurfaces: the desk top ("DeskNav") and the floor with furniture holes ("FloorNav").
+    /// See docs/PET_AGENT_CONTRACT.md Addendum A.
+    /// Which table is the desk: with Core's DeskPresence in the scene (Main) the desk is DeskPresence.Table, the table the
+    /// user actually walked up to (re-built whenever it changes: Near / Seated, a whistle on another table), and the hop is
+    /// left to the ArrivalDirector. Without one (PetSandboxXR) the desk is DeskLocator.Desk / the TABLE nearest the user at
+    /// room load, and hopOnFound hops the gator up after hopDelay, as before.
     /// Whistles: clones whistleTemplate onto every TABLE in the room (WhistleButton.SetTable); pressing one makes its
     /// table the desk (Pressing runs before GatorSummon hears the press, so the gator hops to THAT table).
+    /// Keep-out holes on the desk NavMesh: the laptop / DeskDock box at the edge nearest the user, and (while the Messages
+    /// cards float beside Bit) MessagesDeskZone.Footprint, so he never stands under the card stack.
     ///
     /// Wiring: DeskLocator.deskFound (UnityEvent&lt;MRUKAnchor&gt;) -> OnDeskFound. If nothing is wired,
     /// Start() hooks an unwired DeskLocator at runtime, or (no DeskLocator at all) subscribes to
@@ -24,7 +30,7 @@ namespace Forge.Pet
     {
         [SerializeField, Tooltip("Gator to drive. Empty = first GatorController found at Awake.")]
         GatorController controller;
-        [SerializeField, Tooltip("Hop onto the desk (edge nearest the user) once the room is processed.")]
+        [SerializeField, Tooltip("No DeskPresence in the scene (sandbox XR): hop onto the desk once the room is processed. With a DeskPresence the ArrivalDirector hops on Near.")]
         bool hopOnFound = true;
         [SerializeField, Tooltip("Seconds between building the surfaces and the hop.")]
         float hopDelay = 1.0f;
@@ -60,16 +66,20 @@ namespace Forge.Pet
         GatorNavSurface deskNav, floorNav;
         Coroutine hopRoutine;
         DeskLocator hookedLocator;
+        DeskPresence presence;          // Core (Main): the desk is the table the user is at
         bool hookedMruk;
 
         // Keep-out state: viewer position captured at desk build time; dock footprint last baked into the hole.
-        readonly List<Bounds> deskHoles = new List<Bounds>(1);
+        readonly List<Bounds> deskHoles = new List<Bounds>(2);
         readonly Vector3[] dockCorners = new Vector3[4];
         Vector3 keepOutViewer;
-        bool hasKeepOutViewer, dockBaked;
-        Bounds dockBakedBounds;
+        bool hasKeepOutViewer, dockBaked, msgZoneBaked;
+        Bounds dockBakedBounds, msgZoneBakedBounds;
         GameObject dockGo;
         float nextDockPoll;
+
+        /// <summary>The desk surface this adapter built (null until a table is known).</summary>
+        public GatorNavSurface DeskSurface => deskNav;
 
         void Awake()
         {
@@ -80,6 +90,14 @@ namespace Forge.Pet
         // Fallback wiring in Start (not Awake) so DeskLocator/MRUK singletons exist regardless of script order.
         void Start()
         {
+            presence = FindAnyObjectByType<DeskPresence>();
+            if (presence != null)
+            {
+                presence.stateChanged.AddListener(OnPresenceState);
+                presence.frameChanged.AddListener(OnPresenceFrame);
+                if (presence.AtDesk) SyncDeskToPresence();
+            }
+
             DeskLocator locator = FindAnyObjectByType<DeskLocator>();
             if (locator != null)
             {
@@ -97,12 +115,18 @@ namespace Forge.Pet
 
         void OnDestroy()
         {
+            if (presence != null)
+            {
+                presence.stateChanged.RemoveListener(OnPresenceState);
+                presence.frameChanged.RemoveListener(OnPresenceFrame);
+            }
             if (hookedLocator != null && hookedLocator.deskFound != null) hookedLocator.deskFound.RemoveListener(OnDeskFound);
             if (hookedMruk && MRUK.Instance != null) MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
             foreach (var b in whistleTables.Keys) if (b != null) b.Pressing -= OnWhistlePressing;
         }
 
-        // Re-bake the desk hole when Hudson's DeskDock appears, moves (user went round the desk) or hides. Throttled.
+        // Re-bake the desk holes when Hudson's DeskDock appears, moves (user went round the desk) or hides, or when the
+        // Messages cards start / stop floating over the desk. Throttled.
         void Update()
         {
             if (!keepOutEnabled || deskNav == null || !deskNav.IsBuilt || Time.time < nextDockPoll) return;
@@ -110,6 +134,8 @@ namespace Forge.Pet
             bool has = TryGetDockBounds(out Bounds b);
             bool changed = has != dockBaked || (has && (Vector3.Distance(b.center, dockBakedBounds.center) > 0.02f
                                                        || Vector3.Distance(b.size, dockBakedBounds.size) > 0.02f));
+            bool hasMsg = TryGetMessagesZone(deskNav.TopCenter, deskNav.Rotation, deskNav.Size, out Bounds m);
+            changed |= hasMsg != msgZoneBaked || (hasMsg && Vector3.Distance(m.center, msgZoneBakedBounds.center) > 0.02f);
             // No dock showing (user up and about): the keep-out follows the desk edge nearest the user *now*.
             // Re-bake only when the resulting box actually moves (walking around the desk), not every poll.
             if (!changed && !has)
@@ -129,7 +155,7 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- public API
 
-        /// <summary>Recompute the desk keep-out (same viewer as at build time, current DeskDock footprint) and re-bake the desk.</summary>
+        /// <summary>Recompute the desk keep-out (same viewer as at build time, current DeskDock footprint, Messages zone) and re-bake the desk.</summary>
         public void RebuildKeepOut()
         {
             if (deskNav == null || !deskNav.IsBuilt) return;
@@ -137,23 +163,59 @@ namespace Forge.Pet
             deskNav.Rebuild(deskHoles);
         }
 
-        /// <summary>Wire from DeskLocator.deskFound. Builds desk + floor surfaces, then (optionally) hops.</summary>
+        /// <summary>
+        /// Make the desk NavMesh the table DeskPresence says the user is at (built or moved as needed; a gator standing on
+        /// the old desk is handed back to the floor so the next hop is a real hop). True if the desk surface is built for that
+        /// table. Without a DeskPresence: true if some desk is built. Called by the ArrivalDirector before it hops.
+        /// </summary>
+        public bool SyncDeskToPresence()
+        {
+            if (presence == null) return deskNav != null && deskNav.IsBuilt;
+            MRUKAnchor table = presence.Table;
+            if (table == null) return false;
+            if (table != currentDesk || deskNav == null || !deskNav.IsBuilt) SwitchDesk(table);
+            return deskNav != null && deskNav.IsBuilt && currentDesk == table;
+        }
+
+        /// <summary>Wire from DeskLocator.deskFound. Builds desk + floor surfaces (+ whistles), then (sandbox) hops.</summary>
         public void OnDeskFound(MRUKAnchor desk)
         {
             if (desk == null) { Debug.LogWarning("[GatorMrukAdapter] OnDeskFound(null).", this); return; }
-            BuildDesk(desk);
-            MRUKRoom room = desk.Room != null ? desk.Room : (MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null);
+            // Main: the desk is the table the user is at. Until they walk up to one, the locator's pick (nearest at load)
+            // stands in, so the egg and a hop have a desk; SyncDeskToPresence replaces it on Near.
+            MRUKAnchor table = presence != null && presence.Table != null ? presence.Table : desk;
+            if (table != currentDesk || deskNav == null || !deskNav.IsBuilt) BuildDesk(table);
+            MRUKRoom room = table.Room != null ? table.Room : (MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null);
             BuildFloor(room);
             SpawnWhistles(room);
 
             if (controller == null) return;
             if (floorNav != null && floorNav.IsBuilt && controller.CurrentSurface != GatorNavSurface.Desk)
                 controller.SetWanderArea(floorNav);
-            if (hopOnFound && deskNav != null && deskNav.IsBuilt)
+            if (hopOnFound && presence == null && deskNav != null && deskNav.IsBuilt)
             {
                 if (hopRoutine != null) StopCoroutine(hopRoutine);
                 hopRoutine = StartCoroutine(HopAfterDelay());
             }
+        }
+
+        // ---------------------------------------------------------------- DeskPresence (Main)
+
+        void OnPresenceState(DeskState state)
+        {
+            if (state != DeskState.Away) SyncDeskToPresence();
+        }
+
+        // The user went round to another side: the dock moves with the front edge, so the keep-out follows right away.
+        void OnPresenceFrame() => RebuildKeepOut();
+
+        // Make `table` the desk (whistle on another table, DeskPresence picked one). The desk NavMesh moves from under a
+        // gator standing on the old one: forget its surface so a HopToUserDesk hops (agent off) instead of walking.
+        void SwitchDesk(MRUKAnchor table)
+        {
+            bool gatorWasOnDesk = controller != null && deskNav != null && deskNav.IsBuilt && controller.CurrentSurface == deskNav;
+            BuildDesk(table);
+            if (gatorWasOnDesk) controller.SetWanderArea(floorNav != null && floorNav.IsBuilt ? floorNav : null);
         }
 
         // ---------------------------------------------------------------- surfaces
@@ -229,10 +291,7 @@ namespace Forge.Pet
         void OnWhistlePressing(WhistleButton b)
         {
             if (!whistleTables.TryGetValue(b, out MRUKAnchor table) || table == null || table == currentDesk) return;
-            bool gatorWasOnDesk = controller != null && deskNav != null && controller.CurrentSurface == deskNav;
-            BuildDesk(table);
-            // The desk NavMesh just moved under the gator: forget it so the summon hops (agent off) instead of walking.
-            if (gatorWasOnDesk) controller.SetWanderArea(floorNav != null && floorNav.IsBuilt ? floorNav : null);
+            SwitchDesk(table);
         }
 
         // Standalone fallback: same selection as DeskLocator (TABLE nearest the user's head).
@@ -268,12 +327,15 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- keep-out
 
-        // deskHoles = [] or [keep-out box at the edge nearest the user (build-time head), unioned with the DeskDock].
+        // deskHoles = [] or [keep-out box at the edge nearest the user (build-time head), unioned with the DeskDock]
+        // (+ the Messages floating-card zone while cards float over the desk).
         void ComputeDeskHoles(Vector3 top, Quaternion yaw, Vector2 size)
         {
             deskHoles.Clear();
             dockBaked = TryGetDockBounds(out dockBakedBounds);
+            msgZoneBaked = TryGetMessagesZone(top, yaw, size, out msgZoneBakedBounds);
             if (!keepOutEnabled) return;
+            if (msgZoneBaked) deskHoles.Add(msgZoneBakedBounds);
             // A visible dock is used only if it lies on this desk top.
             Vector3 dl = Quaternion.Inverse(yaw) * (dockBakedBounds.center - top);
             bool useDock = dockBaked && Mathf.Abs(dl.y) < 0.3f
@@ -297,6 +359,27 @@ namespace Forge.Pet
             Debug.Log("[GatorMrukAdapter] Desk keep-out " + hole.size.x.ToString("F2") + " x " + hole.size.z.ToString("F2")
                       + " m at " + hole.center + (useDock ? " (incl. DeskDock)" : "")
                       + (shrunk ? " — shrunk to keep " + minSideStrip.ToString("F2") + " m strips free" : ""), this);
+        }
+
+        // World AABB of MessagesDeskZone.Footprint (desk-frame rect on the desk top) while Messages cards float beside Bit
+        // and the desk frame lies on this desk. Height top +/- 0.3 m like the edge keep-out.
+        bool TryGetMessagesZone(Vector3 top, Quaternion yaw, Vector2 size, out Bounds b)
+        {
+            b = default;
+            if (MessagesDeskZone.Count <= 0 || presence == null || !presence.AtDesk || presence.Frame == null) return false;
+            Transform frame = presence.Frame;
+            Rect r = MessagesDeskZone.Footprint;
+            Vector3 origin = frame.position;
+            Vector3 dl = Quaternion.Inverse(yaw) * (origin - top);
+            if (Mathf.Abs(dl.y) > 0.3f || Mathf.Abs(dl.x) > size.x * 0.5f + 0.1f || Mathf.Abs(dl.z) > size.y * 0.5f + 0.1f) return false;   // another table
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 w = frame.TransformPoint(new Vector3((i & 1) == 0 ? r.xMin : r.xMax, 0f, (i & 2) == 0 ? r.yMin : r.yMax));
+                if (i == 0) b = new Bounds(w, Vector3.zero); else b.Encapsulate(w);
+            }
+            b.center = new Vector3(b.center.x, top.y, b.center.z);
+            b.size = new Vector3(b.size.x, 0.6f, b.size.z);
+            return true;
         }
 
         // World AABB of Hudson's DeskDock (canvas rect, + dockMargin) while it is shown. Found by type, else by name.

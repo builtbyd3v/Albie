@@ -9,6 +9,7 @@
 //                      (types looked up by name, so this compiles without the SDK; mouse and N always work)
 // Idempotent: re-running reuses what exists and re-wires it. Save the scene yourself afterwards.
 // -executeMethod Forge.Pet.Editor.CrewSetup.AddCrewToOpenScene
+// (CreateCrew / CreateHatchery / AddInteraction are shared with PetRuntimeSetup, which builds them into PetRuntime.prefab.)
 
 using System;
 using UnityEditor;
@@ -61,15 +62,23 @@ namespace Forge.Pet.Editor
 
         static GatorCrew FindOrCreateCrew(GatorController lead)
         {
+            var prefab = PrefabUtility.GetCorrespondingObjectFromSource(lead.gameObject);
+            if (prefab == null) prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             var crew = Object.FindAnyObjectByType<GatorCrew>(FindObjectsInactive.Include);
+            return CreateCrew(lead, prefab, null, crew);
+        }
+
+        /// A GatorCrew (lead = `lead`, crewPrefab = `prefab`, hats in M_Whistle) under `parent`; `existing` is re-wired instead.
+        internal static GatorCrew CreateCrew(GatorController lead, GameObject prefab, Transform parent, GatorCrew existing = null)
+        {
+            GatorCrew crew = existing;
             if (crew == null)
             {
                 var go = new GameObject("GatorCrew");
-                Undo.RegisterCreatedObjectUndo(go, "Create GatorCrew");
-                crew = Undo.AddComponent<GatorCrew>(go);
+                if (parent != null) go.transform.SetParent(parent, false);
+                WhistleSetup.RegisterCreated(go, "Create GatorCrew");
+                crew = WhistleSetup.Add<GatorCrew>(go);
             }
-            var prefab = PrefabUtility.GetCorrespondingObjectFromSource(lead.gameObject);
-            if (prefab == null) prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             WhistleSetup.SetRef(crew, "lead", lead);
             if (prefab != null) WhistleSetup.SetRef(crew, "crewPrefab", prefab);
             else Debug.LogWarning("[CrewSetup] GatorAssistant prefab not found; crew gators will be copies of the scene's gator.");
@@ -81,9 +90,17 @@ namespace Forge.Pet.Editor
         static GatorHatchery FindOrCreateHatchery(GatorController lead)
         {
             var hatchery = Object.FindAnyObjectByType<GatorHatchery>(FindObjectsInactive.Include);
+            return CreateHatchery(lead, null, hatchery);
+        }
+
+        /// The egg (collider + base + white sphere) 0.3 m to the lead's left under `parent`, with its picker buttons; `existing` is re-wired instead.
+        internal static GatorHatchery CreateHatchery(GatorController lead, Transform parent, GatorHatchery existing = null)
+        {
+            GatorHatchery hatchery = existing;
             if (hatchery == null)
             {
                 var go = new GameObject("GatorHatchery");
+                if (parent != null) go.transform.SetParent(parent, false);
                 Transform g = lead.transform;
                 go.transform.position = g.position - g.right * 0.3f + Vector3.up * (EggCollider.y * 0.5f);
                 go.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized, Vector3.up);
@@ -97,10 +114,10 @@ namespace Forge.Pet.Editor
                 Renderer egg = Primitive(go.transform, PrimitiveType.Sphere, "Egg", new Vector3(0.05f, 0.066f, 0.05f), new Vector3(0f, bottom + 0.008f + 0.033f, 0f), eggMat);
                 hatchery = go.AddComponent<GatorHatchery>();
                 WhistleSetup.SetRef(hatchery, "egg", egg);
-                Undo.RegisterCreatedObjectUndo(go, "Create GatorHatchery");
+                WhistleSetup.RegisterCreated(go, "Create GatorHatchery");
             }
             Transform old = hatchery.transform.Find("NextButton");             // the first egg's "next type" button
-            if (old != null) Undo.DestroyObjectImmediate(old.gameObject);
+            if (old != null) { if (WhistleSetup.UseUndo) Undo.DestroyObjectImmediate(old.gameObject); else Object.DestroyImmediate(old.gameObject); }
             BuildPicker(hatchery);
             return hatchery;
         }
@@ -128,7 +145,7 @@ namespace Forge.Pet.Editor
             GameObject go = WhistleSetup.Child(parent, name);
             go.transform.localPosition = localPos;
             var box = go.GetComponent<BoxCollider>();
-            if (box == null) box = Undo.AddComponent<BoxCollider>(go);
+            if (box == null) box = WhistleSetup.Add<BoxCollider>(go);
             box.size = new Vector3(size.x, size.y, 0.02f);
             box.isTrigger = true;
             Transform v = go.transform.Find("Visual");
@@ -152,7 +169,7 @@ namespace Forge.Pet.Editor
 
         // ------------------------------------------------------------------ Interaction SDK (by name)
 
-        static string AddInteraction(GatorHatchery egg)
+        internal static string AddInteraction(GatorHatchery egg)
         {
             Type wrapper = WhistleSetup.FindType("Oculus.Interaction.InteractableUnityEventWrapper");
             if (wrapper == null || WhistleSetup.FindType("Oculus.Interaction.PokeInteractable") == null)
@@ -240,7 +257,7 @@ namespace Forge.Pet.Editor
         {
             var field = wrapper.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
             if (field == null || !(field.GetValue(wrapper) is UnityEvent evt)) return;
-            Undo.RecordObject(wrapper, "Rewire crew egg");
+            if (WhistleSetup.UseUndo) Undo.RecordObject(wrapper, "Rewire crew egg");
             for (int i = evt.GetPersistentEventCount() - 1; i >= 0; i--)
                 if (evt.GetPersistentTarget(i) == target) UnityEditor.Events.UnityEventTools.RemovePersistentListener(evt, i);
         }

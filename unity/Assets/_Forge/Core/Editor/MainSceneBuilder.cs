@@ -10,8 +10,11 @@ using UnityEngine.Rendering;
 /// <summary>
 /// Forge > Build Main Scene: (re)builds Assets/_Forge/Core/Main.unity as a mixed reality scene.
 /// Passthrough camera rig with Interaction SDK hands + controllers, MRUK loading the room (simulator synthetic
-/// room or headset scan), and the desk workspace: walk up to a table and the mode dock appears on it.
-/// Safe to run again; it overwrites the scene. Builds the core prefabs first if they don't exist.
+/// room or headset scan), the desk workspace (walk up to a table and the mode dock appears on it) with every module's
+/// prefab slotted into its mode, and the pet (PetRuntime) in the room.
+/// Safe to run again; it overwrites the scene. Builds the core prefabs first if they don't exist. Module prefabs
+/// that aren't built yet are warned about and skipped: run their builders (Forge > Messages > Build Prefabs,
+/// Forge > ML > Build Prefabs and Sandbox, Forge > Pet > ...) and build Main again.
 /// </summary>
 public static class MainSceneBuilder
 {
@@ -19,6 +22,8 @@ public static class MainSceneBuilder
     const string CameraRigPath = "Packages/com.meta.xr.sdk.core/Prefabs/OVRCameraRig.prefab";
     const string MrukPath = "Packages/com.meta.xr.mrutilitykit/Core/Tools/MRUK.prefab";
     const string DesktopRoomJsonPath = "Assets/_Forge/Core/Rooms/SimLivingRoom.json";
+    // The pet: gator + voice + whistle + crew + hatchery + ArrivalDirector, one root object in the room.
+    const string PetRuntimePath = "Assets/_Forge/Pet/Prefabs/PetRuntime.prefab";
 
     // Module prefabs slotted into the workspace modes, by item id (the panel IDs of PROJECT_CONTEXT section 7).
     // Items without one get a placeholder ForgePanel/ForgeVolume.
@@ -26,11 +31,16 @@ public static class MainSceneBuilder
     {
         ("cad-viewer", "Assets/_Forge/CAD/Prefabs/CadViewer.prefab"),
         ("cad-params", "Assets/_Forge/CAD/Prefabs/CadParamsPanel.prefab"),
+        ("cad-drawing", "Assets/_Forge/CAD/Prefabs/CadDrawingPanel.prefab"),
+        ("cad-timeline", "Assets/_Forge/CAD/Prefabs/CadVersionsPanel.prefab"),
         ("screen-main", "Assets/_Forge/Screens/ScreenForgePanel.prefab"),
-        ("ml-datastack", "Assets/_Forge/ML/Prefabs/DataStack.prefab"),
-        ("ml-model3d", "Assets/_Forge/ML/Prefabs/Model3D.prefab"),
-        ("ml-results", "Assets/_Forge/ML/Prefabs/ResultsWall.prefab"),
-        ("ml-training", "Assets/_Forge/ML/Prefabs/TrainingDash.prefab"),
+        ("messages", "Assets/_Forge/Messages/Resources/SlackPanel.prefab"),
+        ("messages-mentions", "Assets/_Forge/Messages/Resources/MentionsPanel.prefab"),
+        // ML panels (all ForgePanel variants), from Forge > ML > Build Prefabs and Sandbox.
+        ("ml-training", "Assets/_Forge/ML/Resources/MLPanels/TrainingDash.prefab"),
+        ("ml-datastack", "Assets/_Forge/ML/Resources/MLPanels/DataStack.prefab"),
+        ("ml-model3d", "Assets/_Forge/ML/Resources/MLPanels/Model3D.prefab"),
+        ("ml-results", "Assets/_Forge/ML/Resources/MLPanels/ResultsWall.prefab"),
     };
 
     [MenuItem("Forge/Build Main Scene")]
@@ -94,6 +104,12 @@ public static class MainSceneBuilder
                 foreach (var item in mode.items)
                     if (item.id == id) item.prefab = prefab;
         }
+
+        // The pet, a root object; it finds the workspace itself (Workspace.Current) and opens CODE mode after the
+        // sit-down digest.
+        var petPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PetRuntimePath);
+        if (petPrefab != null) ((GameObject)PrefabUtility.InstantiatePrefab(petPrefab)).name = "PetRuntime";
+        else Debug.LogWarning($"[MainSceneBuilder] {PetRuntimePath} not found; Main has no pet. Build it (Pet module) and build Main again.");
 
         // Desktop mode (no headset or simulator): first-person rig, and the room drawn from MRUK's data since
         // there's no passthrough. Saved inactive; RigSelector turns on whichever rig applies when Play starts.

@@ -1,7 +1,9 @@
 """Live voice sessions by pet id, so other modules can make Bit speak unprompted (the sit-down digest).
 
 ws.py registers a session when hello opens one and unregisters it when the socket or the session goes away.
-`speak` duck-types on `say(text)` (GrokVoiceSession has it); sessions without it are skipped.
+`speak` duck-types on `say(text)` (GrokVoiceSession has it); sessions without it are skipped. `note` does the
+same with `note(text)`: one line of context the model reads but doesn't answer (the view in front of the user,
+the Slack message in focus).
 """
 from __future__ import annotations
 
@@ -29,6 +31,21 @@ def unregister(pet_id: str, session: Any) -> None:
 
 def live(pet_id: str) -> list[Any]:
     return list(_sessions.get(pet_id, ()))
+
+
+async def note(pet_id: str, text: str) -> bool:
+    """Give every live voice session for the pet one line of context (no reply). True if one took it."""
+    noted = False
+    for session in live(pet_id):
+        fn = getattr(session, "note", None)
+        if fn is None:
+            continue
+        try:
+            await fn(text)
+            noted = True
+        except Exception:  # noqa: BLE001
+            log.exception("note failed for %s", pet_id)
+    return noted
 
 
 async def speak(pet_id: str, text: str) -> bool:

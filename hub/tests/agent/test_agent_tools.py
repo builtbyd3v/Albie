@@ -65,6 +65,21 @@ def test_grok_and_mcp_shapes(fake_tools, broadcasts) -> None:
     assert tools.mcp_names() == ["mcp__forge__cad_set_params", "mcp__forge__cad_boom"]
 
 
+def test_allow_filters_by_name_or_prefix(fake_tools, broadcasts) -> None:
+    tools.register([{"name": "vscode_open_file", "description": "", "parameters": {"type": "object", "properties": {}}}],
+                   lambda n, a: None)
+    tools.register([{"name": "spawn_agent", "description": "", "parameters": {"type": "object", "properties": {}}}],
+                   lambda n, a: None, lead_only=True)
+    assert tools.mcp_names(lead=False, allow=["vscode_"]) == ["mcp__forge__vscode_open_file"]
+    assert tools.mcp_names(lead=False, allow=["vscode_", "cad_boom"]) == ["mcp__forge__cad_boom", "mcp__forge__vscode_open_file"]
+    assert tools.mcp_names(lead=True, allow=["spawn_agent"]) == ["mcp__forge__spawn_agent"]
+    assert tools.mcp_names(lead=False, allow=["spawn_agent"]) == []  # lead-only wins over allow
+    assert tools.mcp_names(lead=False, allow=[]) == []
+    assert [d["name"] for d in tools.definitions(allow=("cad_",))] == ["cad_set_params", "cad_boom"]
+    assert [t.name for t in tools._mcp_tools("tester", lead=False, allow=["vscode_"])] == ["vscode_open_file"]
+    assert tools.is_lead_only("spawn_agent") and not tools.is_lead_only("cad_boom")
+
+
 def test_mcp_server_runs_a_tool(fake_tools, broadcasts) -> None:
     server = tools.mcp_server("bit")
     assert server["type"] == "sdk" and server["name"] == "forge"

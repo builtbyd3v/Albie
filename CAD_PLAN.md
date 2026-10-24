@@ -11,6 +11,8 @@
 
 **Status 2026-10-24 (round 4, hub data for `HANDOFF_UI2.md` section 3):** every design now reports parameter groups and help, markers, dimension callouts, per-part explode vectors, a mass breakdown and a demo (rocket launch, quadcopter hover, gearbox spin), and `/cad/flight` runs pad to landing with fixed-rate samples and events. Part 2 (the design spec's asks): parameter defaults, the parts and dimension each parameter changes, a verdict per design, fixed-input info rows, demo radii / blocked / reveal, version labels with the main metric, and design glyphs. All additive, mocks refreshed (JSON only; GLBs and drawings unchanged). 84 CAD tests. Unity side not wired yet. Fields: section 5, round 4.
 
+**Status 2026-10-24 (CAD screens, branch `cad/versions-and-drawing`):** round 4's Unity side shipped (PR #35). Hudson's call: the drawing goes on the **middle screen** (no VS Code or 3D app there in CAD mode) and the left screen is a real **Versions** panel (`CadVersionsPanel`, slot `cad-timeline`). Both slotted in `Workspace.DefaultModes` + `MainSceneBuilder`; Core's layout puts the main panel behind the desk model.
+
 ---
 
 ## 1. Decision
@@ -230,7 +232,7 @@ GET  /cad/drawing.png?v={version}     -> image/png, 2048 x 1448 A3 engineering d
 GET  /cad/drawing.svg?v={version}     -> image/svg+xml, the same sheet                                                     NEW
      Same headers as /cad/model.glb (no-store without v, immutable with v, X-Forge-Version). 404 unknown v; 409 if built
      from an older part script and not drawn yet; 500 with the cad.regen_failed body (source "drawing") if it fails.
-Panel ID: cad-drawing (replaces cad-timeline, left).
+Panel ID: cad-drawing (CAD mode's middle screen; cad-timeline stays, as the Versions panel on the left).
 ```
 
 Round 2 (model library; all act on the open design unless they say otherwise):

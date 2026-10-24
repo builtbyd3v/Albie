@@ -9,6 +9,7 @@ using UnityEngine.UI;
 namespace Forge.Pet
 {
     /// <summary>
+    /// SANDBOX ONLY (PetSandbox / PetSandboxXR; GatorSetup adds it to the scene instance, never to the prefab).
     /// Keyboard-only STT mock for the simulator / editor without a mic.
     /// StartListening shows a bottom-of-screen TMP input field (built lazily in code) and focuses it.
     /// Every edit raises PartialTranscript; Enter (or StopListening) raises FinalTranscript and hides it.
@@ -25,13 +26,20 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Overlay canvas sorting order.")]
         int sortingOrder = 500;
 
-        public bool IsListening { get; private set; }
+        public bool IsListening { get => _listening; private set { if (_listening == value) return; _listening = value; s_listening += value ? 1 : -1; } }
+        /// <summary>Some typed field is open: other key handlers (whistle F, crew N/X) ignore their keys. False when none exists.</summary>
+        public static bool AnyListening => s_listening > 0;
         public event Action<string> PartialTranscript;
         public event Action<string> FinalTranscript;
         public event Action<string> Error;
 
+        static int s_listening;
+        bool _listening;
         Canvas _canvas;
         TMP_InputField _field;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => s_listening = 0;
 
         public void StartListening()
         {
@@ -141,6 +149,7 @@ namespace Forge.Pet
 
         void OnDestroy()
         {
+            IsListening = false;
             if (_field != null)
             {
                 _field.onValueChanged.RemoveListener(OnValueChanged);
