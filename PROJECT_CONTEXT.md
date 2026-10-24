@@ -56,7 +56,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
    - Confusion matrix appears automatically when training finishes.
 4. **Ask the pet.** "Hey Bit, why is my model so bad at cats?" Bit says "one sec," morphs into a glowing blob, leaps into the results panel, the cat row lights up in the confusion matrix, then Bit pops back out with an answer card and suggested actions.
 5. **CAD mode.** A model rocket appears with a parameter panel. "Bit, make the body tube 20% longer and add a fourth fin." Bit walks to the rocket, tinkers, the rocket regenerates on the spot.
-6. **Team admin.** A Slack message arrives. Bit perks up: "Hudson in #forge-team asks if the demo build will be ready by 3, want me to answer?" User: "Yeah, tell him yes and I'll ping him when it's pushed." Bit reads the reply back, posts it in the thread, and it lands on the teammate's real phone via the Slack app. (Sender and text are placeholders; "mom says dinner in 30" works just as well as a Slack DM.) Earlier, in step 2, Bit already greeted the user with the unread digest, see 8.8.
+6. **Team admin.** A Slack message arrives. Bit perks up: "Hudson in #forge-team asks if the demo build will be ready by 3, want me to answer?" User: "Yeah, tell him yes and I'll ping him when it's pushed." Bit reads the reply back, posts it in the thread, and it lands on the teammate's real phone via the Slack app. (Sender and text are placeholders; "mom says dinner in 30" works just as well as a Slack DM.) Earlier, in step 2, Bit already greeted the user with the unread digest, see 8.8. Tested live against the real workspace, no fake path.
 7. **Close:** "Every engineer gets a desk that understands their work and a teammate that never sleeps."
 
 ---
@@ -224,7 +224,6 @@ POST /agent/text  { pet_id, text }    -> { reply }        (typed fallback)
 GET  /messages/latest?n=5            -> [SlackMessage]   SlackMessage = { channel, channel_name, user, user_name, text, ts, thread_ts?, mentions_me }
 POST /messages/send { channel, text, thread_ts? } -> { ts }   (pet confirms the exact text with the user before calling)
 POST /messages/digest                 -> { count, mentions, line, messages: SlackMessage[] }   (Unity calls it when the user sits down; marks everything seen; see 8.8)
-POST /dev/fake_message { user_name, channel_name, text, mentions_me? } (demo safety net, emits notify.message without Slack)
 ```
 
 ### WebSocket events (`/ws`, JSON `{ "type": ..., "payload": {...} }`)
@@ -325,7 +324,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - **`delegate(task)` tool** for anything that needs real analysis ("why is it bad at cats?", "suggest a design change"): the hub runs a reasoning model with read access to run results / CAD script, returns a card. While it runs, emit `pet.state working` (blob dive) and have the voice model say "give me a sec."
 - Every tool call also emits `pet.state` so the body animates.
 - Persona: short, cute, competent. 1 to 3 spoken sentences, details go in the card.
-- Slack: one Slack app ("Bit") in a hackathon workspace, Socket Mode. `hub/messaging/` runs an `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task on the hub's event loop. Inbound `message` / `app_mention` events -> `notify.message` on `/ws` and a ring buffer (last 50) behind `messages_read_latest` and the digest. Outbound `chat.postMessage` with `thread_ts` -> `notify.sent`. Ignore events with `bot_id` set or `user` equal to the bot's own id. `mentions_me` = text contains `<@SLACK_USER_ID>`. Tokens missing -> module logs a warning and only `/dev/fake_message` works, so the hub still boots for everyone else.
+- Slack: one Slack app ("Bit") in a hackathon workspace, Socket Mode. `hub/messaging/` runs an `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task on the hub's event loop. Inbound `message` / `app_mention` events -> `notify.message` on `/ws` and a ring buffer (last 50) behind `messages_read_latest` and the digest. Outbound `chat.postMessage` with `thread_ts` -> `notify.sent`. Ignore events with `bot_id` set or `user` equal to the bot's own id. `mentions_me` = text contains `<@SLACK_USER_ID>`. Tokens missing -> the module logs a warning and stays disabled; the hub still boots for everyone else. No fake or mock mode: test against the real workspace.
   - Tools register through `agent/tools.py` like CAD and VS Code do (`messages_` prefix -> panel `messages`).
   - **Setup (15 min):** api.slack.com/apps > Create New App > From scratch, in the hackathon workspace. Socket Mode: enable, create app-level token with `connections:write` (`xapp-...`). OAuth & Permissions > Bot Token Scopes: `chat:write`, `channels:history`, `channels:read`, `groups:history`, `im:history`, `im:read`, `im:write`, `users:read`, `app_mentions:read`. Event Subscriptions: enable, bot events `message.channels`, `message.groups`, `message.im`, `app_mention`. App Home: turn on the Messages tab so people can DM it. Install to Workspace, copy the `xoxb-...` token. In Slack, `/invite @Bit` into `#forge-team`. Your own member id is under your profile > three dots > Copy member ID.
   - Teammates install the Slack mobile app and turn on notifications so the on-stage reply visibly buzzes a phone.
@@ -335,7 +334,6 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - **Wording:** one short sentence, built in the hub, correct plurals, nothing more. `count == 0` -> no line, Bit stays quiet. Examples: "You have 1 new message." / "You have 3 new messages, 1 mentions you." / "You have 2 new messages, both mention you." Any new message that arrives while seated still comes in as `notify.message` and gets its own perk-up (demo step 6).
 - **Cards:** `MessagesPanel.prefab` (ForgePanel variant, slot `messages`, already in the `MSG` mode item list) renders `messages` newest first, **capped at 4**; older ones collapse into a "+N more" footer. The cards also appear on the digest without opening MSG mode, floating as a small stack beside Bit on the desk, and fold away after ~20 s or when dismissed. Card = sender initial bubble + name + channel + first line of text + relative time; mentions get a thin accent border.
 - **Look:** slightly translucent (frame alpha about 0.8, text fully opaque), soft shadow, rounded. Hover (mouse crosshair on desktop, Interaction SDK ray hover in XR) lifts the card ~1 cm, fades it to opaque and expands it to the full text. Click/poke = "Reply with Bit": starts a voice turn with that message as context, so `messages_send` replies in-thread.
-- **Mocks:** `Mocks/notify_digest.json` (4+ messages, one mention) and `Mocks/notify_message.json`; the panel must work in a sandbox with the hub off.
 
 ---
 
