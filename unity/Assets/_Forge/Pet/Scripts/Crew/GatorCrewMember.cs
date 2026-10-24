@@ -25,7 +25,8 @@ namespace Forge.Pet
         Material _hatMaterial;
         Transform _model, _head, _hat;
         Vector3 _modelScale = Vector3.one;
-        float _animStart, _hatLift = -1f;
+        float _animStart, _hatLift = -1f;                // _hatLift >= 0 once the hat spot is measured
+        Vector3 _hatOffset;
         bool _hatching;
         GatorCaption _caption;
         GatorInteraction _interaction;
@@ -112,26 +113,72 @@ namespace Forge.Pet
                 MeasureHatLift();                     // once, at full size; the hat pops on after the hatch
                 if (_hatLift < 0f) return;
                 _hat.gameObject.SetActive(true);
+                Debug.Log("[GatorCrewMember] " + name + ": hat on '" + (_head != null ? _head.name : "root (no head bone)") + "', offset "
+                          + _hatOffset.ToString("F3") + ", material " + (_hatMaterial != null ? _hatMaterial.name : "none") + ".", this);
             }
             Transform anchor = _head != null ? _head : transform;     // no head bone: sit on top of the body
-            float s = transform.lossyScale.y;
-            _hat.SetPositionAndRotation(anchor.position + Vector3.up * (_hatLift * s * HatchFactor()),
-                                        Quaternion.Euler(0f, transform.eulerAngles.y, 0f));
+            Quaternion yaw = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+            _hat.SetPositionAndRotation(anchor.position + yaw * (_hatOffset * (transform.lossyScale.y * HatchFactor())), yaw);
         }
 
         // While the model grows / shrinks the head bone moves with it; scale the lift the same way.
         float HatchFactor() => _model != null && _modelScale.y > 0f ? _model.localScale.y / _modelScale.y : 1f;
 
-        // Distance (in unscaled units) from the head bone (or the root) up to the top of the body, measured once at full size.
+        // Where the hat sits, relative to the head bone (or the root) in the gator's yaw frame and unscaled units, measured
+        // once at full size from the posed mesh: the top of the head around the bone (this gator's eyes bulge up, so the
+        // highest vertices are the eye tops; their average puts the hat between the eyes). Renderer bounds are far too
+        // loose, and BakeMesh leaves out the skin's own (large) import scale, so it's applied here.
         void MeasureHatLift()
         {
             if (_hatching) return;
             Transform anchor = _head != null ? _head : transform;
-            Renderer[] rs = GetComponentsInChildren<SkinnedMeshRenderer>();
-            float top = anchor.position.y;
-            for (int i = 0; i < rs.Length; i++) top = Mathf.Max(top, rs[i].bounds.max.y);
             float s = Mathf.Max(0.0001f, transform.lossyScale.y);
-            _hatLift = Mathf.Clamp((top - anchor.position.y) / s, 0.005f, 0.25f) - 0.004f;
+            Vector3 a = anchor.position;
+            Vector3 hatPoint = a + Vector3.up * (0.03f * s);  // fallback: a bit above the bone
+            SkinnedMeshRenderer smr = LargestSkin();
+            if (smr != null)
+            {
+                var baked = new Mesh();
+                smr.BakeMesh(baked, true);
+                Vector3[] verts = baked.vertices;
+                Transform st = smr.transform;
+                Vector3 origin = st.position, sc = st.lossyScale;
+                Quaternion rot = st.rotation;
+                float r2 = HeadRadius * s * HeadRadius * s, top = float.MinValue;
+                for (int pass = 0; pass < 2; pass++)          // 1: highest point near the head, 2: average of the top 4 mm
+                {
+                    Vector3 sum = Vector3.zero;
+                    int n = 0;
+                    for (int i = 0; i < verts.Length; i++)
+                    {
+                        Vector3 w = origin + rot * Vector3.Scale(verts[i], sc);
+                        float dx = w.x - a.x, dz = w.z - a.z;
+                        if (dx * dx + dz * dz > r2) continue;
+                        if (pass == 0) { if (w.y > top) top = w.y; }
+                        else if (w.y >= top - 0.004f * s) { sum += w; n++; }
+                    }
+                    if (pass == 0 && top == float.MinValue) break;
+                    if (pass == 1 && n > 0) { hatPoint = sum / n; hatPoint.y = top - 0.002f * s; }
+                }
+                Destroy(baked);
+            }
+            Quaternion yaw = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+            _hatOffset = Quaternion.Inverse(yaw) * (hatPoint - a) / s;
+            _hatLift = 1f;                                    // measured
+        }
+
+        const float HeadRadius = 0.045f;   // m at Bit's size: the head (eyes included) around the head bone
+
+        SkinnedMeshRenderer LargestSkin()
+        {
+            SkinnedMeshRenderer best = null;
+            int most = -1;
+            foreach (var sk in GetComponentsInChildren<SkinnedMeshRenderer>())
+            {
+                if (!sk.enabled || sk.sharedMesh == null || !sk.gameObject.activeInHierarchy) continue;
+                if (sk.sharedMesh.vertexCount > most) { most = sk.sharedMesh.vertexCount; best = sk; }
+            }
+            return best;
         }
 
         void OnPoked()

@@ -245,7 +245,9 @@ namespace Forge.Pet
                 if (HasArrived() || Time.time >= nextActionTime) { tripActive = false; StopMoving(); BeginPause(); }
                 return;
             }
-            if (Time.time < nextActionTime) return;
+            // Outside its own area (just hatched, after a summon): walk home now, rest once there.
+            bool homesick = HasTerritory && OnTerritorySurface && !InTerritory(transform.position, 0.05f);
+            if (!homesick && Time.time < nextActionTime) return;
             if (ReturnToTerritory()) return;          // crew: on the wrong surface, head home first
 
             bool run = UnityEngine.Random.value < runChance;
@@ -261,6 +263,7 @@ namespace Forge.Pet
         // with an occasional fidget or emote.
         void BeginPause()
         {
+            if (HasTerritory && !InTerritory(transform.position, 0.05f)) { nextActionTime = Time.time + 0.3f; return; }   // not home yet
             if (TryBeginRest()) return;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
             float r = UnityEngine.Random.value;

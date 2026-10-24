@@ -14,7 +14,7 @@ namespace Forge.Pet
         [SerializeField] string label = "Bit";
         [SerializeField] Color color = new Color(0.25f, 0.75f, 0.4f);
         [SerializeField, Tooltip("Height above the gator's root (m, before the gator's own scale).")]
-        float height = 0.2f;
+        float height = 0.14f;
         [SerializeField, Tooltip("TMP font size for 3D text (0.16 ~ 1.6 cm cap height).")]
         float fontSize = 0.16f;
 
