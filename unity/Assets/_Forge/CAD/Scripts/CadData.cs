@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Hub CAD payloads: mirrors hub/events.py and CAD_PLAN.md section 5. JSON names are the hub's snake_case.
+// Hub CAD REST payloads: CAD_PLAN.md section 5. JSON names are the hub's snake_case.
 // Newtonsoft-only DTOs (not Unity-serialized), hence no [Serializable].
 
 public class CadParam
@@ -34,45 +34,8 @@ public class CadMarkers
     [JsonProperty("cp")] public float[] cp;
 }
 
-public class CadAnalysis
-{
-    [JsonProperty("mass_g")] public float massG;
-    [JsonProperty("length_mm")] public float? lengthMm;
-    [JsonProperty("diameter_mm")] public float? diameterMm;
-    [JsonProperty("cg_mm")] public float? cgMm;               // from the nose tip
-    [JsonProperty("cp_mm")] public float? cpMm;               // from the nose tip
-    [JsonProperty("margin_cal")] public float? marginCal;
-    [JsonProperty("stable")] public bool? stable;
-    [JsonProperty("stability")] public string stability;      // unstable | marginal | stable | overstable
-    [JsonProperty("motor")] public string motor;
-    [JsonProperty("markers_gltf")] public CadMarkers markers; // GLB scene space: metres, Y-up, on the axis
-}
-
-public class CadModelUpdated
-{
-    [JsonProperty("version")] public int version;
-    [JsonProperty("params")] public Dictionary<string, object> parameters;
-    [JsonProperty("previous_version")] public int? previousVersion;
-    [JsonProperty("changed_ids")] public List<string> changedIds = new List<string>();
-    [JsonProperty("removed_ids")] public List<string> removedIds = new List<string>();
-    [JsonProperty("source")] public string source;
-    [JsonProperty("analysis")] public CadAnalysis analysis;
-}
-
-public class CadRegenFailed
-{
-    [JsonProperty("source")] public string source;
-    [JsonProperty("kind")] public string kind;  // params | build | timeout | crash
-    [JsonProperty("error")] public string error;
-    [JsonProperty("error_line")] public int? errorLine;
-    [JsonProperty("kept_version")] public int? keptVersion;
-}
-
-public class CadView
-{
-    [JsonProperty("explode")] public bool? explode;
-    [JsonProperty("focus_id")] public string focusId;
-}
+// The CAD event payloads (CadAnalysis, CadModelUpdated, CadRegenFailed, CadView) live in Core/Net/ForgeEvents.cs
+// with the other hub events.
 
 public class CadFlight
 {

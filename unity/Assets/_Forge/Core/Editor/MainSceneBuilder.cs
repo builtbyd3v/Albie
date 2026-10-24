@@ -20,6 +20,14 @@ public static class MainSceneBuilder
     const string MrukPath = "Packages/com.meta.xr.mrutilitykit/Core/Tools/MRUK.prefab";
     const string DesktopRoomJsonPath = "Assets/_Forge/Core/Rooms/SimLivingRoom.json";
 
+    // Module prefabs slotted into the workspace modes, by item id (the panel IDs of PROJECT_CONTEXT section 7).
+    // Items without one get a placeholder ForgePanel/ForgeVolume.
+    static readonly (string id, string path)[] ModulePrefabs =
+    {
+        ("cad-viewer", "Assets/_Forge/CAD/Prefabs/CadViewer.prefab"),
+        ("cad-params", "Assets/_Forge/CAD/Prefabs/CadParamsPanel.prefab"),
+    };
+
     [MenuItem("Forge/Build Main Scene")]
     public static void Build()
     {
@@ -73,6 +81,14 @@ public static class MainSceneBuilder
         workspace.panelPrefab = AssetDatabase.LoadAssetAtPath<ForgePanel>(ForgePrefabBuilder.PanelPath);
         workspace.volumePrefab = AssetDatabase.LoadAssetAtPath<ForgeVolume>(ForgePrefabBuilder.VolumePath);
         workspace.modes = Workspace.DefaultModes();
+        foreach (var (id, path) in ModulePrefabs)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (prefab == null) { Debug.LogWarning($"[MainSceneBuilder] {path} not found; {id} stays a placeholder."); continue; }
+            foreach (var mode in workspace.modes)
+                foreach (var item in mode.items)
+                    if (item.id == id) item.prefab = prefab;
+        }
 
         // Desktop mode (no headset or simulator): first-person rig, and the room drawn from MRUK's data since
         // there's no passthrough. Saved inactive; RigSelector turns on whichever rig applies when Play starts.

@@ -1,61 +1,140 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 // Hub event payloads: PROJECT_CONTEXT section 7 + CAD_PLAN section 5. Mirror of hub/events.py.
-// Field names are snake_case on purpose so they match the JSON (and the Python models) one to one.
-// Change these only together with section 7 and events.py.
+// Newtonsoft DTOs: JSON names are the hub's snake_case. Change these only together with section 7 and events.py.
+// CAD REST shapes that aren't events (CadParams, CadMarkers, CadFlight, ...) live in CAD/Scripts/CadData.cs.
 
-[Serializable] public class MlRunState { public string run_id; public string status; public int epoch; public int total_epochs; }
-[Serializable] public class MlMetrics { public string run_id; public int epoch; public int step; public float train_loss; public float train_acc; public float val_loss; public float val_acc; public float lr; }
-[Serializable] public class MlOverfitAlert { public string run_id; public int epoch; public string reason; }
-[Serializable] public class MlGraphReady { }
-[Serializable] public class MlResultsReady { public string run_id; }
-[Serializable] public class MlSampleUpdated { public string id; public int label_idx; public bool removed; }
+public class MlRunState
+{
+    [JsonProperty("run_id")] public string runId;
+    [JsonProperty("status")] public string status;  // idle | training | evaluating | done
+    [JsonProperty("epoch")] public int epoch;
+    [JsonProperty("total_epochs")] public int totalEpochs;
+}
 
-[Serializable]
+public class MlMetrics
+{
+    [JsonProperty("run_id")] public string runId;
+    [JsonProperty("epoch")] public int epoch;
+    [JsonProperty("step")] public int step;
+    [JsonProperty("train_loss")] public float trainLoss;
+    [JsonProperty("train_acc")] public float trainAcc;
+    [JsonProperty("val_loss")] public float valLoss;
+    [JsonProperty("val_acc")] public float valAcc;
+    [JsonProperty("lr")] public float lr;
+}
+
+public class MlOverfitAlert
+{
+    [JsonProperty("run_id")] public string runId;
+    [JsonProperty("epoch")] public int epoch;
+    [JsonProperty("reason")] public string reason;
+}
+
+public class MlGraphReady { }
+
+public class MlResultsReady
+{
+    [JsonProperty("run_id")] public string runId;
+}
+
+public class MlSampleUpdated
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("label_idx")] public int labelIdx;
+    [JsonProperty("removed")] public bool removed;
+}
+
 public class CadAnalysis
 {
-    public float mass_g;
-    public float[] cg_gltf;
-    public float? length_mm;
-    public float? diameter_mm;
-    public float? cg_mm;            // from the nose tip
-    public float? cp_mm;            // from the nose tip
-    public float? margin_cal;
-    public bool? stable;
-    public string stability;        // unstable | marginal | stable | overstable
-    public float? cna_per_rad;
-    public string motor;
-    public Dictionary<string, float[]> markers_gltf;
-    public List<Dictionary<string, object>> breakdown;
-    public List<string> assumptions;
+    [JsonProperty("mass_g")] public float massG;
+    [JsonProperty("length_mm")] public float? lengthMm;
+    [JsonProperty("diameter_mm")] public float? diameterMm;
+    [JsonProperty("cg_mm")] public float? cgMm;               // from the nose tip
+    [JsonProperty("cp_mm")] public float? cpMm;               // from the nose tip
+    [JsonProperty("margin_cal")] public float? marginCal;
+    [JsonProperty("stable")] public bool? stable;
+    [JsonProperty("stability")] public string stability;      // unstable | marginal | stable | overstable
+    [JsonProperty("motor")] public string motor;
+    [JsonProperty("markers_gltf")] public CadMarkers markers; // GLB scene space: metres, Y-up, on the axis
 }
 
-[Serializable]
 public class CadModelUpdated
 {
-    public int version;
-    public Dictionary<string, object> @params;
-    public int? previous_version;
-    public List<string> changed_ids;
-    public List<string> removed_ids;
-    public string source;           // api | pet | script | undo | reset | startup
-    public CadAnalysis analysis;
+    [JsonProperty("version")] public int version;
+    [JsonProperty("params")] public Dictionary<string, object> parameters;
+    [JsonProperty("previous_version")] public int? previousVersion;
+    [JsonProperty("changed_ids")] public List<string> changedIds = new List<string>();
+    [JsonProperty("removed_ids")] public List<string> removedIds = new List<string>();
+    [JsonProperty("source")] public string source;            // api | pet | script | undo | reset | startup
+    [JsonProperty("analysis")] public CadAnalysis analysis;
 }
 
-[Serializable] public class CadRegenFailed { public string source; public string kind; public string error; public int? error_line; public int? kept_version; }
-[Serializable] public class CadView { public bool? explode; public string focus_id; }
+public class CadRegenFailed
+{
+    [JsonProperty("source")] public string source;
+    [JsonProperty("kind")] public string kind;  // params | build | timeout | crash
+    [JsonProperty("error")] public string error;
+    [JsonProperty("error_line")] public int? errorLine;
+    [JsonProperty("kept_version")] public int? keptVersion;
+}
 
-[Serializable] public class PetState { public string pet_id; public string mode; public string target_panel; }
-[Serializable] public class PetCardAction { public string label; public string action_id; }
-[Serializable] public class PetCard { public string title; public List<string> bullets; public List<PetCardAction> actions; }
-[Serializable] public class PetSay { public string pet_id; public string text; public PetCard card; }
-[Serializable] public class UiHighlight { public string panel; public List<string> item_ids; public int? class_idx; }
+public class CadView
+{
+    [JsonProperty("explode")] public bool? explode;
+    [JsonProperty("focus_id")] public string focusId;
+}
 
-[Serializable] public class NotifyMessage { public string @from; public string text; public string thread_id; }
-[Serializable] public class NotifySent { public string to; public string text; }
+public class PetState
+{
+    [JsonProperty("pet_id")] public string petId;
+    [JsonProperty("mode")] public string mode;  // follow | idle | listening | thinking | working | speaking
+    [JsonProperty("target_panel")] public string targetPanel;
+}
+
+public class PetCardAction
+{
+    [JsonProperty("label")] public string label;
+    [JsonProperty("action_id")] public string actionId;
+}
+
+public class PetCard
+{
+    [JsonProperty("title")] public string title;
+    [JsonProperty("bullets")] public List<string> bullets;
+    [JsonProperty("actions")] public List<PetCardAction> actions;
+}
+
+public class PetSay
+{
+    [JsonProperty("pet_id")] public string petId;
+    [JsonProperty("text")] public string text;
+    [JsonProperty("card")] public PetCard card;
+}
+
+public class UiHighlight
+{
+    [JsonProperty("panel")] public string panel;
+    [JsonProperty("item_ids")] public List<string> itemIds;
+    [JsonProperty("class_idx")] public int? classIdx;
+}
+
+public class NotifyMessage
+{
+    [JsonProperty("from")] public string from;
+    [JsonProperty("text")] public string text;
+    [JsonProperty("thread_id")] public string threadId;
+}
+
+public class NotifySent
+{
+    [JsonProperty("to")] public string to;
+    [JsonProperty("text")] public string text;
+}
 
 /// <summary>
 /// One static event per hub event type. Subscribe in OnEnable, unsubscribe in OnDisable:

@@ -10,18 +10,17 @@ using UnityEngine.Networking;
 
 /// <summary>
 /// Shared CAD state for CadViewer and CadParamsPanel, which Workspace spawns as separate prefabs.
-/// Hub mode: REST to the hub, polling GET /cad/latest for changes made elsewhere (voice, VS Code saves).
-/// Swap the poll for ForgeNet's /ws events once ForgeNet lands. Mock mode: the hub's mocks, hub off.
+/// Hub mode: REST to the hub through ForgeNet, and ForgeNet's /ws events (cad.model_updated, cad.view,
+/// cad.regen_failed) for changes made anywhere (sliders, Bit's voice tools, VS Code saves).
+/// Mock mode: the hub's mocks, hub off. The hub address is ForgeNet's (one setting for the Quest).
 /// </summary>
 public class CadSession : MonoBehaviour
 {
     public enum Mode { Auto, Hub, Mock }
 
-    [Tooltip("Auto: the hub if it answers at startup, otherwise the mocks.")]
+    [Tooltip("Auto: follow ForgeNet (hub live = hub, no hub = mocks; switches to the hub when it appears).")]
     public Mode mode = Mode.Auto;
-    public string hubUrl = "http://127.0.0.1:8000";
     public CadMockSet mocks;
-    public float pollSeconds = 0.5f;
 
     public static CadSession Instance { get; private set; }
 
@@ -42,7 +41,9 @@ public class CadSession : MonoBehaviour
     int mockIndex = -1;
     readonly List<int> mockHistory = new List<int>();
     bool fetching;
-    int pollFailures;
+    CadModelUpdated pending;  // newest version announced while a fetch was running
+
+    static string HubLabel => "Hub " + ForgeNet.Url("").TrimEnd('/');
 
     /// <summary>The scene's session; created on first use, falling back to these mocks.</summary>
     public static CadSession Get(CadMockSet fallbackMocks)
@@ -64,17 +65,31 @@ public class CadSession : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
+    void OnEnable()
+    {
+        ForgeEvents.OnCadModelUpdated += OnModelUpdated;
+        ForgeEvents.OnCadView += OnViewEvent;
+        ForgeEvents.OnCadRegenFailed += OnRegenFailed;
+        ForgeNet.StatusChanged += OnNetStatus;
+    }
+
+    void OnDisable()
+    {
+        ForgeEvents.OnCadModelUpdated -= OnModelUpdated;
+        ForgeEvents.OnCadView -= OnViewEvent;
+        ForgeEvents.OnCadRegenFailed -= OnRegenFailed;
+        ForgeNet.StatusChanged -= OnNetStatus;
+    }
+
     IEnumerator Start()
     {
         IsMock = mode == Mode.Mock;
         if (mode == Mode.Auto)
         {
-            using (var req = UnityWebRequest.Get(hubUrl + "/health"))
-            {
-                req.timeout = 2;
-                yield return req.SendWebRequest();
-                IsMock = req.result != UnityWebRequest.Result.Success;
-            }
+            // ForgeNet decides within its fallback time whether a hub is there.
+            _ = ForgeNet.Instance;  // created on first use if the scene has none (sandboxes)
+            while (ForgeNet.Status == ForgeNetStatus.Connecting) yield return null;
+            IsMock = ForgeNet.IsMock;
         }
         Ready = true;
         if (IsMock)
@@ -83,11 +98,17 @@ public class CadSession : MonoBehaviour
             SetStatus("Mock mode (hub off): sliders jump to the nearest stored design.");
             ShowMockVersion(0);
         }
-        else
-        {
-            SetStatus($"Hub {hubUrl}");
-            StartCoroutine(Poll());
-        }
+        else StartHub();
+    }
+
+    void StartHub()
+    {
+        IsMock = false;
+        SetStatus(HubLabel);
+        // The hub replays the current model to every client that connects, so ForgeNet usually has it already.
+        if (ForgeNet.TryGetLast<CadView>(ForgeEvents.CadViewType, out var view) && view != null) ApplyView(view);
+        if (ForgeNet.TryGetLast<CadModelUpdated>(ForgeEvents.CadModelUpdatedType, out var info) && info != null) OnModelUpdated(info);
+        else StartCoroutine(FetchLatest());
     }
 
     // Commands (the same ones Bit's tools call on the hub)
@@ -133,7 +154,7 @@ public class CadSession : MonoBehaviour
         StartCoroutine(GetText($"/cad/flight?v={Latest.info.version}", text =>
         {
             if (text == null) { SetStatus("Flight sim failed."); return; }
-            SetStatus($"Hub {hubUrl}");
+            SetStatus(HubLabel);
             FlightReady?.Invoke(JsonConvert.DeserializeObject<CadFlight>(text));
         }, timeout: 60));
     }
@@ -150,55 +171,77 @@ public class CadSession : MonoBehaviour
 
     // Hub
 
-    IEnumerator Poll()
+    void OnModelUpdated(CadModelUpdated info)
     {
-        var wait = new WaitForSeconds(pollSeconds);
-        while (true)
+        if (!Ready || IsMock || info == null) return;
+        if (Latest != null && Latest.info.version == info.version) return;
+        if (fetching) { pending = info; return; }
+        StartCoroutine(Fetch(info));
+    }
+
+    void OnViewEvent(CadView view)
+    {
+        if (IsMock || view == null || (view.explode == View.explode && view.focusId == View.focusId)) return;
+        ApplyView(view);
+    }
+
+    void OnRegenFailed(CadRegenFailed failure)
+    {
+        if (IsMock || failure == null) return;
+        SetStatus(failure.errorLine.HasValue ? $"{failure.error} (part script line {failure.errorLine})" : failure.error);
+        ParamsChanged?.Invoke();  // snap the sliders back to the version that's still up
+    }
+
+    void OnNetStatus(ForgeNetStatus status)
+    {
+        if (!Ready || mode != Mode.Auto) return;
+        if (status == ForgeNetStatus.Live && IsMock) StartHub();          // hub appeared: go live
+        else if (status != ForgeNetStatus.Live && !IsMock) SetStatus($"{HubLabel} lost; retrying...");
+        else if (status == ForgeNetStatus.Live) SetStatus(HubLabel);
+    }
+
+    /// <summary>Download one version's model, metadata and the current parameter list, then show it.</summary>
+    IEnumerator Fetch(CadModelUpdated info)
+    {
+        fetching = true;
+        byte[] glb = null;
+        string metadata = null, parameters = null;
+        yield return GetBytes($"/cad/model.glb?v={info.version}", b => glb = b);
+        yield return GetText($"/cad/metadata.json?v={info.version}", t => metadata = t);
+        yield return GetText("/cad/params", t => parameters = t);
+        if (glb != null && metadata != null)
         {
-            if (!fetching) yield return FetchLatest();
-            yield return wait;
+            if (parameters != null) Params = JsonConvert.DeserializeObject<CadParams>(parameters);
+            if (Status == "Regenerating...") SetStatus(HubLabel);
+            Publish(new CadUpdate { info = info, glb = glb, metadata = metadata });
+        }
+        fetching = false;
+
+        if (pending != null)
+        {
+            var next = pending;
+            pending = null;
+            OnModelUpdated(next);
         }
     }
 
+    /// <summary>Fallback when there's no event to go on (first load, or the socket is down): ask the hub.</summary>
     IEnumerator FetchLatest()
     {
-        fetching = true;
         string latestJson = null;
         yield return GetText("/cad/latest", t => latestJson = t);
-        if (latestJson == null)
-        {
-            if (++pollFailures == 4) SetStatus($"Hub unreachable at {hubUrl}");
-            fetching = false;
-            yield break;
-        }
-        if (pollFailures >= 4) SetStatus($"Hub {hubUrl}");
-        pollFailures = 0;
-
+        if (latestJson == null) yield break;
         var latest = JObject.Parse(latestJson);
         var view = latest["cad.view"]?.ToObject<CadView>();
-        if (view != null && (view.explode != View.explode || view.focusId != View.focusId)) ApplyView(view);
+        if (view != null) OnViewEvent(view);
         var info = latest["cad.model_updated"]?.ToObject<CadModelUpdated>();
-        if (info != null && (Latest == null || Latest.info.version != info.version))
-        {
-            byte[] glb = null;
-            string metadata = null, parameters = null;
-            yield return GetBytes($"/cad/model.glb?v={info.version}", b => glb = b);
-            yield return GetText($"/cad/metadata.json?v={info.version}", t => metadata = t);
-            yield return GetText("/cad/params", t => parameters = t);
-            if (glb != null && metadata != null)
-            {
-                if (parameters != null) Params = JsonConvert.DeserializeObject<CadParams>(parameters);
-                if (Status == "Regenerating...") SetStatus($"Hub {hubUrl}");
-                Publish(new CadUpdate { info = info, glb = glb, metadata = metadata });
-            }
-        }
-        fetching = false;
+        if (info != null) OnModelUpdated(info);
     }
 
     IEnumerator Post(string path, string json, bool refresh = true)
     {
         string error = null;
-        using (var req = new UnityWebRequest(hubUrl + path, "POST"))
+        using (var req = new UnityWebRequest(ForgeNet.Url(path), "POST"))
         {
             req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
             req.downloadHandler = new DownloadHandlerBuffer();
@@ -213,16 +256,13 @@ public class CadSession : MonoBehaviour
             ParamsChanged?.Invoke();  // snap the sliders back to the version that's still up
             yield break;
         }
-        if (refresh)
-        {
-            while (fetching) yield return null;
-            yield return FetchLatest();
-        }
+        // Live, the hub's cad.model_updated event brings the new version; without the socket, ask for it.
+        if (refresh && ForgeNet.Status != ForgeNetStatus.Live) yield return FetchLatest();
     }
 
     IEnumerator GetText(string path, Action<string> done, int timeout = 10)
     {
-        using (var req = UnityWebRequest.Get(hubUrl + path))
+        using (var req = UnityWebRequest.Get(ForgeNet.Url(path)))
         {
             req.timeout = timeout;
             yield return req.SendWebRequest();
@@ -232,7 +272,7 @@ public class CadSession : MonoBehaviour
 
     IEnumerator GetBytes(string path, Action<byte[]> done)
     {
-        using (var req = UnityWebRequest.Get(hubUrl + path))
+        using (var req = UnityWebRequest.Get(ForgeNet.Url(path)))
         {
             req.timeout = 10;
             yield return req.SendWebRequest();

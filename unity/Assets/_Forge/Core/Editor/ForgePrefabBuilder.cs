@@ -7,9 +7,11 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Forge > Build Core Prefabs: (re)builds ForgePanel, DeskDock and ForgeVolume in Assets/_Forge/Core/Prefabs.
+/// Builds ForgePanel, DeskDock, ForgeVolume and DesktopRig in Assets/_Forge/Core/Prefabs.
 /// Canvases get Interaction SDK ray + poke through the SDK's Quick Actions, so they work with hands and controllers.
-/// Overwrites the prefabs (GUIDs are kept), so tweak them through this script rather than by hand.
+/// Forge > Build Core Prefabs only creates missing ones. Forge > Rebuild Core Prefabs overwrites them: the asset GUIDs
+/// survive but the objects inside get new IDs, which breaks module prefab variants (CadViewer, CadParamsPanel, ...)
+/// until their owners rebuild them. Only rebuild when the base prefab really has to change.
 /// </summary>
 public static class ForgePrefabBuilder
 {
@@ -24,12 +26,17 @@ public static class ForgePrefabBuilder
     static readonly Color TitleBar = new Color(0.16f, 0.45f, 0.85f, 0.95f);
     static readonly Color Accent = new Color(0.25f, 0.65f, 1f);
 
-    [MenuItem("Forge/Build Core Prefabs")]
-    public static void BuildMenu()
+    [MenuItem("Forge/Build Core Prefabs (missing only)")]
+    public static void BuildMenu() => RunMenu(overwrite: false);
+
+    [MenuItem("Forge/Rebuild Core Prefabs (overwrite, breaks module variants)")]
+    public static void RebuildMenu() => RunMenu(overwrite: true);
+
+    static void RunMenu(bool overwrite)
     {
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
         string previous = SceneManager.GetActiveScene().path;
-        BuildAll();
+        BuildAll(overwrite);
         if (!string.IsNullOrEmpty(previous)) EditorSceneManager.OpenScene(previous);
     }
 
@@ -39,18 +46,29 @@ public static class ForgePrefabBuilder
         AssetDatabase.LoadAssetAtPath<GameObject>(VolumePath) != null &&
         AssetDatabase.LoadAssetAtPath<GameObject>(DesktopRigPath) != null;
 
-    /// <summary>Builds in a throwaway scene (the SDK wizards work on scene objects). Replaces the open scene.</summary>
-    public static void BuildAll()
+    /// <summary>
+    /// Builds in a throwaway scene (the SDK wizards work on scene objects). Replaces the open scene.
+    /// Without <paramref name="overwrite"/>, existing prefabs are left alone (see the class summary for why).
+    /// </summary>
+    public static void BuildAll(bool overwrite = false)
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         EnsureFolder(Dir);
         EnsureFolder(MaterialDir);
-        BuildPanel();
-        BuildDock();
-        BuildVolume();
-        BuildDesktopRig();
+        var built = new System.Collections.Generic.List<string>();
+        void Build(string path, System.Action build)
+        {
+            if (!overwrite && AssetDatabase.LoadAssetAtPath<GameObject>(path) != null) return;
+            build();
+            built.Add(System.IO.Path.GetFileNameWithoutExtension(path));
+        }
+        Build(PanelPath, BuildPanel);
+        Build(DockPath, BuildDock);
+        Build(VolumePath, BuildVolume);
+        Build(DesktopRigPath, BuildDesktopRig);
         AssetDatabase.SaveAssets();
-        Debug.Log("[ForgePrefabBuilder] Built ForgePanel, DeskDock, ForgeVolume and DesktopRig in " + Dir);
+        Debug.Log(built.Count == 0 ? "[ForgePrefabBuilder] All core prefabs exist; nothing built."
+                                   : $"[ForgePrefabBuilder] Built {string.Join(", ", built)} in {Dir}");
     }
 
     static void BuildDesktopRig()
