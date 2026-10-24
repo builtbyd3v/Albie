@@ -22,9 +22,6 @@ public static class ForgePrefabBuilder
     public const string DesktopRigPath = Dir + "/DesktopRig.prefab";
     public const string MaterialDir = "Assets/_Forge/Core/Materials";
 
-    static readonly Color PanelBackground = new Color(0.07f, 0.09f, 0.13f, 0.85f);
-    static readonly Color TitleBar = new Color(0.16f, 0.45f, 0.85f, 0.95f);
-
     [MenuItem("Forge/Build Core Prefabs (missing only)")]
     public static void BuildMenu() => RunMenu(overwrite: false);
 
@@ -127,29 +124,148 @@ public static class ForgePrefabBuilder
     static void BuildPanel()
     {
         var root = NewCanvas("ForgePanel", new Vector2(600f, 400f));
-        Stretch(NewImage("Background", root.transform, Rounded(), PanelBackground).rectTransform, 0f, 0f, 0f, 0f);
+        Stretch(NewImage("Background", root.transform, null, Color.white).rectTransform, 0f, 0f, 0f, 0f);
 
-        var bar = NewImage("TitleBar", root.transform, Rounded(), TitleBar).rectTransform;
+        var bar = NewImage("TitleBar", root.transform, null, Color.clear).rectTransform;
         bar.anchorMin = new Vector2(0f, 1f);
         bar.anchorMax = new Vector2(1f, 1f);
         bar.pivot = new Vector2(0.5f, 1f);
-        bar.sizeDelta = new Vector2(0f, 44f);
         bar.anchoredPosition = Vector2.zero;
-        var title = NewText("Title", bar, "Panel", 24f, TextAlignmentOptions.MidlineLeft);
-        title.fontStyle = FontStyles.Bold;
-        Stretch(title.rectTransform, 16f, 0f, 16f, 0f);
+        var title = NewText("Title", bar, "Panel", 16f, TextAlignmentOptions.Left);
 
         var content = (RectTransform)new GameObject("Content", typeof(RectTransform)).transform;
         content.SetParent(root.transform, false);
-        Stretch(content, 16f, 16f, 16f, 60f);
-        var placeholder = NewText("Placeholder", content, "Module UI goes here", 20f, TextAlignmentOptions.Center);
-        placeholder.color = new Color(1f, 1f, 1f, 0.35f);
+        var placeholder = NewText("Placeholder", content, "Module UI goes here", 16f, TextAlignmentOptions.Center);
         Stretch(placeholder.rectTransform, 0f, 0f, 0f, 0f);
 
         var panel = root.AddComponent<ForgePanel>();
         SetRefs(panel, ("titleText", title), ("content", content));
+        StylePanel(root);
         AddCanvasInteraction(root);
         Save(root, PanelPath);
+    }
+
+    /// <summary>
+    /// Restyle ForgePanel.prefab in place (graphite frame, header, badge). Edits the saved prefab's own objects, so the
+    /// module variants built on it (CadParamsPanel, ScreenForgePanel) stay linked and pick the look up.
+    /// </summary>
+    [MenuItem("Forge/Restyle Panel Prefab (keeps module variants)")]
+    public static void RestylePanel()
+    {
+        ForgeLookBuilder.Build();
+        var root = PrefabUtility.LoadPrefabContents(PanelPath);
+        try
+        {
+            StylePanel(root);
+            PrefabUtility.SaveAsPrefabAsset(root, PanelPath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+        Debug.Log("[ForgePrefabBuilder] Restyled " + PanelPath);
+    }
+
+    // The graphite look on a ForgePanel hierarchy (fresh, or the saved prefab's contents). Finds its objects by name
+    // and adds what's missing: Background becomes a ForgeSurface, the header is an invisible 64 mm move handle with the
+    // badge, title and subtitle, and Content sits inside the new insets.
+    static void StylePanel(GameObject root)
+    {
+        var rt = (RectTransform)root.transform;
+        var panel = root.GetComponent<ForgePanel>();
+
+        var background = rt.Find("Background");
+        var oldImage = background.GetComponent<Image>();
+        if (oldImage != null) Object.DestroyImmediate(oldImage);
+        var surface = background.GetComponent<ForgeSurface>();
+        if (surface == null) surface = background.gameObject.AddComponent<ForgeSurface>();
+        surface.Style = ForgeSurface.Kind.Panel;
+        surface.Corner = ForgeTheme.PanelCorner;
+        surface.Header = ForgeTheme.PanelHeader;
+        surface.Shadow = 1f;
+        surface.color = Color.white;
+        surface.raycastTarget = true;
+
+        var bar = (RectTransform)rt.Find("TitleBar");
+        var barImage = bar.GetComponent<Image>();
+        barImage.sprite = null;
+        barImage.type = Image.Type.Simple;
+        barImage.color = Color.clear;
+        bar.sizeDelta = new Vector2(0f, ForgeTheme.PanelHeader);
+
+        var title = bar.Find("Title").GetComponent<TMP_Text>();
+        StyleText(title, 16f, ForgeTheme.PanelText, FontStyles.Bold, TextAlignmentOptions.Left);
+        PlaceInHeader(title.rectTransform, 20f, ForgeTheme.PanelHeader * 0.5f, 22f);
+
+        var subtitleTransform = bar.Find("Subtitle");
+        var subtitle = subtitleTransform != null ? subtitleTransform.GetComponent<TMP_Text>() : NewText("Subtitle", bar, "", 11.5f, TextAlignmentOptions.Left);
+        StyleText(subtitle, 11.5f, ForgeTheme.PanelSubtext, FontStyles.Normal, TextAlignmentOptions.Left);
+        PlaceInHeader(subtitle.rectTransform, 20f, 44f, 16f);
+        subtitle.gameObject.SetActive(false);
+
+        var badgeTransform = bar.Find("Badge");
+        ForgeSurface badge;
+        TMP_Text badgeLabel;
+        if (badgeTransform == null)
+        {
+            var badgeRect = (RectTransform)new GameObject("Badge", typeof(RectTransform)).transform;
+            badgeRect.SetParent(bar, false);
+            badge = badgeRect.gameObject.AddComponent<ForgeSurface>();
+            badgeLabel = NewText("Label", badgeRect, "", 9f, TextAlignmentOptions.Center);
+            Stretch(badgeLabel.rectTransform, 0f, 0f, 0f, 0f);
+        }
+        else
+        {
+            badge = badgeTransform.GetComponent<ForgeSurface>();
+            badgeLabel = badgeTransform.Find("Label").GetComponent<TMP_Text>();
+        }
+        var badgeRt = (RectTransform)badge.transform;
+        badgeRt.anchorMin = badgeRt.anchorMax = new Vector2(0f, 1f);
+        badgeRt.pivot = new Vector2(0.5f, 0.5f);
+        badgeRt.sizeDelta = new Vector2(34f, 34f);
+        badgeRt.anchoredPosition = new Vector2(20f + 17f, -ForgeTheme.PanelHeader * 0.5f);
+        badge.Style = ForgeSurface.Kind.Fill;
+        badge.Corner = 10f;
+        badge.Outline = 0.35f;
+        badge.color = ForgeTheme.Tint(Color.white, 0.16f);
+        badge.raycastTarget = false;
+        StyleText(badgeLabel, 9f, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
+        badgeLabel.characterSpacing = 4f;
+        badge.gameObject.SetActive(false);
+
+        var content = (RectTransform)rt.Find("Content");
+        Stretch(content, ForgeTheme.PanelInset, 16f, ForgeTheme.PanelInset, ForgeTheme.PanelHeader + 14f);
+        var placeholder = content.Find("Placeholder");
+        if (placeholder != null)
+            StyleText(placeholder.GetComponent<TMP_Text>(), 16f, new Color(1f, 1f, 1f, 0.35f), FontStyles.Normal, TextAlignmentOptions.Center);
+
+        SetRefs(panel, ("subtitleText", subtitle), ("badge", badge), ("badgeText", badgeLabel));
+    }
+
+    static void StyleText(TMP_Text text, float size, Color color, FontStyles style, TextAlignmentOptions align)
+    {
+        if (ForgeTheme.Font != null)
+        {
+            text.font = ForgeTheme.Font;
+            text.fontSharedMaterial = ForgeTheme.Font.material;
+        }
+        text.fontSize = size;
+        text.color = color;
+        text.fontStyle = style;
+        text.alignment = align;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Ellipsis;
+        text.raycastTarget = false;
+    }
+
+    // Same placement ForgePanel.LayoutHeader does at runtime: a line centered this far below the top of the header.
+    static void PlaceInHeader(RectTransform rt, float left, float centerFromTop, float height)
+    {
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(-(left + 180f), height);
+        rt.anchoredPosition = new Vector2((left - 180f) * 0.5f, -centerFromTop);
     }
 
     /// <summary>Rebuild only DeskDock.prefab (no module prefab is based on it), keeping the open scene.</summary>
@@ -288,7 +404,6 @@ public static class ForgePrefabBuilder
         so.ApplyModifiedPropertiesWithoutUndo();
     }
 
-    static Sprite Rounded() => AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
     static Sprite Knob() => AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd");
 
     static Material BaseMaterial()

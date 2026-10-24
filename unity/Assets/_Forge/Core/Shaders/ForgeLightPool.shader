@@ -44,7 +44,7 @@ Shader "Forge/LightPool"
                 // Pool: warm white at the center, the hue at 40 %, gone at 68 % (of the spill box's corner radius).
                 float S = (R + 21.3) * 1.4142;
                 float s = r / S;
-                float4 warm = float4(float3(1.0, 0.965, 0.902) * 0.45, 0.45);
+                float4 warm = float4(float3(1.0, 0.922, 0.791) * 0.45, 0.45);  // rgb(255, 246, 230), linear
                 float4 tint = float4(_Hue.rgb * _HueT, _HueT);
                 float4 pool = s < 0.4 ? lerp(warm, tint, smoothstep(0.0, 1.0, s / 0.4))
                                       : tint * (1.0 - smoothstep(0.0, 1.0, saturate((s - 0.4) / 0.28)));

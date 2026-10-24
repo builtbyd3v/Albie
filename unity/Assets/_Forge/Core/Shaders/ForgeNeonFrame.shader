@@ -49,7 +49,7 @@ Shader "Forge/NeonFrame"
                 float e = length(p / washHalf) * 0.7071;
                 float wash = e < 0.6 ? lerp(0.30, 0.18, e / 0.6) : lerp(0.18, 0.0, saturate((e - 0.6) / 0.4));
                 wash *= 1.0 - smoothstep(-6.0, 6.0, SquircleBox(p, washHalf, _Corner + 15.0));
-                Over(acc, float3(0.039, 0.047, 0.078), wash * _Wash);
+                Over(acc, float3(0.0030, 0.0036, 0.0070), wash * _Wash);  // rgb(10, 12, 20), linear
 
                 // Sheen: a faint warm band, slanted 10 deg, sliding opposite the eye's sideways offset.
                 float2 dir = float2(0.9848, -0.1736);
@@ -57,7 +57,7 @@ Shader "Forge/NeonFrame"
                 float g = dot(p, dir) / span + 0.5;
                 float eyeX = clamp(i.cameraOS.x * _Size.x / (2.0 * _Box.x), -0.5, 0.5);
                 float sheen = saturate(1.0 - abs(g - (0.5 - 0.9 * eyeX)) / 0.25);
-                Over(acc, float3(1.0, 0.973, 0.925), sheen * _Sheen * (1.0 - smoothstep(-aa, aa, d)));
+                Over(acc, float3(1.0, 0.939, 0.839), sheen * _Sheen * (1.0 - smoothstep(-aa, aa, d)));
 
                 // Frame: one line, 1.5 mm pure white on the inside edge, glows at 5 / 15 / 28 mm and an inner glow.
                 Over(acc, 1, OuterGlow(d, 0.14, 28.0, 0.0));

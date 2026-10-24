@@ -159,7 +159,7 @@ public class Workspace : MonoBehaviour
         }
 
         FoldAll();
-        foreach (var item in mode.items) openItems.Add(Spawn(item));
+        foreach (var item in mode.items) openItems.Add(Spawn(item, mode));
         LayOut(ClampEye(presence.EyeInFrame()));
         for (int i = 0; i < openItems.Count; i++)
         {
@@ -283,7 +283,7 @@ public class Workspace : MonoBehaviour
         openItems.Clear();
     }
 
-    OpenItem Spawn(WorkspaceItem item)
+    OpenItem Spawn(WorkspaceItem item, WorkspaceMode mode)
     {
         var o = new OpenItem { item = item };
         string title = string.IsNullOrEmpty(item.title) ? item.id : item.title;
@@ -331,6 +331,7 @@ public class Workspace : MonoBehaviour
         o.go.transform.SetParent(presence.Frame, false);
         if (o.panel != null)
         {
+            o.panel.SetBadge(mode.label, mode.color);
             o.defaultSize = o.panel.SizeMeters;
             o.handles = o.panel.GetComponent<PanelManipulator>();
             if (o.handles == null) o.handles = o.panel.gameObject.AddComponent<PanelManipulator>();

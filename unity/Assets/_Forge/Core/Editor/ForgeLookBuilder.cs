@@ -22,6 +22,9 @@ public static class ForgeLookBuilder
     {
         EnsureFolder(Dir);
         var font = BuildFont();
+        // Inter ships Regular only, so bold is a dilation; this much reads as semibold (panel titles), not heavy.
+        font.material.SetFloat("_WeightBold", 0.35f);
+        EditorUtility.SetDirty(font.material);
         BuildGlowText(font);
         Light("NeonFrame", "Forge/NeonFrame", 3010);
         Light("LightPool", "Forge/LightPool", 3011);
