@@ -18,6 +18,7 @@ namespace Forge.ML
         readonly List<float[]> classHistory = new List<float[]>();
         readonly List<MLProbeSample> probes = new List<MLProbeSample>();
         bool showLiveGraphs = true;
+        bool wasDone;
         int firstHistoryEpoch = 1;
         public int AccuracyEpochCount => classHistory.Count;
         public int ProbeCount => probes.Count;
@@ -54,8 +55,10 @@ namespace Forge.ML
             progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
             warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : session.Notice ?? "";
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
-            if (session.Done && showLiveGraphs) showLiveGraphs = false;
-            if (!session.Done || showLiveGraphs) { DrawLiveGraphs(); return; }
+            // Choose the default view only on a run-state transition. A refresh must preserve the user's choice.
+            if (session.Done != wasDone) showLiveGraphs = !session.Done;
+            wasDone = session.Done;
+            if (showLiveGraphs) { DrawLiveGraphs(); return; }
             MLUI.Button(summary, "Live graphs", 636, 0, 100, 22, () => { showLiveGraphs = true; Refresh(); });
             DrawEvaluation();
         }
@@ -74,6 +77,7 @@ namespace Forge.ML
                 {
                     int rr = r, cc = c; count += matrix[r,c];
                     var b = MLUI.Button(summary, matrix[r,c].ToString(), 90+c*25, 30+r*23, 23, 21, () => session.SelectPair(rr,cc));
+                    b.name = $"Confusion {r},{c}";
                     b.image.color = Color.Lerp(new Color(.12f,.17f,.24f), r == c ? new Color(.1f,.65f,.4f) : new Color(.85f,.25f,.2f), matrix[r,c]/(float)max);
                 }
                 MLUI.Text(summary, $"{r}: {session.Data.classes[r]}  {(count == 0 ? "—" : (matrix[r,r]/(float)count).ToString("P0"))}", 370, 30+r*23, 330, 23, 13);

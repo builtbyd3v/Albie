@@ -176,12 +176,27 @@ public static class MLSmokeCheck
             Require(session.Overfit, "Replay detects overfitting");
 
             var summary = dash.GetComponent<ForgePanel>().Content.Find("Evaluation");
-            Require(Array.FindAll(summary.GetComponentsInChildren<Button>(), b => b.gameObject.activeInHierarchy).Length == session.Data.classes.Length * session.Data.classes.Length, "Completion creates clickable confusion matrix");
+            Require(Array.FindAll(summary.GetComponentsInChildren<Button>(), b => b.gameObject.activeInHierarchy && b.name.StartsWith("Confusion ")).Length == session.Data.classes.Length * session.Data.classes.Length, "Completion creates clickable confusion matrix");
+            ActiveButton(summary, "Live graphs").onClick.Invoke();
+            Require(ActiveButton(summary, "Results") != null && dash.ProbeCount == 16 && dash.AccuracyEpochCount == 15, "Completed run can reopen its live graphs");
+            session.SetRunState("done", session.TotalEpochs);
+            Require(ActiveButton(summary, "Results") != null, "Refresh preserves the chosen live-graphs view");
+            ActiveButton(summary, "Results").onClick.Invoke();
+            Require(ActiveButton(summary, "Live graphs") != null, "Results button restores the confusion matrix");
             session.Restart(); Require(!session.Done && session.EpochIndex == -1, "Replay resets progress");
+            Require(ActiveButton(summary, "Results") != null, "Restart returns to live graphs");
+            var train = ActiveButton(dash.GetComponent<ForgePanel>().Content, "Train");
+            Require(train != null, "Training panel exposes Train");
+            if (!session.IsLive)
+            {
+                train.onClick.Invoke();
+                Require(!string.IsNullOrEmpty(session.Notice) && session.Notice.Contains("needs the hub"), "Train explains an unavailable hub");
+            }
             Debug.Log("[ML smoke] PASS: mock loading, panel initialization, relabel, remove, pair filtering, overfit, completion and restart.");
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
         catch (Exception error) { Debug.LogException(error); if (Application.isBatchMode) EditorApplication.Exit(1); }
     }
     static void Require(bool condition, string message) { if (!condition) throw new Exception("[ML smoke] " + message); }
+    static Button ActiveButton(Transform root, string name) => Array.Find(root.GetComponentsInChildren<Button>(), b => b.gameObject.activeInHierarchy && b.name == name);
 }
