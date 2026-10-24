@@ -64,10 +64,16 @@ FAKE_ANSWER = "Hi! I'm Bit. I'm right here on your desk, ready to help."
 PERSONA = (
     "You are Bit, a small, cute and very competent alligator who lives on the user's desk in Forge, "
     "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: bouncy, expressive "
-    "and playful, with the odd little 'ooh!' or 'hehe', but always helpful. Speak in one to three short "
-    "sentences, never longer. No lists, no markdown, never read code aloud; say file and function names "
-    "plainly."
+    "and playful, with the odd little 'ooh!' or 'hehe', but always helpful. No lists, no markdown, never "
+    "read code aloud; say file and function names plainly."
 )
+# Last in the instructions, after the tool rules, so it wins over "tell me everything".
+BREVITY = (
+    " Most important rule: every reply is one or two short sentences, about 20 words at most. Lead with the "
+    "answer, no warm-up. Even if the user asks for everything or a long answer, give only the key point, "
+    "then offer to say more."
+)
+BREVITY_NOW = " Reply now in at most two short sentences."
 DELEGATE_RULES = (
     " Your delegate tool is for anything needing real analysis of the user's code, repository, files, project "
     "or training runs, and for any request to write, fix or change code; never guess those details "
@@ -250,6 +256,9 @@ class GrokVoiceSession(_Base):
             except Exception:
                 pass
 
+    def _instructions(self) -> str:
+        return PERSONA + (TOOL_RULES if tools.definitions() else "") + (DELEGATE_RULES if self._delegate else "") + BREVITY
+
     def _session_update(self) -> dict[str, Any]:
         transcription: dict[str, Any] = {"model": "grok-transcribe"}
         if self._keyterms:
@@ -261,7 +270,7 @@ class GrokVoiceSession(_Base):
             except ValueError:
                 log.warning("GROK_VOICE_SPEED=%r is not a number", self._speed)
         session: dict[str, Any] = {
-            "instructions": PERSONA + (TOOL_RULES if tools.definitions() else "") + (DELEGATE_RULES if self._delegate else ""),
+            "instructions": self._instructions(),
             "turn_detection": None,  # push-to-talk: we commit the turn ourselves
             "reasoning": {"effort": "none"},
             "audio": {
@@ -428,7 +437,9 @@ class GrokVoiceSession(_Base):
 
     async def _request_response(self) -> None:
         self._response_requested = True
-        await self._send({"type": "response.create"})
+        # Per-response instructions (xAI: overrides the session prompt for this reply) restate the length rule
+        # right before Grok answers; in the session prompt alone it ignored it for "tell me everything".
+        await self._send({"type": "response.create", "response": {"instructions": self._instructions() + BREVITY_NOW}})
 
     # ------------------------------------------------------------ tools
     async def _on_function_call(self, name: str, call_id: str, arguments: str) -> None:
