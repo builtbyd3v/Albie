@@ -137,6 +137,7 @@ public static class CadPrefabBuilder
         });
         viewer.cgMaterial = GetMaterial("CadMarkerCG", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.25f, 0.6f, 1f)));
         viewer.cpMaterial = GetMaterial("CadMarkerCP", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.95f, 0.3f, 0.25f)));
+        go.AddComponent<CadTakeApart>();  // Inspect view: take parts off and put them back
         PrefabUtility.SaveAsPrefabAsset(go, ViewerPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(ViewerPath);
@@ -217,6 +218,12 @@ public static class CadPrefabBuilder
         var fly = NewButton("Fly", buttons, "Fly", -1f);
         var next = NewButton("Next", buttons, ">", 44f);
 
+        // The big view: Inspect / Back to desk, and Reassemble while it's up
+        var view = Row("View", ui, 48f);
+        view.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
+        var inspect = NewButton("Inspect", view, "Inspect", -1f);
+        var reassemble = NewButton("Reassemble", view, "Reassemble", -1f);
+
         var status = NewText("Status", ui, "", 15f, TextAlignmentOptions.TopLeft);
         status.color = Muted;
         status.textWrappingMode = TextWrappingModes.Normal;
@@ -232,7 +239,8 @@ public static class CadPrefabBuilder
             ("gauges", gauges), ("gaugeTemplate", gaugeTemplate), ("stats", stats), ("scroll", scroll),
             ("rows", rows), ("rowTemplate", rowTemplate), ("undoButton", undo), ("resetButton", reset),
             ("explodeButton", explode), ("flyButton", fly), ("prevButton", prev), ("nextButton", next),
-            ("explodeLabel", explode.GetComponentInChildren<TMP_Text>()), ("status", status));
+            ("explodeLabel", explode.GetComponentInChildren<TMP_Text>()), ("inspectButton", inspect),
+            ("reassembleButton", reassemble), ("inspectLabel", inspect.GetComponentInChildren<TMP_Text>()), ("status", status));
         PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);

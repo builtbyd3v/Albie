@@ -42,6 +42,13 @@ public class CadSession : MonoBehaviour
     public event Action<string> StatusChanged;
     public event Action<CadFlight> FlightReady;
 
+    /// <summary>The model is up in the big Inspect view (view only: the hub doesn't know about it).</summary>
+    public bool Inspecting { get; private set; }
+    /// <summary>Parts taken off the model in the Inspect view.</summary>
+    public int PartsOff { get; private set; }
+    public event Action InspectChanged;  // Inspecting or PartsOff changed
+    public event Action ReassembleRequested;
+
     int mockPart = -1, mockIndex = -1;
     readonly List<int> mockHistory = new List<int>();
     bool fetching;
@@ -188,6 +195,24 @@ public class CadSession : MonoBehaviour
         var view = new CadView { explode = explode, focusId = focusId };
         ApplyView(view);
         if (!IsMock) StartCoroutine(Post("/cad/view", JsonConvert.SerializeObject(view), refresh: false));
+    }
+
+    /// <summary>Bring the model up big in front of you, or send it back to the desk (CadViewer flies it).</summary>
+    public void SetInspecting(bool on)
+    {
+        if (on == Inspecting) return;
+        Inspecting = on;
+        InspectChanged?.Invoke();
+    }
+
+    /// <summary>Put every part taken off in the Inspect view back (CadTakeApart).</summary>
+    public void Reassemble() => ReassembleRequested?.Invoke();
+
+    public void SetPartsOff(int count)
+    {
+        if (count == PartsOff) return;
+        PartsOff = count;
+        InspectChanged?.Invoke();
     }
 
     public void RequestFlight()

@@ -9,6 +9,8 @@ using UnityEngine.UI;
 /// design in the hub's library: the title and a Designs menu to switch, its presets, its metrics (gauges for the
 /// ones with a range, a stats line for the rest), its parameter rows from GET /cad/params (in a scroll view, so
 /// the panel can be resized), and Undo / Reset / Explode, plus Fly for designs with a flight sim.
+/// Inspect brings the model up big in front of you (Back to desk sends it home); Reassemble puts back the parts
+/// taken off there.
 /// Releasing a slider sends POST /cad/params. In mock mode the arrows step through the stored versions.
 /// </summary>
 public class CadParamsPanel : MonoBehaviour
@@ -29,6 +31,8 @@ public class CadParamsPanel : MonoBehaviour
     [SerializeField] CadParamRow rowTemplate;
     [SerializeField] Button undoButton, resetButton, explodeButton, flyButton, prevButton, nextButton;
     [SerializeField] TMP_Text explodeLabel;
+    [SerializeField] Button inspectButton, reassembleButton;
+    [SerializeField] TMP_Text inspectLabel;
     [SerializeField] TMP_Text status;
 
     CadSession session;
@@ -49,6 +53,7 @@ public class CadParamsPanel : MonoBehaviour
         session.ViewChanged += OnViewChanged;
         session.StatusChanged += OnStatus;
         session.FlightReady += OnFlight;
+        session.InspectChanged += OnInspectChanged;
         designsButton.onClick.AddListener(TogglePicker);
         undoButton.onClick.AddListener(session.Undo);
         resetButton.onClick.AddListener(session.ResetDesign);
@@ -56,9 +61,12 @@ public class CadParamsPanel : MonoBehaviour
         flyButton.onClick.AddListener(session.RequestFlight);
         prevButton.onClick.AddListener(() => session.StepMock(-1));
         nextButton.onClick.AddListener(() => session.StepMock(1));
+        inspectButton.onClick.AddListener(() => session.SetInspecting(!session.Inspecting));
+        reassembleButton.onClick.AddListener(session.Reassemble);
         picker.gameObject.SetActive(false);
         OnStatus(session.Status);
         OnViewChanged(session.View);
+        OnInspectChanged();
         RebuildPicker();
         Refresh();
     }
@@ -71,7 +79,9 @@ public class CadParamsPanel : MonoBehaviour
         session.ViewChanged -= OnViewChanged;
         session.StatusChanged -= OnStatus;
         session.FlightReady -= OnFlight;
-        foreach (var b in new[] { designsButton, undoButton, resetButton, explodeButton, flyButton, prevButton, nextButton })
+        session.InspectChanged -= OnInspectChanged;
+        foreach (var b in new[] { designsButton, undoButton, resetButton, explodeButton, flyButton, prevButton, nextButton,
+                     inspectButton, reassembleButton })
             b.onClick.RemoveAllListeners();
     }
 
@@ -215,6 +225,13 @@ public class CadParamsPanel : MonoBehaviour
     void ToggleExplode() => session.SetView(session.View.explode != true, session.View.focusId);
 
     void OnViewChanged(CadView view) => explodeLabel.text = view.explode == true ? "Assemble" : "Explode";
+
+    void OnInspectChanged()
+    {
+        inspectLabel.text = session.Inspecting ? "Back to desk" : "Inspect";
+        reassembleButton.gameObject.SetActive(session.Inspecting);
+        reassembleButton.interactable = session.PartsOff > 0;
+    }
 
     void OnStatus(string text) => status.text = text;
 

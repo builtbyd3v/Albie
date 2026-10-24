@@ -24,8 +24,20 @@ public class VolumeManipulator : MonoBehaviour
     public bool UserPlaced { get; private set; }
     /// <summary>Set while the workspace animates the volume; grabs wait until it's done.</summary>
     public bool Busy { get; set; }
+    /// <summary>Set while the model is away from the volume (CAD's Inspect view): its grab box steps aside, the base stays.</summary>
+    public bool ModelAway
+    {
+        get => modelAway;
+        set
+        {
+            modelAway = value;
+            if (value && grab == Grab.Turn) Cancel();
+            if (modelHandle != null) modelHandle.Box.enabled = !value;
+        }
+    }
 
     ForgeVolume volume;
+    bool modelAway;
     Transform frame;
     VolumeHandle baseHandle, modelHandle;
     MeshRenderer baseRenderer;
@@ -56,6 +68,7 @@ public class VolumeManipulator : MonoBehaviour
             baseHandle = NewHandle("GrabBase", Grab.Move);
             modelHandle = NewHandle("GrabModel", Grab.Turn);
         }
+        modelHandle.Box.enabled = !modelAway;
         FitBoxes();
     }
 
