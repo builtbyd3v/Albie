@@ -69,6 +69,7 @@ namespace Forge.Pet
             "GatorMrukAdapter", "GatorSandboxNav", "PetSandboxHotkeys", "GatorSummon", "GatorFollowUp", "GatorTalkAnimator",
             "PushToTalk", "HubSpeechToText", "TypedSpeechToText", "StreamedPcmTextToSpeech", "AgentClient", "MockEventSource",
             "GatorCrew", "GatorHatchery", "WhistleButton", "DesktopRig", "SandboxRigSelector", "GatorCrewMember", "WakeListener", "GatorNameTag",
+            "ArrivalDirector",
         };
 
         public static GatorCrew Instance { get; private set; }
@@ -86,7 +87,6 @@ namespace Forge.Pet
         GatorAgentBridge _leadBridge;
         IPetEventSource _source;
         GatorHatchery _hatchery;
-        TypedSpeechToText _typed;
         Transform _staging;
         bool _wasConnected, _leadCalm, _territoriesDirty;
         float _nextLayoutCheck;
@@ -228,7 +228,7 @@ namespace Forge.Pet
             if (connected && !_wasConnected) SendRoster();      // after AgentClient's hello on (re)connect
             _wasConnected = connected;
 
-            if (!TypingInField())
+            if (!TypedSpeechToText.AnyListening)   // sandbox text box open: N / X are letters
             {
                 if (hatchAction.WasPressedThisFrame()) HatchFromKeyboard();
                 if (dismissAction.WasPressedThisFrame()) DismissLast();
@@ -489,12 +489,6 @@ namespace Forge.Pet
                 }
             }
             _scratch.Clear();
-        }
-
-        bool TypingInField()
-        {
-            if (_typed == null) _typed = FindAnyObjectByType<TypedSpeechToText>();
-            return _typed != null && _typed.IsListening;
         }
     }
 }

@@ -8,8 +8,9 @@ namespace Forge.Pet
     /// <summary>
     /// Push-to-talk: hold Space / XR primary button → Listening + STT; release → StopListening.
     /// FinalTranscript → Thinking + GatorAgentBridge.Ask(text). PartialTranscript → caption (partial).
-    /// With TypedSpeechToText the key only OPENS the input field (Enter sends, Esc cancels),
-    /// because Space must be typeable while the field is focused.
+    /// Provider: HubSpeechToText (mic over ForgeNet) in hub mode; TypedSpeechToText only exists in the sandbox scenes
+    /// (with the MockEventSource), where the key only OPENS the input field (Enter sends, Esc cancels), because Space must
+    /// be typeable while the field is focused. Nothing is ever auto-added outside hub mode.
     ///
     /// Hands-free (GatorSummon / whistle): BeginHandsFree() listens without a held key. The session ends on
     /// endSilence after speech (mic level from IMicLevel), noSpeechTimeout without any speech (cancelled), or the
@@ -44,6 +45,7 @@ namespace Forge.Pet
         float minSpeechSeconds = 0.25f;
 
         ISpeechToText _stt;
+        bool _warnedNoStt;
         bool _held;          // key physically held (hold-to-talk providers)
         bool _typedMode;     // current provider is TypedSpeechToText
         bool _handsFree;     // a hands-free session is open (until SessionEnded)
@@ -188,21 +190,31 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- push-to-talk
 
-        /// <summary>Resolves the provider lazily (config is loaded async, so EventSourceIsHub is known late).</summary>
+        /// <summary>
+        /// Resolves the provider lazily (config is loaded async, so EventSourceIsHub is known late). Hub mode: the
+        /// HubSpeechToText on this object (added if the prefab lost it). Sandbox (mock source): the TypedSpeechToText the
+        /// sandbox builder put on the gator. Nothing else is ever created; no provider = a warning, not a text box.
+        /// </summary>
         ISpeechToText ResolveProvider()
         {
             ISpeechToText wanted = sttProvider as ISpeechToText;
             if (wanted == null)
             {
+                bool hub = GatorAgentBridge.EventSourceIsHub;
                 MonoBehaviour pick = null;
-                if (GatorAgentBridge.EventSourceIsHub) pick = GetComponent<HubSpeechToText>();
-                if (pick == null) pick = GetComponent<TypedSpeechToText>();
+                if (hub) pick = GetComponent<HubSpeechToText>();
+                else pick = GetComponent<TypedSpeechToText>();
                 if (pick == null)
                 {
                     foreach (var mb in GetComponents<MonoBehaviour>())
-                        if (mb is ISpeechToText) { pick = mb; break; }
+                        if (mb is ISpeechToText && (hub || !(mb is HubSpeechToText))) { pick = mb; break; }
                 }
-                if (pick == null) pick = gameObject.AddComponent<TypedSpeechToText>(); // sandbox fallback
+                if (pick == null && hub) pick = gameObject.AddComponent<HubSpeechToText>();
+                if (pick == null && !_warnedNoStt)
+                {
+                    _warnedNoStt = true;
+                    Debug.LogWarning("[PushToTalk] No speech-to-text provider on " + name + " yet (hub mode undecided, or a sandbox gator without TypedSpeechToText).", this);
+                }
                 wanted = pick as ISpeechToText;
             }
             if (!ReferenceEquals(wanted, _stt))

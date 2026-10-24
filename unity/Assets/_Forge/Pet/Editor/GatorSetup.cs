@@ -124,6 +124,8 @@ namespace Forge.Pet.Editor
 
         // Runtime component types, resolved by full name so a missing/renamed class logs a warning
         // instead of breaking compilation of this editor script (other agents write them in parallel).
+        // Live hub only: the mic STT (HubSpeechToText) and the ForgeNet socket (AgentClient). The typed text box and
+        // the scripted MockEventSource are sandbox-only (SandboxOnlyComponents, added to the sandbox scene instances).
         static readonly string[] PrefabRuntimeComponents =
         {
             "Forge.Pet.GatorController",
@@ -132,10 +134,17 @@ namespace Forge.Pet.Editor
             "Forge.Pet.GatorCaption",
             "Forge.Pet.GatorAgentBridge",
             "Forge.Pet.PushToTalk",
-            "Forge.Pet.TypedSpeechToText",
-            "Forge.Pet.MockEventSource",
+            "Forge.Pet.HubSpeechToText",
             "Forge.Pet.AgentClient",
             MrukAdapterType, // self-sufficient: falls back to MRUK's scene-loaded callback when no DeskLocator is wired
+        };
+
+        // Added to the gator INSTANCE in PetSandbox / PetSandboxXR only (never on the prefab, never in Main):
+        // the keyboard text box behind Space and the in-Unity scripted agent (GatorAgentBridge prefers it when present).
+        static readonly string[] SandboxOnlyComponents =
+        {
+            "Forge.Pet.TypedSpeechToText",
+            "Forge.Pet.MockEventSource",
         };
 
         const string ControllerType = "Forge.Pet.GatorController";
@@ -714,10 +723,11 @@ namespace Forge.Pet.Editor
             // Desk 1.2 × 0.75 × 0.75 m, top at y = 0.75. Kept out of `obstacles`: GatorSandboxNav adds it as a hole itself.
             GameObject desk = AddProp(env, PrimitiveType.Cube, "Desk", new Vector3(0f, 0f, 2f), new Vector3(1.2f, 0.75f, 0.75f), deskMat);
 
-            // ---- Gator ----
+            // ---- Gator (+ sandbox-only typed STT and mock agent) ----
             var gator = (GameObject)PrefabUtility.InstantiatePrefab(gatorPrefab, scene);
             gator.name = "GatorAssistant";
             gator.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            AddSandboxOnlyComponents(gator);
 
             // ---- Navigation: two GatorNavSurfaces built at runtime by GatorSandboxNav ----
             var navGo = new GameObject("Navigation");
@@ -852,11 +862,12 @@ namespace Forge.Pet.Editor
             locator.head = rig.transform.Find("TrackingSpace/CenterEyeAnchor");
             if (locator.head == null) Debug.LogWarning("[GatorSetup] TrackingSpace/CenterEyeAnchor not found on OVRCameraRig; DeskLocator falls back to Camera.main.");
 
-            // ---- Gator ----
+            // ---- Gator (+ sandbox-only typed STT and mock agent) ----
             var gator = (GameObject)PrefabUtility.InstantiatePrefab(gatorPrefab, scene);
             gator.name = "GatorAssistant";
             gator.transform.SetPositionAndRotation(new Vector3(0f, 0f, 1f), Quaternion.identity);
             PrefabUtility.RecordPrefabInstancePropertyModifications(gator.transform);
+            AddSandboxOnlyComponents(gator);
 
             // ---- DeskLocator.deskFound (UnityEvent<MRUKAnchor>) -> GatorMrukAdapter.OnDeskFound ----
             string wiring = WireDeskFound(locator, gator);
@@ -937,6 +948,13 @@ namespace Forge.Pet.Editor
         // ====================================================================================
         // Scene helpers
         // ====================================================================================
+
+        /// Sandbox scenes only: the typed text box (Space) and the scripted MockEventSource go on the scene instance of
+        /// the gator, never on the prefab, so Main (PetRuntime.prefab) can only ever talk to the live hub.
+        static void AddSandboxOnlyComponents(GameObject gatorInstance)
+        {
+            foreach (string typeName in SandboxOnlyComponents) AddComponentByName(gatorInstance, typeName);
+        }
 
         static GameObject LoadOrBuildGatorPrefab()
         {
