@@ -13,7 +13,7 @@
 - Unity 6 (6000.6.7f1), URP
 - Meta XR All-in-One SDK 207, OpenXR, Meta XR Simulator
 - com.unity.webrtc (screen streaming), glTFast (runtime GLB loading)
-- Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback)
+- Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback), matplotlib (CIFAR-10 example extra chart)
 - [TEAM: add NativeWebSocket, Newtonsoft JSON, DOTween, XCharts, PyTorch, etc. once they are actually used]
 
 ## APIs and services
