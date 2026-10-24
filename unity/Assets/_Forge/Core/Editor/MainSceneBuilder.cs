@@ -18,6 +18,7 @@ public static class MainSceneBuilder
     const string ScenePath = "Assets/_Forge/Core/Main.unity";
     const string CameraRigPath = "Packages/com.meta.xr.sdk.core/Prefabs/OVRCameraRig.prefab";
     const string MrukPath = "Packages/com.meta.xr.mrutilitykit/Core/Tools/MRUK.prefab";
+    const string DesktopRoomJsonPath = "Assets/_Forge/Core/Rooms/SimLivingRoom.json";
 
     [MenuItem("Forge/Build Main Scene")]
     public static void Build()
@@ -70,9 +71,51 @@ public static class MainSceneBuilder
         workspace.volumePrefab = AssetDatabase.LoadAssetAtPath<ForgeVolume>(ForgePrefabBuilder.VolumePath);
         workspace.modes = Workspace.DefaultModes();
 
+        // Desktop mode (no headset or simulator): first-person rig, and the room drawn from MRUK's data since
+        // there's no passthrough. Saved inactive; RigSelector turns on whichever rig applies when Play starts.
+        var desktop = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.DesktopRigPath));
+        var desktopRig = desktop.GetComponent<DesktopRig>();
+        desktopRig.presence = presence;
+        desktop.SetActive(false);
+        // The room as clean blocks (the scanned global mesh is too lumpy to read), no ceiling so the sun gets in.
+        var desktopRoom = new GameObject("DesktopRoom");
+        const MRUKAnchor.SceneLabels Furniture = MRUKAnchor.SceneLabels.COUCH | MRUKAnchor.SceneLabels.BED | MRUKAnchor.SceneLabels.STORAGE
+            | MRUKAnchor.SceneLabels.OTHER | MRUKAnchor.SceneLabels.LAMP | MRUKAnchor.SceneLabels.PLANT | MRUKAnchor.SceneLabels.SCREEN;
+        const MRUKAnchor.SceneLabels Solid = MRUKAnchor.SceneLabels.WALL_FACE | MRUKAnchor.SceneLabels.INVISIBLE_WALL_FACE
+            | MRUKAnchor.SceneLabels.TABLE | MRUKAnchor.SceneLabels.COUCH | MRUKAnchor.SceneLabels.BED | MRUKAnchor.SceneLabels.STORAGE;
+        AddEffectMesh(desktopRoom.transform, "RoomFloor", MRUKAnchor.SceneLabels.FLOOR, new Color(0.34f, 0.31f, 0.29f));
+        AddEffectMesh(desktopRoom.transform, "RoomWalls", MRUKAnchor.SceneLabels.WALL_FACE, new Color(0.86f, 0.86f, 0.88f));
+        AddEffectMesh(desktopRoom.transform, "RoomTable", MRUKAnchor.SceneLabels.TABLE, new Color(0.7f, 0.53f, 0.36f));
+        AddEffectMesh(desktopRoom.transform, "RoomFurniture", Furniture, new Color(0.58f, 0.6f, 0.64f));
+        AddEffectMesh(desktopRoom.transform, "RoomColliders", Solid, Color.white, colliders: true, hide: true);
+        desktopRoom.SetActive(false);
+
+        var selector = new GameObject("RigSelector").AddComponent<RigSelector>();
+        selector.xrRig = rig;
+        selector.desktopRig = desktopRig;
+        selector.desktopRoom = desktopRoom;
+        selector.desktopRoomJson = AssetDatabase.LoadAssetAtPath<TextAsset>(DesktopRoomJsonPath);
+        selector.locator = locator;
+        selector.presence = presence;
+
         EditorSceneManager.SaveScene(scene, ScenePath);
         AddSceneToBuildSettings(ScenePath);
         Debug.Log("[MainSceneBuilder] Built " + ScenePath + ". Activate the Meta XR Simulator, pick a room, press Play, walk up to a table.");
+    }
+
+    // MRUK EffectMesh: a mesh for every room surface with these labels, spawned when the room loads.
+    static void AddEffectMesh(Transform parent, string name, MRUKAnchor.SceneLabels labels, Color color, bool colliders = false, bool hide = false)
+    {
+        var effectMesh = new GameObject(name).AddComponent<EffectMesh>();
+        effectMesh.transform.SetParent(parent, false);
+        effectMesh.MeshMaterial = ForgePrefabBuilder.RoomMaterial(name.Replace("Room", ""), color);
+        effectMesh.Labels = labels;
+        effectMesh.Colliders = colliders;
+        // Backing fields directly; the properties touch spawned meshes, which don't exist yet.
+        var so = new SerializedObject(effectMesh);
+        so.FindProperty("castShadows").boolValue = false;
+        so.FindProperty("hideMesh").boolValue = hide;
+        so.ApplyModifiedPropertiesWithoutUndo();
     }
 
     static void AddSceneToBuildSettings(string path)
