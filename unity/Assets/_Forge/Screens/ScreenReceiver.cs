@@ -10,10 +10,13 @@ using UnityEngine;
 /// Shows a laptop window, streamed over WebRTC by screen-bridge/index.html, on this object's <see cref="ScreenSurface"/>.
 /// Signaling goes through screen-bridge/signaling.py: we send "ready", the page sends an offer,
 /// we reply with an answer. ICE candidates ride inside the SDP, so there are no candidate messages.
+/// Exception to "go through ForgeNet": video and JPEG frames aren't hub events, so the stream keeps its own
+/// sockets to the screen-bridge servers. Only the address is shared (see <see cref="OnHubHost"/>).
+/// ponytail: signaling could move onto the hub's /ws later; the video itself can't.
 /// </summary>
 public class ScreenReceiver : MonoBehaviour
 {
-    [Tooltip("screen-bridge/signaling.py. On the Quest, use the laptop's IP instead of localhost.")]
+    [Tooltip("screen-bridge/signaling.py. localhost means: the laptop in ForgeNet's hubUrl.")]
     public string signalingUrl = "ws://localhost:8766";
 
     [Tooltip("No video after this many seconds: switch to a JpegScreenReceiver on this object, if there is one.")]
@@ -44,8 +47,9 @@ public class ScreenReceiver : MonoBehaviour
             {
                 try
                 {
-                    await ws.ConnectAsync(new Uri(signalingUrl), default);
-                    Debug.Log("[ScreenReceiver] Connected to " + signalingUrl);
+                    var url = OnHubHost(signalingUrl);
+                    await ws.ConnectAsync(new Uri(url), default);
+                    Debug.Log("[ScreenReceiver] Connected to " + url);
                     Send("ready", null);
                     await ReceiveLoop();
                 }
@@ -56,6 +60,15 @@ public class ScreenReceiver : MonoBehaviour
             }
             await Task.Delay(2000);
         }
+    }
+
+    // One address to set on the Quest: ForgeNet's hubUrl (or its PlayerPrefs override). The screen-bridge servers
+    // run on the same laptop as the hub, so a localhost url gets the hub's host and keeps its own port.
+    public static string OnHubHost(string url)
+    {
+        var own = new Uri(url);
+        if (!own.IsLoopback || ForgeNet.Instance == null) return url; // Instance is null outside Play mode
+        return new UriBuilder(own) { Host = new Uri(ForgeNet.Url("/")).Host }.Uri.ToString();
     }
 
     // Awaits resume on the main thread (Unity's SynchronizationContext), so starting coroutines here is safe.
