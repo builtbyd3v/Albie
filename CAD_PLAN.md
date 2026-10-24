@@ -7,6 +7,8 @@
 
 **Status 2026-10-24 (round 2, `HANDOFF_CAD.md` 4.1 + 4.6):** **Model library done.** Every part script in `hub/cad/parts/` is a design (rocket, quadcopter, gearbox; copy `_template.py` for a new one), each with its own history, presets and metrics; switch over REST, from the panel's Designs menu, or through Bit's `cad_open_part`. The right panel is generic (title + Designs, presets, a gauge per ranged metric, scrolling rows, Fly only for the rocket) and 0.6 m tall. 26 hub tests. Endpoints and event fields below (section 5). Next in the handoff: take it apart (4.3), the drawing (4.5), the big view (4.4).
 
+**Status 2026-10-24 (round 3, `HANDOFF_CAD_3.md` 4.4 + 4.3 + 4.5):** **Inspect, take apart and the drawing done** (sandbox and desktop mode; XR simulator not yet tried). **Inspect** (panel button, key I) flies the model to a stage in front of the eyes, fitted to a 0.6 m box in front of the VS Code screen, turned to show a corner; Back to desk flies it home. **Take apart** works only there: hover outlines a part and shows a card (name, material, mass), grab with the mouse or a controller / hand ray, Shift+drag (mouse) or twist (rays) to turn, drop near its place to snap back, Reassemble. View only. Core change: `VolumeManipulator.ModelAway` (Hudson OK'd). **Drawing:** the hub draws each version as an A3 engineering sheet (`GET /cad/drawing.png`, `.svg`; `hub/cad/drawing.py`), and `CadDrawingPanel.prefab` (slot `cad-drawing`) shows it; tap to zoom. Waiting on Core: slotting `cad-drawing` in place of `cad-timeline` (`Workspace.DefaultModes` + `MainSceneBuilder`). 34 hub tests. How-tos: the CAD README ("Inspect", "Take it apart", "The drawing panel").
+
 ---
 
 ## 1. Decision
@@ -80,6 +82,18 @@ Rules:
 ## 5. Proposed contract additions (section 7)
 
 All implemented in `hub/cad/router.py` and `hub/events.py`. Omit `v` for the current version (`no-store`); with `v` the file is immutable and cacheable.
+
+Round 3 (the drawing; Inspect and take apart are Unity only, no contract change):
+
+```
+GET  /cad/drawing.png?v={version}     -> image/png, 2048 x 1448 A3 engineering drawing: front, top, right + iso views,
+                                         overall dimensions, parts list, title block; orange = changed since the
+                                         version's parent. Made on the first request (reuses the build just made), cached.  NEW
+GET  /cad/drawing.svg?v={version}     -> image/svg+xml, the same sheet                                                     NEW
+     Same headers as /cad/model.glb (no-store without v, immutable with v, X-Forge-Version). 404 unknown v; 409 if built
+     from an older part script and not drawn yet; 500 with the cad.regen_failed body (source "drawing") if it fails.
+Panel ID: cad-drawing (replaces cad-timeline, left).
+```
 
 Round 2 (model library; all act on the open design unless they say otherwise):
 

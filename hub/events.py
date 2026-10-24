@@ -1,7 +1,8 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
-Every message is {"type": ..., "payload": {...}}. Minimal skeleton: only the CAD events and ui.highlight
-exist so far; add the other modules' models from PROJECT_CONTEXT section 7 next to these.
+Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event and
+the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8). The ML and pet models from section 7 still belong to their
+owners; add them next to these.
 """
 from __future__ import annotations
 
@@ -88,6 +89,84 @@ class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
     class_idx: int | None = None
+
+
+class SlackMessage(BaseModel):
+    """One Slack message as the hub saw it. Payload of notify.message; also what /messages/* return."""
+    channel: str
+    channel_name: str
+    is_dm: bool = False               # a DM to the user (channel_name is "dm")
+    user: str
+    user_name: str
+    text: str
+    ts: str                           # Slack message ts; reply thread key
+    thread_ts: str | None = None
+    mentions_me: bool = False         # a DM, or the text contains <@the user's id>
+
+
+NotifyMessage = SlackMessage          # same name as the C# DTO
+
+
+class Draft(BaseModel):
+    """A reply Bit wrote but has NOT sent. Payload of notify.draft; Unity shows it as a Send / Cancel card.
+
+    Nothing reaches Slack until POST /messages/drafts/{id}/send (the card's Send button) or the
+    messages_confirm tool ("yes, send it"). Posting uses the user's own token, so it lands under their name.
+    """
+    draft_id: str
+    channel: str
+    channel_name: str
+    text: str
+    thread_ts: str | None = None
+    reply_to: SlackMessage | None = None
+
+
+class NotifySent(BaseModel):
+    draft_id: str | None = None
+    channel: str
+    channel_name: str
+    text: str
+    ts: str
+
+
+class NotifyDraftCancelled(BaseModel):
+    draft_id: str
+    reason: str = "cancelled"         # cancelled | superseded | expired
+
+
+def digest_line(count: int, mentions: int) -> str:
+    """The one sentence Bit says on sit-down. Empty when there is nothing new."""
+    if count <= 0:
+        return ""
+    msgs = "1 new message" if count == 1 else f"{count} new messages"
+    if mentions <= 0:
+        return f"You have {msgs}."
+    if count == 1:
+        return f"You have {msgs}, and it mentions you."
+    if mentions >= count:
+        who = "both" if count == 2 else "all of them"
+        return f"You have {msgs}, {who} mention you."
+    verb = "mentions" if mentions == 1 else "mention"
+    return f"You have {msgs}, {mentions} {verb} you."
+
+
+class NotifyDigest(BaseModel):
+    """Unread summary sent when the user sits down: counts, the spoken line, newest messages (capped)."""
+    count: int
+    mentions: int
+    line: str
+    messages: list[SlackMessage] = []
+
+    @classmethod
+    def build(cls, messages: list[SlackMessage], cap: int = 4) -> "NotifyDigest":
+        newest_first = sorted(messages, key=lambda m: float(m.ts), reverse=True)
+        mentions = sum(1 for m in messages if m.mentions_me)
+        return cls(
+            count=len(messages),
+            mentions=mentions,
+            line=digest_line(len(messages), mentions),
+            messages=newest_first[:cap],
+        )
 
 
 class EventBus:

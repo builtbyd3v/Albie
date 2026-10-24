@@ -15,6 +15,7 @@ public sealed class CadModel : IDisposable
 {
     public int Version { get; private set; }
     public GameObject Root { get; private set; }
+    public CadMetadata Metadata { get; private set; }  // name, material, mass per object (the take-apart card)
     public readonly Dictionary<string, GameObject> objects = new Dictionary<string, GameObject>();
     public readonly List<string> partIds = new List<string>();  // leaf parts (have meshes)
 
@@ -38,7 +39,7 @@ public sealed class CadModel : IDisposable
                 throw new InvalidDataException("glTFast could not instantiate the GLB scene.");
             token.ThrowIfCancellationRequested();
 
-            var model = new CadModel { Version = version, Root = root, import = import };
+            var model = new CadModel { Version = version, Root = root, Metadata = metadata, import = import };
             foreach (var pair in metadata.NodeIndices)
             {
                 if (!instantiator.TryGetNode(pair.Value, out var node))

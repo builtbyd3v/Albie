@@ -37,6 +37,11 @@ namespace Forge.Pet
         public event Action<string> PartialTranscript;
         public event Action<string> FinalTranscript;
         public event Action<string> Error;
+        /// <summary>Raised just before this starts the mic, so an always-on listener (WakeListener) can let go of it.</summary>
+        public static event Action MicNeeded;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => MicNeeded = null;
 
         public string PetId { get => petId; set => petId = value; }
 
@@ -102,6 +107,7 @@ namespace Forge.Pet
         bool StartMic()
         {
             if (Microphone.devices == null || Microphone.devices.Length == 0) { Error?.Invoke("no microphone"); return false; }
+            MicNeeded?.Invoke();                       // an always-on WakeListener lets go of the mic first
 
             // Ask for 16 kHz; some devices only offer other rates, so we resample on the fly.
             Microphone.GetDeviceCaps(null, out int minF, out int maxF);

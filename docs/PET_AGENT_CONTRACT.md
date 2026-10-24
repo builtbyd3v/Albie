@@ -272,3 +272,74 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
 - **Bubble:** `GatorCaption` draws a rounded pastel-green bubble with a green outline and green text in Fredoka
   (`Resources/PetFonts/Fredoka-Medium.ttf`, OFL, dynamic TMP font).
 - **Cartoon voice:** `StreamedPcmTextToSpeech.pitch` (default 1.2) plays speech higher and faster; hub `GROK_VOICE_SPEED` ≈ 1/pitch keeps the pace.
+
+## Addendum D (2026-10-24): Bit's crew (extra gators, one per agent type), areas, restful idling
+
+**Agent types** (ids are pet_ids; at most one gator per type). The hub owns the prompt and tools
+(`hub/agent/crew.py` `TYPES`), Unity the look (`Crew/GatorAgentTypes.cs`). Keep ids, names and roles in sync.
+
+| id | role | kit | size vs Bit | hat |
+|---|---|---|---|---|
+| scout | maps the codebase and finds where things live | read-only | 0.88 | antenna, teal |
+| builder | builds new features end to end | code | 1.12 | hard hat, orange |
+| fixer | hunts down bugs and fixes the root cause | code | 0.90 | bandana, red |
+| tester | writes and runs tests (test files only) | code | 0.86 | visor, yellow |
+| reviewer | reviews branches and diffs for bugs | read-only + git read | 1.10 | beanie, purple |
+| scribe | writes docs, READMEs and comments | edit/write, no shell | 0.87 | top hat, blue |
+| shipper | handles git, changelogs and PR write-ups (never pushes) | code | 1.14 | captain cap, white |
+| designer | tweaks the rocket CAD design | read + CAD tools | 0.89 | bow, pink |
+| sentinel | audits the code for security problems | read-only + git read | 1.15 | helmet, navy |
+
+**Messages** (additive; old clients ignore them):
+
+| direction | type | payload |
+|---|---|---|
+| client → hub | `crew.roster` | `{members: [{pet_id, agent_type}]}`: every crew gator in Unity, sent after each change and on every (re)connect |
+| hub → clients | `crew.spawn` | `{agent_type}`: hatch it (Bit's `spawn_agent` / `assign_task`) |
+| hub → clients | `crew.dismiss` | `{pet_id}`: send it home (Bit's `dismiss_agent`) |
+
+* `agent.ask` / `agent.cancel` with a crew `pet_id` run or stop **that member's** background turn. Bit's turn is never
+  touched. All `agent.*` / `pet.state` events of that turn carry the member's `pet_id`.
+* Every `GatorAgentBridge` now ignores events whose `pet_id` isn't its own (Bit = `pet_config.json` petId).
+* Crew code tasks run in a git worktree (`<repo>-crew/<agent>-<id>`, branch `pet/<agent>/<slug>-<id>`) and are
+  committed there; `git push`, `checkout`, `switch`, `reset`, `merge`, `rebase`, `stash` and `worktree` are denied.
+* Bit's lead-only tools: `spawn_agent {type}`, `assign_task {agent, task, mode?}`, `dismiss_agent {agent}`,
+  `crew_status {}`. In voice mode, Bit speaks "<Name> says: <summary>" when a member finishes.
+
+**Unity** (`Forge/Pet/7. Add Agent Crew To Open Scene`):
+
+* `GatorCrew`: `Spawn(type, at?)`, `Dismiss(petIdOrName)`, `DismissLast()`, `Members`, `Changed`. A crew gator is a
+  copy of `crewPrefab` (GatorAssistant) with the Bit-only parts stripped before any Awake runs (mic, whistle, voice,
+  AgentClient, MRUK adapter...). Its bridge shares Bit's event source (`UseSharedSource`). Keys: N hatch, X send
+  the last one home.
+* `GatorHatchery`: egg on the desk's near-left corner (the whistle has the right one). Press the egg to hatch the
+  type on the label, or to send it home if it's already out; press the arrow for the next type.
+* Areas: with a crew, every gator (Bit included) owns a strip of the desk with **equal walkable area** (the
+  keep-out doesn't count; `GatorTerritories.Split`), nearest the user first: Bit, then the crew in hatch order.
+  Strips narrower than `minStripWidth` (0.16 m) overflow onto the floor. `scope = Floor` splits the floor instead.
+  `GatorController.SetTerritory` / `ClearTerritory`: wander points and WanderAway stay inside it, and a gator
+  elsewhere walks or hops back. Crew gators think and work at the front of their own area
+  (`StayInTerritoryWhenBusy`); Bit still comes to the user. Solo Bit (no crew) behaves exactly as before.
+* Restful idling while a crew exists (all gators): long rests 85 % of pauses for 6-16 s, runs 8 %, short pauses
+  2.5-6 s (`GatorController.SetIdleProfile`). Bit's own profile comes back when the crew is gone.
+
+## Addendum E (2026-10-24): say a gator's name and it listens (always-on VAD)
+
+* Unity `WakeListener` (on Bit, added by `Forge/Pet/7`): the mic stays on and an energy VAD (adaptive noise floor)
+  cuts speech into segments. Each segment is a normal turn marked `stt.start {wake: true, pet_id?}`: 0.5 s of
+  pre-roll, PCM16 16 kHz, then `stt.stop`. A segment with less than 0.35 s of speech gets `stt.cancel` before
+  `stt.stop`. The listener pauses and releases the mic while push-to-talk or hands-free owns it
+  (`HubSpeechToText.MicNeeded`), while Bit is speaking (so he can't wake his crew by saying their names) and while
+  the hub is offline.
+* Hub (`agent/wake.py`): a wake turn's `stt.*` is held back until the transcript names a gator, either at the start
+  (after an optional "hey / ok / hi / yo") or at the end after a comma ("thanks, Bit"). "wait a bit" wakes nobody.
+  * `"Hey Bit, <request>"` → Bit's `stt.final`, then Bit answers (voice: Grok responds to the turn; text: agent.ask).
+  * `"<Crew name>, <request>"` → that gator's `stt.final` + `crew.assign` (hatched first if needed).
+  * `"Hey <name>"` alone → **`wake.listen {pet_id}`** (hub → that socket only). Bit: Unity opens a hands-free turn.
+    A crew gator turns to Listening, and the next segment is sent with `pet_id` = that gator and needs no name (8 s).
+  * nobody named → nothing is emitted. In voice mode the committed item is deleted (`conversation.item.delete`), so
+    room chatter never reaches Bit's conversation. A wake turn never barges in on Bit's speech.
+* Privacy and cost: in voice mode (`VOICE_PROVIDER=grok`) every speech segment the headset hears is sent to xAI to
+  be transcribed, so the Grok session stays open while people talk. With `VOICE_PROVIDER=none` and
+  `STT_PROVIDER=whisper` the segments are transcribed locally instead.
+

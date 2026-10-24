@@ -68,13 +68,24 @@ def _error_line(script: Path, tb: str) -> int | None:
     return int(lines[-1]) if lines else None
 
 
-def build_part(script: Path, supplied: dict[str, Any]):
+_last_build: tuple[tuple[str, str, str], BuildResult] | None = None   # (script, sha, params) -> result
+
+
+def build_part(script: Path, supplied: dict[str, Any], reuse: bool = False):
+    """Load the script and build it. With `reuse`, the last build comes back if it was the same script text and
+    parameters (a drawing requested right after a regen skips the rebuild)."""
+    global _last_build
     module = load_part(script)
     values, clamped = resolve_params(module.PARAMS, supplied)
+    key = (str(script), script_sha(script), json.dumps(values, sort_keys=True, default=str))
+    if reuse and _last_build is not None and _last_build[0] == key:
+        return module, values, clamped, _last_build[1]
+    _last_build = None
     result = module.build(values)
     if not isinstance(result, BuildResult):
         raise TypeError("build(params) must return a BuildResult")
     result.params = values
+    _last_build = (key, result)
     return module, values, clamped, result
 
 
@@ -85,7 +96,7 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
     script, out_dir = Path(job["script"]), Path(job["out_dir"])
     try:
         t0 = time.perf_counter()
-        module, values, clamped, result = build_part(script, job.get("params", {}))
+        module, values, clamped, result = build_part(script, job.get("params", {}), reuse=job["op"] == "drawing")
         t_build = time.perf_counter()
         if job["op"] == "stl":
             from build123d import export_stl
@@ -100,6 +111,12 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
             flight = simulate(result, masses)
             (out_dir / "flight.json").write_text(json.dumps(flight, indent=2), encoding="utf-8")
             return {"ok": True, "flight": flight}
+        if job["op"] == "drawing":
+            from cad.drawing import draw
+            timings = draw(result, masses, out_dir, title=part_info(module, script)["title"], part=script.stem,
+                           version=job.get("version"), created_at=job.get("created_at"),
+                           highlight=job.get("highlight", ()))
+            return {"ok": True, "timings_ms": {"build": round((t_build - t0) * 1000), **timings}}
         analysis = analyze(result, masses, getattr(module, "analyze", None))
         info = part_info(module, script)
         exported = export_part(result, out_dir, part=info["part"], params=values, masses=masses)
@@ -120,6 +137,10 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
 
 def worker_main(conn) -> None:
     import build123d  # noqa: F401 - warm the OCCT import before reporting ready
+    try:
+        import cad.drawing  # noqa: F401 - and matplotlib (a second or two), so the first drawing doesn't wait
+    except ImportError:
+        pass  # the drawing op reports it; builds still work
     conn.send({"ready": True})
     while True:
         try:
