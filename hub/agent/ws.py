@@ -87,7 +87,10 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
     async def send_owner(event: Event) -> None:
         await bus.send(ws, event)
 
-    s.wake = WakeRouter(lead_pet_id=s.pet_id, emit_for=lambda pid: Emitter(pid), send_owner=send_owner, spawn=s.spawn)
+    # Wake turns carry no pet.state companions: room chatter must not make a gator look like it is listening. The
+    # router sends pet.state listening itself once a segment is addressed to a gator.
+    s.wake = WakeRouter(lead_pet_id=s.pet_id, emit_for=lambda pid: Emitter(pid, companion=False), send_owner=send_owner,
+                        spawn=s.spawn)
     log.info("ws connected (%d total)", bus.count)
     try:
         while True:

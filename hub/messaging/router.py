@@ -102,5 +102,5 @@ async def focus(req: FocusRequest, svc: SlackService = Depends(enabled)) -> Slac
 
 @router.post("/digest", response_model=NotifyDigest)
 async def digest(req: DigestRequest | None = None, svc: SlackService = Depends(service)) -> NotifyDigest:
-    """Unity calls this when DeskPresence goes Seated. Works with Slack disabled too (empty digest, Bit stays quiet)."""
+    """Unity calls this on the first arrival at the desk. Works with Slack disabled too (count 0, Bit says there is nothing new)."""
     return await svc.digest((req or DigestRequest()).pet_id)

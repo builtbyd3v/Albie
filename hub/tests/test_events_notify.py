@@ -19,7 +19,7 @@ def _msg(ts: str, mentions_me: bool = False, text: str = "hi") -> SlackMessage:
 @pytest.mark.parametrize(
     ("count", "mentions", "line"),
     [
-        (0, 0, ""),
+        (0, 0, "You have no new messages today."),
         (1, 0, "You have 1 new message."),
         (3, 0, "You have 3 new messages."),
         (1, 1, "You have 1 new message, and it mentions you."),
@@ -68,9 +68,9 @@ def test_digest_build_sorts_by_numeric_ts_not_string() -> None:
     assert [m.ts for m in digest.messages] == ["1000.000000"]
 
 
-def test_digest_build_empty_is_quiet() -> None:
+def test_digest_build_empty_still_has_a_line() -> None:
     digest = NotifyDigest.build([])
-    assert digest.model_dump() == {"count": 0, "mentions": 0, "line": "", "messages": []}
+    assert digest.model_dump() == {"count": 0, "mentions": 0, "line": events.NO_NEW_MESSAGES, "messages": []}
 
 
 def test_imports_worktree_copy() -> None:
