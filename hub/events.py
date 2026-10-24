@@ -1,7 +1,8 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
-Every message is {"type": ..., "payload": {...}}. Minimal skeleton: only the CAD events and ui.highlight
-exist so far; add the other modules' models from PROJECT_CONTEXT section 7 next to these.
+Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event and
+the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8). The ML and pet models from section 7 still belong to their
+owners; add them next to these.
 """
 from __future__ import annotations
 
@@ -70,6 +71,63 @@ class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
     class_idx: int | None = None
+
+
+class SlackMessage(BaseModel):
+    """One Slack message as the hub saw it. Payload of notify.message; also what /messages/* return."""
+    channel: str
+    channel_name: str
+    user: str
+    user_name: str
+    text: str
+    ts: str                           # Slack message ts; reply thread key
+    thread_ts: str | None = None
+    mentions_me: bool = False         # text contains <@SLACK_USER_ID>
+
+
+NotifyMessage = SlackMessage          # same name as the C# DTO
+
+
+class NotifySent(BaseModel):
+    channel: str
+    channel_name: str
+    text: str
+    ts: str
+
+
+def digest_line(count: int, mentions: int) -> str:
+    """The one sentence Bit says on sit-down. Empty when there is nothing new."""
+    if count <= 0:
+        return ""
+    msgs = "1 new message" if count == 1 else f"{count} new messages"
+    if mentions <= 0:
+        return f"You have {msgs}."
+    if count == 1:
+        return f"You have {msgs}, and it mentions you."
+    if mentions >= count:
+        who = "both" if count == 2 else "all of them"
+        return f"You have {msgs}, {who} mention you."
+    verb = "mentions" if mentions == 1 else "mention"
+    return f"You have {msgs}, {mentions} {verb} you."
+
+
+class NotifyDigest(BaseModel):
+    """Unread summary sent when the user sits down: counts, the spoken line, newest messages (capped)."""
+    count: int
+    mentions: int
+    line: str
+    messages: list[SlackMessage] = []
+
+    @classmethod
+    def build(cls, messages: list[SlackMessage], cap: int = 4) -> "NotifyDigest":
+        newest_first = sorted(messages, key=lambda m: float(m.ts), reverse=True)
+        mentions = sum(1 for m in messages if m.mentions_me)
+        return cls(
+            count=len(messages),
+            mentions=mentions,
+            line=digest_line(len(messages), mentions),
+            messages=newest_first[:cap],
+        )
 
 
 class EventBus:
