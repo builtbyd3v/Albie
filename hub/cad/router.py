@@ -121,6 +121,12 @@ def versions(cad: CadService = Depends(service)):
             for r in cad.versions()]
 
 
+@router.get("/latest")
+def latest(request: Request):
+    """{"cad.model_updated": payload, "cad.view": payload}: the WS state, for clients that poll instead."""
+    return request.app.state.bus.latest("cad.")
+
+
 @router.post("/view")
 async def view(body: CadView, request: Request, cad: CadService = Depends(service)):
     """UI-only: explode the assembly or focus a part. Doesn't change the design."""

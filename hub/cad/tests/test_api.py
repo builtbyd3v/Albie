@@ -83,6 +83,9 @@ def test_param_validation(client):
 def test_view_and_versions(client):
     assert client.post("/cad/view", json={"explode": True, "focus_id": "FIN_1"}).json() == {"ok": True}
     assert client.post("/cad/view", json={"focus_id": "WING"}).status_code == 404
+    latest = client.get("/cad/latest").json()
+    assert latest["cad.view"] == {"explode": True, "focus_id": "FIN_1"}
+    assert latest["cad.model_updated"]["version"] == client.get("/cad/params").json()["version"]
     versions = client.get("/cad/versions").json()
     assert sum(v["head"] for v in versions) == 1 and versions[0]["parent"] is None
 

@@ -1,0 +1,265 @@
+{
+  "schemaVersion": "1.0",
+  "project": {
+    "id": "FORGE_ROCKET",
+    "name": "rocket",
+    "rootObjectId": "ROCKET",
+    "units": {
+      "length": "m",
+      "mass": "kg",
+      "angle": "deg"
+    }
+  },
+  "coordinateSystem": "part axes (Z-up, tail at z=0); the GLB root node rotates them to glTF Y-up",
+  "provenance": {
+    "synthetic": false,
+    "source": "forge hub/cad (build123d)",
+    "sourceGlbSha256": "1e37f18b6f45ab5ca1879580e4246668a8136dab55d7727500c55661c863f448"
+  },
+  "objects": [
+    {
+      "id": "ROCKET",
+      "name": "rocket",
+      "type": "assembly",
+      "glbNodeIndex": 0,
+      "parentId": null,
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {
+        "body_length": "300.0",
+        "body_diameter": "40.0",
+        "nose_length": "90.0",
+        "nose_shape": "ogive",
+        "fin_count": "3",
+        "fin_root": "42.0",
+        "fin_tip": "21.0",
+        "fin_span": "36.0",
+        "fin_sweep": "21.0"
+      },
+      "childIds": [
+        "NOSE_CONE",
+        "BODY_TUBE",
+        "MOTOR_MOUNT",
+        "FIN_SET"
+      ]
+    },
+    {
+      "id": "NOSE_CONE",
+      "name": "nose_cone",
+      "type": "part",
+      "glbNodeIndex": 1,
+      "parentId": "ROCKET",
+      "material": {
+        "assigned": true,
+        "name": "polystyrene",
+        "density": 1050.0
+      },
+      "mass": 0.012223,
+      "volume": 6.1162753e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0,
+        -0.0,
+        0.334409
+      ]
+    },
+    {
+      "id": "BODY_TUBE",
+      "name": "body_tube",
+      "type": "part",
+      "glbNodeIndex": 2,
+      "parentId": "ROCKET",
+      "material": {
+        "assigned": true,
+        "name": "paper",
+        "density": 700.0
+      },
+      "mass": 0.020689,
+      "volume": 2.9556104e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        -0.0,
+        0.15
+      ]
+    },
+    {
+      "id": "MOTOR_MOUNT",
+      "name": "motor_mount",
+      "type": "assembly",
+      "glbNodeIndex": 3,
+      "parentId": "ROCKET",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "MOUNT_TUBE",
+        "CENTERING_RING_AFT",
+        "CENTERING_RING_FWD"
+      ]
+    },
+    {
+      "id": "MOUNT_TUBE",
+      "name": "mount_tube",
+      "type": "part",
+      "glbNodeIndex": 4,
+      "parentId": "MOTOR_MOUNT",
+      "material": {
+        "assigned": true,
+        "name": "paper",
+        "density": 700.0
+      },
+      "mass": 0.001571,
+      "volume": 2.244354e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        -0.0,
+        0.038
+      ]
+    },
+    {
+      "id": "CENTERING_RING_AFT",
+      "name": "centering_ring_aft",
+      "type": "part",
+      "glbNodeIndex": 5,
+      "parentId": "MOTOR_MOUNT",
+      "material": {
+        "assigned": true,
+        "name": "plywood",
+        "density": 680.0
+      },
+      "mass": 0.001766,
+      "volume": 2.596691e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        0.0,
+        0.0045
+      ]
+    },
+    {
+      "id": "CENTERING_RING_FWD",
+      "name": "centering_ring_fwd",
+      "type": "part",
+      "glbNodeIndex": 6,
+      "parentId": "MOTOR_MOUNT",
+      "material": {
+        "assigned": true,
+        "name": "plywood",
+        "density": 680.0
+      },
+      "mass": 0.001766,
+      "volume": 2.596691e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        0.0,
+        0.0695
+      ]
+    },
+    {
+      "id": "FIN_SET",
+      "name": "fin_set",
+      "type": "assembly",
+      "glbNodeIndex": 7,
+      "parentId": "ROCKET",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3"
+      ]
+    },
+    {
+      "id": "FIN_1",
+      "name": "fin_1",
+      "type": "part",
+      "glbNodeIndex": 8,
+      "parentId": "FIN_SET",
+      "material": {
+        "assigned": true,
+        "name": "balsa",
+        "density": 160.0
+      },
+      "mass": 0.000581,
+      "volume": 3.6288e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.036,
+        0.0,
+        0.016333
+      ]
+    },
+    {
+      "id": "FIN_2",
+      "name": "fin_2",
+      "type": "part",
+      "glbNodeIndex": 9,
+      "parentId": "FIN_SET",
+      "material": {
+        "assigned": true,
+        "name": "balsa",
+        "density": 160.0
+      },
+      "mass": 0.000581,
+      "volume": 3.6288e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.018,
+        0.031177,
+        0.016333
+      ]
+    },
+    {
+      "id": "FIN_3",
+      "name": "fin_3",
+      "type": "part",
+      "glbNodeIndex": 10,
+      "parentId": "FIN_SET",
+      "material": {
+        "assigned": true,
+        "name": "balsa",
+        "density": 160.0
+      },
+      "mass": 0.000581,
+      "volume": 3.6288e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.018,
+        -0.031177,
+        0.016333
+      ]
+    }
+  ],
+  "mates": [],
+  "interferences": []
+}
