@@ -11,7 +11,7 @@ import logging
 from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 log = logging.getLogger("forge.events")
 
@@ -27,6 +27,98 @@ class CadMetric(BaseModel):
     max: float | None = None
     bands: list[dict[str, Any]] = []  # gauge colours, ascending: [{to, status}]
     note: str = ""                    # one word for the gauge's chip (e.g. "stable")
+
+
+# What Unity draws on and around the model (CAD_PLAN section 5, round 4; hub/cad/scene.py). Positions are in the
+# model frame: the GLB's glTF scene space (metres, Y up, origin at the part's origin, like cg_gltf); directions are
+# unit vectors in it. Unity (glTFast flips X): [x, y, z] -> new Vector3(-x, y, z) under CadModel.Root.
+
+class CadMarker(BaseModel):
+    id: str                           # "cg" on every design; "cp", "thrust", "input", "output", ...
+    label: str
+    kind: str = ""                    # cg | cp | thrust | input | output | ...: picks the marker's style
+    pos: list[float]
+
+
+class CadDimension(BaseModel):
+    """A callout: value_mm measured from `from` to `to` (points on the model); draw the line offset_mm (design mm)
+    along offset_dir, with extension lines back to the points."""
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
+    id: str
+    label: str
+    value_mm: float
+    from_: list[float] = Field(alias="from")
+    to: list[float]
+    offset_dir: list[float] | None = None
+    offset_mm: float | None = None
+
+
+class CadExplodePart(BaseModel):
+    id: str                           # a leaf part (CadPart.id); every leaf part has one
+    dir: list[float]                  # unit
+    dist_mm: float                    # at design size; 0 = stays put
+    order: int = 0                    # stagger: 0 moves first
+
+
+class CadExplode(BaseModel):
+    axis: str = "auto"                # stack | radial | shaft | auto
+    parts: list[CadExplodePart] = []
+
+
+class CadMassItem(BaseModel):
+    id: str                           # assembly / part id, or a key for a group or a point mass
+    label: str
+    mass_g: float
+    share: float = 0.0                # of analysis.mass_g
+    part_ids: list[str] = []          # the parts to highlight; [] for a point mass (motor, parachute)
+
+
+class CadAxis(BaseModel):
+    origin: list[float]
+    dir: list[float]
+
+
+class CadSpinPart(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    origin: list[float]               # a point on the spin axis
+    dir: list[float]                  # unit
+    rpm: float                        # signed: + is counter-clockwise seen from the tip of dir (right-hand rule)
+    spin: str = ""                    # ccw | cw (seen from the tip of dir) | none
+    rel_speed: float | None = None    # spin: speed relative to the input, signed
+    motor_id: str | None = None       # hover: the motor under this prop
+    radius_mm: float | None = None    # design mm: a prop's swept radius, a gear's pitch radius, a shaft's radius
+
+
+class CadDemo(BaseModel):
+    """What the demo button does. kind: launch (fly the samples from GET `source`), hover, spin, none."""
+    model_config = ConfigDict(extra="allow")
+    kind: str = "none"
+    label: str = ""                   # the button: Fly | Hover | Run
+    note: str = ""                    # one plain sentence
+    source: str | None = None         # launch: "/cad/flight" (add ?v=version)
+    axis: CadAxis | None = None       # launch / lift direction, or the input shaft
+    values: dict[str, float] = {}     # numbers for the animation (hover_rpm, ratio, ...)
+    spin_parts: list[CadSpinPart] = []
+    readouts: list[CadMetric] = []
+    assumptions: list[str] = []
+    blocked: str | None = None        # why it can't run (button disabled, reason as its tooltip), else null
+    reveal_ids: list[str] = []        # parts to lift / turn to glass while it runs and on the stage (the gearbox lid)
+
+
+class CadVerdict(BaseModel):
+    """The panel's answer ("Will it fly?"), from the design's metrics."""
+    status: str = "ok"                # ok | warn | bad (the metrics' vocabulary)
+    headline: str = ""                # a word or two: Stable, Props collide, Runs clean
+    sentence: str = ""                # one plain sentence with the numbers
+    metric: str | None = None         # the id of the metric it's about
+
+
+class CadConstant(BaseModel):
+    """A fixed input the design assumes (an info row): the rocket's motor, the drone's power system."""
+    label: str
+    value: str
+    note: str = ""
 
 
 class CadAnalysis(BaseModel):
@@ -47,6 +139,13 @@ class CadAnalysis(BaseModel):
     markers_gltf: dict[str, list[float]] | None = None
     breakdown: list[dict[str, Any]] = []
     assumptions: list[str] = []
+    markers: list[CadMarker] = []     # round 4: every design (CG first); see CadMarker
+    dimensions: list[CadDimension] = []
+    explode: CadExplode | None = None
+    mass_breakdown: list[CadMassItem] = []
+    demo: CadDemo | None = None
+    verdict: CadVerdict | None = None
+    constants: list[CadConstant] = []
 
 
 class CadModelUpdated(BaseModel):
@@ -59,6 +158,7 @@ class CadModelUpdated(BaseModel):
     removed_ids: list[str] = []
     source: str = "api"               # api | pet | preset | script | undo | reset | open | startup
     analysis: CadAnalysis | None = None
+    label: str = ""                   # the version in words: Bit's request, a preset, "Saved rocket.py", a change
 
 
 class CadRegenFailed(BaseModel):

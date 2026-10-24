@@ -11,8 +11,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from cad.part_api import ParamError
-from cad.service import CadService, RegenError, VersionRecord
+from cad.part_api import DEFAULT_GLYPH, ParamError, param_groups, primary_metric
+from cad.service import CadService, RegenError, VersionRecord, version_label
 from events import CadView
 
 router = APIRouter(prefix="/cad", tags=["cad"])
@@ -80,9 +80,13 @@ async def open_part(body: OpenPart, cad: CadService = Depends(service)):
 
 @router.get("/params")
 def get_params(v: int | None = None, cad: CadService = Depends(service)):
+    """The design's parameters (each with its group, step, label, help, default, the parts it shapes and the
+    dimension it changes), presets and features; `groups` lists the parameter groups in panel order; `glyph` is the
+    design's icon."""
     r = record(cad, v)
     return {"part": r.part, "title": r.title, "description": r.description, "version": r.version,
-            "params": r.param_schema, "presets": preset_list(r.presets), "features": r.features}
+            "params": r.param_schema, "presets": preset_list(r.presets), "features": r.features,
+            "groups": param_groups(r.param_schema), "glyph": r.glyph or DEFAULT_GLYPH}
 
 
 @router.post("/params")
@@ -177,7 +181,8 @@ async def drawing_svg(v: int | None = None, cad: CadService = Depends(service)):
 
 @router.get("/flight")
 async def flight(v: int | None = None, cad: CadService = Depends(service)):
-    """Simulated launch to apogee on an Estes C6 (rocket designs): apogee, speeds, and a trajectory for the room arc."""
+    """Simulated flight on an Estes C6 (rocket designs): apogee, speeds, a trajectory for the room arc, and the
+    whole flight to landing as fixed-rate samples plus events (liftoff ... landing) for the Fly animation."""
     r = record(cad, v)
     try:
         return {"version": r.version, **await cad.flight(r.version)}
@@ -189,10 +194,12 @@ async def flight(v: int | None = None, cad: CadService = Depends(service)):
 
 @router.get("/versions")
 def versions(cad: CadService = Depends(service)):
-    """The open design's versions."""
+    """The open design's versions. `label`: the version in words (Bit's request, a preset, "Saved rocket.py", the
+    change); `primary`: the design's main metric for that version {id, label, value, display, status}."""
     return [{"version": r.version, "part": r.part, "parent": r.parent, "source": r.source, "created_at": r.created_at,
              "head": r.version == cad.head, "params": r.params,
-             "margin_cal": r.analysis.get("margin_cal"), "stability": r.analysis.get("stability")}
+             "margin_cal": r.analysis.get("margin_cal"), "stability": r.analysis.get("stability"),
+             "label": version_label(r), "primary": primary_metric(r.analysis.get("metrics", []))}
             for r in cad.versions()]
 
 

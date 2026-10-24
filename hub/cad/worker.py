@@ -16,7 +16,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from cad.part_api import BuildResult, Param, ParamError
+from cad.part_api import DEFAULT_GLYPH, BuildResult, Param, ParamError
 
 _loads = 0
 
@@ -42,6 +42,7 @@ def part_info(module, script: Path) -> dict[str, Any]:
     """What the library shows for a part. Its id is the file name, so a copied script is a new design."""
     return {"part": script.stem, "title": getattr(module, "TITLE", "") or default_title(script.stem),
             "description": getattr(module, "DESCRIPTION", ""),
+            "glyph": str(getattr(module, "GLYPH", "") or DEFAULT_GLYPH),
             "presets": {name: dict(values) for name, values in getattr(module, "PRESETS", {}).items()},
             "features": ["flight"] if callable(getattr(module, "simulate_flight", None)) else []}
 
@@ -90,7 +91,7 @@ def build_part(script: Path, supplied: dict[str, Any], reuse: bool = False):
 
 
 def run_job(job: dict[str, Any]) -> dict[str, Any]:
-    from cad.analysis import analyze, mass_properties
+    from cad.analysis import analyze, leaves, mass_properties
     from cad.export import export_part
 
     script, out_dir = Path(job["script"]), Path(job["out_dir"])
@@ -117,11 +118,13 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
                            version=job.get("version"), created_at=job.get("created_at"),
                            highlight=job.get("highlight", ()))
             return {"ok": True, "timings_ms": {"build": round((t_build - t0) * 1000), **timings}}
-        analysis = analyze(result, masses, getattr(module, "analyze", None))
         info = part_info(module, script)
+        analysis = analyze(result, masses, getattr(module, "analyze", None), features=info["features"])
         exported = export_part(result, out_dir, part=info["part"], params=values, masses=masses)
         t_done = time.perf_counter()
-        schema = [p.schema(values[p.name]) for p in module.PARAMS]
+        labels = [shape.label for shape in leaves(result.assembly)]
+        dimensions = [d["id"] for d in analysis["dimensions"]]
+        schema = [p.schema(values[p.name], labels, dimensions) for p in module.PARAMS]
         (out_dir / "analysis.json").write_text(json.dumps(analysis, indent=2), encoding="utf-8")
         return {"ok": True, **info, "params": values, "clamped": clamped, "schema": schema,
                 "analysis": analysis, "fingerprints": exported["fingerprints"],

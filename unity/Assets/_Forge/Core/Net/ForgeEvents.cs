@@ -64,6 +64,117 @@ public class CadAnalysis
     [JsonProperty("size_mm")] public float[] sizeMm;
     [JsonProperty("part_count")] public int? partCount;
     [JsonProperty("metrics")] public List<CadMetric> metrics = new List<CadMetric>();  // any design; CadData.cs
+
+    // Round 4 (CAD_PLAN section 5). Null when the version predates them ("not provided"). Positions and directions are
+    // in the model frame (glTF scene space: metres, Y up), which is new Vector3(-x, y, z) under CadModel.Root in Unity.
+    [JsonProperty("markers")] public List<CadMarker> markerList;  // C# name: markers is markers_gltf's
+    [JsonProperty("dimensions")] public List<CadDimension> dimensions;
+    [JsonProperty("explode")] public CadExplode explode;
+    [JsonProperty("mass_breakdown")] public List<CadMassItem> massBreakdown;
+    [JsonProperty("demo")] public CadDemo demo;
+
+    // Round 4, part 2: the design panel's verdict and its fixed inputs (null / empty before then).
+    [JsonProperty("verdict")] public CadVerdict verdict;
+    [JsonProperty("constants")] public List<CadConstant> constants;
+    [JsonProperty("assumptions")] public List<string> assumptions;  // what the analysis assumes (rocket: Barrowman, ...)
+}
+
+/// <summary>The panel's answer for this version, from its metrics ("Unstable", "Likely to tumble. 0.84 cal ...").</summary>
+public class CadVerdict
+{
+    [JsonProperty("status")] public string status;            // ok | warn | bad
+    [JsonProperty("headline")] public string headline;
+    [JsonProperty("sentence")] public string sentence;
+    [JsonProperty("metric")] public string metric;            // the metric id it's about (the dial)
+}
+
+/// <summary>A fixed input that isn't a parameter (the rocket's motor, the gearbox's input motor): an info row.</summary>
+public class CadConstant
+{
+    [JsonProperty("label")] public string label;
+    [JsonProperty("value")] public string value;
+    [JsonProperty("note")] public string note;
+}
+
+/// <summary>A point to mark on the model: "cg" on every design, plus the design's own (cp, thrust, input, output...).</summary>
+public class CadMarker
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("label")] public string label;
+    [JsonProperty("kind")] public string kind;                // cg | cp | thrust | input | output | ...: the style
+    [JsonProperty("pos")] public float[] pos;                 // model frame
+}
+
+/// <summary>A dimension callout: value_mm from `from` to `to`, drawn offset_mm (design mm) along offset_dir.</summary>
+public class CadDimension
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("label")] public string label;
+    [JsonProperty("value_mm")] public float valueMm;
+    [JsonProperty("from")] public float[] fromPos;            // model frame, on the model
+    [JsonProperty("to")] public float[] toPos;
+    [JsonProperty("offset_dir")] public float[] offsetDir;    // unit, perpendicular to the span
+    [JsonProperty("offset_mm")] public float? offsetMm;
+}
+
+/// <summary>The exploded view: one entry per leaf part (CadPart.id).</summary>
+public class CadExplode
+{
+    [JsonProperty("axis")] public string axis;                // stack | radial | shaft | auto
+    [JsonProperty("parts")] public List<CadExplodePart> parts = new List<CadExplodePart>();
+}
+
+public class CadExplodePart
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("dir")] public float[] dir;                 // model frame, unit
+    [JsonProperty("dist_mm")] public float distMm;            // design mm; 0 = stays put
+    [JsonProperty("order")] public int order;                 // stagger: 0 moves first
+}
+
+/// <summary>One row of the mass breakdown; part_ids is empty for a point mass (motor, parachute).</summary>
+public class CadMassItem
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("label")] public string label;
+    [JsonProperty("mass_g")] public float massG;
+    [JsonProperty("share")] public float share;               // of analysis.mass_g
+    [JsonProperty("part_ids")] public List<string> partIds = new List<string>();
+}
+
+public class CadAxis
+{
+    [JsonProperty("origin")] public float[] origin;           // model frame
+    [JsonProperty("dir")] public float[] dir;                 // model frame, unit
+}
+
+/// <summary>A part the demo turns about origin + dir.</summary>
+public class CadSpinPart
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("origin")] public float[] origin;
+    [JsonProperty("dir")] public float[] dir;
+    [JsonProperty("rpm")] public float rpm;                   // + is counter-clockwise seen from the tip of dir (glTF)
+    [JsonProperty("spin")] public string spin;                // ccw | cw | none
+    [JsonProperty("rel_speed")] public float? relSpeed;       // spin: speed relative to the input, signed
+    [JsonProperty("motor_id")] public string motorId;         // hover: the motor under this prop
+    [JsonProperty("radius_mm")] public float? radiusMm;       // prop swept radius, gear pitch radius (if the hub sends it)
+}
+
+/// <summary>What the design's demo button does: launch (fly GET source?v=N), hover, spin, or none.</summary>
+public class CadDemo
+{
+    [JsonProperty("kind")] public string kind;                // launch | hover | spin | none
+    [JsonProperty("label")] public string label;              // the button: Fly | Hover | Run
+    [JsonProperty("note")] public string note;                // one plain sentence
+    [JsonProperty("source")] public string source;            // launch: "/cad/flight"
+    [JsonProperty("axis")] public CadAxis axis;               // launch: tail -> nose; hover: thrust centre, up; spin: input shaft
+    [JsonProperty("values")] public Dictionary<string, float> values = new Dictionary<string, float>();
+    [JsonProperty("spin_parts")] public List<CadSpinPart> spinParts = new List<CadSpinPart>();
+    [JsonProperty("readouts")] public List<CadMetric> readouts = new List<CadMetric>();
+    [JsonProperty("assumptions")] public List<string> assumptions = new List<string>();
+    [JsonProperty("blocked")] public string blocked;              // why it can't run (props collide), or null
+    [JsonProperty("reveal_ids")] public List<string> revealIds;   // parts lifted and turned to glass (a lid), if sent
 }
 
 public class CadModelUpdated
@@ -77,6 +188,7 @@ public class CadModelUpdated
     [JsonProperty("removed_ids")] public List<string> removedIds = new List<string>();
     [JsonProperty("source")] public string source;            // api | pet | preset | script | undo | reset | open | startup
     [JsonProperty("analysis")] public CadAnalysis analysis;
+    [JsonProperty("label")] public string label;              // the version in words: Bit's request, a preset, the change
 }
 
 public class CadRegenFailed

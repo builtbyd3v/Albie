@@ -8,18 +8,27 @@ import math
 
 from build123d import Align, Axis, Box, Color, Compound, Cylinder, Location, SlotOverall, extrude, fillet
 
-from cad.part_api import BuildResult, Metric, Param, SolidMass, band
+from cad.part_api import (Analysis, BuildResult, Constant, Demo, Dimension, Explode, ExplodeMove, Marker, Metric,
+                          Param, SolidMass, Spinner, Verdict, band, box_dimensions)
 
 TITLE = "Quadcopter"
 DESCRIPTION = "FPV drone: carbon plates and arms, motors, props, battery. The props have to clear each other."
+GLYPH = "drone"
 
+# parts: the parts a parameter shapes (lit on the model when you point at its row); dimension: the callout it changes.
 PARAMS = [
-    Param("arm_count", 4, 4, 8, "", 2, label="Arms"),
-    Param("arm_length", 110.0, 60, 220, "mm", 5, label="Arm length"),
-    Param("prop_diameter", 5.0, 2, 10, "in", 0.5, label="Prop diameter"),
-    Param("motor_size", 28.0, 14, 40, "mm", 1, label="Motor diameter"),
-    Param("plate_size", 70.0, 40, 140, "mm", 5, label="Plate size"),
-    Param("battery_mah", 1300, 450, 3000, "mAh", 50, label="Battery"),
+    Param("arm_count", 4, 4, 8, "", 2, label="Arms", group="Frame", parts=("arm_*",),
+          help="4 is a quad, 6 a hexacopter. Props spin in opposite pairs, so it's always even."),
+    Param("arm_length", 110.0, 60, 220, "mm", 5, label="Arm length", group="Frame", parts=("arm_*",),
+          dimension="wheelbase", help="Centre to motor. Longer arms make room for bigger props."),
+    Param("prop_diameter", 5.0, 2, 10, "in", 0.5, label="Prop diameter", group="Props", parts=("prop_*",),
+          dimension="prop", help="Bigger props lift more, but they have to clear their neighbours."),
+    Param("motor_size", 28.0, 14, 40, "mm", 1, label="Motor diameter", group="Power", parts=("motor_*",),
+          help="Bigger motors push harder and weigh more."),
+    Param("plate_size", 70.0, 40, 140, "mm", 5, label="Plate size", group="Frame",
+          parts=("bottom_plate", "top_plate"), help="The square carbon plates in the middle."),
+    Param("battery_mah", 1300, 450, 3000, "mAh", 50, label="Battery", group="Power", parts=("battery",),
+          help="Capacity: longer hover time, but a heavier drone."),
 ]
 
 # Applied on top of the current values. "7-inch props" alone is too big for 110 mm arms: the props hit.
@@ -40,8 +49,44 @@ CARBON, ALUMINIUM, MOTOR, PROP = (0.13, 0.13, 0.15), (0.85, 0.2, 0.2), (0.22, 0.
 # Assumed 4S power system. Static thrust per motor: the prop or the motor limits it, whichever is smaller.
 THRUST_PER_IN2, THRUST_PER_MM2 = 55.0, 2.2   # g per (prop inches)^2 (5" ~ 1.4 kg), per (motor mm)^2 (28 mm ~ 1.7 kg)
 PACK_V, USABLE, HOVER_EFFICIENCY = 14.8, 0.8, 0.25
+THRUST_COEFF, AIR = 0.15, 1.225              # static C_T of a 2-blade FPV prop (T = C_T rho n^2 D^4); air, kg/m^3
 CLEARANCE_BANDS = ((0.0, "bad"), (5.0, "warn"), (60.0, "ok"))   # tip-to-tip gap between neighbouring props, mm
 TWR_BANDS = ((2.0, "bad"), (4.0, "warn"), (16.0, "ok"))
+HOVER_ASSUMPTIONS = [
+    "Max static thrust per motor: the prop's (55 g per square inch of prop) or the motor's (2.2 g per mm^2 of motor "
+    "diameter), whichever is lower, on a 4S pack.",
+    f"Thrust grows with rpm squared (static thrust coefficient {THRUST_COEFF}) and rpm with throttle, so hover "
+    "throttle = sqrt(hover thrust / max thrust).",
+    "Props alternate direction round the frame (prop 1 counter-clockwise seen from above), so their torques cancel.",
+]
+CONSTANTS = [
+    Constant("Power system", f"4S LiPo, {PACK_V:g} V",
+             f"{USABLE:.0%} of the pack usable · {HOVER_EFFICIENCY:.0%} efficient at hover"),
+    Constant("Thrust per motor", f"{THRUST_PER_IN2:g} g per in² of prop",
+             f"or {THRUST_PER_MM2:g} g per mm² of motor diameter, whichever is lower"),
+]
+
+
+def mm_text(v: float) -> str:
+    return f"{v:.0f}" if abs(v) >= 1 else f"{v:.1f}"
+
+
+def verdict(clearance, gap, twr, lift, minutes, prop_in) -> Verdict:
+    """Will it fly? Props hitting or too little thrust first, then tight props or sluggish thrust."""
+    if gap == "bad":
+        return Verdict("bad", "Props collide", f"Neighbouring {prop_in:g} in props overlap by {mm_text(-clearance)} mm. "
+                       "Lengthen the arms or fit smaller props.", "clearance")
+    if lift == "bad":
+        can = "can't" if twr <= 1 else "can barely"
+        return Verdict("bad", "Too heavy", f"Thrust is only {twr:.1f} times its weight: it {can} lift off.", "twr")
+    if gap == "warn":
+        return Verdict("warn", "Tight", f"Props clear by only {mm_text(clearance)} mm; vibration can make them touch.",
+                       "clearance")
+    if lift == "warn":
+        return Verdict("warn", "Sluggish", f"Thrust is {twr:.1f} times its weight: it flies, but it won't be nimble.",
+                       "twr")
+    return Verdict("ok", "Clear to fly", f"Props clear by {mm_text(clearance)} mm and thrust is {twr:.1f} times its "
+                   f"weight. About {minutes:.1f} min of hover.", "clearance")
 
 
 def labelled(shape, label, rgb):
@@ -108,8 +153,9 @@ def build(p) -> BuildResult:
     )
 
 
-def analyze(result: BuildResult, masses) -> list[Metric]:
-    """Prop clearance, thrust-to-weight and hover time for the assumed power system."""
+def analyze(result: BuildResult, masses) -> Analysis:
+    """Prop clearance, thrust-to-weight and hover time for the assumed power system. Plus, for Unity: the hover
+    demo (spinning props), the thrust centre, dimension callouts and the exploded view."""
     p = result.params
     n, prop_in = p["arm_count"], p["prop_diameter"]
     weight_g = sum(m for m, _ in masses.values())
@@ -121,7 +167,7 @@ def analyze(result: BuildResult, masses) -> list[Metric]:
     hover_w = n * (weight_g / n * 9.81e-3) ** 1.5 / math.sqrt(2 * 1.225 * disk_m2) / HOVER_EFFICIENCY
     minutes = PACK_V * p["battery_mah"] / 1000 * USABLE / hover_w * 60
     gap, lift = band(clearance, CLEARANCE_BANDS), band(twr, TWR_BANDS)
-    return [
+    metrics = [
         Metric("clearance", "Prop clearance", clearance, "mm", gap, -40.0, 60.0, CLEARANCE_BANDS,
                note={"bad": "props hit", "warn": "tight", "ok": "clear"}[gap]),
         Metric("twr", "Thrust to weight", twr, "", lift, 0.0, 16.0, TWR_BANDS,
@@ -130,3 +176,84 @@ def analyze(result: BuildResult, masses) -> list[Metric]:
                digits=1),
         Metric("thrust", "Thrust per motor", thrust_g, "g"),
     ]
+    boxes = {s.label: s.bounding_box() for s in result.assembly.leaves}
+    props = [centre(boxes[f"prop_{i + 1}"]) for i in range(n)]
+    thrust_centre = tuple(sum(c[k] for c in props) / n for k in range(3))
+    return Analysis(metrics=metrics,
+                    markers=[Marker("thrust", "Thrust centre", "thrust", thrust_centre)],
+                    dimensions=dimensions(result, boxes, n, prop_in * INCH),
+                    explode=explode(boxes, p["arm_length"]),
+                    demo=hover(n, prop_in, weight_g, thrust_g, twr, lift, hover_w, props, thrust_centre, clearance),
+                    verdict=verdict(clearance, gap, twr, lift, minutes, prop_in),
+                    constants=CONSTANTS)
+
+
+def centre(box) -> tuple[float, float, float]:
+    c = box.center()
+    return c.X, c.Y, c.Z
+
+
+def hover(n, prop_in, weight_g, thrust_g, twr, lift, hover_w, props, thrust_centre, clearance) -> Demo:
+    """Lift off and hover: the props spin at hover speed, alternating direction. Blocked if the props hit each
+    other or it can't lift its own weight."""
+    hover_g = weight_g / n
+    throttle = math.sqrt(hover_g / thrust_g)       # thrust ~ rpm^2, rpm ~ throttle
+    d_m = prop_in * INCH / 1000
+    max_rpm = 60 * math.sqrt(thrust_g * 9.81e-3 / (THRUST_COEFF * AIR * d_m ** 4))
+    rpm, spare = max_rpm * throttle, 100 * (1 - hover_g / thrust_g)
+    note = (f"Hovers at {100 * throttle:.0f}% throttle with {spare:.0f}% of its thrust to spare." if twr > 1 else
+            f"Too heavy to take off: its motors lift {100 * twr:.0f}% of its weight.")
+    blocked = (f"Props collide: neighbouring props overlap by {mm_text(-clearance)} mm." if clearance < 0 else
+               "Too heavy to lift off." if twr <= 1 else None)
+    return Demo(
+        "hover", "Hover", note=note, axis=(thrust_centre, (0.0, 0.0, 1.0)), blocked=blocked,
+        spinners=[Spinner(f"prop_{i + 1}", c, (0.0, 0.0, 1.0), rpm if i % 2 == 0 else -rpm, motor=f"motor_{i + 1}",
+                          radius_mm=prop_in * INCH / 2)
+                  for i, c in enumerate(props)],
+        readouts=[Metric("twr", "Thrust to weight", twr, "", lift, display=f"{twr:.1f} : 1"),
+                  Metric("throttle", "Hover throttle", 100 * throttle, "%", lift),
+                  Metric("spare", "Thrust to spare", spare, "%", lift),
+                  Metric("rpm", "Prop speed", rpm, "rpm", display=f"{rpm:,.0f} rpm"),
+                  Metric("power", "Hover power", hover_w, "W")],
+        values={"thrust_to_weight": twr, "hover_throttle_pct": 100 * throttle, "thrust_margin_pct": spare,
+                "hover_rpm": rpm, "max_rpm": max_rpm, "hover_thrust_g": hover_g, "max_thrust_g": thrust_g,
+                "weight_g": weight_g, "hover_power_w": hover_w},
+        assumptions=HOVER_ASSUMPTIONS)
+
+
+def dimensions(result: BuildResult, boxes, n, prop_mm) -> list[Dimension]:
+    """Wheelbase (motor 1 to the motor opposite, the size FPV frames are sold by), overall width and height, and
+    prop 1's diameter (tip to tip, along its blades, just above it)."""
+    a, b = boxes["motor_1"], boxes[f"motor_{n // 2 + 1}"]
+    top = max(box.max.Z for box in boxes.values())
+    wheelbase = Dimension("wheelbase", "Wheelbase", (a.center().X, a.center().Y, a.max.Z),
+                          (b.center().X, b.center().Y, b.max.Z), (0.0, 0.0, 1.0), top - a.max.Z + 10)
+    px, py, _ = centre(boxes["prop_1"])
+    r = math.hypot(px, py)
+    blade = (-py / r * prop_mm / 2, px / r * prop_mm / 2)          # the blades lie across the arm
+    z = boxes["prop_1"].max.Z
+    prop = Dimension("prop", "Prop diameter", (px - blade[0], py - blade[1], z), (px + blade[0], py + blade[1], z),
+                     (0.0, 0.0, 1.0), 12.0)
+    overall = {d.id: d for d in box_dimensions(result.assembly)}
+    return [wheelbase, overall["width"], overall["height"], prop]
+
+
+def explode(boxes, length) -> Explode:
+    """Out from the centre, in arm lengths: props off first, then motors and the top deck, then arms; the battery,
+    top plate, flight controller and standoffs lift straight up. The bottom plate stays."""
+    up = (0.0, 0.0, 1.0)
+    moves = [ExplodeMove("battery", up, 0.65 * length), ExplodeMove("top_plate", up, 0.3 * length, order=1),
+             ExplodeMove("flight_controller", up, 0.14 * length, order=2)]
+    # (outward, upward, order) for each radial kind; standoffs only go up
+    radial = {"prop": (0.5 * length, 0.4 * length, 0), "motor": (0.5 * length, 0.12 * length, 1),
+              "arm": (0.28 * length, 0.0, 3)}
+    for label, box in boxes.items():
+        kind = label.rsplit("_", 1)[0]
+        if kind == "standoff":
+            moves.append(ExplodeMove(label, up, 0.14 * length, order=2))
+        elif kind in radial:
+            out, lift, order = radial[kind]
+            x, y, _ = centre(box)
+            r = math.hypot(x, y)
+            moves.append(ExplodeMove(label, (x / r * out, y / r * out, lift), math.hypot(out, lift), order))
+    return Explode("radial", moves)

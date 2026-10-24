@@ -12,7 +12,14 @@
       "unit": "mm",
       "step": 5,
       "options": null,
-      "label": "Body length"
+      "label": "Body length",
+      "group": "Body",
+      "help": "Body tube length; the nose adds to it. Longer is more stable.",
+      "default": 300.0,
+      "parts": [
+        "BODY_TUBE"
+      ],
+      "dimension": "length"
     },
     {
       "name": "body_diameter",
@@ -22,7 +29,17 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Body diameter"
+      "label": "Body diameter",
+      "group": "Body",
+      "help": "Outside diameter of the body tube. Wider adds drag and weight.",
+      "default": 40.0,
+      "parts": [
+        "NOSE_CONE",
+        "BODY_TUBE",
+        "CENTERING_RING_AFT",
+        "CENTERING_RING_FWD"
+      ],
+      "dimension": "diameter"
     },
     {
       "name": "nose_length",
@@ -32,7 +49,14 @@
       "unit": "mm",
       "step": 5,
       "options": null,
-      "label": "Nose length"
+      "label": "Nose length",
+      "group": "Nose",
+      "help": "A longer nose is slimmer and slips through the air more easily.",
+      "default": 90.0,
+      "parts": [
+        "NOSE_CONE"
+      ],
+      "dimension": "length"
     },
     {
       "name": "nose_shape",
@@ -45,7 +69,14 @@
         "ogive",
         "cone"
       ],
-      "label": "Nose shape"
+      "label": "Nose shape",
+      "group": "Nose",
+      "help": "Ogive: rounded shoulders, low drag. Cone: straight sides.",
+      "default": "ogive",
+      "parts": [
+        "NOSE_CONE"
+      ],
+      "dimension": null
     },
     {
       "name": "fin_count",
@@ -55,7 +86,17 @@
       "unit": "",
       "step": 1,
       "options": null,
-      "label": "Fin count"
+      "label": "Fin count",
+      "group": "Fins",
+      "help": "Fins, evenly spaced round the tail. More fins, more stability.",
+      "default": 3,
+      "parts": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3",
+        "FIN_4"
+      ],
+      "dimension": null
     },
     {
       "name": "fin_root",
@@ -65,7 +106,17 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin root chord"
+      "label": "Fin root chord",
+      "group": "Fins",
+      "help": "Fin length along the body tube.",
+      "default": 70.0,
+      "parts": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3",
+        "FIN_4"
+      ],
+      "dimension": null
     },
     {
       "name": "fin_tip",
@@ -75,7 +126,17 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin tip chord"
+      "label": "Fin tip chord",
+      "group": "Fins",
+      "help": "Fin length at its outer edge.",
+      "default": 35.0,
+      "parts": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3",
+        "FIN_4"
+      ],
+      "dimension": null
     },
     {
       "name": "fin_span",
@@ -85,7 +146,17 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin span"
+      "label": "Fin span",
+      "group": "Fins",
+      "help": "How far each fin sticks out. Bigger fins pull the CP back: more stable.",
+      "default": 60.0,
+      "parts": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3",
+        "FIN_4"
+      ],
+      "dimension": "fin_span"
     },
     {
       "name": "fin_sweep",
@@ -95,7 +166,17 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin sweep"
+      "label": "Fin sweep",
+      "group": "Fins",
+      "help": "How far back the tip's leading edge sits from the root's.",
+      "default": 35.0,
+      "parts": [
+        "FIN_1",
+        "FIN_2",
+        "FIN_3",
+        "FIN_4"
+      ],
+      "dimension": null
     }
   ],
   "presets": [
@@ -129,5 +210,11 @@
   ],
   "features": [
     "flight"
-  ]
+  ],
+  "groups": [
+    "Body",
+    "Nose",
+    "Fins"
+  ],
+  "glyph": "rocket"
 }

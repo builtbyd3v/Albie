@@ -9,6 +9,8 @@
 
 **Status 2026-10-24 (round 3, `HANDOFF_CAD_3.md` 4.4 + 4.3 + 4.5):** **Inspect, take apart and the drawing done** (sandbox and desktop mode; XR simulator not yet tried). **Inspect** (panel button, key I) flies the model to a stage in front of the eyes, fitted to a 0.6 m box in front of the VS Code screen, turned to show a corner; Back to desk flies it home. **Take apart** works only there: hover outlines a part and shows a card (name, material, mass), grab with the mouse or a controller / hand ray, Shift+drag (mouse) or twist (rays) to turn, drop near its place to snap back, Reassemble. View only. Core change: `VolumeManipulator.ModelAway` (Hudson OK'd). **Drawing:** the hub draws each version as an A3 engineering sheet (`GET /cad/drawing.png`, `.svg`; `hub/cad/drawing.py`), and `CadDrawingPanel.prefab` (slot `cad-drawing`) shows it; tap to zoom. Waiting on Core: slotting `cad-drawing` in place of `cad-timeline` (`Workspace.DefaultModes` + `MainSceneBuilder`). 34 hub tests. How-tos: the CAD README ("Inspect", "Take it apart", "The drawing panel").
 
+**Status 2026-10-24 (round 4, hub data for `HANDOFF_UI2.md` section 3):** every design now reports parameter groups and help, markers, dimension callouts, per-part explode vectors, a mass breakdown and a demo (rocket launch, quadcopter hover, gearbox spin), and `/cad/flight` runs pad to landing with fixed-rate samples and events. Part 2 (the design spec's asks): parameter defaults, the parts and dimension each parameter changes, a verdict per design, fixed-input info rows, demo radii / blocked / reveal, version labels with the main metric, and design glyphs. All additive, mocks refreshed (JSON only; GLBs and drawings unchanged). 84 CAD tests. Unity side not wired yet. Fields: section 5, round 4.
+
 ---
 
 ## 1. Decision
@@ -82,6 +84,142 @@ Rules:
 ## 5. Proposed contract additions (section 7)
 
 All implemented in `hub/cad/router.py` and `hub/events.py`. Omit `v` for the current version (`no-store`); with `v` the file is immutable and cacheable.
+
+Round 4 (data for the richer CAD UI, `HANDOFF_UI2.md` section 3: grouped parameters, Explode that explodes, Fly / Hover /
+Run for every design, markers, dimensions, mass breakdown). **Additive only**: no field renamed, removed or changed. Code:
+`hub/cad/scene.py` (conversion + generic fallbacks), `flight.py`, the part scripts; shapes in `hub/events.py`.
+
+**Model frame** of every position and direction below: the glTF scene space of the version's `model.glb`, the same space
+as the existing `cg_gltf` and `markers_gltf`. Metres, Y up, right-handed, origin = the part script's origin (rocket: centre
+of the tail; quadcopter: frame centre, underside of the bottom plate; gearbox: on the housing's base, midway between the
+shafts in X, centred front to back; the template: box centre on the floor). The GLB's root node turns the part's Z up into
+Y up, so a part point (x, y, z) mm is [x, z, -y] / 1000; the part's front (-Y, where the gearbox's input sticks out) is +Z.
+Directions are unit vectors in the same axes. **In Unity** glTFast flips X: [x, y, z] is `new Vector3(-x, y, z)` in
+`CadModel.Root`'s local space (= `CadViewer`'s holder, where the CG/CP collars live), directions likewise. Spin: `rpm` > 0
+is counter-clockwise seen from the tip of `dir` (right-hand rule in glTF); Unity is left-handed, so turn by
+`-rpm * 6 * dt` degrees about the flipped axis (or read `spin`, "ccw"/"cw", the physical sense, which both frames share).
+Verified in `cad/tests/test_scene.py` against each part's box computed from the GLB's own node transforms.
+
+```
+GET  /cad/params?v={version}  adds  groups: string[]        the parameter groups in panel order (first appearance)
+     params[] add  group: string (part's, else "General"), help: string (one line, "" if none);
+     step (existing) is now filled in for numbers whose part sets none: 1 for integers, else ~range/100 as 1/2/5 x 10^n
+
+analysis (cad.model_updated, GET /cad/analysis, the POST responses, mocks analysis.json / model_updated.json) adds:
+  markers:        [{ id, label, kind, pos: [x,y,z] }]
+                  every design: "cg" first (pos = cg_gltf). rocket + "cp" (= markers_gltf.cp); quadcopter + "thrust"
+                  (thrust centre: mean of the prop hubs); gearbox + "input", "output" (the shaft ends sticking out).
+                  kind picks the style: cg | cp | thrust | input | output | ... Default: just "cg".
+  dimensions:     [{ id, label, value_mm, from: [x,y,z], to: [x,y,z], offset_dir: [x,y,z], offset_mm }]
+                  2-4 per design. value_mm = |to - from| (design mm); from/to are on the model; draw the line offset_mm
+                  (design mm) along offset_dir (unit, perpendicular to the span) with extension lines back.
+                  rocket: length, diameter, fin_span. quadcopter: wheelbase (motor to opposite motor), width, height,
+                  prop (prop 1's diameter along its blades; added in part 2).
+                  gearbox: length, height, depth (over the shafts), centre_distance (on the lid).
+                  Default: width, depth, height along the bounding box's edges (= size_mm; what the drawing dimensions).
+  explode:        { axis: stack | radial | shaft | auto, parts: [{ id, dir: [x,y,z], dist_mm, order }] }
+                  one entry per leaf part (CadPart.id = metadata object id), assembly order. Exploded position =
+                  assembled + dir * dist_mm / 1000 (model m; Unity scales with the fit). dist_mm 0 = stays put (dir is
+                  then just up). order staggers the animation: 0 moves first.
+                  rocket (stack): nose up; mount tube out of the tail, forward ring between it and the tail, aft ring
+                  below it; fins out and a little down. quadcopter (radial): props, motors, arms out (props rise above
+                  their motors); battery, top plate, flight controller, standoffs up; bottom plate stays. gearbox (shaft):
+                  lid up; shafts lift out with the gears, pinion slides forward and gear back along their shafts,
+                  bearings off the ends; bottom half stays.
+                  Default (auto): each part moves away from the bounding-box centre (the component along the longest side
+                  doubled), 0.9x its offset, kept within 0.12-0.6 of the longest side; outermost first.
+  mass_breakdown: [{ id, label, mass_g, share, part_ids }]
+                  rows add up to mass_g; share of mass_g; part_ids = parts to highlight ([] for a point mass: not drawn).
+                  Default: one row per top-level assembly child (rocket: nose cone, body tube, motor mount, fin set;
+                  quadcopter: frame, motors, props, flight controller, battery) + one row per point mass (rocket: the
+                  loaded C6, the recovery gear). gearbox: Housing, Gears, Shafts, Bearings (its own mass_groups).
+                  Per-part masses stay where they were (metadata.json `mass`, analysis `breakdown`).
+  demo:           { kind: launch | hover | spin | none, label, note, source, axis: { origin, dir } | null,
+                    values: { name: number }, spin_parts: [{ id, origin, dir, rpm, spin, rel_speed, motor_id }],
+                    readouts: [metric (CadMetric shape)], assumptions: string[] }
+                  label = the button (Fly | Hover | Run); note = one plain sentence; readouts = numbers to show while it
+                  runs; values = numbers for the animation; spin_parts turn about origin + dir at rpm.
+                  launch (rocket; and any design with simulate_flight + a RocketSpec): source "/cad/flight" (GET with
+                    ?v=N for samples/events), axis = tail -> nose; values rail_m, inclination_deg, ejection_delay_s,
+                    parachute_mm. No spin parts, no readouts (the flight has them).
+                  hover (quadcopter): axis = thrust centre, up; values thrust_to_weight, hover_throttle_pct,
+                    thrust_margin_pct (share of max thrust unused at hover), hover_rpm, max_rpm, hover_thrust_g,
+                    max_thrust_g, weight_g, hover_power_w; spin_parts = the props, motor_id = the motor under each,
+                    alternating ccw / cw seen from above (prop 1 ccw), so the rpms sum to 0.
+                  spin (gearbox): axis = the input shaft, toward the front; values ratio, input_rpm (3000, assumed),
+                    output_rpm, input_torque_nm (0.5, assumed), output_torque_nm, efficiency (0.98); spin_parts =
+                    input shaft + pinion (rel_speed 1) and gear + output shaft (rel_speed -pinion/gear teeth), all with the
+                    same dir, so signs compare directly: meshing gears turn opposite ways.
+                  Default: launch if the design has simulate_flight, else { kind: "none", label: "" }.
+
+GET  /cad/flight?v={version}  adds (rocket designs; existing fields unchanged; assumptions gains a line on the descent):
+     rail_exit_time_s, burnout_time_s, deploy_time_s (null if it lands first), descent_rate_mps, landing_time_s,
+     drift_m (landing distance from the pad), sample_dt_s,
+     events:  [{ id: liftoff | rail_exit | burnout | apogee | deploy | landing, label, t, alt_m, speed_mps }]  time order;
+              apogee = (time_to_apogee_s, apogee_m); deploy missing if it lands before the charge fires
+     samples: [{ t, alt_m, downrange_m, vz_mps, speed_mps }]  pad to landing at a fixed rate: every sample_dt_s (0.05 s,
+              or a whole multiple of it to stay within 400 points); the last sample is the landing (at most one step after
+              the one before). downrange = horizontal distance from the pad along the launch heading (trajectory_m's north).
+```
+
+Round 4, part 2 (the design spec's asks, `HANDOFF_UI2/cad/CAD_UX_SPEC.md` section 8; additive, same frame):
+
+```
+GET  /cad/params?v={version}  adds  glyph: string            the design's icon: rocket | drone | gears | box (default box)
+     params[] add  default     the design's default value, as built (clamped to the range): the default tick, Reset row
+                   parts       string[]: leaf part ids the parameter shapes, lit when its row is pointed at. The part's
+                               `parts` patterns, else the parts sharing the first word of its name (fin_root -> FIN_1..),
+                               else all parts
+                   dimension   string | null: the analysis.dimensions id it changes, drawn with the highlight. The part's,
+                               else the dimension with the parameter's own name (the template's width/depth/height)
+                   rocket: body_length -> BODY_TUBE + length, body_diameter -> body, nose, rings + diameter, nose_length ->
+                   length, fin_* -> FIN_N (fin_span -> fin_span); quadcopter: arm_length -> ARM_N + wheelbase,
+                   prop_diameter -> PROP_N + prop; gearbox: pinion/gear teeth, module -> centre_distance, face_width ->
+                   depth, shaft_diameter -> shafts + bearings.
+GET  /cad/parts               parts[] add  glyph             (unopened designs: read from the source's GLYPH = "...")
+GET  /cad/versions            rows add  label: string        the version in words: Bit's request (the new optional
+                                        `request` argument of cad_set_params / cad_apply_preset), the preset's name,
+                                        "Saved rocket.py", "Reset to defaults", "Defaults" (a design's first version), else
+                                        the change: "Fin span 60 → 36 mm", "Fin root chord, fin tip chord +1"
+                                primary: { id, label, value, display, status } | null   the design's main metric for
+                                        that version: the first metric with a range (rocket margin, quad clearance, gearbox
+                                        rim), else the first metric
+cad.model_updated adds  label    (the same; the mocks carry the demo story's requests and the preset names)
+analysis adds:
+  verdict:   { status: ok | warn | bad, headline, sentence, metric }   the panel's answer, from the metrics (status in the
+             metrics' vocabulary; metric = the id it's about).
+             rocket (static margin bands): Unstable bad / Marginal warn / Stable ok / Overstable warn.
+             quadcopter (bad before warn): Props collide (clearance < 0), Too heavy (thrust < 2x weight), Tight (clearance
+             < 5 mm), Sluggish (thrust < 4x weight), else Clear to fly.
+             gearbox: Pinion too weak (rim bad), Runs, with care (rim thin and/or a pinion under 14 teeth: undercut),
+             else Runs clean. Sentences carry the numbers ("Likely to tumble. 0.84 cal margin; it needs at least 1.0.").
+             Default: the first of the worst metrics speaks ("Needs work" / "Check it": "<label> is <display> (<note>).")
+             or "Looks good".
+  constants: [{ label, value, note }]   fixed inputs, as info rows. rocket: Motor "Estes C6-5", Recovery "12 in
+             parachute"; quadcopter: Power system "4S LiPo, 14.8 V", Thrust per motor; gearbox: Input motor "3,000 rpm ·
+             0.50 N·m", Teeth "20° involute, full depth". Default: [].
+  demo adds  blocked: string | null     why the demo can't run (button disabled, the reason as its tooltip). quadcopter:
+                                        "Props collide: neighbouring props overlap by 22 mm.", "Too heavy to lift off.";
+                                        its values still come back. Rockets are never blocked (the no-wind sim flies).
+             reveal_ids: string[]       parts to lift / turn to glass while it runs and on the stage: gearbox HOUSING_TOP
+             spin_parts[] add radius_mm prop swept radius, gear pitch radius (m z / 2), shaft radius (design mm)
+```
+
+The climb is RocketPy's run as before (so `apogee_m`, `time_to_apogee_s`, `max_speed_mps`, `trajectory_m` don't change).
+The way down is a quick point-mass model with drag: it falls until the C6-5's ejection charge fires (5 s after burnout,
+but not before apogee: a light rocket still climbing then gets an assumptions line saying so), the 12" parachute (Cd
+0.75 on its flat diameter) fills in 0.5 s, and it descends at ~4-5 m/s (baseline: lands at ~50 s, ~36 m downrange). It
+adds a few tens of ms to the RocketPy run. No wind, so the drift comes from the 85 deg launch.
+
+Part scripts may supply all of this (part millimetres, Z up; the hub converts): `GLYPH = "..."`, `Param(..., group=,
+help=, parts=, dimension=)`, and `analyze()` returning `Analysis(markers=, dimensions=, explode=, demo=, mass_groups=,
+verdict=, constants=)` (types in `cad/part_api.py`: `Marker`, `Dimension`, `Explode`/`ExplodeMove`, `Demo`/`Spinner`
+(with `radius_mm`, and `Demo.blocked` / `Demo.reveal`), `Verdict`, `Constant`, plus `box_dimensions`). See
+`cad/parts/_template.py`. Anything left out gets the default above, so a new design has every block. Bit's tools
+(`cad_get_params`, `cad_set_params`, ...) get the numbers without the coordinates (no explode, markers, dimension end
+points, spin parts or parameter part lists), and `cad_simulate_flight` leaves out the samples. Versions built before
+round 4 (older `library.json` records) have none of the new keys: treat missing as "not provided" (the hub rebuilds a
+design whose part script changed when it opens; a stored version without a label gets one from how it was made).
 
 Round 3 (the drawing; Inspect and take apart are Unity only, no contract change):
 
