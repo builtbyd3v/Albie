@@ -2,18 +2,19 @@
 
 Grok calls them directly (voice.py), next to ``delegate``. The Claude runner gets the same tools as an
 in-process MCP server named ``forge`` (runner.py). Lead-only tools (Bit's crew tools, agent/crew.py) go
-to Grok and Bit's runner, not to crew runners. While a tool runs, Bit walks to its panel
+to Grok and Bit's runner, not to crew runners; crew runners also pass an ``allow`` list of name prefixes
+(runner.py: ``vscode_`` plus their kit's) so they never see cad_* or messages_*. While a tool runs, Bit walks to its panel
 (``pet.state`` working + target_panel). Errors come back as ``{"error": ...}`` so the model can explain.
 
 VS Code tools are always registered. CAD tools need the hub's CadService, so main.py calls
-``register_cad`` at startup; the standalone agent app (``python -m agent``) has no CAD.
+``register_cad`` at startup, and the messaging tools once the Slack service exists.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
@@ -52,21 +53,32 @@ def has(name: str) -> bool:
     return name in _tools
 
 
-def _names(lead: bool) -> list[str]:
-    return [n for n in _tools if lead or n not in _lead_only]
+def is_lead_only(name: str) -> bool:
+    """Bit's crew tools (agent/crew.py): offered to Grok only while the CODE view is open (voice.py)."""
+    return name in _lead_only
 
 
-def definitions(lead: bool = True) -> list[dict[str, Any]]:
-    return [_tools[n][0] for n in _names(lead)]
+Allow = Iterable[str] | None  # tool names or name prefixes ("vscode_", "cad_get_params"); None = no filter
+
+
+def _names(lead: bool = True, allow: Allow = None) -> list[str]:
+    """Registered names minus the lead-only ones (unless `lead`), kept only if `allow` names or prefixes them."""
+    prefixes = None if allow is None else tuple(allow)
+    return [n for n in _tools if (lead or n not in _lead_only)
+            and (prefixes is None or any(n == p or n.startswith(p) for p in prefixes))]
+
+
+def definitions(lead: bool = True, allow: Allow = None) -> list[dict[str, Any]]:
+    return [_tools[n][0] for n in _names(lead, allow)]
 
 
 def grok_definitions() -> list[dict[str, Any]]:
     return [{"type": "function", **d} for d in definitions()]
 
 
-def mcp_names(lead: bool = True) -> list[str]:
+def mcp_names(lead: bool = True, allow: Allow = None) -> list[str]:
     """allowed_tools entries for the runner (permission_mode dontAsk denies anything not listed)."""
-    return [f"mcp__{SERVER}__{name}" for name in _names(lead)]
+    return [f"mcp__{SERVER}__{name}" for name in _names(lead, allow)]
 
 
 async def call(name: str, args: dict[str, Any], pet_id: str) -> dict[str, Any]:
@@ -82,7 +94,7 @@ async def call(name: str, args: dict[str, Any], pet_id: str) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def _mcp_tools(pet_id: str, lead: bool = True) -> list[SdkMcpTool[Any]]:
+def _mcp_tools(pet_id: str, lead: bool = True, allow: Allow = None) -> list[SdkMcpTool[Any]]:
     def wrap(name: str, d: dict[str, Any]) -> SdkMcpTool[Any]:
         async def handler(args: dict[str, Any]) -> dict[str, Any]:
             out = await call(name, args, pet_id)
@@ -90,11 +102,11 @@ def _mcp_tools(pet_id: str, lead: bool = True) -> list[SdkMcpTool[Any]]:
 
         return tool(name, d["description"], d["parameters"])(handler)
 
-    return [wrap(name, _tools[name][0]) for name in _names(lead)]
+    return [wrap(name, _tools[name][0]) for name in _names(lead, allow)]
 
 
-def mcp_server(pet_id: str, lead: bool = True) -> McpSdkServerConfig:
-    return create_sdk_mcp_server(SERVER, tools=_mcp_tools(pet_id, lead))
+def mcp_server(pet_id: str, lead: bool = True, allow: Allow = None) -> McpSdkServerConfig:
+    return create_sdk_mcp_server(SERVER, tools=_mcp_tools(pet_id, lead, allow))
 
 
 register(vscode_tools.TOOLS, vscode_tools.call_tool)

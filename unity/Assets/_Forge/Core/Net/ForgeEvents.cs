@@ -252,6 +252,31 @@ public class NotifyMessage
     [JsonProperty("ts")] public string ts;                    // Slack message ts; reply thread key
     [JsonProperty("thread_ts")] public string threadTs;
     [JsonProperty("mentions_me")] public bool mentionsMe;     // a DM, or the text mentions the user
+    // Slack panel additions (PROJECT_CONTEXT 8.8); the hub may leave them out, so they default to "not sent".
+    [JsonProperty("reply_count")] public int? replyCount;     // thread replies under this message
+    [JsonProperty("edited")] public bool edited;
+    [JsonProperty("is_me")] public bool isMe;                 // the user's own message (notify.message now carries those too)
+    [JsonProperty("user_initials")] public string userInitials;
+}
+
+/// <summary>One conversation in notify.channels / GET /messages/channels (channel, private, dm or group-dm).</summary>
+public class SlackChannel
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("name")] public string name;
+    [JsonProperty("kind")] public string kind;                // channel | private | dm | group-dm
+    [JsonProperty("unread")] public int unread;
+    [JsonProperty("mentions")] public int mentions;
+    [JsonProperty("last_ts")] public string lastTs;
+    [JsonProperty("last_text")] public string lastText;
+    [JsonProperty("topic")] public string topic;
+    [JsonProperty("is_default")] public bool isDefault;
+}
+
+/// <summary>The conversation list with unread counts; sticky (re-sent on connect) and replaced whole on every change.</summary>
+public class NotifyChannels
+{
+    [JsonProperty("channels")] public List<SlackChannel> channels = new List<SlackChannel>();
 }
 
 /// <summary>A reply Bit wrote but has NOT sent: show it as a Send / Cancel card. Send = POST /messages/drafts/{id}/send.</summary>
@@ -263,6 +288,7 @@ public class NotifyDraft
     [JsonProperty("text")] public string text;
     [JsonProperty("thread_ts")] public string threadTs;
     [JsonProperty("reply_to")] public NotifyMessage replyTo;  // the message this answers, when there is one
+    [JsonProperty("edited")] public bool edited;              // re-emitted after PATCH /messages/drafts/{id}
 }
 
 public class NotifyDraftCancelled
@@ -284,7 +310,7 @@ public class NotifyDigest
 {
     [JsonProperty("count")] public int count;
     [JsonProperty("mentions")] public int mentions;
-    [JsonProperty("line")] public string line;                // what Bit says; empty when count is 0
+    [JsonProperty("line")] public string line;                // what Bit says (and the arrival card shows); "You have no new messages today." when count is 0
     [JsonProperty("messages")] public List<NotifyMessage> messages = new List<NotifyMessage>();  // newest first, at most 4
 }
 
@@ -373,6 +399,7 @@ public static class ForgeEvents
     public const string NotifyDraftCancelledType = "notify.draft_cancelled";
     public const string NotifySentType = "notify.sent";
     public const string NotifyDigestType = "notify.digest";
+    public const string NotifyChannelsType = "notify.channels";
     public const string UiWidgetsType = "ui.widgets";
     public const string TimersUpdatedType = "timers.updated";
     public const string NotesUpdatedType = "notes.updated";
@@ -395,6 +422,7 @@ public static class ForgeEvents
     public static event Action<NotifyDraftCancelled> OnNotifyDraftCancelled;
     public static event Action<NotifySent> OnNotifySent;
     public static event Action<NotifyDigest> OnNotifyDigest;
+    public static event Action<NotifyChannels> OnNotifyChannels;
     public static event Action<UiWidgets> OnUiWidgets;
     public static event Action<TimersUpdated> OnTimersUpdated;
     public static event Action<NotesUpdated> OnNotesUpdated;
@@ -422,6 +450,7 @@ public static class ForgeEvents
             case NotifyDraftCancelledType: Invoke(OnNotifyDraftCancelled, payload); return true;
             case NotifySentType: Invoke(OnNotifySent, payload); return true;
             case NotifyDigestType: Invoke(OnNotifyDigest, payload); return true;
+            case NotifyChannelsType: Invoke(OnNotifyChannels, payload); return true;
             case UiWidgetsType: Invoke(OnUiWidgets, payload); return true;
             case TimersUpdatedType: Invoke(OnTimersUpdated, payload); return true;
             case NotesUpdatedType: Invoke(OnNotesUpdated, payload); return true;

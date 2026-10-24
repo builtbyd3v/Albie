@@ -1,14 +1,15 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
-Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event, the
-Slack notify.* events (PROJECT_CONTEXT 7 + 8.8) and the desk extras (ui.widgets, timers.updated, notes.updated,
+Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event,
+the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8), screen.status (the screen-bridge supervisor, hub/screens;
+docs/PET_AGENT_CONTRACT.md Addendum F) and the desk extras (ui.widgets, timers.updated, notes.updated,
 movie.state). The ML and pet models from section 7 still belong to their owners; add them next to these.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -186,6 +187,20 @@ class VscodeEvent(BaseModel):
     exit_code: int | None = None
 
 
+SCREEN_STATUS = "screen.status"
+
+
+class ScreenStatus(BaseModel):
+    """State of the screen bridge (screen-bridge/start.js, supervised by hub/screens). Sticky on /ws.
+
+    starting: the child was (re)spawned and is bringing up signaling + Chrome; sharing: Chrome is capturing
+    `source`; stopped: disabled, or the hub is shutting down; error: the child died and restarts are exhausted.
+    """
+    state: Literal["starting", "sharing", "stopped", "error"]
+    source: str | None = None         # what Chrome shares ("| gatorhack-dubz", "Entire screen")
+    detail: str | None = None         # last status line ("signaling: connected", "video: connected h264", an error)
+
+
 class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
@@ -202,10 +217,32 @@ class SlackMessage(BaseModel):
     text: str
     ts: str                           # Slack message ts; reply thread key
     thread_ts: str | None = None
-    mentions_me: bool = False         # a DM, or the text contains <@the user's id>
+    mentions_me: bool = False         # a DM, or the text contains <@the user's id>; never for the user's own posts
+    reply_count: int | None = None    # replies in its thread (from conversations.history; null on live events)
+    edited: bool | None = None        # Slack marked it edited
+    is_me: bool | None = None         # the user's own message: shown in history, skipped by digest / unread
+    user_initials: str | None = None  # two letters for the avatar bubble
 
 
 NotifyMessage = SlackMessage          # same name as the C# DTO
+
+
+class ChannelSummary(BaseModel):
+    """One row of the Slack panel's channel list (GET /messages/channels, notify.channels)."""
+    id: str
+    name: str                         # "#general"; a DM: the other person's display name; a group DM: names, comma-joined
+    kind: Literal["channel", "private", "dm", "group-dm"]
+    unread: int = 0                   # inbox messages since the channel was last seen (the user's own never count)
+    mentions: int = 0                 # of those, DMs and <@me>
+    last_ts: str | None = None
+    last_text: str | None = None
+    topic: str | None = None
+    is_default: bool = False          # SLACK_DEFAULT_CHANNEL
+
+
+class NotifyChannels(BaseModel):
+    """The whole channel list, sorted: DMs / group DMs with unread first, then by last_ts desc. Sticky on /ws."""
+    channels: list[ChannelSummary] = []
 
 
 class Draft(BaseModel):
@@ -220,6 +257,7 @@ class Draft(BaseModel):
     text: str
     thread_ts: str | None = None
     reply_to: SlackMessage | None = None
+    edited: bool = False              # the user changed the text (PATCH /messages/drafts/{id}); same draft_id re-emitted
 
 
 class NotifySent(BaseModel):
@@ -235,10 +273,14 @@ class NotifyDraftCancelled(BaseModel):
     reason: str = "cancelled"         # cancelled | superseded | expired
 
 
+NO_NEW_MESSAGES = "You have no new messages today."
+
+
 def digest_line(count: int, mentions: int) -> str:
-    """The one sentence Bit says on sit-down. Empty when there is nothing new."""
+    """The one sentence Bit says on sit-down (the greeting card's headline too). Never empty: the zero case is
+    NO_NEW_MESSAGES, so the wording lives here and nowhere in Unity."""
     if count <= 0:
-        return ""
+        return NO_NEW_MESSAGES
     msgs = "1 new message" if count == 1 else f"{count} new messages"
     if mentions <= 0:
         return f"You have {msgs}."
@@ -252,7 +294,7 @@ def digest_line(count: int, mentions: int) -> str:
 
 
 class NotifyDigest(BaseModel):
-    """Unread summary sent when the user sits down: counts, the spoken line, newest messages (capped)."""
+    """Unread summary sent when the user sits down: counts, the spoken line (never empty), newest messages (capped)."""
     count: int
     mentions: int
     line: str
@@ -337,16 +379,21 @@ def _body(payload: BaseModel | dict[str, Any]) -> dict[str, Any]:
 
 
 class EventBus:
-    STICKY = {"cad.model_updated", "cad.view"}  # replayed to clients that connect later
+    STICKY = frozenset({"cad.model_updated", "cad.view"})  # default set replayed to clients that connect later
 
-    def __init__(self) -> None:
+    def __init__(self, sticky: Iterable[str] | None = None) -> None:
         self._clients: set[WebSocket] = set()
         self._last: dict[str, dict[str, Any]] = {}
+        self.sticky: set[str] = set(self.STICKY if sticky is None else sticky)
         self._current: dict[str, Callable[[], BaseModel | dict[str, Any]]] = {}
 
-    def sticky(self, type_: str, current: Callable[[], BaseModel | dict[str, Any]]) -> None:
+    def make_sticky(self, type_: str) -> None:
+        """Replay the last `type_` payload to late joiners too (modules register their own, e.g. screen.status)."""
+        self.sticky.add(type_)
+
+    def sticky_fresh(self, type_: str, current: Callable[[], BaseModel | dict[str, Any]]) -> None:
         """Replay `type_` to clients that connect later from `current()`, not from the last payload sent: for state
-        that moves on its own, like the timer's remaining time or the movie's position."""
+        that moves on its own, like the timers' remaining time or the movie's position."""
         self._current[type_] = current
 
     def latest(self, prefix: str = "") -> dict[str, dict[str, Any]]:
@@ -358,7 +405,7 @@ class EventBus:
     async def publish(self, type_: str, payload: BaseModel | dict[str, Any]) -> None:
         body = _body(payload)
         message = {"type": type_, "payload": body}
-        if type_ in self.STICKY:
+        if type_ in self.sticky:
             self._last[type_] = message
         dead = []
         for ws in list(self._clients):

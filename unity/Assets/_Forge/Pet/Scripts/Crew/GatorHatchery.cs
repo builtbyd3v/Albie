@@ -16,6 +16,8 @@ namespace Forge.Pet
     /// picker; it also closes after closeAfter seconds untouched. Inputs, all ending in TogglePicker / Previous / Next /
     /// Confirm: Meta Interaction SDK poke/ray wrappers (wired by Forge/Pet/7. Add Agent Crew To Open Scene, no Meta
     /// types here) and mouse clicks. The picker billboards toward the user (yaw only). No allocations per frame.
+    /// Gate: while GatorCrew.CrewAllowed is false (the code mode is closed in Main) the whole egg is hidden and inert;
+    /// it comes back when the mode opens. Sandbox scenes have no Workspace, so the egg is always out there.
     /// </summary>
     [RequireComponent(typeof(BoxCollider))]
     [DisallowMultipleComponent]
@@ -84,7 +86,7 @@ namespace Forge.Pet
         Vector3 _eggRest, _eggScale;
         int _index;
         float _lastPress = -10f, _pressedUntil = -1f, _startTime, _nextPlaceCheck, _lastUse, _slide;
-        bool _placedFallback, _hasSpawn;
+        bool _placedFallback, _hasSpawn, _gated;
         Vector3 _spawnPos, _spawnRight = Vector3.right;
 
         void Awake()
@@ -117,10 +119,13 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- public API (UnityEvents / ISDK wrappers)
 
+        /// <summary>Hatching is blocked right now (GatorCrew.CrewAllowed is false: the code mode is closed).</summary>
+        public bool Gated => _gated;
+
         /// <summary>The egg: open or close the picker.</summary>
         public void TogglePicker()
         {
-            if (!Debounced() || picker == null) return;
+            if (_gated || !Debounced() || picker == null) return;
             bool open = !PickerOpen;
             picker.gameObject.SetActive(open);
             _title.gameObject.SetActive(!open);
@@ -133,7 +138,7 @@ namespace Forge.Pet
         /// <summary>Hatch the shown agent (then close), or send it home if it's already out.</summary>
         public void Confirm()
         {
-            if (!PickerOpen || !Debounced()) return;
+            if (_gated || !PickerOpen || !Debounced()) return;
             BindCrew();
             if (_crew == null) { Debug.LogWarning("[GatorHatchery] No GatorCrew in the scene.", this); return; }
             GatorAgentType t = Shown;
@@ -150,7 +155,7 @@ namespace Forge.Pet
 
         void Step(int dir)
         {
-            if (!PickerOpen || !Debounced()) return;
+            if (_gated || !PickerOpen || !Debounced()) return;
             int n = GatorAgentTypes.All.Length;
             _index = (_index + dir + n) % n;
             _slide = dir;                                   // slides in from that side
@@ -161,7 +166,15 @@ namespace Forge.Pet
 
         void Update()
         {
-            if (autoPlace && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
+            if (Time.time >= _nextPlaceCheck)
+            {
+                _nextPlaceCheck = Time.time + 0.5f;
+                if (autoPlace) UpdatePlacement();
+                BindCrew();
+            }
+            bool gated = _crew != null && !_crew.CrewAllowed;
+            if (gated != _gated) ApplyGate(gated);
+            if (_gated) return;
 
             Mouse mouse = Mouse.current;
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) TryMousePress(mouse);
@@ -182,6 +195,22 @@ namespace Forge.Pet
                 _slide = Mathf.MoveTowards(_slide, 0f, Time.deltaTime / SlideSeconds);
                 LayoutCarousel();
             }
+        }
+
+        // Hide the egg, its label, the picker and the poke / ray children while gated; put them back when the mode opens.
+        void ApplyGate(bool gated)
+        {
+            _gated = gated;
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                Transform c = transform.GetChild(i);
+                if (c == picker) continue;
+                c.gameObject.SetActive(!gated);
+            }
+            if (picker != null) picker.gameObject.SetActive(false);
+            if (_title != null) _title.gameObject.SetActive(!gated);
+            if (_collider != null) _collider.enabled = !gated;
+            if (!gated) Refresh();
         }
 
         bool Debounced()

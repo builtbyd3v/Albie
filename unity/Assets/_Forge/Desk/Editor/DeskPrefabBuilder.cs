@@ -15,7 +15,8 @@ using UnityEngine.Video;
 /// - MoviePanel.prefab: ForgePanel variant, title bar off (PanelManipulator puts a move bar above it), VideoPlayer +
 ///   AudioSource + MoviePanel
 /// - DeskOrb.prefab: tiny frameless ForgePanel variant + PanelOrb (the dot a panel minimizes into)
-/// - DeskExtras.prefab: DeskExtras + DeskChime with the prefabs above (Main puts one under the Workspace)
+/// - Resources/DeskExtras.prefab: DeskExtras + DeskChime with the prefabs above (Main's builder puts one under the
+///   Workspace; DeskBootstrap adds it at runtime to any scene with a Workspace that has none)
 /// - DeskSandbox.unity: a desk, the desktop rig, the mocks (Mocks/desk/sequence.json) and the number keys
 /// The panels build their UI at runtime. Builds in an additive scratch scene; GUIDs are kept on rebuild.
 /// </summary>
@@ -27,7 +28,7 @@ public static class DeskPrefabBuilder
     public const string NotesPath = PrefabDir + "/NotesPanel.prefab";
     public const string MoviePath = PrefabDir + "/MoviePanel.prefab";
     public const string OrbPath = PrefabDir + "/DeskOrb.prefab";
-    public const string ExtrasPath = PrefabDir + "/DeskExtras.prefab";
+    public const string ExtrasPath = Root + "/Resources/DeskExtras.prefab";  // Resources: DeskBootstrap loads it
     public const string SandboxPath = Root + "/DeskSandbox.unity";
     const string SequencePath = "Assets/_Forge/Mocks/desk/sequence.json";
 
@@ -62,6 +63,7 @@ public static class DeskPrefabBuilder
     {
         EnsureFolder(Root);
         EnsureFolder(PrefabDir);
+        EnsureFolder(Root + "/Resources");
 
         var timers = PanelVariant("TimerStack", "timer", "Timers", new Vector2(0.46f, 0.064f));
         Bare(timers);

@@ -49,3 +49,50 @@ def test_every_proposed_event_has_pet_state() -> None:
 )
 def test_classify(text: str, mode: str) -> None:
     assert classify_mode(text, "auto") == mode
+
+
+class _Target:
+    def __init__(self) -> None:
+        self.sent: list[Event] = []
+
+    async def broadcast(self, e: Event) -> None:
+        self.sent.append(e)
+
+
+def test_emitter_companion_follows_the_mode_but_not_an_empty_final() -> None:
+    """pet.state listening goes out with a transcript, once per mode change; a dropped turn's empty stt.final
+    (look-to-talk, a tap, stt.cancel) changes nothing."""
+    import asyncio
+
+    from agent.bus import Emitter
+
+    target = _Target()
+    emit = Emitter("bit", target=target)
+
+    async def go() -> None:
+        await emit(ev.stt_final("bit", ""))
+        await emit(ev.stt_partial("bit", "hey"))
+        await emit(ev.stt_partial("bit", "hey bit"))
+        await emit(ev.stt_final("bit", "hey bit"))
+        await emit(ev.thinking("bit"))
+        await emit(ev.stt_final("bit", "   "))
+
+    asyncio.run(go())
+    assert [(e.type, e.payload.get("mode")) for e in target.sent] == [
+        ("stt.final", None),
+        ("pet.state", "listening"), ("stt.partial", None), ("stt.partial", None), ("stt.final", None),
+        ("pet.state", "thinking"), ("agent.thinking", None),
+        ("stt.final", None),
+    ]
+
+
+def test_emitter_without_companions_sends_only_the_event() -> None:
+    import asyncio
+
+    from agent.bus import Emitter
+
+    target = _Target()
+    emit = Emitter("bit", target=target, companion=False)
+    asyncio.run(emit(ev.stt_partial("bit", "hey bit")))
+    asyncio.run(emit(ev.pet_state("bit", "listening")))
+    assert [e.type for e in target.sent] == ["stt.partial", "pet.state"]

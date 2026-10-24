@@ -1,11 +1,9 @@
-"""Pet agent module: FastAPI router (/agent/*) + /ws/agent handler (standalone app: agent.app).
-
-Mount in any hub app:
+"""Pet agent module: the /agent router and the session handler main.py runs on the shared /ws socket.
 
     from agent import router as agent_router, handle_socket
     app.include_router(agent_router)
-    @app.websocket("/ws/agent")
-    async def ws(ws: WebSocket): await handle_socket(ws)
+    ...
+    await bus.attach(websocket); await handle_socket(websocket, accept=False)   # main.py's /ws
 """
 
 from .router import router

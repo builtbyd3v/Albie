@@ -23,6 +23,11 @@ Grok -> our events (docs/PET_AGENT_CONTRACT.md, Addendum B):
     response.function_call_arguments.done         -> agent.tool_call; delegate -> runner (see _on_function_call)
     error                                         -> agent.error
 
+Context without a reply: ``note(text)`` adds a one-line system message (the workspace view the user opened,
+the Slack message in focus; ws.py and messaging call it through agent/speech.py). ``workspace_mode`` (set by ws.py
+from ``workspace.mode``) gates Bit's crew tools: they answer with an error unless the CODE view is open, since
+the crew's gators live on that screen. None (the client never said) leaves them available.
+
 Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
 and no response until ``wake_router`` has read the transcript; it answers only if a gator was named, otherwise
 the committed item is deleted so room chatter never reaches the conversation.
@@ -96,6 +101,14 @@ TOOL_RULES = (
     "that pops up for them to confirm, so say what you wrote and ask them to tap Send or say 'send it'; "
     "messages_confirm is for their yes or no."
 )
+CREW_OFF_CODE_SCREEN = {"error": "crew tools are only available on the code screen; ask the user to open CODE"}
+VIEW_NOTES = {
+    "code": "The user switched to the CODE view (VS Code on the main screen); crew tools are available now.",
+    "cad": "The user switched to the CAD view (the rocket design); crew tools are off until they open CODE.",
+    "ml": "The user switched to the ML view (training data and runs); crew tools are off until they open CODE.",
+    "messages": "The user switched to the MESSAGES view (their Slack inbox); crew tools are off until they open CODE.",
+    "": "The user closed the workspace views; crew tools are off until they open CODE.",
+}
 DELEGATE_TOOL = {
     "type": "function",
     "name": "delegate",
@@ -173,6 +186,7 @@ class _Base:
         self._last_final_t = 0.0
         self.wake_router: Any = None  # agent/wake.py WakeRouter, set by ws.py
         self._wake = False  # the open turn is a wake turn
+        self.workspace_mode: str | None = None  # workspace.mode from Unity; None = never told (ws.py keeps it current)
 
     def is_echo(self, text: str) -> bool:
         """True if an agent.ask just repeats the transcript this session is already answering."""
@@ -238,6 +252,7 @@ class GrokVoiceSession(_Base):
         self._delegate = delegate
         self._speed = os.getenv("GROK_VOICE_SPEED", "").strip()
         self._pending_outputs: list[dict[str, Any]] = []  # function_call_output items sent after response.done
+        self._pending_notes: list[str] = []  # note() while the socket was idle-closed: sent right after session.update
         self._jobs: set[asyncio.Task[None]] = set()
         self._suppress_transcript = False  # next response speaks a delegate answer the runner already captioned
         self._drop_reply = False  # the turn was only "stop": cancel Grok's reply to it, play and run nothing
@@ -275,6 +290,9 @@ class GrokVoiceSession(_Base):
             t0 = time.monotonic()
             self._ws = await self._connect(GROK_URL.format(model=self._model), self._api_key)
             await self._send(self._session_update())
+            notes, self._pending_notes = self._pending_notes, []
+            for text in notes:
+                await self._send(_note_item(text))
             self._reader = asyncio.create_task(self._read_loop(self._ws))
             if self._watchdog is None and self._idle_close_s > 0:
                 self._watchdog = asyncio.create_task(self._idle_loop())
@@ -548,6 +566,8 @@ class GrokVoiceSession(_Base):
             job = asyncio.create_task(self._run_delegate(str(args["task"]), mode))
             self._jobs.add(job)
             job.add_done_callback(self._jobs.discard)
+        elif tools.is_lead_only(name) and self.workspace_mode is not None and self.workspace_mode != "code":
+            result = CREW_OFF_CODE_SCREEN  # the crew lives on the CODE screen; Unity told us another view is open
         elif tools.has(name):
             # ponytail: awaited inline, so the reader waits on the tool (CAD regen about 1 s, VS Code under 5 s).
             result = await tools.call(name, args, self.pet_id)
@@ -568,6 +588,15 @@ class GrokVoiceSession(_Base):
         if not answer:
             return  # cancelled / superseded: nothing to say
         await self.say(answer)
+
+    async def note(self, text: str) -> None:
+        """One line of context Grok reads but doesn't answer (a system message). While the socket is idle-closed
+        the note is kept (last five) and sent after the next session.update, so a view change never reopens a
+        paid session on its own."""
+        if self._ws is None:
+            self._pending_notes = (self._pending_notes + [text])[-5:]
+            return
+        await self._send(_note_item(text))
 
     async def say(self, text: str) -> None:
         """Speak text verbatim once Grok (and the user) are done talking; captions come from the runner."""
@@ -693,6 +722,16 @@ class FakeVoiceSession(_Base):
         task, self._reply = self._reply, None
         if task is not None and not task.done():
             task.cancel()
+
+
+def _note_item(text: str) -> dict[str, Any]:
+    return {"type": "conversation.item.create", "item": {
+        "type": "message", "role": "system", "content": [{"type": "input_text", "text": text}]}}
+
+
+def view_note(mode: str) -> str:
+    """The one-line note Grok gets when Unity switches workspace view (workspace.mode)."""
+    return VIEW_NOTES.get(mode) or f"The user switched to the {mode.upper()} view; crew tools are off until they open CODE."
 
 
 async def _ws_connect(url: str, api_key: str) -> Any:

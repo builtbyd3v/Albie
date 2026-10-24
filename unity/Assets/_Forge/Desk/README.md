@@ -1,6 +1,6 @@
 # Desk extras (timers, notes, movie)
 
-Things Bit adds on top of any mode. They stay open while you switch ML / CAD / SCR / MSG, fold away when you stand
+Things Bit adds on top of any mode. They stay open while you switch ML / CAD / CODE / MSG, fold away when you stand
 up and come back when you sit down. The hub owns all of it (`hub/desk/`, contract in hub/README "Desk"); Unity is
 the view.
 
@@ -16,7 +16,9 @@ where you left the dot. Where you move things is kept for the session.
 
 ## How it fits
 
-- `DeskExtras` (one per scene, under Main's Workspace) listens to `ui.widgets`, `timers.updated`, `notes.updated`,
+- `DeskExtras` (`Resources/DeskExtras.prefab`, one per scene under the Workspace: Main's builder adds it, and
+  `DeskBootstrap` adds it at runtime to any scene with a Workspace that has none, so a Main rebuilt by another
+  branch's builder still gets it) listens to `ui.widgets`, `timers.updated`, `notes.updated`,
   `movie.state` (classes in `Core/Net/ForgeEvents.cs`) and shows the panels through Core's `WorkspaceExtras`
   (anchors Top / Beside / Cinema; follows the open mode's layout until you move a panel).
 - The panels' buttons call `DeskApi`: a POST to the hub when it's live; with the hub off, the same change on a local

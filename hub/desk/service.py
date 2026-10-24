@@ -29,10 +29,10 @@ class DeskService:
         self.timers = TimerBoard(self._timers_changed, self._timer_rang)
         self.notes = NotesStore(Path(data_dir) / "desk" / "notes.json")
         self.movie = MovieService(Path(data_dir) / "media", Path(data_dir) / "desk" / "movie.json", self._movie_changed)
-        bus.sticky("ui.widgets", lambda: self.widgets)
-        bus.sticky("timers.updated", self.timers.updated)
-        bus.sticky("notes.updated", self.notes.updated)
-        bus.sticky("movie.state", self.movie.state)
+        bus.sticky_fresh("ui.widgets", lambda: self.widgets)
+        bus.sticky_fresh("timers.updated", self.timers.updated)
+        bus.sticky_fresh("notes.updated", self.notes.updated)
+        bus.sticky_fresh("movie.state", self.movie.state)
 
     def stop(self) -> None:
         self.timers.close()
