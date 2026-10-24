@@ -119,6 +119,7 @@ def test_push_to_talk_turn_maps_to_our_events() -> None:
         T = "conversation.item.input_audio_transcription"
         grok.push(type=f"{T}.updated", transcript="Hey")
         grok.push(type=f"{T}.updated", transcript="Hey Bit")
+        grok.push(type="input_audio_buffer.committed")
         grok.push(type=f"{T}.completed", transcript="Hey Bit!")
         grok.push(type="response.created", response={"id": "r1"})
         grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 10))
@@ -361,6 +362,7 @@ def test_delegate_round_trip() -> None:
         assert sess["tools"][0]["name"] == "delegate" and "delegate" in sess["instructions"]
         await s.feed(b"\x00\x00" * 4000)
         await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
         grok.push(type="conversation.item.input_audio_transcription.completed", transcript="where's the ws handler?")
         grok.push(type="response.created")
         grok.push(type="response.output_audio_transcript.delta", delta="On it!")
@@ -491,6 +493,33 @@ def test_barge_in_stops_speech_unity_is_still_playing(monkeypatch: pytest.Monkey
             if stops:
                 assert stops[0].payload == {"pet_id": "bit", "utterance_id": utt, "reason": "barge_in"}
             await s.cancel_turn()
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_interim_completed_transcripts_are_not_final() -> None:
+    """Grok sends transcription.completed per segment while the user still talks (captured from grok-voice-3.0).
+    Only the one after input_audio_buffer.committed is the final; earlier ones are partials."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x00\x00" * 4000)
+        T = "conversation.item.input_audio_transcription"
+        grok.push(type=f"{T}.updated", transcript="... bid. How's")
+        grok.push(type=f"{T}.completed", transcript="... bid. How's")
+        grok.push(type=f"{T}.completed", transcript="... bit. How stable is my rocket")
+        await _settle()
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type=f"{T}.completed", transcript="Bit, how stable is my rocket right now?")
+        grok.push(type="response.created")
+        await _settle()
+        finals = [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"]
+        assert finals == ["Bit, how stable is my rocket right now?"]
+        partials = [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.partial"]
+        assert partials == ["... bid. How's", "... bit. How stable is my rocket"]
         await s.close()
 
     asyncio.run(run())

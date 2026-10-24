@@ -137,6 +137,7 @@ class _Base:
         self._emit = emit  # broadcast Emitter (adds pet.state companions)
         self._partial = ""
         self._final_sent = True  # no turn open yet
+        self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -152,6 +153,7 @@ class _Base:
     def _open_turn(self) -> None:
         self._partial = ""
         self._final_sent = False
+        self._committed = False
         self._cancelled = False
 
     async def _transcript(self, text: str) -> None:
@@ -366,8 +368,14 @@ class GrokVoiceSession(_Base):
             if text is None:
                 text = self._partial + (msg.get("delta") or "")
             await self._transcript(text)
+        elif t == "input_audio_buffer.committed":
+            self._committed = True
         elif t == "conversation.item.input_audio_transcription.completed":
-            await self._final(msg.get("transcript"))
+            # Grok also sends .completed per segment while the user is still talking; only the one after commit is final.
+            if self._committed:
+                await self._final(msg.get("transcript"))
+            else:
+                await self._transcript(msg.get("transcript") or "")
         elif t == "response.created":
             if self._partial:
                 await self._final()  # no .completed yet: the last cumulative transcript is final

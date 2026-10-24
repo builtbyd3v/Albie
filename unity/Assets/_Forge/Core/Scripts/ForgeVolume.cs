@@ -23,6 +23,10 @@ public class ForgeVolume : MonoBehaviour
 
     public Transform ContentRoot => contentRoot;
 
+    /// <summary>The content's turn about its own up axis and its tilt toward the viewer (deg), from <see cref="SetView"/>.</summary>
+    public float ViewYaw { get; private set; }
+    public float ViewTilt { get; private set; }
+
     public string Title
     {
         get => label != null ? label.text : "";
@@ -33,7 +37,9 @@ public class ForgeVolume : MonoBehaviour
 
     void Update()
     {
-        if (turntable) spin.Rotate(0f, turntableDegreesPerSecond * Time.deltaTime, 0f, Space.Self);
+        if (!turntable) return;
+        ViewYaw = (ViewYaw + turntableDegreesPerSecond * Time.deltaTime) % 360f;
+        ApplyView();
     }
 
     public void SetSize(Vector3 newSize)
@@ -41,6 +47,26 @@ public class ForgeVolume : MonoBehaviour
         size = newSize;
         ApplySize();
         Fit();
+    }
+
+    /// <summary>
+    /// Turn the content about the box's center: <paramref name="yaw"/> spins it about its own up axis, then
+    /// <paramref name="tilt"/> tips it toward (+) or away from the front. The base and label stay put. Stops the turntable.
+    /// </summary>
+    public void SetView(float yaw, float tilt)
+    {
+        turntable = false;
+        ViewYaw = yaw;
+        ViewTilt = tilt;
+        ApplyView();
+    }
+
+    void ApplyView()
+    {
+        var center = new Vector3(0f, size.y * 0.5f, 0f);
+        Quaternion r = Quaternion.Euler(ViewTilt, 0f, 0f) * Quaternion.Euler(0f, ViewYaw, 0f);
+        spin.localRotation = r;
+        spin.localPosition = center - r * center;
     }
 
     /// <summary>Replace the content with <paramref name="content"/> and fit it to the box.</summary>
