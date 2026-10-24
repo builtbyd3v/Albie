@@ -202,6 +202,9 @@ class GrokVoiceSession(_Base):
         # current response
         self._utt: str | None = None
         self._audio_started = False
+        # Grok sends speech faster than real time, so Unity is often still playing after response.done.
+        self._playing_utt: str | None = None
+        self._play_until = 0.0  # monotonic time Unity's queued speech runs out
         self._answer = ""
         self._answer_done = False
         self._forwarding = False
@@ -309,6 +312,9 @@ class GrokVoiceSession(_Base):
             await self._send({"type": "response.cancel"})
         if self._audio_started and self._utt is not None:
             await self._send_event(ev.tts_stop(self.pet_id, self._utt, reason))
+        elif self._playing_utt is not None and time.monotonic() < self._play_until:
+            await self._send_event(ev.tts_stop(self.pet_id, self._playing_utt, reason))
+        self._playing_utt, self._play_until = None, 0.0
         self._audio_started = False
         self._response_active = False
 
@@ -469,8 +475,11 @@ class GrokVoiceSession(_Base):
         await self._final()
         if not self._audio_started:
             self._audio_started = True
-            await self._send_event(ev.tts_start(self.pet_id, self._utt or uuid.uuid4().hex[:12], self.sample_rate))
+            self._utt = self._utt or uuid.uuid4().hex[:12]
+            await self._send_event(ev.tts_start(self.pet_id, self._utt, self.sample_rate))
         await self._send_bytes(pcm)
+        self._playing_utt = self._utt
+        self._play_until = max(self._play_until, time.monotonic()) + len(pcm) / 2 / self.sample_rate
 
     async def _answer_finished(self, text: str) -> None:
         self._answer_done = True
