@@ -17,7 +17,8 @@ settings are unchanged.
   Inspect pulls the focused card forward; Put back returns it. Previous/Next also
   work via ray/poke. Only nearby cards are drawn; all samples remain scrubbable.
 - **Model3D:** one block per layer, logarithmic output-dimension sizing, type colors,
-  input/output shape labels, sequential pulse on each metrics tick.
+  input/output shape labels, sequential pulse on each metrics tick, and hover/select
+  details for each layer.
 - **ResultsWall:** an atlas-backed GPU-instanced dot wall (up to 1,000 validation
   images in one draw call) with green/red correctness tint. All/Wrong/class and
   confusion-pair filters rebuild the wall without creating sample UI objects.

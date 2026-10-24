@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Forge.ML
 {
@@ -12,12 +13,15 @@ namespace Forge.ML
         Vector3[] scales;
         Material[] materials;
         Color[] colors;
+        TMPro.TMP_Text detail;
+        int highlighted = -1;
         void Start()
         {
             session = MLSession.Resolve(session); var root = GetComponent<ForgePanel>().Content;
             int count = session.Data.layers.Length; blocks = new Transform[count]; scales = new Vector3[count]; materials = new Material[count]; colors = new Color[count];
             float step = Mathf.Min(62, (root.rect.height - 30) / Mathf.Max(1, count));
             MLUI.Text(root, "Layer blocks · pulses follow metrics ticks", 8, 0, 450, 26, 14);
+            detail = MLUI.Text(root, "Hover or select a layer for details", 8, 25, 450, 18, 11);
             for (int i = 0; i < count; i++)
             {
                 var layer = session.Data.layers[i];
@@ -32,8 +36,25 @@ namespace Forge.ML
                 MLUI.Text(root, string.Join("×",layer.in_shape), 190, y, 260, 12, 9);
                 MLUI.Text(root, layer.name+" · "+layer.type, 190, y+12, 260, 15, 12).color = colors[i];
                 MLUI.Text(root, string.Join("×",layer.out_shape), 190, y+27, 260, 12, 9);
+                var hit = MLUI.Rect("Layer hit " + i, root, 180, y, 280, 40).gameObject;
+                var image = hit.AddComponent<Image>(); image.color = new Color(0, 0, 0, .001f);
+                var input = hit.AddComponent<MLModelLayerInput>(); input.owner = this; input.layerIndex = i;
             }
             session.Metrics += OnMetrics;
+        }
+        public void HighlightLayer(int index)
+        {
+            if (index < 0 || index >= session.Data.layers.Length) { ClearHighlight(); return; }
+            highlighted = index;
+            var layer = session.Data.layers[index];
+            detail.text = $"{layer.name} · {layer.type}    {string.Join("×", layer.in_shape)} → {string.Join("×", layer.out_shape)}";
+            for (int i = 0; i < blocks.Length; i++) materials[i].SetColor("_BaseColor", i == index ? Color.white : colors[i]);
+        }
+        public void ClearHighlight()
+        {
+            highlighted = -1;
+            if (detail != null) detail.text = "Hover or select a layer for details";
+            for (int i = 0; materials != null && i < materials.Length; i++) materials[i].SetColor("_BaseColor", colors[i]);
         }
         public static Color TypeColor(string type)
         {
@@ -45,7 +66,7 @@ namespace Forge.ML
             if (type.Contains("reshape")) return new Color(.65f,.72f,.8f);
             return new Color(1,.4f,.6f);
         }
-        void OnMetrics(MLMetrics tick) { StopAllCoroutines(); for (int i=0;i<blocks.Length;i++) { blocks[i].localScale=scales[i]; materials[i].SetColor("_BaseColor",colors[i]); } StartCoroutine(Pulse()); }
+        void OnMetrics(MLMetrics tick) { StopAllCoroutines(); for (int i=0;i<blocks.Length;i++) { blocks[i].localScale=scales[i]; materials[i].SetColor("_BaseColor",colors[i]); } highlighted = -1; StartCoroutine(Pulse()); }
         IEnumerator Pulse()
         {
             for (int i = 0; i < blocks.Length; i++)
