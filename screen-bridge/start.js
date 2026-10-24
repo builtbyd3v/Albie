@@ -49,7 +49,7 @@ reversePorts();
 setInterval(reversePorts, 5000);
 
 const signaling = spawn(`${here}.venv/bin/python`, ["-u", `${here}signaling.py`], { stdio: ["ignore", "pipe", "inherit"] });
-// JPEG fallback server (whole screen, :8765), for Unity's JpegScreenReceiver if WebRTC shows no video.
+// JPEG fallback server (:8765, VS Code's window at Retina resolution), for Unity's JpegScreenReceiver if WebRTC shows no video.
 const jpeg = spawn(`${here}.venv/bin/python`, ["-u", `${here}stream.py`], { stdio: ["ignore", "inherit", "inherit"] });
 for (const [child, port] of [[signaling, 8766], [jpeg, 8765]])
   child.on("exit", (code) => {
