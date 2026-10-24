@@ -548,7 +548,8 @@ def test_channel_list_shaping_and_sorting(tmp_path: Path) -> None:
     assert (by_id["G1"].name, by_id["G1"].kind) == ("hudson, Jane Doe", "group-dm")              # the others, not me
     assert (by_id["C1"].unread, by_id["C1"].mentions, by_id["C1"].last_ts) == (1, 1, "1700000005.000100")
     assert (by_id["C2"].last_text, by_id["C2"].topic) == ("old news", None)
-    assert set(rows[0].model_dump()) == {"id", "name", "kind", "unread", "mentions", "last_ts", "last_text", "topic", "is_default"}
+    assert set(rows[0].model_dump()) == {"id", "name", "kind", "unread", "mentions", "last_ts", "last_text", "topic", "is_default",
+                                         "source"}
 
 
 def test_channel_list_refresh_pushes_only_on_change(tmp_path: Path) -> None:
@@ -683,7 +684,8 @@ def test_draft_create_send_emits_and_posts_as_user(tmp_path: Path) -> None:
     assert svc._client.posted == []  # not as Bit
     assert bus.types() == ["notify.draft", "notify.sent"]
     assert bus.last("notify.sent").model_dump() == {"draft_id": draft.draft_id, "channel": "C1",
-                                                    "channel_name": "forge-team", "text": "yes, by 3", "ts": ts}
+                                                    "channel_name": "forge-team", "text": "yes, by 3", "ts": ts,
+                                                    "source": "slack"}
 
 
 def test_draft_falls_back_to_bot_without_user_token(tmp_path: Path) -> None:
@@ -946,7 +948,8 @@ def test_tools_list_channels_and_read_channel(tmp_path: Path) -> None:
         ]
 
     listed, forge, dm, empty, missing = asyncio.run(run())
-    assert listed["channels"][0] == {"id": "D1", "name": "hudson", "kind": "dm", "unread": 1, "mentions": 1, "last_text": "ping"}
+    assert listed["channels"][0] == {"id": "D1", "name": "hudson", "kind": "dm", "unread": 1, "mentions": 1, "last_text": "ping",
+                                     "source": "slack", "last_ts": "1700000003.000100"}
     assert {c["name"] for c in listed["channels"]} == {"hudson", "Jane Doe", "hudson, Jane Doe", "#forge-team", "#random", "#secret"}
     assert (forge["channel"], forge["channel_name"]) == ("C1", "#forge-team")
     assert [m["text"] for m in forge["messages"]] == ["mine", "sixth"] and forge["messages"][0]["is_me"] is True
@@ -995,12 +998,12 @@ def test_router_enabled_draft_flow(api) -> None:
     r = c.get("/messages/latest?n=5")
     assert r.status_code == 200 and r.json()[0]["text"] == "first"
     assert set(r.json()[0]) == {"channel", "channel_name", "is_dm", "user", "user_name", "text", "ts", "thread_ts", "mentions_me",
-                                "reply_count", "edited", "is_me", "user_initials"}
+                                "reply_count", "edited", "is_me", "user_initials", "source"}
 
     r = c.post("/messages/drafts", json={"text": "hey", "reply_to_ts": "1700000001.000100"})
     assert r.status_code == 200
     draft = r.json()
-    assert set(draft) == {"draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited"}
+    assert set(draft) == {"draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "source"}
     assert draft["channel"] == "C1" and draft["thread_ts"] == "1700000001.000100" and draft["reply_to"]["text"] == "first"
     assert draft["edited"] is False
     assert svc._user_client.posted == []
@@ -1052,7 +1055,7 @@ def test_router_panel_endpoints(api) -> None:
     rows = res.json()["channels"]
     assert [row["id"] for row in rows][:1] == ["D1"] and {row["id"] for row in rows} == {"C1", "C2", "C3", "D1", "D2", "G1"}
     assert rows[0] == {"id": "D1", "name": "hudson", "kind": "dm", "unread": 1, "mentions": 1, "last_ts": "1700000003.000100",
-                       "last_text": "ping", "topic": None, "is_default": False}
+                       "last_text": "ping", "topic": None, "is_default": False, "source": "slack"}
 
     res = c.get("/messages/history?channel=C1&limit=2")
     assert res.status_code == 200

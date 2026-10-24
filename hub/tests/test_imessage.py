@@ -147,7 +147,7 @@ def _slack(tmp_path: Path, store: MessageStore, bus: BusRecorder) -> SlackServic
     async def speak(pet_id: str, text: str) -> bool:
         return True
 
-    return SlackService(SlackSettings(), store, bus, speak)  # type: ignore[arg-type]
+    return SlackService(SlackSettings(bot_token="xoxb-x", app_token="xapp-x"), store, bus, speak)  # type: ignore[arg-type]
 
 
 def test_focus_is_one_message_across_both_providers(tmp_path: Path) -> None:
@@ -181,3 +181,51 @@ def test_focus_is_one_message_across_both_providers(tmp_path: Path) -> None:
         return out
 
     assert asyncio.run(reply()).get("source") == "imessage"
+
+
+def _typedstream(text: str) -> bytes:
+    """The start of a real attributedBody: NSAttributedString / NSString, then the text with its length prefix."""
+    raw = text.encode("utf-8")
+    length = bytes([len(raw)]) if len(raw) < 0x80 else b"\x81" + len(raw).to_bytes(2, "little")
+    return (b"\x04\x0bstreamtyped\x81\xe8\x03\x84\x01@\x84\x84\x84\x12NSAttributedString\x00\x84\x84\x08NSObject\x00"
+            b"\x85\x92\x84\x84\x84\x08NSString\x01\x94\x84\x01+" + length + raw +
+            b"\x86\x84\x02iI\x01\x0b\x92\x84\x84\x84\x0cNSDictionary\x00\x94\x84\x01i\x01\x92\x84\x96\x96"
+            b"\x1d__kIMMessagePartAttributeName\x86\x92\x84\x84\x84\x08NSNumber\x00")
+
+
+def test_attributed_body_decodes_the_message_text() -> None:
+    from messaging.imessage.db import text_body
+
+    assert text_body(None, _typedstream("ok see you!")) == "ok see you!"
+    long = "running late, " * 20                                    # > 127 bytes: two-byte length
+    assert text_body(None, _typedstream(long)) == long
+    assert text_body(None, _typedstream("café 🐊")) == "café 🐊"
+    assert text_body("plain wins", _typedstream("ignored")) == "plain wins"
+    assert text_body(None, b"\x04\x0bstreamtyped garbage") == ""
+    assert text_body(None, None) == ""
+
+
+def test_send_confirms_against_a_text_stored_only_in_attributed_body(tmp_path: Path) -> None:
+    db = make_db(tmp_path / "chat.db")
+    add_text(db, 1, "hey", ago_s=30)
+
+    async def run() -> None:
+        svc, bus = make_service(tmp_path)
+        await svc.start()
+
+        async def send(chat_id: int, text: str) -> None:   # Messages writes the row with text NULL
+            date = int((time.time() - APPLE_EPOCH) * 1_000_000_000)
+            cur = db.execute("INSERT INTO message (guid, text, attributedBody, handle_id, is_from_me, date) "
+                             "VALUES ('sent', NULL, ?, 1, 1, ?)", (_typedstream(text), date))
+            db.execute("INSERT INTO chat_message_join VALUES (?, ?)", (chat_id, cur.lastrowid))
+            db.commit()
+
+        svc.sender.send = send  # type: ignore[method-assign]
+        try:
+            draft = await svc.create_draft("on my way", f"im:{DM}")
+            _, ts = await svc.send_draft(draft.draft_id)
+            assert ts and "notify.sent" in bus.types()
+        finally:
+            await svc.stop()
+
+    asyncio.run(run())

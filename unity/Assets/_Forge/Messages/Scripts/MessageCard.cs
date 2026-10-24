@@ -105,9 +105,8 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         if (CardStyle == Style.Inbox) return InboxHeight;
         if (CardStyle == Style.IMessage)
         {
-            float textW = Mathf.Max(28f, w - 26f);
-            float textH = SlackUi.Height(body, rendered, textW);
-            return Mathf.Max(36f, textH + 20f);
+            float bubbleTextW = Mathf.Max(28f, w - 26f);
+            return Mathf.Max(36f, SlackUi.Height(body, rendered, bubbleTextW) + 20f);
         }
         if (Mathf.Approximately(w, width)) return measured;
         width = w;

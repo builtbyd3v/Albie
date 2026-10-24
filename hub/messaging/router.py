@@ -155,6 +155,8 @@ async def seen(channel_id: str, request: Request, svc: SlackService = Depends(se
             svc.store.mark_seen(channel_id)
             svc.channels_changed()
         else:
+            if not svc.enabled:
+                raise HTTPException(503, "Slack is not configured on this hub")
             await svc.mark_seen(channel_id)
     except HTTPException:
         raise
@@ -273,6 +275,8 @@ async def focus(req: FocusRequest, request: Request, svc: SlackService = Depends
         if msg is not None:
             svc.focused = None  # one message in focus across both providers
     else:
+        if not svc.enabled:
+            raise HTTPException(503, "Slack is not configured on this hub")
         msg = await svc.focus(req.channel, req.ts, req.pet_id)
         imessage = getattr(request.app.state, "imessage", None)
         if msg is not None and imessage is not None:

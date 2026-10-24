@@ -53,36 +53,37 @@ def timestamp(raw: Any) -> str:
 
 
 def text_body(text: Any, attributed: Any) -> str:
-    """Prefer the plain text column; decode common UTF-8 fragments as a best-effort attributedBody fallback.
+    """The plain `text` column, else the string inside `attributedBody` (newer macOS often leaves `text` NULL).
 
-    Apple's typedstream format is undocumented. This conservative fallback strips binary/control bytes and only
-    returns printable text when a plausible payload is present, avoiding accidental binary garbage in the UI.
+    attributedBody is an NSAttributedString in Apple's typedstream format. Its text is the first NSString payload:
+    after the class name comes a `+` marker, a length (one byte; 0x81 = a 2-byte little-endian length follows, 0x82 = a
+    4-byte one) and that many UTF-8 bytes. Anything that doesn't parse gives "" rather than binary garbage.
     """
     if isinstance(text, str) and text.strip():
         return text
     if not isinstance(attributed, (bytes, bytearray, memoryview)):
         return ""
     blob = bytes(attributed)
-    for encoding in ("utf-8", "utf-16le"):
-        try:
-            decoded = blob.decode(encoding, errors="ignore")
-        except (UnicodeError, LookupError):
-            continue
-        chunks = []
-        current = []
-        for char in decoded:
-            if char.isprintable() or char in "\n\t":
-                current.append(char)
-            else:
-                if len(current) > len(chunks):
-                    chunks = current
-                current = []
-        if len(current) > len(chunks):
-            chunks = current
-        candidate = "".join(chunks).strip("\x00\ufffc\ufffd \t\r\n")
-        if len(candidate) >= 2 and any(c.isalpha() for c in candidate):
-            return candidate
-    return ""
+    start = blob.find(b"NSString")
+    if start < 0:
+        return ""
+    plus = blob.find(b"+", start + len(b"NSString"))
+    if plus < 0 or plus - start > 32:
+        return ""
+    i = plus + 1
+    if i >= len(blob):
+        return ""
+    length = blob[i]
+    i += 1
+    if length == 0x81:
+        length, i = int.from_bytes(blob[i:i + 2], "little"), i + 2
+    elif length == 0x82:
+        length, i = int.from_bytes(blob[i:i + 4], "little"), i + 4
+    elif length >= 0x80:
+        return ""
+    if length <= 0 or i + length > len(blob):
+        return ""
+    return blob[i:i + length].decode("utf-8", errors="replace").strip("\ufffc")
 
 
 def rows(db: sqlite3.Connection, *, after_rowid: int = 0, limit: int = 200,
