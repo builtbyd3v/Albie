@@ -18,9 +18,12 @@ settings are unchanged.
   work via ray/poke. Only nearby cards are drawn; all samples remain scrubbable.
 - **Model3D:** one block per layer, logarithmic output-dimension sizing, type colors,
   input/output shape labels, sequential pulse on each metrics tick.
-- **ResultsWall:** scrollable validation grid, correctness tint, All/Wrong/class
-  cycling filters, expanded image and per-class probabilities. Relabel opens a
-  class picker, Remove excludes the sample, Looks fine dismisses inspection.
+- **ResultsWall:** an atlas-backed GPU-instanced dot wall (up to 1,000 validation
+  images in one draw call) with green/red correctness tint. All/Wrong/class and
+  confusion-pair filters rebuild the wall without creating sample UI objects.
+  Click or poke a dot for the expanded image and per-class probabilities.
+  Relabel opens a class picker, Remove excludes the sample, Looks fine dismisses
+  inspection.
 - **TrainingDash:** train/val loss and accuracy curves, epoch progress, LR,
   overfit detection (two successive validation-loss increases as train loss falls),
   final confusion matrix and per-class accuracy. Click a matrix cell to filter

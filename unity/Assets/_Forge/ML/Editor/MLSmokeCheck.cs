@@ -52,8 +52,7 @@ public static class MLSmokeCheck
             foreach (var panel in UnityEngine.Object.FindObjectsByType<ForgePanel>())
                 Require(panel.transform.position.y > 1f, "Saved sandbox panel stays at camera height: " + panel.name);
             var content = wall.GetComponent<ForgePanel>().Content;
-            var grid = content.Find("Viewport/Grid");
-            Require(ActiveChildren(grid) == session.Data.samples.Length, "All validation images render");
+            Require(content.Find("Dot wall") != null && wall.VisibleDotCount == session.Data.samples.Length, "One instanced dot per validation image renders");
             var sample = Array.Find(session.Data.samples, s => !s.correct);
             Require(sample != null, "Fixture includes wrong predictions");
             int original = sample.true_idx;
@@ -61,14 +60,14 @@ public static class MLSmokeCheck
             session.Relabel(sample, sample.pred_idx);
             Require(sample.correct && sample.label_idx == sample.pred_idx, "Relabel updates correctness");
             session.Remove(sample);
-            Require(sample.removed && ActiveChildren(grid) == session.Data.samples.Length - 1, "Remove refreshes wall");
+            Require(sample.removed && wall.VisibleDotCount == session.Data.samples.Length - 1, "Remove refreshes dot wall");
             session.ApplySampleUpdate(sample.id, original, false);
             session.SelectPair(original,sample.pred_idx);
             int expected = 0;
             foreach (var s in session.Data.samples) if (s.true_idx == original && s.pred_idx == sample.pred_idx) expected++;
-            Require(ActiveChildren(grid) == expected, "Confusion pair filters wall");
+            Require(wall.VisibleDotCount == expected, "Confusion pair filters dot wall");
             content.Find("All").GetComponent<Button>().onClick.Invoke();
-            Require(ActiveChildren(grid) == session.Data.samples.Length, "All resets pair filter");
+            Require(wall.VisibleDotCount == session.Data.samples.Length, "All resets dot wall filter");
             session.Restart();
             var replay = Newtonsoft.Json.JsonConvert.DeserializeObject<MLReplayEvent[]>(session.mockAssets.events.text);
             foreach (var e in replay) session.ApplyReplayEvent(e);
@@ -83,6 +82,5 @@ public static class MLSmokeCheck
         }
         catch (Exception error) { Debug.LogException(error); if (Application.isBatchMode) EditorApplication.Exit(1); }
     }
-    static int ActiveChildren(Transform t) { int n = 0; for(int i=0;i<t.childCount;i++) if(t.GetChild(i).gameObject.activeSelf) n++; return n; }
     static void Require(bool condition, string message) { if (!condition) throw new Exception("[ML smoke] " + message); }
 }
