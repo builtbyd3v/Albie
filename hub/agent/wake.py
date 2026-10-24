@@ -4,13 +4,14 @@ Unity streams each speech segment it hears as a normal turn marked ``stt.start {
 held back (no stt.*, no pet.state for room chatter) until we know who it is for; the gator's ``pet.state listening``
 goes out only when a segment turns out to be a request for it:
 
-    "Hey Bit, what's in ws.py?"     -> Bit answers (voice: Grok responds to the turn; else agent.ask)
+    "Hey Albie, what's in ws.py?"   -> Albie answers (voice: Grok responds to the turn; else agent.ask)
     "Tester, run the hub tests"     -> crew.assign("tester", "run the hub tests") (hatches the tester if needed)
     "Hey Scout"                     -> wake.listen {pet_id: "scout"}: the next segment goes to the Scout, no name needed
     "...a bit later we can eat"     -> nobody: dropped (deleted from the voice conversation)
 
 A name counts when it opens the sentence (after an optional "hey / ok / hi / yo"), or closes it after a comma
-("thanks, Bit"), so "wait a bit" never wakes Bit. ``stt.start {wake: true, pet_id}`` after a wake.listen names
+("thanks, Albie"), so "wait a bit" never wakes Albie. The lead's name is said "AL-bee"; at the start it may also
+come back as two words ("Al bee, ..."). ``stt.start {wake: true, pet_id}`` after a wake.listen names
 the target up front and needs no name.
 """
 
@@ -28,14 +29,16 @@ from .crew import TYPES, crew
 log = logging.getLogger(__name__)
 
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so"}
-# Common mis-hearings, per pet id ("bit" = the lead). Keep these unambiguous English-wise.
+# Common mis-hearings, per pet id ("bit" = the lead, spoken name Albie). Keep these unambiguous English-wise.
 ALIASES: dict[str, set[str]] = {
-    "bit": {"bit", "bitt", "bitty", "bits"},
+    "bit": {"albie", "albee", "alby", "elbie"},
     "fixer": {"fixer", "fixa", "fixor"},
     "scribe": {"scribe", "scribes"},
     "shipper": {"shipper", "skipper"},
     "sentinel": {"sentinel", "centinel"},
 }
+# "Albie" transcribed as two words ("Al bee", "al be", "al b"): only where a name may open the sentence.
+SPLIT_FIRST, SPLIT_SECOND = "al", {"bee", "be", "b"}
 _WORD = re.compile(r"[A-Za-z']+")
 _LEADING = re.compile(r"^[\s,.!?;:\-]+")
 
@@ -59,7 +62,9 @@ def parse(text: str, lead_pet_id: str = "bit") -> tuple[str | None, str]:
         i += 1
     if i < len(words) and words[i].group().lower() in names:
         return names[words[i].group().lower()], _LEADING.sub("", text[words[i].end():]).strip()
-    if len(words) >= 2:  # vocative at the end: "..., Bit?"
+    if i + 1 < len(words) and words[i].group().lower() == SPLIT_FIRST and words[i + 1].group().lower() in SPLIT_SECOND:
+        return lead_pet_id, _LEADING.sub("", text[words[i + 1].end():]).strip()
+    if len(words) >= 2:  # vocative at the end: "..., Albie?"
         last = words[-1]
         if last.group().lower() in names and text[:last.start()].rstrip().endswith(","):
             return names[last.group().lower()], text[:last.start()].rstrip().rstrip(",").strip()
@@ -110,10 +115,10 @@ class WakeRouter:
             return Decision(None, text, False)
         log.info("wake: %r -> %s", text, pid)
         if pid == self.lead:
-            if not rest:  # just "Hey Bit": open a hands-free turn on the Unity side
+            if not rest:  # just "Hey Albie": open a hands-free turn on the Unity side
                 await self._send_owner(ev.wake_listen(pid))
                 return Decision(pid, rest, False)
-            # Decided: this segment is for Bit. Only now does he look like he is listening (the stt.* events of a
+            # Decided: this segment is for Albie. Only now does he look like he is listening (the stt.* events of a
             # wake turn carry no pet.state companion, see ws.py), and thinking follows right behind.
             await self._emit_for(pid)(ev.pet_state(pid, "listening"))
             await self._emit_for(pid)(ev.stt_final(pid, text, voice=True))

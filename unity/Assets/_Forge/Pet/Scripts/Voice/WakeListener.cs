@@ -8,7 +8,7 @@ namespace Forge.Pet
     /// Say a gator's name and it listens (docs/PET_AGENT_CONTRACT.md, Addendum E). The mic stays on; a small
     /// energy VAD (adaptive noise floor) cuts the room's speech into segments, and each segment goes to the hub as a
     /// wake turn: stt.start {wake: true} + 0.5 s of pre-roll (so the name itself isn't clipped) + PCM16 + stt.stop.
-    /// The hub (agent/wake.py) only answers segments that name a gator ("Hey Bit ...", "Tester, run the tests");
+    /// The hub (agent/wake.py) only answers segments that name a gator ("Hey Albie ...", "Tester, run the tests");
     /// everything else is dropped without a caption. "Hey &lt;name&gt;" alone comes back as wake.listen:
     ///  * Bit  → PushToTalk.BeginHandsFree (a normal hands-free turn, then GatorFollowUp keeps the conversation going);
     ///  * crew → that gator turns to Listening and the next segment is sent for it (no name needed) for followSeconds.

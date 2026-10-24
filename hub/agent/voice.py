@@ -25,7 +25,7 @@ Grok -> our events (docs/PET_AGENT_CONTRACT.md, Addendum B):
 
 Context without a reply: ``note(text)`` adds a one-line system message (the workspace view the user opened,
 the Slack message in focus; ws.py and messaging call it through agent/speech.py). ``workspace_mode`` (set by ws.py
-from ``workspace.mode``) gates Bit's crew tools: they answer with an error unless the CODE view is open, since
+from ``workspace.mode``) gates Albie's crew tools: they answer with an error unless the CODE view is open, since
 the crew's gators live on that screen. None (the client never said) leaves them available.
 
 Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
@@ -55,6 +55,7 @@ from . import events as ev
 from . import tools
 from .crew import lead_rules
 from .events import Event
+from .wake import ALIASES, SPLIT_FIRST, SPLIT_SECOND
 
 log = logging.getLogger(__name__)
 
@@ -69,11 +70,11 @@ ECHO_WINDOW_S = 10.0  # agent.ask repeating the last voice transcript within thi
 GROK_URL = "wss://api.x.ai/v1/realtime?model={model}"
 FAKE_PCM = Path(__file__).resolve().parent / "assets" / "fake_voice_24k.pcm"
 FAKE_RATE = 24000
-FAKE_TRANSCRIPT = "Hey Bit, are you there?"
-FAKE_ANSWER = "Hi! I'm Bit. I'm right here on your desk, ready to help."
+FAKE_TRANSCRIPT = "Hey Albie, are you there?"
+FAKE_ANSWER = "Hi! I'm Albie. I'm right here on your desk, ready to help."
 
 PERSONA = (
-    "You are Bit, a small, cute and very competent alligator who lives on the user's desk in Forge, "
+    "You are Albie (said AL-bee), a small, cute and very competent alligator who lives on the user's desk in Forge, "
     "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
     "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
     "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
@@ -123,12 +124,13 @@ DELEGATE_TOOL = {
         "required": ["task"],
     },
 }
-# Bit's own vocabulary first in grok-transcribe's hints ("fins" came back as "Fizz" in a live test).
-ROCKET_TERMS = ["Bit", "fins", "fin", "nose cone", "body tube", "static margin", "apogee", "center of pressure",
+# Albie's own vocabulary first in grok-transcribe's hints ("fins" came back as "Fizz" in a live test).
+ROCKET_TERMS = ["Albie", "fins", "fin", "nose cone", "body tube", "static margin", "apogee", "center of pressure",
                 "center of gravity", "calibers", "Estes", "ogive", "fin span", "fin sweep"]
-# "Stop" over Bit should just stop him, not start a reply ("Okay, quiet!").
+# "Stop" over Albie should just stop him, not start a reply ("Okay, quiet!").
 STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind"}
-STOP_FILLER = {"bit", "okay", "ok", "please", "hey", "be", "that", "it", "never", "mind", "now", "right"}
+STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "please", "hey", "be", "that", "it", "never",
+                                                                "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
 WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
@@ -178,8 +180,8 @@ class _Base:
         self._final_sent = True  # no turn open yet
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._turn_seq = 0
-        self._require_name = False  # look-to-talk: user wasn't facing Bit, so only a turn naming him counts
-        self._named = False  # an interim transcript of this turn named him (the final can drop a leading "Bit")
+        self._require_name = False  # look-to-talk: user wasn't facing Albie, so only a turn naming him counts
+        self._named = False  # an interim transcript of this turn named him (the final can drop a leading "Albie")
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -208,7 +210,7 @@ class _Base:
         if self._final_sent or not text or text == self._partial:
             return
         self._partial = text
-        self._named = self._named or has_name(text)
+        self._named = self._named or has_name(text, last=False)  # a growing partial's last word isn't a vocative yet
         if self._wake:
             await self.wake_router.partial(text)  # captions only once a gator is named
             return
@@ -267,6 +269,7 @@ class GrokVoiceSession(_Base):
         self._last_activity = time.monotonic()
         self._fed = 0
         self._last_item: str | None = None  # item id of the last committed user turn (wake turns may delete it)
+        self._wake_answered = False  # the last wake turn was routed to a reply (for the turn log)
         # current response
         self._utt: str | None = None
         self._audio_started = False
@@ -352,7 +355,7 @@ class GrokVoiceSession(_Base):
     # ------------------------------------------------------------ turn API (called by ws.py)
     async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
-        if not wake:  # room chatter must not cut Bit off; a named turn barges in once it's routed
+        if not wake:  # room chatter must not cut Albie off; a named turn barges in once it's routed
             await self.stop_speech("barge_in")
         await self._send({"type": "input_audio_buffer.clear"})
         self._fed = 0
@@ -401,6 +404,7 @@ class GrokVoiceSession(_Base):
             await self._final()
 
     async def _wake_decided(self, respond: bool) -> None:
+        self._wake_answered = respond
         if respond:
             await self.stop_speech("barge_in")
             await self._request_response()
@@ -533,6 +537,9 @@ class GrokVoiceSession(_Base):
         elif t == "error":
             err = msg.get("error") or {}
             message = err.get("message") if isinstance(err, dict) else str(err)
+            if "item not found" in (message or "").lower():  # a dropped turn's item.delete raced Grok: nothing lost
+                log.info("grok: %s (harmless)", message)
+                return
             log.warning("grok error: %s", msg)
             self._response_requested = False
             if not self._final_sent:
@@ -610,11 +617,20 @@ class GrokVoiceSession(_Base):
             "content": [{"type": "output_text", "text": text}]}})
 
     async def _final(self, text: str | None = None) -> None:
+        if self._final_sent:
+            return
         final = (text if text is not None else self._partial).strip()
-        if not self._final_sent and (is_stop(final) or (self._require_name and not (self._named or has_name(final)))):
+        stop = is_stop(final)
+        named = "partial" if self._named else "final" if has_name(final) else "no"
+        drop = stop or (self._require_name and named == "no")
+        if drop:
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
+        wake = self._wake
         await super()._final(text)
+        answered = self._wake_answered if wake else bool(final)
+        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s %s", final[:120], self._require_name, named,
+                 stop, wake, "answered" if answered and not drop else "dropped")
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
@@ -759,21 +775,23 @@ def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, s
 
 
 def is_stop(text: str) -> bool:
-    """Only stop words and filler ("Wait, stop, Bit.", "Never mind."): the user wants silence, not an answer."""
+    """Only stop words and filler ("Wait, stop, Albie.", "Never mind."): the user wants silence, not an answer."""
     words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
 
 
-NAME_WORDS = {"bit", "bid"}
-# How grok-transcribe mishears a leading "Bit," (live: "Sit"). Only as the first word: accepts a rare "Sit down".
-FIRST_WORD_NAMES = NAME_WORDS | {"sit", "pit", "bet"}
+NAME_WORDS = ALIASES["bit"]  # albie, albee, alby, elbie (agent/wake.py)
 
 
-def has_name(text: str) -> bool:
-    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?". Only the first two words or the last one,
-    so "I'm a bit tired" doesn't count."""
+def has_name(text: str, last: bool = True) -> bool:
+    """Albie is addressed: "Albie, ...", "Hey Albie ...", "Al bee, ...", "..., Albie?". Only the first two words,
+    plus the last one when ``last`` (final transcripts only: a growing partial always ends on its newest word)."""
     words = re.findall(r"[a-z]+", text.lower())
-    return bool(words) and (words[0] in FIRST_WORD_NAMES or any(w in NAME_WORDS for w in words[1:2] + words[-1:]))
+    for i in (0, 1):  # "Al bee" at the start is the name heard as two words
+        if words[i:i + 1] == [SPLIT_FIRST] and words[i + 1:i + 2] and words[i + 1] in SPLIT_SECOND:
+            words[i:i + 2] = ["albie"]
+            break
+    return any(w in NAME_WORDS for w in words[:2] + (words[-1:] if last else []))
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

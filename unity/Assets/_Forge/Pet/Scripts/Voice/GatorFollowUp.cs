@@ -13,7 +13,7 @@ namespace Forge.Pet
     /// Speech clearly louder than the gator's own echo opens a hands-free turn and cuts the gator off; the hub
     /// stops Grok on stt.start and the monitored pre-roll keeps the first words.
     /// Look-to-talk: the follow-up window only watches the mic (nothing sent). Speech opens a turn when the user faces
-    /// the gator; speech while looking elsewhere opens a turn that the hub answers only if it names the gator ("Bit, ...").
+    /// the gator; speech while looking elsewhere opens a turn that the hub answers only if it names the gator ("Albie, ...").
     /// Cutting the gator off needs facing it. Space / A / the whistle always open a turn.
     /// </summary>
     [DisallowMultipleComponent]
@@ -49,7 +49,7 @@ namespace Forge.Pet
         float loudSeconds = 0.15f;
 
         [Header("Look to talk")]
-        [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Bit, ...\"). Buttons and the whistle always work.")]
+        [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Albie, ...\"). Buttons and the whistle always work.")]
         bool lookToTalk = true;
         [SerializeField, Tooltip("Max angle (degrees) between where the user looks and the gator.")]
         float lookAngle = 40f;
@@ -169,7 +169,7 @@ namespace Forge.Pet
             bool cutIn = _speaking, reply = _attending;
             _monitor = null;
             _attending = false;
-            hub.RequireName = !facing;                // looking elsewhere: only counts if they say "Bit"
+            hub.RequireName = !facing;                // looking elsewhere: only counts if they say "Albie"
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
             if (pushToTalk.BeginHandsFree())
             {

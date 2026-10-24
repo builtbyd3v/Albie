@@ -7,7 +7,7 @@ events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.s
 -> stt.partial / stt.final. With VOICE_PROVIDER=grok|fake the same stt.* frames drive a
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
 Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
-gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
+gator ("Hey Albie ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
 run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
 shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
 Other modules own their client -> hub messages on this socket through ``client_handlers`` (main.py registers

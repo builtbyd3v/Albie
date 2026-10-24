@@ -26,14 +26,21 @@ def fresh_crew() -> None:
 
 
 @pytest.mark.parametrize("text, who, rest", [
-    ("Hey Bit, what's in ws.py?", "bit", "what's in ws.py?"),
-    ("bit what time is it", "bit", "what time is it"),
+    ("Hey Albie, what's in ws.py?", "bit", "what's in ws.py?"),
+    ("albee what time is it", "bit", "what time is it"),
+    ("Al bee, what's in ws.py?", "bit", "what's in ws.py?"),
+    ("Hey al be what time is it", "bit", "what time is it"),
+    ("ok Al B, run it", "bit", "run it"),
+    ("Hey Elbie", "bit", ""),
+    ("thanks, Alby", "bit", "thanks"),
+    ("Hey Bit, what's in ws.py?", None, "Hey Bit, what's in ws.py?"),
+    ("a bit more", None, "a bit more"),
     ("Okay Tester, run the hub tests.", "tester", "run the hub tests."),
     ("Hey Scout", "scout", ""),
     ("Skipper, write the changelog", "shipper", "write the changelog"),
     ("can you check the diff, Reviewer?", "reviewer", "can you check the diff"),
     ("wait a bit", None, "wait a bit"),
-    ("I'm a bit tired, Bit", "bit", "I'm a bit tired"),
+    ("I'm a bit tired, Albie", "bit", "I'm a bit tired"),
     ("let's grab lunch", None, "let's grab lunch"),
     ("", None, ""),
 ])
@@ -73,9 +80,9 @@ def test_router_keeps_room_chatter_silent() -> None:
     assert r.events == [] and r.owner == []
 
 
-def test_router_hey_bit_alone_opens_a_listen() -> None:
+def test_router_hey_albie_alone_opens_a_listen() -> None:
     r = Recorder()
-    d = asyncio.run(r.router().final("Hey Bit"))
+    d = asyncio.run(r.router().final("Hey Albie"))
     assert d.pet_id == "bit" and not d.respond
     assert [(e.type, e.payload) for e in r.owner] == [("wake.listen", {"pet_id": "bit"})]
 
@@ -117,16 +124,16 @@ def test_grok_wake_turn_answers_only_when_named() -> None:
         assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_1"}
         assert sink.log == [] and r.events == []
 
-        # Named: Bit's stt.final goes out, then Grok is asked to respond.
+        # Named: Albie's stt.final goes out, then Grok is asked to respond.
         await s.begin_turn(wake=True)
         await s.feed(b"\x00\x00" * 3200)
         await s.commit_turn()
         grok.push(type="input_audio_buffer.committed", item_id="item_2")
-        grok.push(type=f"{T}.completed", transcript="Hey Bit, how's the build?")
+        grok.push(type=f"{T}.completed", transcript="Hey Albie, how's the build?")
         await _settle()
         assert grok.types()[-1] == "response.create"
         assert [(e.type, e.payload.get("text") or e.payload.get("mode")) for e in r.events] == \
-            [("pet.state", "listening"), ("stt.final", "Hey Bit, how's the build?")]
+            [("pet.state", "listening"), ("stt.final", "Hey Albie, how's the build?")]
         assert sink.flat() == ["emit:agent.thinking"]
         await s.close()
 
@@ -138,7 +145,7 @@ def _hello(ws: Any) -> None:
 
 
 def test_fake_voice_wake_turn_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The fake transcript is "Hey Bit, are you there?": a wake turn that names Bit gets the spoken reply."""
+    """The fake transcript is "Hey Albie, are you there?": a wake turn that names Albie gets the spoken reply."""
     monkeypatch.setenv("VOICE_PROVIDER", "fake")
     monkeypatch.setenv("FAKE_VOICE_PACE", "0")
     with client.websocket_connect("/ws") as ws:
@@ -203,9 +210,9 @@ def test_ws_wake_turn_sends_no_pet_state_before_it_is_decided() -> None:
                         send_owner=send_owner, spawn=lambda coro: coro.close())
 
     async def go() -> None:
-        await router.partial("Hey Bit, how")
+        await router.partial("Hey Albie, how")
         assert [e.type for e in target.sent] == ["stt.partial"]
-        d = await router.final("Hey Bit, how's the build?")
+        d = await router.final("Hey Albie, how's the build?")
         assert d.respond
 
     asyncio.run(go())
