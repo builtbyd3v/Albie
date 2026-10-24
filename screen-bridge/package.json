@@ -1,0 +1,11 @@
+{
+  "name": "screen-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node start.js"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

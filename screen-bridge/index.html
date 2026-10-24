@@ -6,11 +6,13 @@
 <body style="margin:0;background:#111;color:#ccc;font:13px monospace">
 <button id="share">Share window</button>
 <span id="status">signaling: connecting...</span>
+<span id="fps"></span>
 <video id="preview" autoplay muted style="width:100%"></video>
 <script>
   const host = new URLSearchParams(location.search).get("host") || location.hostname || "localhost";
   const ws = new WebSocket(`ws://${host}:8766`);
   const status = document.getElementById("status");
+  const fps = document.getElementById("fps");
   let stream, pc;
 
   ws.onopen = () => (status.textContent = "signaling: connected");
@@ -32,11 +34,23 @@
     call();
   };
 
+  setInterval(async () => {
+    if (pc?.connectionState !== "connected") return (fps.textContent = "");
+    (await pc.getStats()).forEach(
+      (s) => s.type === "outbound-rtp" && (fps.textContent = `${s.framesPerSecond ?? 0} fps, ${s.frameWidth}x${s.frameHeight}`),
+    );
+  }, 1000);
+
   // One fresh connection per call, so a restarted Unity just sends "ready" again.
   async function call() {
     pc?.close();
     pc = new RTCPeerConnection();
-    pc.onconnectionstatechange = () => (status.textContent = `video: ${pc.connectionState}`);
+    pc.onconnectionstatechange = async () => {
+      let codec = "";
+      if (pc.connectionState === "connected")
+        (await pc.getStats()).forEach((s) => s.type === "codec" && (codec = ` (${s.mimeType})`));
+      status.textContent = `video: ${pc.connectionState}${codec}`;
+    };
     const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], { direction: "sendonly" });
     // H.264 first: the Quest decodes it in hardware.
     const codecs = RTCRtpSender.getCapabilities("video").codecs;
