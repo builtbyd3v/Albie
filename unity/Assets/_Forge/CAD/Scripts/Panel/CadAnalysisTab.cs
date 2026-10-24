@@ -130,7 +130,8 @@ public sealed class CadAnalysisTab : CadPanelTab
     {
         var a = s.a;
         string kind = s.demo?.kind;
-        string markerText = kind == CadDemoPlayer.Launch ? "CG · CP" : kind == CadDemoPlayer.Hover ? "Prop discs" : kind == CadDemoPlayer.Spin ? "Shaft axes" : "Markers";
+        string markerText = kind == CadDemoPlayer.Launch ? "CG · CP" : kind == CadDemoPlayer.Hover ? "Prop discs" : kind == CadDemoPlayer.Spin ? "Shaft axes" :
+            kind == CadDemoPlayer.Walk ? "CG · support" : "Markers";
         markers.SetText(markerText);
         markers.On = s.session != null && s.session.MarkersShown;
         dimensions.On = s.session != null && s.session.Measuring;

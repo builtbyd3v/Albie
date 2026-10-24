@@ -90,6 +90,8 @@ public class CadSession : MonoBehaviour
     int mockPart = -1, mockIndex = -1;
     readonly Dictionary<int, CadFlight> flights = new Dictionary<int, CadFlight>();  // by version, the last few
     readonly Dictionary<int, List<Action<CadFlight>>> flightWaiters = new Dictionary<int, List<Action<CadFlight>>>();
+    readonly Dictionary<int, CadMotion> motions = new Dictionary<int, CadMotion>();  // by version, the last few
+    readonly Dictionary<int, List<Action<CadMotion>>> motionWaiters = new Dictionary<int, List<Action<CadMotion>>>();
     readonly List<int> mockHistory = new List<int>();
     List<CadVersion> mockVersionList;  // the open mock design's stored versions, parsed once
     int mockVersionPart = -1;
@@ -328,6 +330,18 @@ public class CadSession : MonoBehaviour
     {
         if (on == Inspecting) return;
         Inspecting = on;
+        if (!on) LifeSize = false;  // each visit to the stage starts fitted
+        InspectChanged?.Invoke();
+    }
+
+    /// <summary>On the stage: the model at its real size, standing on the floor in front of you (the humanoid stands as
+    /// tall as it is), rather than fitted to the stage. Off again when it goes back to the desk.</summary>
+    public bool LifeSize { get; private set; }
+
+    public void SetLifeSize(bool on)
+    {
+        if (on == LifeSize || (on && !Inspecting)) return;
+        LifeSize = on;
         InspectChanged?.Invoke();
     }
 
@@ -442,6 +456,65 @@ public class CadSession : MonoBehaviour
             SetStatus(flight != null ? HubLabel : "Flight sim failed.");
             DeliverFlight(version, flight, done);
         }, timeout: 60));
+    }
+
+    /// <summary>
+    /// A version's keyframed demo (the humanoid's Walk): GET <paramref name="source"/>?v=N (the hub works it out on the
+    /// first ask, then caches it) or the mock's motion.json. Null if there's none or it failed. The last few are kept.
+    /// </summary>
+    public void GetMotion(int version, string source, Action<CadMotion> done)
+    {
+        if (motions.TryGetValue(version, out var known))
+        {
+            done(known);
+            return;
+        }
+        if (motionWaiters.TryGetValue(version, out var waiting))
+        {
+            waiting.Add(done);
+            return;
+        }
+        if (IsMock)
+        {
+            var file = MockVersionOf(version)?.motion;
+            CadMotion mock = null;
+            if (file != null)
+            {
+                try { mock = JsonConvert.DeserializeObject<CadMotion>(file.text); }
+                catch (JsonException e) { Debug.LogWarning($"[CadSession] Mock motion of v{version}: {e.Message}"); }
+            }
+            DeliverMotion(version, mock, done);
+            return;
+        }
+        string path = string.IsNullOrEmpty(source) ? "/cad/motion" : source;
+        path += (path.IndexOf('?') >= 0 ? "&v=" : "?v=") + version;
+        motionWaiters[version] = new List<Action<CadMotion>>();
+        StartCoroutine(GetText(path, text =>
+        {
+            CadMotion motion = null;
+            if (text != null)
+            {
+                try { motion = JsonConvert.DeserializeObject<CadMotion>(text); }
+                catch (JsonException e) { Debug.LogWarning($"[CadSession] Motion of v{version}: {e.Message}"); }
+            }
+            if (motion == null) SetStatus("The walk didn't load.");
+            DeliverMotion(version, motion, done);
+        }, timeout: 30));
+    }
+
+    void DeliverMotion(int version, CadMotion motion, Action<CadMotion> done)
+    {
+        if (motion != null)
+        {
+            if (motions.Count >= 8) motions.Clear();
+            motions[version] = motion;
+        }
+        done(motion);
+        if (motionWaiters.TryGetValue(version, out var waiting))
+        {
+            motionWaiters.Remove(version);
+            foreach (var w in waiting) w(motion);
+        }
     }
 
     void DeliverFlight(int version, CadFlight flight, Action<CadFlight> done)

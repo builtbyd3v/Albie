@@ -16,11 +16,12 @@ public sealed class CadPanelFooter
 
     public readonly RectTransform Root;
     public readonly TextMeshProUGUI Hint;
-    readonly CadButton undo, expand, explode, demo, reassemble;
+    readonly CadButton undo, expand, explode, demo, reassemble, lifeSize;
     readonly RectTransform[] rects = new RectTransform[4];
 
     public bool HintShown => Hint.gameObject.activeSelf;
     public bool ReassembleShown => reassemble.gameObject.activeSelf;
+    public bool LifeSizeShown => lifeSize.gameObject.activeSelf;
 
     public CadPanelFooter(RectTransform parent, CadParamsPanel owner)
     {
@@ -39,6 +40,10 @@ public sealed class CadPanelFooter
         reassemble = CadButton.Create(parent, "Reassemble", CadButton.Pill, 0f, owner.Reassemble, pill: true);
         reassemble.AddLabel("Reassemble", 12f);
         reassemble.gameObject.SetActive(false);
+        // On the stage: the model at its real size, standing on the floor (or fitted to the stage again).
+        lifeSize = CadButton.Create(parent, "LifeSize", CadButton.Pill, 0f, owner.ToggleLifeSize, pill: true);
+        lifeSize.AddLabel("Life size", 12f);
+        lifeSize.gameObject.SetActive(false);
     }
 
     CadButton Button(string label, CadButton.Look look, UnityEngine.Events.UnityAction click, System.Action<CadShape, Color> icon)
@@ -72,6 +77,10 @@ public sealed class CadPanelFooter
         demo.SetIcon(running ? (System.Action<CadShape, Color>)CadIcons.Stop : CadIcons.Play);
         demo.Interactable = running || (!s.building && string.IsNullOrEmpty(blocked));
         CadUi.Show(reassemble, s.expanded && s.partsOff > 0);
+        CadUi.Show(lifeSize, s.expanded);
+        lifeSize.SetText(s.lifeSize ? "Fit to stage" : "Life size");
+        lifeSize.Active = s.lifeSize;
+        lifeSize.Interactable = !flying;
         bool hint = hasDemo && !running && !string.IsNullOrEmpty(blocked);
         Hint.text = hint ? CadUi.Clean(blocked) : "";
         CadUi.Show(Hint, hint);
@@ -83,6 +92,15 @@ public sealed class CadPanelFooter
         if (!reassemble.gameObject.activeSelf) return;
         float w = CadUi.Width(reassemble.Label, "Reassemble") + 26f;
         CadUi.Place(reassemble.Rect, 0f, y + (h - ReassembleH) * 0.5f, w, ReassembleH);
+    }
+
+    /// <summary>The Life size pill on the line above the footer, at its right; its width (0 if hidden).</summary>
+    public float PlaceLifeSize(float y, float h, float width)
+    {
+        if (!lifeSize.gameObject.activeSelf) return 0f;
+        float w = Mathf.Max(CadUi.Width(lifeSize.Label, "Fit to stage"), CadUi.Width(lifeSize.Label, "Life size")) + 26f;
+        CadUi.Place(lifeSize.Rect, width - w, y + (h - ReassembleH) * 0.5f, w, ReassembleH);
+        return w;
     }
 
     /// <summary>The buttons' shares of the width (hidden ones take none).</summary>
