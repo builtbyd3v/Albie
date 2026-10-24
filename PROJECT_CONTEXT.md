@@ -15,8 +15,11 @@
   - `ForgeVolume.prefab`: 3D container. `SetContent(go)` scales your model to fit `size` and stands it on the base; `turntable` spins it.
   - To plug a module in: make a prefab from these (a prefab variant is easiest), send it to Hudson, and it goes into that mode's item list on the `Workspace` object in Main (slot + prefab). Panel IDs come from section 7.
 - **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
-- **Next (Hudson):** `DesktopRig` (WASD + mouse fallback, press E to sit), then `ForgeNet` (WS/REST client), then grab/move for panels and volumes.
-- **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Unity CAD viewer (phase 2) not started. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
+- **Done: desktop mode.** Press Play with the simulator off (or tick **Forge > Desktop Mode (skip XR)**) and you get a first-person player instead of the VR rig: WASD walk, mouse look, click buttons under the crosshair, E to sit at the desk. The room is a JSON copy of the simulator's living room (`Core/Rooms/SimLivingRoom.json`) drawn as blocks, so the desk is in the same place. Same scene, same panels; build and test UI here, check the XR feel in the simulator. See 6.1.
+- **Next (Hudson):** `ForgeNet` (WS/REST client), then grab/move/resize for panels and volumes.
+- **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
+- **CAD Unity done (phase 2):** `Assets/_Forge/CAD/Prefabs/CadViewer.prefab` (ForgeVolume variant, slot `cad-viewer`) and `CadParamsPanel.prefab` (ForgePanel variant, slot `cad-params`) work from mocks (`CADSandbox.unity`) and live against the hub. **Hudson:** slot them into the CAD mode; read "Notes for Core" in `Assets/_Forge/CAD/README.md` (glTFast shaders must be included in player builds; on Quest, `CadSession.hubUrl` must be the laptop IP).
+- **ML plan written: `ML_PLAN.md`.** Open any ML repo: an LLM classifier reads the code and picks its type (image classifier, regression, ...), each type has a fixed list of visuals, and a second step writes the glue code into `.forge/`. ML A + ML B: start with its section 0 (pick and clean your repos); the image classification layout is its section 5.3. Open: which LLM and which live training graphs (the ML team decides), and how VS Code connects (ML_PLAN section 3, doesn't block ML work).
 
 ---
 
@@ -46,7 +49,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
    - **Above:** live training curves (loss, accuracy, train vs val) animate epoch by epoch. Overfitting warning fires if val loss climbs.
    - **Center left:** 3D diagram of the model, layers as blocks, input shape on top, output shape on bottom, pulses as batches flow.
    - **Left:** the dataset as a physical stack of photos. Scrub, pull one out, see it big with its label, put it back.
-   - **Right:** results wall. Every validation image tinted green (correct) or red (wrong). Click a red one: image, predicted label, probability bars for every class, true label.
+   - **Right:** results panel and a dot wall: one green (correct) or red (wrong) dot per validation image. "Show mistakes" opens a gallery of the wrong ones; click one: image, predicted label, probability bars for every class, true label (ML_PLAN 5.3).
    - User spots a mislabeled image and hits **Relabel** or **Remove**. Model was right, data was wrong.
    - Confusion matrix appears automatically when training finishes.
 4. **Ask the pet.** "Hey Bit, why is my model so bad at cats?" Bit says "one sec," morphs into a glowing blob, leaps into the results panel, the cat row lights up in the confusion matrix, then Bit pops back out with an answer card and suggested actions.
@@ -146,6 +149,7 @@ gatorhack-dubz/                   <- repo root
       ThirdParty/
   hub/                            <- FastAPI: ml/, cad/, agent/, messaging/, events.py
   forge-sdk/                      <- pip-installable `forge` package for training scripts
+  ml-examples/                    <- ML test repos (CIFAR-10 + teammates' cleaned repos), see ML_PLAN.md section 4
   screen-bridge/                  <- static web page for capture + WebRTC
   demo/                           <- script.md, fallback/ (recorded runs, backup video)
 ```
@@ -171,9 +175,15 @@ If the console shows red errors right after the first import, wait for importing
 
 **Simulator check (everyone):**
 1. `Window > Meta > Meta XR Simulator > Activate` (or the simulator toggle next to Play), then press Play in `Main.unity`.
-2. The simulator window opens. In its **Inputs** panel set left/right to keyboard + mouse. **Choose environment** picks a synthetic room; the default living room has one table.
-3. Pass: the console prints `[DeskLocator] Room ... loaded: N anchors, 1 table(s)` and `Desk at ...`, and the table is drawn blue in the simulator window. The Unity Game view stays black; passthrough only renders in the simulator window.
+2. The simulator window opens. Click **Choose environment** and pick the Living Room (without one, passthrough is black). Simulator keys: arrows look, WASD walk, R/F head up/down (F a few times = sitting), T trigger. Easiest clicking: Keyboard and mouse > **Point & click** on.
+3. Pass: the console prints `[DeskLocator] Room ... loaded: 27 anchors, 1 table(s)`. Walk to the table (about 1 m to your right) and the mode buttons appear on it. The Unity Game view stays black; passthrough only renders in the simulator window.
 4. Play-mode logs are also in `unity/Logs/Editor.log`.
+
+**Desktop mode (no simulator, quickest for building UI):**
+1. Simulator off (`Window > Meta > Meta XR Simulator > Deactivate`), or leave it on and tick **Forge > Desktop Mode (skip XR)**. Untick it to go back to the simulator.
+2. Press Play and click the Game view. WASD walk (Shift runs), mouse look, left-click presses the button under the crosshair. Esc frees the cursor (then click UI under the cursor, hold right mouse to look, click empty space to grab the mouse again).
+3. Walk to the table (about 1 m to your right), press **E** to sit, click a mode button. E again stands up.
+4. The room is the simulator's living room as blocks (floor, walls, wood desk, grey furniture). Walls and furniture block you; the chair doesn't.
 
 **Where things moved in SDK 207:** the Project Setup Tool is at `Edit > Project Settings > Meta XR` (no `Meta > Tools` menu). Building Blocks and the simulator are under `Window > Meta`.
 
@@ -234,6 +244,8 @@ notify.sent      { to, text }
 
 Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`.
 
+Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
+
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 
 ---
@@ -252,7 +264,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 **Core ideas backlog (from the first simulator run, 2026-10-23):**
 - Move and resize panels: grab the title bar to move, corner handle to resize, bigger/smaller. Remember each mode's layout.
 - Layout style toggle: current arc around the eyes vs a flat wall (panels coplanar in a row, like a monitor array). Fix the overlaps some head positions cause in the arc (space slots by panel width).
-- Easier pressing: toggle controller models off (hands-first), and mouse clicking. Desktop mode gets mouse click via `DesktopRig`; in the simulator, turn on Keyboard and mouse > Point & click.
+- Easier pressing: toggle controller models off (hands-first). Mouse clicking: done in desktop mode; in the simulator, turn on Keyboard and mouse > Point & click.
 - Make it look like Meta built it: Interaction SDK ships Meta's Horizon OS "UI Set" (buttons, toggles, sliders, backplates) in `com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet`. Restyle `ForgePanel` and the dock with it.
 - Sitting: on the Quest you just sit (head height). In the simulator press F to lower the head. The simulator room (chair included) is a passthrough image, so it can't be moved; MRUK has no chair label.
 
@@ -263,6 +275,8 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - Fallback: hub serves screenshots at 5 fps over WS.
 
 ### 8.3 ML: Python SDK + hub (ML person A)
+> **Extended by `ML_PLAN.md`:** for any repo, an LLM classifier picks the project type, then an adapter step writes the glue code and proposes this patch (applied only on Accept). CIFAR-10 below becomes test repo #0 and the stage backup. Task list: ML_PLAN section 9, A track.
+
 - `forge-sdk`: the magic. In any training script:
   ```python
   import forge
@@ -278,6 +292,8 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - **Record-and-replay**: save a full run to `demo/fallback/`; `forge replay` streams it at demo speed. The demo never depends on training behaving live.
 
 ### 8.4 ML: Unity panels (ML person B, plus A on TrainingDash)
+> **Extended by `ML_PLAN.md`:** panels per project type (`ml.layout`) and a `VizCard` prefab for extra charts. For image classification, **ML_PLAN section 5.3 replaces the DataStack and ResultsWall details below**: a dot wall + mistakes gallery instead of a thumbnail grid, and a metadata card plus X to put an image back. Task list: ML_PLAN section 9, B track.
+
 - **DataStack (left):** thin cards (instanced quads, atlas UVs). Scroll / thumbstick / swipe scrubs (cards fan as you pass). Select: card flies forward large with label. Put back.
 - **Model3D (center left):** block per layer, size from log of out_shape, color by type (conv, pool, linear, norm, activation). Input shape label above, output shape below. Pulse travels down per metrics tick.
 - **ResultsWall (right):** grid of all val images, green/red tint. Filters All / Wrong / by class. Click: expanded card with image, predicted, true, probability bars, buttons Relabel (class picker) / Remove / Looks fine.
@@ -342,6 +358,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
 6. **Unity version:** `6000.6.7f1` (Unity 6.6), Meta XR SDK 207.0.1, OpenXR 1.18.0, simulator v207.1. Decided.
 7. **Pet model:** Adrian picks in hour 1.
+8. **ML auto-setup:** an LLM classifier picks the project type from a fixed list, each type has a fixed set of visuals, and the setup writes only into the repo's `.forge/`; the training-script patch is applied only on Accept; extra charts are VizCards with a PNG kind; every run is saved for replay; CIFAR-10 is kept as the test repo and backup. Decided, see `ML_PLAN.md`. Which LLM and which live graphs: the ML team decides.
 
 ---
 

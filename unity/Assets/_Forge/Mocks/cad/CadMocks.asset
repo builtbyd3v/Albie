@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ece7c546387505e489e0f10ff25f2fc0, type: 3}
+  m_Name: CadMocks
+  m_EditorClassIdentifier: Assembly-CSharp::CadMockSet
+  versions:
+  - label: v1
+    glb: {fileID: 4900000, guid: 487fa48d43e486a41aba83c90a8b26df, type: 3}
+    metadata: {fileID: 4900000, guid: c6fa1faf3723bc14b95a85f2c2e28e3c, type: 3}
+    parameters: {fileID: 4900000, guid: 41ad0b612c8abf8468a96829b557e191, type: 3}
+    modelUpdated: {fileID: 4900000, guid: e5aa415bf1b6dcf4b9ec359ba295105f, type: 3}
+    flight: {fileID: 4900000, guid: d92e9c733d20b0349a2d53772ff96bef, type: 3}
+  - label: v2
+    glb: {fileID: 4900000, guid: 0b7e8eff441a4be40b6b0bd671c59876, type: 3}
+    metadata: {fileID: 4900000, guid: 77e94c8800315a444bfb2c8482feefb7, type: 3}
+    parameters: {fileID: 4900000, guid: 5b251f81b54d75447852a720de72a1dc, type: 3}
+    modelUpdated: {fileID: 4900000, guid: ac1add09a3187fb44bb1269606f9856b, type: 3}
+    flight: {fileID: 4900000, guid: d400ed5f0f707024eabb34c8f4ac136b, type: 3}
+  - label: v3
+    glb: {fileID: 4900000, guid: 5b01565888c03b24190634f6ec8a5ac8, type: 3}
+    metadata: {fileID: 4900000, guid: a8805ef60da415d409ee2541c7e414e3, type: 3}
+    parameters: {fileID: 4900000, guid: eff0e1b9dfa212e4ebbfb6f9eba4c195, type: 3}
+    modelUpdated: {fileID: 4900000, guid: c9994d7b0ac4cf647b8868564cf3bc25, type: 3}
+    flight: {fileID: 4900000, guid: 6ba4d17278adcd34bbc6c8ebfcd01036, type: 3}
+  - label: v4
+    glb: {fileID: 4900000, guid: 91d5ee1c773a5e64187bb4976a442434, type: 3}
+    metadata: {fileID: 4900000, guid: fa572992703194444912f5582fec4a80, type: 3}
+    parameters: {fileID: 4900000, guid: b9859e3932b515a499ad716b64921b60, type: 3}
+    modelUpdated: {fileID: 4900000, guid: 2de23e46b10a07d4482c7a231bc88989, type: 3}
+    flight: {fileID: 4900000, guid: feddeb9bcdfdddc42af9d6e73e5565d9, type: 3}
+  regenFailed: {fileID: 4900000, guid: b46073553a8965e4bbe6005d6efb345f, type: 3}
