@@ -15,7 +15,7 @@ public class ForgeSurface : MaskableGraphic
     [Tooltip("Corner radius (mm). Pill rounds the ends fully instead.")]
     [SerializeField] float corner = 8f;
     [SerializeField] bool pill;
-    [Tooltip("Fill: glow around the shape in its own color, 0..1.")]
+    [Tooltip("Fill: glow around the shape in its own color, 0..1. Panel: how lit the frame is (0.5 pointed at, 1 held).")]
     [SerializeField, Range(0f, 1f)] float glow;
     [Tooltip("Fill: a 1 mm outline in the same color at this alpha, 0 = none.")]
     [SerializeField, Range(0f, 1f)] float outline;
@@ -69,7 +69,8 @@ public class ForgeSurface : MaskableGraphic
         var v = UIVertex.simpleVert;
         v.position = new Vector3(center.x + p.x, center.y + p.y, 0f);
         v.color = c;
-        v.uv0 = new Vector4(p.x, p.y, 0f, 0f);
+        // z: the color's own alpha, so the shader can tell how far a CanvasGroup has faded this graphic.
+        v.uv0 = new Vector4(p.x, p.y, c.a / 255f, 0f);
         v.uv1 = shape;
         v.uv2 = style;
         return v;

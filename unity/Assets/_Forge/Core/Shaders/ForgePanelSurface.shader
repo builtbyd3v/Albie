@@ -1,7 +1,8 @@
 // UI surfaces for ForgeSurface graphics, drawn as an SDF so corners stay crisp at any size and distance.
 // Style 0, graphite panel: rounded window with a top-to-bottom graphite gradient, a 1 mm rim light along the top edge,
-// a faint inner outline, the header hairline and a soft drop shadow. Style 1, fill: a flat rounded shape in the
-// graphic's color with an optional glow in the same color (pills, handles).
+// a faint inner outline, the header hairline and a soft drop shadow; the rim brightens while the panel is pointed at
+// or held (the glow value). Style 1, fill: a flat rounded shape in the graphic's color with an optional glow in the
+// same color (pills, handles).
 // The graphic sends its shape per vertex: uv0 = position from the center (mm), uv1 = (half width, half height,
 // corner, header), uv2 = (style, glow, shadow, outline). Premultiplied alpha, so it composites over passthrough.
 Shader "Forge/PanelSurface"
@@ -51,7 +52,7 @@ Shader "Forge/PanelSurface"
             {
                 float4 vertex : POSITION;
                 float4 color : COLOR;
-                float2 p : TEXCOORD0;
+                float4 p : TEXCOORD0;       // xy: position from the center (mm), z: the color's own alpha
                 float4 shape : TEXCOORD1;
                 float4 style : TEXCOORD2;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
@@ -61,7 +62,7 @@ Shader "Forge/PanelSurface"
             {
                 float4 vertex : SV_POSITION;
                 float4 color : COLOR;
-                float2 p : TEXCOORD0;
+                float3 p : TEXCOORD0;       // xy: position (mm), z: how far a CanvasGroup has faded it (1 = not)
                 float4 shape : TEXCOORD1;
                 float4 style : TEXCOORD2;
                 float4 worldPosition : TEXCOORD3;
@@ -79,7 +80,7 @@ Shader "Forge/PanelSurface"
                 o.worldPosition = v.vertex;
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.color = v.color;
-                o.p = v.p;
+                o.p = float3(v.p.xy, v.p.z > 0.0 ? saturate(v.color.a / v.p.z) : 1.0);
                 o.shape = v.shape;
                 o.style = v.style;
                 return o;
@@ -114,7 +115,7 @@ Shader "Forge/PanelSurface"
             float4 frag(v2f i) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
-                float2 p = i.p;
+                float2 p = i.p.xy;
                 float2 halfSize = i.shape.xy;
                 float corner = i.shape.z, header = i.shape.w;
                 float d = SquircleBox(p, halfSize, corner);
@@ -124,17 +125,22 @@ Shader "Forge/PanelSurface"
 
                 if (i.style.x < 0.5)
                 {
+                    // How lit the frame is: 0 at rest, 0.5 pointed at, 1 held (style.y).
+                    float lit = i.style.y;
                     // Soft shadow under the window: 16 mm down, 40 mm blur.
                     float ds = SquircleBox(p + float2(0.0, 16.0), halfSize - 6.0, corner);
                     Over(acc, 0, 0.35 * i.style.z / (1.0 + exp(3.404 * ds / 40.0)));
+                    // Held: a soft white halo just outside the edge, the window lifted off the room.
+                    Over(acc, 1, d > 0.0 ? saturate(2.0 * lit - 1.0) * 0.12 / (1.0 + exp(3.404 * d / 9.0)) * 2.0 : 0.0);
                     // Graphite, lighter at the top.
                     float t = saturate((halfSize.y - p.y) / (2.0 * halfSize.y));
                     float4 fill = lerp(_Top, _Bottom, t);
                     Over(acc, fill.rgb, fill.a * inside);
-                    // Faint inner outline, and a rim light along the top edge fading down into the corners.
+                    // Faint inner outline, and a rim light along the top edge fading down into the corners; both
+                    // brighten while the panel is pointed at or held.
                     float rim = Band(d + 0.5, 0.5, aa);
-                    Over(acc, 1, 0.07 * rim);
-                    Over(acc, 1, 0.16 * rim * smoothstep(halfSize.y - corner, halfSize.y - 2.0, p.y));
+                    Over(acc, 1, (0.07 + 0.11 * lit) * rim);
+                    Over(acc, 1, (0.16 + 0.16 * lit) * rim * smoothstep(halfSize.y - corner, halfSize.y - 2.0, p.y));
                     // Header hairline.
                     if (header > 0.0)
                     {
@@ -149,7 +155,7 @@ Shader "Forge/PanelSurface"
                     float glow = d > 0.0 ? i.style.y * i.color.a / (1.0 + exp(3.404 * d / 8.0)) * 2.0 : 0.0;
                     Over(acc, i.color.rgb, saturate(glow));
                     Over(acc, i.color.rgb, i.color.a * inside);
-                    Over(acc, i.color.rgb, i.style.w * Band(d + 0.5, 0.5, aa));
+                    Over(acc, i.color.rgb, i.style.w * i.p.z * Band(d + 0.5, 0.5, aa));
                 }
 
                 #ifdef UNITY_UI_CLIP_RECT

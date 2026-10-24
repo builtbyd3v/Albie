@@ -51,7 +51,8 @@ public class PanelManipulator : MonoBehaviour
     RayInteractable[] rays;
     PokeInteractable[] pokes;
     ForgePill faceButton, straightButton;
-    float showTimer;
+    ForgeSurface frameSurface;
+    float showTimer, lit;
     Coroutine turning;
 
     PanelGrab grab;
@@ -337,14 +338,23 @@ public class PanelManipulator : MonoBehaviour
 
     // ---------------------------------------------------------------- handles
 
-    // Handles fade in while any pointer is on the panel (or its handles) and stay a moment after it leaves.
+    // Handles fade in while any pointer is on the panel (or its handles) and stay a moment after it leaves. The
+    // frame's rim brightens while pointed at, and more while held (it only redraws while that changes).
     void UpdateFade()
     {
-        if (IsPointedAt() || grab != PanelGrab.None) showTimer = 0.6f;
+        bool pointed = IsPointedAt();
+        if (pointed || grab != PanelGrab.None) showTimer = 0.6f;
         else showTimer -= Time.deltaTime;
         float target = showTimer > 0f ? 1f : 0f;
         if (!Mathf.Approximately(controls.alpha, target))
             controls.alpha = Mathf.MoveTowards(controls.alpha, target, Time.deltaTime * 6f);
+
+        float litTarget = grab != PanelGrab.None ? 1f : pointed ? 0.5f : 0f;
+        if (frameSurface != null && lit != litTarget)
+        {
+            lit = Mathf.MoveTowards(lit, litTarget, Time.deltaTime / ForgeTheme.HoverFade);
+            frameSurface.Glow = lit;
+        }
     }
 
     bool IsPointedAt()
@@ -359,6 +369,8 @@ public class PanelManipulator : MonoBehaviour
     void BuildHandles()
     {
         panel.HitMarginMm = HandleMarginMm;
+        var background = transform.Find("Background");
+        if (background != null) frameSurface = background.GetComponent<ForgeSurface>();
         var bar = transform.Find("TitleBar") as RectTransform;
         Graphic barGraphic = bar != null ? bar.GetComponent<Graphic>() : null;
 
