@@ -10,11 +10,11 @@ python train.py --epochs 10
 python -m forge.check .                  # adapter sanity check on 8 samples
 ```
 
-**Epoch time:** about 3 s on an M-series Mac (MPS) with the 10k subset.
+**Epoch time:** about 2 s on an M-series Mac (MPS) with the 10k subset; 20 epochs take under a minute.
 
 **What's interesting in the results**
 - **Noisy labels:** 3% of labels are flipped on purpose (1,500 train, exactly 30 val), listed in `noise.json`. They show up as confident mistakes where the model is actually right: "the model was right, the data was wrong."
-- **Overfitting:** with only 10k images and no augmentation, val loss turns up after a handful of epochs while train loss keeps falling, so the overfit alert fires.
+- **Overfitting:** with only 10k images and no augmentation, val accuracy peaks around 60% near epoch 9 while train accuracy heads to ~100%. Run `--epochs 20`: the overfit alert fires around epoch 11 (val loss zig-zags before that, so 10 epochs may not trigger it).
 - **Weak classes:** cat and dog are the usual worst classes, and mostly confused with each other.
 
 **Relabel / remove:** the hub writes `.forge/labels_override.json` (`{"relabel": {"val_0007": 3}, "remove": ["train_01234"]}`); `data.py` applies it on the next run. Sample ids come from the CIFAR index, so they stay stable.

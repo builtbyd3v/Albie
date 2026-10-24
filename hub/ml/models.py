@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -57,3 +59,14 @@ class Confusion(BaseModel):
 
 class RelabelRequest(BaseModel):
     label_idx: int
+
+
+class IngestEvent(BaseModel):
+    type: str
+    payload: dict[str, Any]
+
+
+class IngestRequest(BaseModel):
+    """POST /ml/ingest (ML_PLAN 7.4): a batch of events from the forge SDK or forge.replay."""
+    run_id: str
+    events: list[IngestEvent]

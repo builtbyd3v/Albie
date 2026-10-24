@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from .models import Atlas, Confusion, DatasetItem, Graph, RelabelRequest, Results, TrainRequest, TrainResponse
+from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, RelabelRequest, Results, TrainRequest,
+                     TrainResponse)
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -61,3 +62,16 @@ def relabel(id: str, req: RelabelRequest) -> None:
 @router.post("/samples/{id}/remove")
 def remove(id: str) -> None:
     raise _todo()
+
+
+@router.post("/ingest")
+async def ingest(req: IngestRequest, request: Request) -> dict:
+    """forge SDK -> hub: rebroadcast each event on /ws. Only ml.* events, so a training script
+    can't pose as the pet or another module."""
+    bad = sorted({e.type for e in req.events if not e.type.startswith("ml.")})
+    if bad:
+        raise HTTPException(status_code=400, detail=f"only ml.* events can be ingested, got {bad}")
+    bus = request.app.state.bus
+    for e in req.events:
+        await bus.publish(e.type, e.payload)
+    return {"ok": True, "count": len(req.events)}

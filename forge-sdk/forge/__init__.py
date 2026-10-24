@@ -6,34 +6,45 @@
         forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=...)
     forge.evaluate(model, val_loader)
 
-Each run's artifacts (graph, atlas, dataset, ...) are written to `<run dir>/<run_id>/`: the `run_dir`
-argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else `./forge_runs`.
-Events are printed as JSON lines until the hub ingest lands.
+Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `<run dir>/<run_id>/`:
+the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
+`./forge_runs`. Events also stream to the hub (see forge.client). None of these calls ever raises:
+a failure becomes one warning line and training continues.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
-import torch
+from forge import atlas, client, graph
 
-from forge import atlas, graph
-from forge.client import emit
-
-_run_id: str | None = None
-_run_dir: Path | None = None
-_total_epochs: int = 0
+OVERFIT_EPOCHS = 2
 
 
-def _ensure_run() -> str:
-    global _run_id
-    if _run_id is None:
-        _run_id = uuid.uuid4().hex[:8]
-    return _run_id
+@dataclass
+class _Run:
+    run_id: str
+    dir: Path
+    total_epochs: int = 0
+    t0: float = field(default_factory=time.monotonic)
+    prev: tuple[float, float] | None = None  # (train_loss, val_loss) of the last log
+    rises: int = 0
+    alerted: bool = False
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
+
+    def write_json(self, name: str, data: Any) -> None:
+        (self.dir / name).write_text(json.dumps(data))
+
+
+_run: _Run | None = None
 
 
 def _run_root(run_dir: str | os.PathLike | None) -> Path:
@@ -42,38 +53,69 @@ def _run_root(run_dir: str | os.PathLike | None) -> Path:
     return Path(".forge/runs") if Path(".forge").is_dir() else Path("forge_runs")
 
 
-def _write_json(name: str, data: Any) -> None:
-    assert _run_dir is not None
-    (_run_dir / name).write_text(json.dumps(data))
+def _start_run(total_epochs: int = 0, run_dir: str | os.PathLike | None = None) -> _Run:
+    global _run
+    run_id = uuid.uuid4().hex[:8]
+    path = _run_root(run_dir) / run_id
+    path.mkdir(parents=True, exist_ok=True)
+    _run = _Run(run_id, path, total_epochs)
+    _run.write_json("run.json", {"run_id": run_id, "total_epochs": total_epochs, "started_at": time.time()})
+    return _run
+
+
+def _current() -> _Run:
+    """The active run; `log` without `watch` starts one."""
+    return _run if _run is not None else _start_run()
+
+
+def _end_run() -> None:
+    global _run
+    _run = None
+
+
+def _attempt(what: str, fn: Callable[[], Any]) -> Any:
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 - never raise into the training script
+        client.warn(f"{what} failed: {type(exc).__name__}: {exc}", key=what)
+        return None
+
+
+def _num(x: Any) -> float:
+    """Plain float from a float, int, numpy scalar or 0-d tensor."""
+    return float(x.item() if hasattr(x, "item") else x)
 
 
 def watch(
-    model: torch.nn.Module,
+    model: Any,
     val_dataset: Any,
     classes: Sequence[str],
     epochs: int = 0,
     thumb_size: int = 64,
     run_dir: str | os.PathLike | None = None,
-) -> str:
+) -> str | None:
     """Start a run: capture the model graph and the val dataset atlas. Returns the run id."""
-    global _run_id, _run_dir, _total_epochs
-    _run_id = uuid.uuid4().hex[:8]
-    _total_epochs = epochs
-    _run_dir = _run_root(run_dir) / _run_id
-    _run_dir.mkdir(parents=True, exist_ok=True)
+    run = _attempt("watch", lambda: _start_run(epochs, run_dir))
+    if run is None:
+        return None
+    run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
+    _attempt("classes", lambda: run.write_json("classes.json", [str(c) for c in classes]))
 
-    image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
-    image.save(_run_dir / "atlas.png")
-    _write_json("atlas.json", atlas_meta)
-    _write_json("dataset.json", items)
-    _write_json("classes.json", list(classes))
-    _write_json("run.json", {"run_id": _run_id, "total_epochs": epochs, "num_samples": len(items)})
-    emit("ml.run_state", {"run_id": _run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
+    def save_atlas() -> None:
+        image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
+        image.save(run.dir / "atlas.png")
+        run.write_json("atlas.json", atlas_meta)
+        run.write_json("dataset.json", items)
 
-    example, _ = val_dataset[0]
-    _write_json("graph.json", graph.describe(model, example))
-    emit("ml.graph_ready", {})
-    return _run_id
+    _attempt("dataset atlas", save_atlas)
+
+    def save_graph() -> None:
+        example, _ = val_dataset[0]
+        run.write_json("graph.json", graph.describe(model, example))
+        run.emit("ml.graph_ready", {})
+
+    _attempt("model graph", save_graph)
+    return run.run_id
 
 
 def log(
@@ -85,27 +127,50 @@ def log(
     lr: float,
     step: int = 0,
 ) -> None:
-    """Send one ml.metrics tick."""
-    run_id = _ensure_run()
-    emit(
-        "ml.metrics",
-        {
-            "run_id": run_id,
-            "epoch": epoch,
-            "step": step,
-            "train_loss": train_loss,
-            "train_acc": train_acc,
-            "val_loss": val_loss,
-            "val_acc": val_acc,
-            "lr": lr,
-        },
-    )
-    # TODO: overfit rule (val loss up 2 epochs in a row while train loss down) -> ml.overfit_alert
+    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting."""
+
+    def send() -> None:
+        run = _current()
+        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _num(train_loss),
+                   "train_acc": _num(train_acc), "val_loss": _num(val_loss), "val_acc": _num(val_acc),
+                   "lr": _num(lr)}
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": metrics["epoch"],
+                                  "total_epochs": run.total_epochs})
+        run.emit("ml.metrics", metrics)
+        _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+
+    _attempt("log", send)
+
+
+def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) -> None:
+    """Val loss up OVERFIT_EPOCHS epochs in a row while train loss goes down: alert once.
+    Re-arms when val loss improves again."""
+    if run.prev is not None:
+        prev_train, prev_val = run.prev
+        if val_loss > prev_val and train_loss < prev_train:
+            run.rises += 1
+        elif val_loss < prev_val:
+            run.rises, run.alerted = 0, False
+        else:
+            run.rises = 0
+    run.prev = (train_loss, val_loss)
+    if run.rises >= OVERFIT_EPOCHS and not run.alerted:
+        run.alerted = True
+        run.emit("ml.overfit_alert", {"run_id": run.run_id, "epoch": epoch,
+                                      "reason": f"val loss rose {run.rises} epochs in a row while train loss fell"})
 
 
 def evaluate(model: Any, val_loader: Any) -> None:
-    """Send per-sample predictions and the confusion matrix."""
-    run_id = _ensure_run()
-    # TODO: run model over val_loader -> samples [{id, true_idx, pred_idx, probs, correct}] + confusion
-    emit("ml.run_state", {"run_id": run_id, "status": "done", "epoch": _total_epochs, "total_epochs": _total_epochs})
-    emit("ml.results_ready", {"run_id": run_id})
+    """Send per-sample predictions and the confusion matrix, then end the run."""
+
+    def finish() -> None:
+        run = _current()
+        total = run.total_epochs
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "evaluating", "epoch": total, "total_epochs": total})
+        # TODO (A3): run model over val_loader -> results.json + confusion.json
+        run.emit("ml.results_ready", {"run_id": run.run_id})
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "done", "epoch": total, "total_epochs": total})
+
+    _attempt("evaluate", finish)
+    _end_run()
+    client.poster.flush()
