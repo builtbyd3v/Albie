@@ -31,6 +31,7 @@ Material:
     - _Opacity: 0.3
     - _Radius: 36
     - _Size: 180
+    - _Wash: 0
     m_Colors:
     - _Hue: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

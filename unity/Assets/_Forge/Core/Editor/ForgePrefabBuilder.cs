@@ -104,7 +104,86 @@ public static class ForgePrefabBuilder
 
         var rig = root.AddComponent<DesktopRig>();
         SetRefs(rig, ("cam", cam), ("crosshair", crosshair.gameObject), ("hint", hint));
+        StyleDesktopRig(root);
         Save(root, DesktopRigPath);
+    }
+
+    /// <summary>
+    /// Restyle DesktopRig.prefab's HUD in place (Main.unity and PetMain.unity hold instances of it, so its objects keep
+    /// their IDs).
+    /// </summary>
+    [MenuItem("Forge/Restyle Desktop HUD")]
+    public static void RestyleDesktopRig()
+    {
+        ForgeLookBuilder.Build();
+        var root = PrefabUtility.LoadPrefabContents(DesktopRigPath);
+        try
+        {
+            StyleDesktopRig(root);
+            PrefabUtility.SaveAsPrefabAsset(root, DesktopRigPath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+        Debug.Log("[ForgePrefabBuilder] Restyled " + DesktopRigPath);
+    }
+
+    // The hint line becomes a Horizon-style toast (a dark translucent pill in the top left, sized to its text);
+    // the crosshair a white dot on a dark halo, so it shows on light and dark alike.
+    static void StyleDesktopRig(GameObject root)
+    {
+        var hud = (RectTransform)root.transform.Find("HUD");
+
+        var crosshair = (RectTransform)hud.Find("Crosshair");
+        var oldImage = crosshair.GetComponent<Image>();
+        if (oldImage != null) Object.DestroyImmediate(oldImage);
+        var halo = crosshair.GetComponent<ForgeSurface>();
+        if (halo == null) halo = crosshair.gameObject.AddComponent<ForgeSurface>();
+        halo.Pill = true;
+        halo.color = new Color(0f, 0f, 0f, 0.35f);
+        halo.raycastTarget = false;
+        crosshair.sizeDelta = new Vector2(16f, 16f);
+        var dotTransform = crosshair.Find("Dot");
+        var dot = dotTransform != null ? dotTransform.GetComponent<ForgeSurface>() : null;
+        if (dot == null)
+        {
+            var dotRect = (RectTransform)new GameObject("Dot", typeof(RectTransform)).transform;
+            dotRect.SetParent(crosshair, false);
+            dot = dotRect.gameObject.AddComponent<ForgeSurface>();
+        }
+        dot.Pill = true;
+        dot.Glow = 0.4f;
+        dot.color = Color.white;
+        dot.raycastTarget = false;
+        ((RectTransform)dot.transform).sizeDelta = new Vector2(8f, 8f);
+
+        var hint = (hud.Find("Hint") ?? hud.Find("HintPill/Hint")).GetComponent<TMP_Text>();
+        var pillTransform = hud.Find("HintPill");
+        RectTransform pill;
+        if (pillTransform == null)
+        {
+            pill = (RectTransform)new GameObject("HintPill", typeof(RectTransform)).transform;
+            pill.SetParent(hud, false);
+            pill.gameObject.AddComponent<ForgeSurface>();
+            var layout = pill.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.childControlWidth = layout.childControlHeight = true;
+            layout.childForceExpandWidth = layout.childForceExpandHeight = false;
+            var fit = pill.gameObject.AddComponent<ContentSizeFitter>();
+            fit.horizontalFit = fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            hint.transform.SetParent(pill, false);
+        }
+        else pill = (RectTransform)pillTransform;
+        pill.anchorMin = pill.anchorMax = pill.pivot = new Vector2(0f, 1f);  // top left, clear of the dock
+        pill.anchoredPosition = new Vector2(28f, -28f);
+        var surface = pill.GetComponent<ForgeSurface>();
+        surface.Pill = true;
+        surface.color = new Color(0.07f, 0.08f, 0.1f, 0.78f);
+        surface.raycastTarget = false;
+        pill.GetComponent<HorizontalLayoutGroup>().padding = new RectOffset(26, 26, 12, 12);
+        StyleText(hint, 21f, new Color(1f, 1f, 1f, 0.88f), FontStyles.Normal, TextAlignmentOptions.Center);
+        hint.overflowMode = TextOverflowModes.Overflow;
+        hint.characterSpacing = 1f;
     }
 
     /// <summary>Plain lit material (Materials/Room{name}.mat) for drawing the room in desktop mode.</summary>

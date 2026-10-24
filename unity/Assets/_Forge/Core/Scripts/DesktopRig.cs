@@ -49,6 +49,7 @@ public class DesktopRig : MonoBehaviour
     readonly List<RaycastResult> hits = new List<RaycastResult>();
     GameObject hovered;
     GameObject pressed;
+    int hintState = -1;
 
     void Awake()
     {
@@ -84,6 +85,13 @@ public class DesktopRig : MonoBehaviour
         bool hitUi = Point(screen, mouse.leftButton.wasPressedThisFrame, mouse.leftButton.wasReleasedThisFrame);
         // Free cursor: clicking empty space grabs the mouse again.
         if (!cursorLocked && !hitUi && mouse.leftButton.wasPressedThisFrame) SetCursorLocked(true);
+
+        // The crosshair swells over anything that takes a click, like Horizon's cursor.
+        if (crosshair != null && crosshair.activeSelf)
+        {
+            float s = Mathf.MoveTowards(crosshair.transform.localScale.x, hitUi ? 1.6f : 1f, Time.deltaTime * 6f);
+            crosshair.transform.localScale = new Vector3(s, s, 1f);
+        }
 
         UpdateHint();
     }
@@ -242,9 +250,14 @@ public class DesktopRig : MonoBehaviour
         return target != null;
     }
 
+    // Rebuilt only when what it says changes (not a new string every frame).
     void UpdateHint()
     {
         if (hint == null) return;
+        bool atDesk = presence != null && presence.AtDesk;
+        int state = (PanelManipulator.Grabbing > 0 ? 1 : 0) | (cursorLocked ? 2 : 0) | (Seated ? 4 : 0) | (atDesk ? 8 : 0);
+        if (state == hintState) return;
+        hintState = state;
         if (PanelManipulator.Grabbing > 0)
         {
             hint.text = cursorLocked ? "Holding a panel · look around to carry it · scroll: push back / pull in · release to drop"
@@ -253,7 +266,7 @@ public class DesktopRig : MonoBehaviour
         }
         string cursor = cursorLocked ? "Esc: free cursor" : "Click empty space: grab mouse · hold right mouse: look";
         string desk = Seated ? "E: stand up"
-                    : presence != null && presence.AtDesk ? "E: sit at desk"
+                    : atDesk ? "E: sit at desk"
                     : "Walk up to a table";
         hint.text = $"WASD walk · Shift run · click buttons · {desk} · {cursor}";
     }
