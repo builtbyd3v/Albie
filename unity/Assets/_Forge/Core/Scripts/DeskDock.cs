@@ -13,6 +13,8 @@ public class DeskDock : MonoBehaviour
     [SerializeField] RectTransform row;
     [SerializeField] Button buttonTemplate;
     [SerializeField] CanvasGroup group;
+    [Tooltip("Hub connection light: green live, amber mock data, grey connecting.")]
+    [SerializeField] Image statusDot;
 
     [Tooltip("Distance from the desk's front edge to the row of buttons (m).")]
     public float inset = 0.09f;
@@ -23,6 +25,22 @@ public class DeskDock : MonoBehaviour
     Coroutine anim;
 
     public bool IsShown { get; private set; }
+
+    void OnEnable()
+    {
+        ForgeNet.StatusChanged += ShowStatus;
+        ShowStatus(ForgeNet.Status);
+    }
+
+    void OnDisable() => ForgeNet.StatusChanged -= ShowStatus;
+
+    void ShowStatus(ForgeNetStatus status)
+    {
+        if (statusDot == null) return;
+        statusDot.color = status == ForgeNetStatus.Live ? new Color(0.3f, 0.9f, 0.4f)
+                        : status == ForgeNetStatus.Mock ? new Color(1f, 0.7f, 0.2f)
+                        : new Color(0.6f, 0.6f, 0.6f);
+    }
 
     public void Build(Workspace workspace)
     {

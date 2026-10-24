@@ -1,0 +1,170 @@
+// Forge Bit: a tiny local HTTP API so the hub can drive this VS Code window for Bit.
+// Uses only the VS Code API, never the mouse or keyboard, so the engineer keeps typing.
+//
+//   GET  /context                          active file, cursor, selection, visible lines, error count
+//   GET  /errors?path=src/x.py             errors + warnings (whole workspace without path)
+//   POST /open      { path, line }
+//   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
+//   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
+//   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+const http = require("http");
+const path = require("path");
+const vscode = require("vscode");
+
+let server;
+let terminal;
+
+const glow = vscode.window.createTextEditorDecorationType({
+  isWholeLine: true,
+  backgroundColor: "rgba(255, 196, 0, 0.22)",
+  border: "1px solid rgba(255, 196, 0, 0.8)",
+  overviewRulerColor: "rgba(255, 196, 0, 0.9)",
+  overviewRulerLane: vscode.OverviewRulerLane.Full,
+});
+const noteStyle = vscode.window.createTextEditorDecorationType({
+  after: { color: "rgba(255, 196, 0, 0.95)", fontStyle: "italic", margin: "0 0 0 2em" },
+});
+let clearTimer;
+
+function config() {
+  return vscode.workspace.getConfiguration("forgeBit");
+}
+
+function resolve(p) {
+  if (path.isAbsolute(p)) return p;
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) throw new Error("no workspace folder open");
+  return path.join(root, p);
+}
+
+function relative(uri) {
+  return vscode.workspace.asRelativePath(uri, false);
+}
+
+async function show(p, line) {
+  const editor = await vscode.window.showTextDocument(vscode.Uri.file(resolve(p)), { preview: false });
+  if (line) {
+    const pos = new vscode.Position(Math.max(line - 1, 0), 0);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+  }
+  return editor;
+}
+
+function context() {
+  const editor = vscode.window.activeTextEditor;
+  const errors = vscode.languages.getDiagnostics()
+    .reduce((n, [, ds]) => n + ds.filter((d) => d.severity === vscode.DiagnosticSeverity.Error).length, 0);
+  if (!editor) return { file: null, errors };
+  const { selection, visibleRanges, document } = editor;
+  return {
+    file: relative(document.uri),
+    line: selection.active.line + 1,
+    selection: selection.isEmpty ? null : {
+      start: selection.start.line + 1,
+      end: selection.end.line + 1,
+      text: document.getText(selection).slice(0, 2000),
+    },
+    visible: visibleRanges.length
+      ? { start: visibleRanges[0].start.line + 1, end: visibleRanges[visibleRanges.length - 1].end.line + 1 }
+      : null,
+    lineCount: document.lineCount,
+    dirty: document.isDirty,
+    errors,
+  };
+}
+
+function errors(p) {
+  const all = p
+    ? [[vscode.Uri.file(resolve(p)), vscode.languages.getDiagnostics(vscode.Uri.file(resolve(p)))]]
+    : vscode.languages.getDiagnostics();
+  const out = [];
+  for (const [uri, ds] of all) {
+    for (const d of ds) {
+      if (d.severity > vscode.DiagnosticSeverity.Warning) continue;
+      out.push({
+        file: relative(uri),
+        line: d.range.start.line + 1,
+        severity: d.severity === vscode.DiagnosticSeverity.Error ? "error" : "warning",
+        message: d.message,
+        source: d.source ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+async function highlight({ path: p, start, end = start, note, ms = 4000 }) {
+  const editor = p ? await show(p, start) : vscode.window.activeTextEditor;
+  if (!editor) throw new Error("no editor open");
+  const range = new vscode.Range(start - 1, 0, end - 1, 0);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  editor.setDecorations(glow, [range]);
+  const lastLine = editor.document.lineAt(Math.min(end - 1, editor.document.lineCount - 1)).range;
+  editor.setDecorations(noteStyle, note ? [{ range: lastLine, renderOptions: { after: { contentText: `← ${note}` } } }] : []);
+  clearTimeout(clearTimer);
+  clearTimer = setTimeout(() => {
+    editor.setDecorations(glow, []);
+    editor.setDecorations(noteStyle, []);
+  }, ms);
+}
+
+async function run({ command, args = [] }) {
+  if (!config().get("allowedCommands").includes(command)) throw new Error(`command not allowed: ${command}`);
+  return (await vscode.commands.executeCommand(command, ...args)) ?? null;
+}
+
+function train() {
+  const cmd = config().get("trainCommand");
+  if (!cmd) throw new Error("set forgeBit.trainCommand first");
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  terminal.show(true);
+  terminal.sendText(cmd);
+}
+
+const routes = {
+  "GET /context": () => context(),
+  "GET /errors": (_, query) => errors(query.get("path")),
+  "POST /open": (b) => show(b.path, b.line).then(() => null),
+  "POST /highlight": (b) => highlight(b).then(() => null),
+  "POST /run": (b) => run(b).then((result) => ({ result })),
+  "POST /train": () => train(),
+};
+
+function readBody(req) {
+  return new Promise((ok, fail) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => {
+      try { ok(data ? JSON.parse(data) : {}); } catch (e) { fail(e); }
+    });
+  });
+}
+
+function activate(ctx) {
+  const port = config().get("port");
+  server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, "http://127.0.0.1");
+    const route = routes[`${req.method} ${url.pathname}`];
+    const send = (status, body) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body ?? { ok: true }));
+    };
+    if (!route) return send(404, { error: `no route ${req.method} ${url.pathname}` });
+    try {
+      send(200, await route(await readBody(req), url.searchParams));
+    } catch (e) {
+      send(400, { error: e.message });
+    }
+  });
+  // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
+  server.on("error", (e) => console.error(`[forge-bit] ${e.message}`));
+  server.listen(port, "127.0.0.1");
+  ctx.subscriptions.push(glow, noteStyle, { dispose: () => server.close() });
+}
+
+function deactivate() {
+  server?.close();
+}
+
+module.exports = { activate, deactivate };
