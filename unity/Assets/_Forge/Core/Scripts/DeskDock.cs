@@ -4,6 +4,7 @@ using Oculus.Interaction.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
@@ -14,8 +15,10 @@ using UnityEngine.UI;
 /// that mode: the ring rises off the desk on a column of light and turns toward the head. Press it again to fold it.
 /// Rings brighten as a pointer comes near and run a comet of light while hovered. The dock comes in in two beats: the
 /// frame slides along the front edge in from the user's right, then the rings plop on left to right (ForgeTheme.DockSlide*).
-/// It comes in centered on the edge; ‹ and › at its ends slide it along the desk a step at a time, keeping
-/// <see cref="endRoom"/> free at each end (the gator's whistle sits just past the right end: <see cref="TryGetRightSide"/>).
+/// It comes in centered on the edge and slides along it, keeping <see cref="endRoom"/> free at each end of the desk (the
+/// gator's whistle sits just past its right end: <see cref="TryGetRightSide"/>): ‹ and › at its ends (they fade in only
+/// while a pointer is on them) move it a step, and holding the right controller's grip (middle mouse button in desktop
+/// mode) while pointing anywhere on it drags it.
 /// Input stays flat: each button is an invisible raycast Image + Button on the dock canvas that never moves. The light
 /// is quads under "Light" (Forge/NeonFrame, NeonRing, LightPool) and 3D Inter labels, styled by <see cref="ForgeTheme"/>;
 /// the ring pieces come from <see cref="DockRing"/>, which also makes one on its own. Built from <see cref="Workspace.modes"/>.
@@ -43,6 +46,7 @@ public class DeskDock : MonoBehaviour
         public string modeId;  // null for a tool
         public bool isMode;
         public bool nudge;  // ‹ ›: pressable with no mode open, dimmed only at the end of the desk
+        public float reveal = 1f, shownReveal = -1f;  // ‹ ›: 0 hidden .. 1 shown (a pointer is on it)
         public Button button;
         public DockButton input;
         public Color hue;
@@ -84,12 +88,19 @@ public class DeskDock : MonoBehaviour
     float hubShown, hubAttentionUntil;
     const float HubLabelMm = 10f, HubAttention = 4f, HubNearRange = 80f;
 
-    // Sliding along the front edge (‹ ›): the dock's offset from the edge's middle (m, + = the user's right). Kept while
-    // it comes and goes at the same edge, back to the middle at another edge or table.
+    // Sliding along the front edge (‹ ›, grip drag): the dock's offset from the edge's middle (m, + = the user's right).
+    // Kept while it comes and goes at the same edge, back to the middle at another edge or table.
     Ring nudgeLeft, nudgeRight;
     Coroutine nudgeAnim;
     float offset, edgeWidth, shownScale = ForgePanel.MetersPerUnit;
     Vector3 offsetEdge;
+    const float NudgeReveal = 15f;  // a ‹ › fades in while a pointer is within this of its ring (mm)
+    // Grip drag: the right controller's ray (or the desktop mouse) holding the dock, and the dock's x minus where that
+    // pointer met the desk when the grip closed (m, desk frame), so the dock keeps its place under the pointer.
+    RayInteractor dragRay;
+    bool dragging, dragMouse;
+    float dragGrab;
+    const float DragMargin = 15f;  // the grip catches this far outside the frame too (mm)
 
     // Interaction SDK pointers, found when the dock shows (the rig is picked by then).
     RayInteractor[] rays = new RayInteractor[0];
@@ -138,6 +149,7 @@ public class DeskDock : MonoBehaviour
         float x = -width * 0.5f;
         nudgeLeft = AddRing("Dock left", "‹", false, ForgeTheme.Tool, ForgeTheme.DockNudgeRing, ForgeTheme.DockNudgeLabel, ref x, () => Nudge(-1f));
         nudgeLeft.nudge = true;
+        nudgeLeft.reveal = 0f;
         foreach (var mode in workspace.modes)
         {
             string id = mode.id;
@@ -151,6 +163,7 @@ public class DeskDock : MonoBehaviour
         AddRing("Dock reset", "Reset", false, ForgeTheme.Tool, ForgeTheme.DockToolRing, ForgeTheme.DockToolLabel, ref x, workspace.ResetLayout);
         nudgeRight = AddRing("Dock right", "›", false, ForgeTheme.Tool, ForgeTheme.DockNudgeRing, ForgeTheme.DockNudgeLabel, ref x, () => Nudge(1f));
         nudgeRight.nudge = true;
+        nudgeRight.reveal = 0f;
 
         var size = new Vector2(width + 2f * ForgeTheme.DockPadding, ForgeTheme.DockHeight);
         ((RectTransform)transform).sizeDelta = size;
@@ -269,6 +282,8 @@ public class DeskDock : MonoBehaviour
         edgeWidth = deskWidth;
         if (nudgeAnim != null) StopCoroutine(nudgeAnim);
         nudgeAnim = null;
+        dragging = false;
+        dragRay = null;
         transform.SetParent(deskFrame, false);
         float width = ((RectTransform)transform).sizeDelta.x * ForgePanel.MetersPerUnit;
         float fit = Mathf.Min(1f, (deskWidth - 0.04f) / Mathf.Max(width, 0.01f));
@@ -374,11 +389,93 @@ public class DeskDock : MonoBehaviour
         nudgeRight.enabled = nudgeRight.button.interactable = offset < reach - 0.001f;
     }
 
+    // Grip drag. Starts when the right controller's grip (or the middle mouse button in desktop mode) closes while its
+    // ray points at the dock; then every frame the dock follows where that ray meets the desk, along the edge only, until
+    // the button opens. Not during the entrance.
+    void UpdateDrag()
+    {
+        var rig = DesktopRig.Current;
+        var mouse = Mouse.current;
+        bool desktop = rig != null && rig.isActiveAndEnabled && mouse != null;
+        if (!dragging)
+        {
+            if (!IsShown || anim != null) return;
+            bool grip = OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
+            bool middle = !grip && desktop && mouse.middleButton.wasPressedThisFrame;
+            if (!grip && !middle) return;
+            dragRay = grip ? RightRay() : null;
+            if (grip && dragRay == null) return;
+            Ray ray = grip ? dragRay.Ray : rig.PointerRay;
+            if (!PointsAtDock(ray) || !TryDeskX(ray, out float x)) return;
+            dragging = true;
+            dragMouse = middle;
+            dragGrab = transform.localPosition.x - x;
+            if (nudgeAnim != null) StopCoroutine(nudgeAnim);
+            nudgeAnim = null;
+            return;
+        }
+
+        bool held = dragMouse
+            ? desktop && mouse.middleButton.isPressed
+            : dragRay != null && dragRay.isActiveAndEnabled && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
+        if (!held || !IsShown || anim != null)
+        {
+            dragging = false;
+            dragRay = null;
+            return;
+        }
+        if (!TryDeskX(dragMouse ? rig.PointerRay : dragRay.Ray, out float at)) return;  // pointing off the desk: stay put
+        float reach = SlideReach();
+        offset = Mathf.Clamp(at + dragGrab, -reach, reach);
+        Vector3 p = transform.localPosition;
+        p.x = offset;
+        transform.localPosition = p;
+        ShowNudgeLimits();
+    }
+
+    // The right controller's ray, if it's the one in use (the rig has a hand ray on that side too).
+    RayInteractor RightRay()
+    {
+        foreach (var r in rays)
+            if (r != null && r.isActiveAndEnabled && r.State != InteractorState.Disabled
+                && ForgePointer.HandOf(r.transform) == OVRInput.Controller.RTouch)
+                return r;
+        return null;
+    }
+
+    // The ray meets the dock's plane on its frame (or just around it).
+    bool PointsAtDock(Ray ray)
+    {
+        Vector3 o = transform.InverseTransformPoint(ray.origin), d = transform.InverseTransformVector(ray.direction);
+        if (Mathf.Abs(d.z) < 1e-6f) return false;
+        float t = -o.z / d.z;
+        if (t <= 0f) return false;
+        Vector2 hit = o + d * t;
+        Vector2 half = ((RectTransform)transform).sizeDelta * 0.5f;
+        return Mathf.Abs(hit.x) <= half.x + DragMargin && Mathf.Abs(hit.y) <= half.y + DragMargin;
+    }
+
+    // Where a ray meets the desk top, as x along the front edge (m, desk frame). False if it never does (level or
+    // pointing up) or only far away.
+    bool TryDeskX(Ray ray, out float x)
+    {
+        x = 0f;
+        Transform edge = transform.parent;
+        if (edge == null) return false;
+        Vector3 o = edge.InverseTransformPoint(ray.origin), d = edge.InverseTransformDirection(ray.direction);
+        if (d.y > -0.02f) return false;
+        float t = (transform.localPosition.y - o.y) / d.y;
+        if (t <= 0f || t > 5f) return false;
+        x = o.x + d.x * t;
+        return true;
+    }
+
     // ---- Light ----
 
     void LateUpdate()
     {
         if (block == null || frame == null) return;
+        UpdateDrag();
         float dt = Time.deltaTime, now = Time.time, fade = group.alpha;
         bool fadeChanged = !Mathf.Approximately(fade, shownFade);
         shownFade = fade;
@@ -450,6 +547,12 @@ public class DeskDock : MonoBehaviour
         r.enable = Mathf.MoveTowards(r.enable, r.enabled ? 1f : 0f, dt / ForgeTheme.HoverFade);
         float lift = Lift(r, now);
         float plop = Mathf.Clamp01((now - r.plopStart) / ForgeTheme.DockPlopTime);  // entrance: 0 before its turn, 1 once landed
+        if (r.nudge)
+        {
+            // ‹ › stay hidden until a pointer is right on them (hovering, or within NudgeReveal of the ring).
+            float reach = r.radius + NudgeReveal;
+            r.reveal = Mathf.MoveTowards(r.reveal, r.input.Hovered || closest < reach * reach ? 1f : 0f, dt / ForgeTheme.HoverFade);
+        }
 
         // A raised ring turns a little toward the head (smoothed, so leaning moves it); lowered, it lies flat.
         Quaternion aimTarget = Quaternion.identity;
@@ -464,11 +567,13 @@ public class DeskDock : MonoBehaviour
 
         var state = new Vector4(r.near, r.hover + 2f * r.press, r.select + 2f * r.enable, lift + 4f * plop);
         bool moving = Quaternion.Angle(r.aim.localRotation, r.aimRotation) > 0.05f;
-        if (!force && !moving && (state - r.shown).sqrMagnitude < 1e-7f) return;
+        if (!force && !moving && (state - r.shown).sqrMagnitude < 1e-7f && r.reveal == r.shownReveal) return;
         r.shown = state;
+        r.shownReveal = r.reveal;
 
         float scale = (1f + 0.05f * r.near * (1f - r.select)) * (1f + 0.06f * r.select) * (1f - 0.05f * r.press);
         if (plop < 1f) scale *= Mathf.Max(0f, ForgeTween.EaseOutBack(plop));  // plops on from nothing with a small overshoot
+        if (r.nudge) scale *= Mathf.Lerp(0.8f, 1f, r.reveal);  // and a ‹ › grows a little as it fades in
         r.lift.localPosition = new Vector3(0f, 0f, -ForgeTheme.DockRise * lift);
         r.lift.localScale = Vector3.one * scale;
         r.aim.localRotation = r.aimRotation;
@@ -479,7 +584,7 @@ public class DeskDock : MonoBehaviour
             r.column.transform.localScale = new Vector3(s.x, s.y, Mathf.Max(lift, 0.001f));
         }
 
-        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade, plop, r.icon);
+        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade * r.reveal, plop, r.icon);
     }
 
     void StartLift(Ring r, bool up, float now)

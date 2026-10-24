@@ -8,7 +8,7 @@
 ## 0. Status (update this as you go)
 
 **2026-10-24, Hudson (Core, branch `core/dock-slide`):**
-- **Done: slide the dock along the desk.** ‹ and › at the dock's ends move it a step (15 cm) left or right along the front edge, so on a long desk it can sit in front of you. It stays on the desk with 12 cm free at each end (the whistle's spot and the crew egg's corner), dims the arrow that can't go further, remembers where you put it at that edge, and starts centered again at another edge or table. The hub status words moved above the corner light.
+- **Done: slide the dock along the desk.** On a long desk it can now sit in front of you. Hold the right controller's grip (middle finger) while pointing anywhere on the dock and drag it left or right (middle mouse button in desktop mode). Or point at either end of the dock: a ‹ or › fades in, and each press moves it 15 cm. It stays on the desk with 12 cm free at each end (the whistle's spot and the crew egg's corner), dims the arrow that can't go further, remembers where you put it at that edge, and starts centered again at another edge or table. The hub status words moved above the corner light.
 - **Done: the whistle sits beside the dock.** Once the dock shows on a table, that table's whistle sits just past the dock's right end and slides with it (‹ ›, going round the desk); it stays there while the dock is away.
 
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
