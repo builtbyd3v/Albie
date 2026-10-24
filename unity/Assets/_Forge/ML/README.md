@@ -32,6 +32,9 @@ settings are unchanged.
 - **VizCard:** reusable ForgePanel renderer with line, bar, heatmap, scatter,
   table, image, and text modes. Configure its public fields, then call `Render()`
   after changing data at runtime.
+- **RegressionResults:** predicted-versus-actual scatter; selecting a point opens
+  a row card with actual, predicted, and residual values. It uses local deterministic
+  samples until the shared regression fixture lands.
 
 ## Mock data and scope
 
@@ -74,6 +77,7 @@ Assign generated prefabs to Workspace's ML items:
 | `ml-results` | `Prefabs/ResultsWall.prefab` | Right |
 | `ml-training` | `Prefabs/TrainingDash.prefab` | Above |
 | `ml-viz-card` | `Prefabs/VizCard.prefab` | Any visualization slot |
+| `ml-regression-results` | `Prefabs/RegressionResults.prefab` | Regression results |
 
 The stack and model ship inside ForgePanels with actual 3D meshes in front of
 the canvas, so their controls inherit ray/poke interaction. Set these Workspace
@@ -100,7 +104,11 @@ thread. The local fixture groups REST-shaped records into one file for replay.
   routes, then apply the acknowledged updates. Keep the generated reference bundle available
   until a full live dataset/graph/atlas loader is implemented.
 
-Live dataset/atlas fetching, arbitrary-length live metric history, Core WS
+`MLLayoutController` consumes `ml.layout` through ForgeNet and maps `ml-dots`,
+`ml-live`, `ml-viz`, and `ml-regression` to module panels without modifying Core
+Workspace.
+
+Live dataset/atlas fetching, Core WS
 subscriptions, and persistent edits are future adapter work. The mock atlas has
 metadata-driven UVs; a live loader must supply the same atlas metadata and
 ID mapping together with the texture.
