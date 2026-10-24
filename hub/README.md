@@ -20,36 +20,52 @@ Never `pip install cadquery` into this env: its OCP build breaks build123d's imp
 uvicorn main:app --host 0.0.0.0 --port 8000     # no --reload (it restarts the CAD worker)
 ```
 
-- `GET /health` once the first rocket is built (a few seconds on startup).
-- Open `cad/parts/rocket.py` in VS Code: **saving it regenerates the rocket** and pushes `cad.model_updated`. A broken save keeps the last good model and emits `cad.regen_failed` with the error line.
+- `GET /health` once the first design is built (a few seconds on startup).
+- Open `cad/parts/rocket.py` in VS Code: **saving the open design's script regenerates it** and pushes `cad.model_updated`. A broken save keeps the last good model and emits `cad.regen_failed` with the error line.
 - Try it: `curl -X POST localhost:8000/cad/params -H "Content-Type: application/json" -d "{\"fin_count\": 4}"`
-- Data (versions, GLBs) lives in `hub/.data/` (gitignored). Delete `.data/cad` to start fresh. Env: `FORGE_DATA_DIR`, `FORGE_CAD_SCRIPT`.
+- Data (versions, GLBs) lives in `hub/.data/` (gitignored). Delete `.data/cad` to start fresh. Env: `FORGE_DATA_DIR`, `FORGE_CAD_SCRIPT` (the design opened the first time; after that the hub reopens the last one).
+
+## Designs (the CAD library)
+
+Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is its id. Today: `rocket` (the hero),
+`quadcopter`, `gearbox`. Each keeps its own history (undo stays inside it); version numbers are unique across them.
+
+- `GET /cad/parts` lists them; `POST /cad/part {"part": "gearbox"}` opens one; `POST /cad/preset {"name": "Hexacopter"}`
+  applies a named preset to the open one. Everything else (`/cad/params`, undo, ...) acts on the open design.
+- **Add a design:** copy `cad/parts/_template.py` to `cad/parts/<name>.py`. It shows up in `GET /cad/parts` (and the
+  Designs menu in Unity) straight away; open it and save to regenerate. A part script defines `PARAMS` and
+  `build(params) -> BuildResult`, optionally `TITLE`, `DESCRIPTION`, `PRESETS`, `analyze(result, masses)` (metrics:
+  give `min`/`max` for a gauge) and `simulate_flight` (the Fly button). Mass, size and part count come free.
+- Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
+  `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
 
 ## Test
 
 ```powershell
-pytest            # about 1 min: geometry, RocketPy cross-check, export validity, API, watcher, timeouts
+pytest            # a few minutes: geometry, RocketPy cross-check, every design + preset, library API, watcher, timeouts
 ```
 
 ## Mocks for Unity (hub off)
 
 ```powershell
-python -m cad.make_mocks       # -> hub/.data/mocks/cad/v1..v4 + regen_failed.json
+python -m cad.make_mocks       # -> hub/.data/mocks/cad/parts.json, <part>/vN/, regen_failed.json
 ```
 
-Copy that folder to `unity/Assets/_Forge/Mocks/cad/`. The four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60.
+Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty.
 
 ## CAD module map
 
 | File | What |
 |---|---|
-| `cad/parts/rocket.py` | The part: `PARAMS` + `build(params)`. The file on the main screen. |
-| `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `FinSet`, `RocketSpec`, `BuildResult`). |
+| `cad/parts/rocket.py` | The rocket: `PARAMS`, `build(params)`, presets, `analyze` (Barrowman stability). The file on the main screen. |
+| `cad/parts/quadcopter.py`, `gearbox.py` | Two more designs (prop clearance / thrust-to-weight; ratio / pinion rim, own involute gears). |
+| `cad/parts/_template.py` | Copy me: a new file is a new design. |
+| `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `Metric`, `BuildResult`, rocket specs). |
 | `cad/export.py` | GLB + cad-vision schema 1.0 metadata, validated with cad-vision's loader rules. |
-| `cad/analysis.py` | Mass, CG, Barrowman CP, static margin, markers for Unity. |
+| `cad/analysis.py` | Mass, CG, generic metrics (mass, size, parts), and the Barrowman helpers rockets use. |
 | `cad/flight.py` | RocketPy launch-to-apogee sim on an Estes C6 (`cad/data/estes_c6.eng`). |
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
-| `cad/service.py` | Version tree on disk, one regen at a time, events, undo/reset, file watcher. |
+| `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
 | `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
 

@@ -5,6 +5,8 @@
 
 **Status 2026-10-23:** Phase 1 (hub) **done** plus the non-Unity SHOULD/STRETCH items: undo, reset, script-save regen, explode/focus events, STL export, flight sim, pet tools, mocks. 15 tests pass (`cd hub && pytest`). Phase 2 (Unity) **done**: `CadViewer` + `CadParamsPanel` prefabs and `CADSandbox.unity`, working from mocks and live against the hub. Next: Hudson slots the prefabs into the CAD mode. How-tos: `hub/README.md`, `unity/Assets/_Forge/CAD/README.md`.
 
+**Status 2026-10-24 (round 2, `HANDOFF_CAD.md` 4.1 + 4.6):** **Model library done.** Every part script in `hub/cad/parts/` is a design (rocket, quadcopter, gearbox; copy `_template.py` for a new one), each with its own history, presets and metrics; switch over REST, from the panel's Designs menu, or through Bit's `cad_open_part`. The right panel is generic (title + Designs, presets, a gauge per ranged metric, scrolling rows, Fly only for the rocket) and 0.6 m tall. 26 hub tests. Endpoints and event fields below (section 5). Next in the handoff: take it apart (4.3), the drawing (4.5), the big view (4.4).
+
 ---
 
 ## 1. Decision
@@ -78,6 +80,23 @@ Rules:
 ## 5. Proposed contract additions (section 7)
 
 All implemented in `hub/cad/router.py` and `hub/events.py`. Omit `v` for the current version (`no-store`); with `v` the file is immutable and cacheable.
+
+Round 2 (model library; all act on the open design unless they say otherwise):
+
+```
+GET  /cad/parts                       -> { active, parts: [{ part, title, description, presets: [{ name, params }],
+                                           features: ["flight"?], version (null until opened), active, error? }] }   NEW
+POST /cad/part    { part }            -> { part, version, clamped, analysis }   NEW: open a design (404 unknown, 500 doesn't build)
+POST /cad/preset  { name }            -> { part, version, clamped, analysis }   NEW: apply a named preset (case-insensitive; 404)
+GET  /cad/params?v={version}          -> { part, title, description, version, params, presets, features }   (adds v and the rest)
+cad.model_updated adds { part, title }; analysis adds { size_mm, part_count,
+                  metrics: [{ id, label, value, unit, display, status: ok|warn|bad, min?, max?, bands: [{ to, status }], note }] }
+                  (in events.py + ForgeEvents.cs; Hudson OK'd 2026-10-24). New sources: preset, open.
+```
+Version numbers are unique across designs, so `?v=N` still names one file. `/cad/flight` is 409 for designs without
+`simulate_flight`. Bit's tools add `cad_list_parts`, `cad_open_part`, `cad_apply_preset`.
+
+Round 1:
 
 ```
 GET  /cad/params                      -> { part, version, params: [{ name, value, min, max, unit, step, options, label }] }
