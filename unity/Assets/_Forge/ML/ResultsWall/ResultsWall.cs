@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
@@ -24,6 +25,7 @@ namespace Forge.ML
         int classFilter = -1, truth = -1, predicted = -1, selected = -1;
         bool wrongOnly, confidentMistakes;
         int dotCount;
+        ConfidenceComparer confidenceComparer;
         Material dotMaterial;
         MaterialPropertyBlock dotProperties;
         Mesh quad;
@@ -32,6 +34,7 @@ namespace Forge.ML
         void Start()
         {
             session = MLSession.Resolve(session); root = GetComponent<ForgePanel>().Content;
+            confidenceComparer = new ConfidenceComparer(this);
             MLUI.Button(root, "All", 8, 4, 60, 28, () => { wrongOnly = confidentMistakes = false; classFilter = truth = predicted = -1; Refresh(); });
             MLUI.Button(root, "Wrong", 72, 4, 70, 28, () => { wrongOnly = true; confidentMistakes = false; truth = predicted = -1; Refresh(); });
             MLUI.Button(root, "Mistakes", 146, 4, 84, 28, () => { wrongOnly = confidentMistakes = true; truth = predicted = -1; Refresh(); });
@@ -65,7 +68,7 @@ namespace Forge.ML
                 if (dotCount == MaxDots) break;
                 visibleSamples[dotCount++] = i;
             }
-            if (confidentMistakes) Array.Sort(visibleSamples, 0, dotCount, Comparer);
+            if (confidentMistakes) Array.Sort(visibleSamples, 0, dotCount, confidenceComparer);
             for (int visual = 0; visual < dotCount; visual++)
             {
                 int i = visibleSamples[visual]; var s = session.Data.samples[i]; int column = visual % DotColumns, row = visual / DotColumns;
@@ -80,7 +83,12 @@ namespace Forge.ML
             ShowDetail();
         }
         TMPro.TMP_Text filterLabel;
-        int Comparer(int a, int b) => session.Data.samples[b].probs[session.Data.samples[b].pred_idx].CompareTo(session.Data.samples[a].probs[session.Data.samples[a].pred_idx]);
+        sealed class ConfidenceComparer : IComparer<int>
+        {
+            readonly ResultsWall owner;
+            public ConfidenceComparer(ResultsWall owner) { this.owner = owner; }
+            public int Compare(int a, int b) => owner.session.Data.samples[b].probs[owner.session.Data.samples[b].pred_idx].CompareTo(owner.session.Data.samples[a].probs[owner.session.Data.samples[a].pred_idx]);
+        }
         void ShowDetail()
         {
             MLUI.Clear(detail);

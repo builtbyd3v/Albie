@@ -10,7 +10,8 @@ namespace Forge.ML
         [System.Serializable] public class Sample { public string id; public float yTrue, yPred; }
         public Sample[] samples;
         RectTransform root, detail;
-        void Start() { root = GetComponent<ForgePanel>().Content; if (samples == null || samples.Length == 0) samples = DemoSamples(); Draw(); }
+        void Start() => Initialize();
+        public void Initialize() { root = GetComponent<ForgePanel>().Content; if (samples == null || samples.Length == 0) samples = DemoSamples(); Draw(); }
         void Draw()
         {
             MLUI.Clear(root); MLUI.Text(root, "Predicted vs actual", 8, 4, 450, 25, 16);

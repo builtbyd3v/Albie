@@ -44,13 +44,31 @@ public static class MLSmokeCheck
             foreach (var s in session.Data.samples) counts[s.true_idx,s.pred_idx]++;
             for (int r=0;r<counts.GetLength(0);r++) for(int c=0;c<counts.GetLength(1);c++)
                 Require(counts[r,c] == session.Data.confusion[r][c], "Results agree with generated confusion matrix");
-            Require(UnityEngine.Object.FindAnyObjectByType<DataStack>() != null, "DataStack starts");
+            var stack = UnityEngine.Object.FindAnyObjectByType<DataStack>();
+            Require(stack != null, "DataStack starts");
             Require(UnityEngine.Object.FindAnyObjectByType<Model3D>() != null, "Model3D starts");
             var wall = UnityEngine.Object.FindAnyObjectByType<ResultsWall>();
             var dash = UnityEngine.Object.FindAnyObjectByType<TrainingDash>();
             Require(wall != null && dash != null, "Results and training panels start");
+            var vizPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Forge/ML/Prefabs/VizCard.prefab");
+            var regressionPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Forge/ML/Prefabs/RegressionResults.prefab");
+            Require(vizPrefab != null && vizPrefab.GetComponent<VizCard>() != null, "VizCard prefab is generated");
+            Require(regressionPrefab != null && regressionPrefab.GetComponent<RegressionResults>() != null, "Regression results prefab is generated");
+            Require(Resources.Load<GameObject>("MLPanels/VizCard") != null && Resources.Load<GameObject>("MLPanels/RegressionResults") != null, "Runtime Resources prefabs are generated");
+            var layout = UnityEngine.Object.FindAnyObjectByType<MLLayoutController>();
+            Require(layout != null, "Sandbox has ML layout event handler");
+            ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-training", "ml-viz" } });
+            Require(!stack.gameObject.activeSelf && dash.gameObject.activeSelf, "ML layout event switches panel visibility");
+            ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-datastack", "ml-model3d", "ml-dots", "ml-live" } });
+            Require(stack.gameObject.activeSelf, "Image-classification layout restores core panels");
             foreach (var panel in UnityEngine.Object.FindObjectsByType<ForgePanel>())
                 Require(panel.transform.position.y > 1f, "Saved sandbox panel stays at camera height: " + panel.name);
+            var vizObject = UnityEngine.Object.Instantiate(vizPrefab); var viz = vizObject.GetComponent<VizCard>();
+            foreach (VizCard.Kind kind in Enum.GetValues(typeof(VizCard.Kind))) { viz.kind = kind; viz.Render(); Require(vizObject.GetComponent<ForgePanel>().Content.childCount > 1, "VizCard renders " + kind); }
+            UnityEngine.Object.Destroy(vizObject);
+            var regressionObject = UnityEngine.Object.Instantiate(regressionPrefab); var regression = regressionObject.GetComponent<RegressionResults>(); regression.Initialize();
+            Require(regression.samples.Length == 24, "Regression fixture loads mock rows"); regression.Show(5);
+            UnityEngine.Object.Destroy(regressionObject);
             var content = wall.GetComponent<ForgePanel>().Content;
             Require(content.Find("Dot wall") != null && wall.VisibleDotCount == session.Data.samples.Length, "One instanced dot per validation image renders");
             var sample = Array.Find(session.Data.samples, s => !s.correct);

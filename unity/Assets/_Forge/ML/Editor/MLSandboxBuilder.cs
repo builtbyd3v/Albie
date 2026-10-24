@@ -31,6 +31,8 @@ public static class MLSandboxBuilder
         Save(Panel<TrainingDash>("TrainingDash", "ml-training", "Training dashboard", new Vector2(.78f,.58f)),"TrainingDash");
         Save(Panel<VizCard>("VizCard", "ml-viz-card", "Visualization", new Vector2(.78f,.42f)),"VizCard");
         Save(Panel<RegressionResults>("RegressionResults", "ml-regression-results", "Regression results", new Vector2(.78f,.42f)),"RegressionResults");
+        CopyToResources("DataStack"); CopyToResources("Model3D"); CopyToResources("ResultsWall");
+        CopyToResources("TrainingDash"); CopyToResources("VizCard"); CopyToResources("RegressionResults");
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var camera = new GameObject("Desktop camera").AddComponent<Camera>(); camera.tag = "MainCamera";
         camera.transform.position = new Vector3(0,1.5f,-1.8f); camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = new Color(.025f,.04f,.07f);
@@ -78,6 +80,15 @@ public static class MLSandboxBuilder
         go.AddComponent<T>(); return go;
     }
     static void Save(GameObject go, string name) { PrefabUtility.SaveAsPrefabAsset(go, Folder+name+".prefab"); Object.DestroyImmediate(go); }
+    static void CopyToResources(string name)
+    {
+        const string resources = "Assets/_Forge/ML/Resources/MLPanels";
+        if (!AssetDatabase.IsValidFolder(resources)) AssetDatabase.CreateFolder("Assets/_Forge/ML/Resources", "MLPanels");
+        string source = Folder + name + ".prefab", destination = resources + "/" + name + ".prefab";
+        var contents = PrefabUtility.LoadPrefabContents(source);
+        PrefabUtility.SaveAsPrefabAsset(contents, destination);
+        PrefabUtility.UnloadPrefabContents(contents);
+    }
     static void SaveMaterial(Material material, string path)
     {
         var existing = AssetDatabase.LoadAssetAtPath<Material>(path);

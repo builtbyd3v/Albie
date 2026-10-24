@@ -22,7 +22,9 @@ namespace Forge.ML
         {
             if (root == null) root = GetComponent<ForgePanel>().Content;
             MLUI.Clear(root);
-            MLUI.Text(root, title, 8, 4, 720, 27, 16);
+            MLUI.Text(root, title + " · " + kind, 8, 4, 610, 27, 16);
+            MLUI.Button(root, "Prev", 626, 4, 58, 28, () => Cycle(-1));
+            MLUI.Button(root, "Next", 688, 4, 58, 28, () => Cycle(1));
             switch (kind)
             {
                 case Kind.Line: RenderLine(); break;
@@ -84,8 +86,10 @@ namespace Forge.ML
         }
         void RenderImage()
         {
-            if (image == null) { RenderText(); return; }
-            var raw = MLUI.Rect("Image", root, 16, 40, 360, 260).gameObject.AddComponent<RawImage>(); raw.texture = image; raw.raycastTarget = false;
+            var raw = MLUI.Rect("Image", root, 16, 40, 360, 260).gameObject.AddComponent<RawImage>();
+            if (image != null) raw.texture = image;
+            else { var session = MLSession.Resolve(null); raw.texture = session.Atlas; raw.uvRect = session.UV(0); }
+            raw.raycastTarget = false;
         }
         void RenderText() { MLUI.Text(root, body, 16, 45, 690, 245, 16); }
         void AddLabels(float x, float y, float width)
@@ -97,6 +101,12 @@ namespace Forge.ML
         static float Max(float[] source)
         {
             float max = .0001f; if (source != null) foreach (float value in source) max = Mathf.Max(max, value); return max;
+        }
+        public void Cycle(int direction)
+        {
+            int count = System.Enum.GetValues(typeof(Kind)).Length;
+            kind = (Kind)(((int)kind + direction + count) % count);
+            Render();
         }
     }
 }
