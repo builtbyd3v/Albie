@@ -1,19 +1,22 @@
-"""Let Bit drive VS Code without touching the user's keyboard or mouse.
+"""Hub -> VS Code: Bit's tools for driving the editor without touching the user's keyboard or mouse.
 
 Talks to the Forge Bit extension (`vscode-bit/`), which serves a tiny HTTP API
-on 127.0.0.1 from inside the VS Code window. The hub's agent can import these
-functions as Bit's tools.
+on 127.0.0.1 from inside the VS Code window. The agent registers these
+functions as Bit's tools: `from vscode import tools`.
+
+The calls block (urllib, 5 s timeout). From async code use `await asyncio.to_thread(tools.get_errors)`.
 
 Setup: `ln -s "$PWD/vscode-bit" ~/.vscode/extensions/forge.forge-bit-0.1.0`,
-then relaunch VS Code with the project open.
+then relaunch VS Code with the project open. Try it from hub/:
 
-    python bit_vscode.py open README.md 12
-    python bit_vscode.py highlight train.py 40 52 "lr is 10x too high"
-    python bit_vscode.py errors
-    python bit_vscode.py context
-    python bit_vscode.py run workbench.action.togglePanel
-    python bit_vscode.py train
+    python -m vscode.tools open README.md 12
+    python -m vscode.tools highlight train.py 40 52 "lr is 10x too high"
+    python -m vscode.tools errors
+    python -m vscode.tools context
+    python -m vscode.tools run workbench.action.togglePanel
+    python -m vscode.tools train
 """
+from __future__ import annotations
 
 import argparse
 import json
@@ -21,11 +24,12 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 BASE = f"http://127.0.0.1:{os.environ.get('BIT_VSCODE_PORT', '8770')}"
 
 
-def call(method, route, body=None):
+def call(method: str, route: str, body: dict[str, Any] | None = None) -> Any:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(BASE + route, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
@@ -36,32 +40,32 @@ def call(method, route, body=None):
         raise RuntimeError(json.load(e).get("error", str(e))) from None
 
 
-def open_file(path, line=1):
+def open_file(path: str, line: int = 1) -> Any:
     """Open a workspace file at a line, centered."""
     return call("POST", "/open", {"path": path, "line": line})
 
 
-def highlight(path, start, end=None, note=None, ms=4000):
+def highlight(path: str, start: int, end: int | None = None, note: str | None = None, ms: int = 4000) -> Any:
     """Make lines glow for a few seconds, with an optional inline note. Bit 'points' at code."""
     return call("POST", "/highlight", {"path": path, "start": start, "end": end or start, "note": note, "ms": ms})
 
 
-def get_errors(path=None):
+def get_errors(path: str | None = None) -> Any:
     """Errors and warnings from VS Code's language servers: [{file, line, severity, message, source}]."""
     return call("GET", "/errors" + (f"?path={urllib.parse.quote(path)}" if path else ""))
 
 
-def get_context():
+def get_context() -> Any:
     """What the engineer is looking at: file, cursor line, selection, visible lines, error count."""
     return call("GET", "/context")
 
 
-def run_command(command, *args):
+def run_command(command: str, *args: Any) -> Any:
     """Run a VS Code command id from the extension's allowlist (forgeBit.allowedCommands)."""
     return call("POST", "/run", {"command": command, "args": list(args)})
 
 
-def train():
+def train() -> Any:
     """Type forgeBit.trainCommand into VS Code's "Bit" terminal, so the run shows on the streamed screen."""
     return call("POST", "/train", {})
 

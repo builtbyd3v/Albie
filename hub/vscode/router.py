@@ -1,7 +1,7 @@
 """VS Code -> hub. The Forge Bit extension (`vscode-bit/`) posts here; the hub rebroadcasts on `/ws`
 so the agent can make Bit speak up ("line 42 just broke", "training crashed").
 
-Hub -> VS Code goes the other way, through `screen-bridge/bit_vscode.py`.
+Hub -> VS Code goes the other way, through `vscode/tools.py`.
 """
 from __future__ import annotations
 
