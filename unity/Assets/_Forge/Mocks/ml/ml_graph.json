@@ -1,7 +1,7 @@
 {
  "layers": [
   {
-   "name": "net.0",
+   "name": "features.0",
    "type": "conv",
    "in_shape": [
     3,
@@ -16,7 +16,7 @@
    "params": 896
   },
   {
-   "name": "net.1",
+   "name": "features.1",
    "type": "norm",
    "in_shape": [
     32,
@@ -31,7 +31,7 @@
    "params": 64
   },
   {
-   "name": "net.2",
+   "name": "features.2",
    "type": "activation",
    "in_shape": [
     32,
@@ -46,7 +46,7 @@
    "params": 0
   },
   {
-   "name": "net.3",
+   "name": "features.3",
    "type": "pool",
    "in_shape": [
     32,
@@ -61,7 +61,7 @@
    "params": 0
   },
   {
-   "name": "net.4",
+   "name": "features.4",
    "type": "conv",
    "in_shape": [
     32,
@@ -76,7 +76,7 @@
    "params": 18496
   },
   {
-   "name": "net.5",
+   "name": "features.5",
    "type": "norm",
    "in_shape": [
     64,
@@ -91,7 +91,7 @@
    "params": 128
   },
   {
-   "name": "net.6",
+   "name": "features.6",
    "type": "activation",
    "in_shape": [
     64,
@@ -106,7 +106,7 @@
    "params": 0
   },
   {
-   "name": "net.7",
+   "name": "features.7",
    "type": "pool",
    "in_shape": [
     64,
@@ -121,31 +121,91 @@
    "params": 0
   },
   {
-   "name": "net.8",
-   "type": "reshape",
+   "name": "features.8",
+   "type": "conv",
    "in_shape": [
     64,
     8,
     8
    ],
    "out_shape": [
-    4096
+    128,
+    8,
+    8
+   ],
+   "params": 73856
+  },
+  {
+   "name": "features.9",
+   "type": "norm",
+   "in_shape": [
+    128,
+    8,
+    8
+   ],
+   "out_shape": [
+    128,
+    8,
+    8
+   ],
+   "params": 256
+  },
+  {
+   "name": "features.10",
+   "type": "activation",
+   "in_shape": [
+    128,
+    8,
+    8
+   ],
+   "out_shape": [
+    128,
+    8,
+    8
    ],
    "params": 0
   },
   {
-   "name": "net.9",
+   "name": "features.11",
+   "type": "pool",
+   "in_shape": [
+    128,
+    8,
+    8
+   ],
+   "out_shape": [
+    128,
+    4,
+    4
+   ],
+   "params": 0
+  },
+  {
+   "name": "features.12",
+   "type": "reshape",
+   "in_shape": [
+    128,
+    4,
+    4
+   ],
+   "out_shape": [
+    2048
+   ],
+   "params": 0
+  },
+  {
+   "name": "head.0",
    "type": "linear",
    "in_shape": [
-    4096
+    2048
    ],
    "out_shape": [
     128
    ],
-   "params": 524416
+   "params": 262272
   },
   {
-   "name": "net.10",
+   "name": "head.1",
    "type": "activation",
    "in_shape": [
     128
@@ -156,7 +216,7 @@
    "params": 0
   },
   {
-   "name": "net.11",
+   "name": "head.2",
    "type": "linear",
    "in_shape": [
     128

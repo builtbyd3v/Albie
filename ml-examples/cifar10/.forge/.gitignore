@@ -1,0 +1,6 @@
+# Everything forge generates stays out of git...
+*
+# ...except this example's hand-written golden files.
+!.gitignore
+!profile.json
+!adapter.py

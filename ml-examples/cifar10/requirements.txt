@@ -1,0 +1,5 @@
+torch>=2.4
+torchvision
+numpy
+pillow
+# forge SDK: pip install -e ../../forge-sdk

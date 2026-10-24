@@ -27,14 +27,15 @@ def _unwrap(dataset: Dataset, i: int) -> tuple[Dataset, int]:
 
 
 def _raw_item(dataset: Dataset, i: int) -> tuple[Any, Any]:
-    """The item before `transform` (e.g. Normalize) runs, so thumbnails keep their real colors."""
-    base, j = _unwrap(dataset, i)
+    """The item with the base dataset's `transform` (e.g. Normalize) switched off, so thumbnails keep
+    their real colors. Read through the top-level dataset, so Subset wrappers that relabel still apply."""
+    base, _ = _unwrap(dataset, i)
     if not hasattr(base, "transform"):
         return dataset[i]
     transform = base.transform
     base.transform = None
     try:
-        return base[j]
+        return dataset[i]
     finally:
         base.transform = transform
 
@@ -63,6 +64,8 @@ def _label(target: Any) -> int:
 def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
     """Returns (atlas image, {cell, cols, index}, [{id, label_idx}]).
 
+    Ids come from `dataset.ids` when the dataset has them (stable across removals), else `val_0000`...
+
     Cell `i` sits at column `i % cols`, row `i // cols` counted from the top. Datasets bigger than
     fit in a 2048 px atlas are truncated with a warning (64 px cells: 1,024 images, ML_PLAN 11).
     Small images are upscaled nearest-neighbor so CIFAR's 32 px stays crisp instead of blurry.
@@ -75,6 +78,7 @@ def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.I
     cols = math.ceil(math.sqrt(n))
     rows = math.ceil(n / cols)
     atlas = Image.new("RGB", (cols * cell, rows * cell))
+    ids = getattr(dataset, "ids", None)
     index: dict[str, int] = {}
     items: list[dict] = []
     for i in range(n):
@@ -84,7 +88,7 @@ def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.I
             upscale = thumb.width < cell and thumb.height < cell
             thumb = thumb.resize((cell, cell), Image.Resampling.NEAREST if upscale else Image.Resampling.BILINEAR)
         atlas.paste(thumb, ((i % cols) * cell, (i // cols) * cell))
-        sid = sample_id(i, split)
+        sid = ids[i] if ids is not None else sample_id(i, split)
         index[sid] = i
         items.append({"id": sid, "label_idx": _label(target)})
     return atlas, {"cell": [cell, cell], "cols": cols, "index": index}, items

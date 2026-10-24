@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "archetype": "image_classification",
+  "confidence": 1.0,
+  "framework": "pytorch",
+  "python": "python",
+  "entry_points": { "train": "train.py", "model": "model.py:SmallCNN", "data": "data.py:get_loaders" },
+  "train_cmd": "python train.py --epochs 10",
+  "classes": ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"],
+  "target": null,
+  "input_shape": [3, 32, 32],
+  "checkpoint": "checkpoints/best.pt",
+  "existing_logs": [],
+  "extra_viz": [],
+  "summary": "Image classifier, 10 classes, small CNN on CIFAR-10.",
+  "notes": "Hand-written golden example. 3% of labels are flipped on purpose (noise.json)."
+}

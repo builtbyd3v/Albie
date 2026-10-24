@@ -31,10 +31,10 @@
    "run_id": "mock0001",
    "epoch": 1,
    "step": 391,
-   "train_loss": 1.8734,
+   "train_loss": 1.873,
    "train_acc": 0.4888,
-   "val_loss": 1.6367,
-   "val_acc": 0.5044,
+   "val_loss": 1.6252,
+   "val_acc": 0.5051,
    "lr": 0.001
   }
  },
@@ -55,10 +55,10 @@
    "run_id": "mock0001",
    "epoch": 2,
    "step": 782,
-   "train_loss": 1.6182,
+   "train_loss": 1.6018,
    "train_acc": 0.5778,
-   "val_loss": 1.4574,
-   "val_acc": 0.6012,
+   "val_loss": 1.4427,
+   "val_acc": 0.6023,
    "lr": 0.001
   }
  },
@@ -79,10 +79,10 @@
    "run_id": "mock0001",
    "epoch": 3,
    "step": 1173,
-   "train_loss": 1.3836,
+   "train_loss": 1.3749,
    "train_acc": 0.6507,
-   "val_loss": 1.2856,
-   "val_acc": 0.6661,
+   "val_loss": 1.288,
+   "val_acc": 0.6675,
    "lr": 0.001
   }
  },
@@ -103,10 +103,10 @@
    "run_id": "mock0001",
    "epoch": 4,
    "step": 1564,
-   "train_loss": 1.1892,
+   "train_loss": 1.1956,
    "train_acc": 0.7104,
-   "val_loss": 1.1591,
-   "val_acc": 0.7096,
+   "val_loss": 1.1665,
+   "val_acc": 0.7112,
    "lr": 0.001
   }
  },
@@ -127,10 +127,10 @@
    "run_id": "mock0001",
    "epoch": 5,
    "step": 1955,
-   "train_loss": 1.0249,
+   "train_loss": 1.023,
    "train_acc": 0.7593,
-   "val_loss": 1.0618,
-   "val_acc": 0.7387,
+   "val_loss": 1.052,
+   "val_acc": 0.7405,
    "lr": 0.001
   }
  },
@@ -151,10 +151,10 @@
    "run_id": "mock0001",
    "epoch": 6,
    "step": 2346,
-   "train_loss": 0.892,
+   "train_loss": 0.9066,
    "train_acc": 0.7993,
-   "val_loss": 0.9712,
-   "val_acc": 0.7583,
+   "val_loss": 0.9612,
+   "val_acc": 0.7601,
    "lr": 0.001
   }
  },
@@ -175,10 +175,10 @@
    "run_id": "mock0001",
    "epoch": 7,
    "step": 2737,
-   "train_loss": 0.7797,
+   "train_loss": 0.7978,
    "train_acc": 0.832,
-   "val_loss": 0.9116,
-   "val_acc": 0.7714,
+   "val_loss": 0.9021,
+   "val_acc": 0.7732,
    "lr": 0.001
   }
  },
@@ -199,10 +199,10 @@
    "run_id": "mock0001",
    "epoch": 8,
    "step": 3128,
-   "train_loss": 0.7036,
+   "train_loss": 0.7007,
    "train_acc": 0.8589,
-   "val_loss": 0.8754,
-   "val_acc": 0.7801,
+   "val_loss": 0.8654,
+   "val_acc": 0.7821,
    "lr": 0.001
   }
  },
@@ -223,10 +223,10 @@
    "run_id": "mock0001",
    "epoch": 9,
    "step": 3519,
-   "train_loss": 0.5997,
+   "train_loss": 0.6217,
    "train_acc": 0.8808,
-   "val_loss": 0.8661,
-   "val_acc": 0.786,
+   "val_loss": 0.8562,
+   "val_acc": 0.788,
    "lr": 0.001
   }
  },
@@ -247,10 +247,10 @@
    "run_id": "mock0001",
    "epoch": 10,
    "step": 3910,
-   "train_loss": 0.5538,
+   "train_loss": 0.5184,
    "train_acc": 0.8988,
-   "val_loss": 0.9031,
-   "val_acc": 0.788,
+   "val_loss": 0.895,
+   "val_acc": 0.79,
    "lr": 0.001
   }
  },
@@ -271,10 +271,10 @@
    "run_id": "mock0001",
    "epoch": 11,
    "step": 4301,
-   "train_loss": 0.4663,
+   "train_loss": 0.4615,
    "train_acc": 0.9135,
-   "val_loss": 0.977,
-   "val_acc": 0.778,
+   "val_loss": 0.9606,
+   "val_acc": 0.78,
    "lr": 0.0005
   }
  },
@@ -304,10 +304,10 @@
    "run_id": "mock0001",
    "epoch": 12,
    "step": 4692,
-   "train_loss": 0.4047,
+   "train_loss": 0.4136,
    "train_acc": 0.9256,
-   "val_loss": 1.0606,
-   "val_acc": 0.768,
+   "val_loss": 1.0674,
+   "val_acc": 0.77,
    "lr": 0.0005
   }
  },
@@ -328,10 +328,10 @@
    "run_id": "mock0001",
    "epoch": 13,
    "step": 5083,
-   "train_loss": 0.3659,
+   "train_loss": 0.3715,
    "train_acc": 0.9354,
-   "val_loss": 1.1804,
-   "val_acc": 0.758,
+   "val_loss": 1.1699,
+   "val_acc": 0.76,
    "lr": 0.0005
   }
  },
@@ -352,10 +352,10 @@
    "run_id": "mock0001",
    "epoch": 14,
    "step": 5474,
-   "train_loss": 0.3248,
+   "train_loss": 0.3487,
    "train_acc": 0.9435,
-   "val_loss": 1.3072,
-   "val_acc": 0.748,
+   "val_loss": 1.3015,
+   "val_acc": 0.75,
    "lr": 0.0005
   }
  },
@@ -376,10 +376,10 @@
    "run_id": "mock0001",
    "epoch": 15,
    "step": 5865,
-   "train_loss": 0.325,
+   "train_loss": 0.2898,
    "train_acc": 0.9501,
-   "val_loss": 1.4687,
-   "val_acc": 0.738,
+   "val_loss": 1.4794,
+   "val_acc": 0.74,
    "lr": 0.0005
   }
  },
