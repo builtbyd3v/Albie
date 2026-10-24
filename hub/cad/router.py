@@ -192,6 +192,19 @@ async def flight(v: int | None = None, cad: CadService = Depends(service)):
         raise regen_error(e) from None
 
 
+@router.get("/motion")
+async def motion(v: int | None = None, cad: CadService = Depends(service)):
+    """The Walk demo's frames (designs with simulate_motion: the humanoid): joint angles per sample about each
+    joint's pivot, and the whole model's path, in the model frame (CAD_PLAN section 5). 409 for other designs."""
+    r = record(cad, v)
+    try:
+        return {"version": r.version, **await cad.motion(r.version)}
+    except LookupError as e:
+        raise HTTPException(409, str(e)) from None
+    except RegenError as e:
+        raise regen_error(e) from None
+
+
 @router.get("/versions")
 def versions(cad: CadService = Depends(service)):
     """The open design's versions. `label`: the version in words (Bit's request, a preset, "Saved rocket.py", the

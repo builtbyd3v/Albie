@@ -89,6 +89,16 @@ public static class CadPrefabBuilder
 
     // Mocks
 
+    // Only the mock set (after copying fresh mocks in), leaving the prefabs and the sandbox as they are: they point at
+    // the same CadMocks.asset.
+    [MenuItem("Forge/CAD/Rebuild Mock Set")]
+    public static void RebuildMockSet()
+    {
+        var mocks = BuildMockSet();
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[CadPrefabBuilder] Rebuilt {MockSetPath} (" + string.Join(", ", mocks.parts.Select(p => $"{p.part} x{p.versions.Count}")) + ")");
+    }
+
     static CadMockSet BuildMockSet()
     {
         var set = AssetDatabase.LoadAssetAtPath<CadMockSet>(MockSetPath);
@@ -120,6 +130,7 @@ public static class CadPrefabBuilder
                     parameters = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/params.json"),
                     modelUpdated = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model_updated.json"),
                     flight = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/flight.json"),
+                    motion = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/motion.json"),
                     drawing = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/drawing.png.bytes"),
                 };
                 if (v.glb == null || v.metadata == null || v.parameters == null || v.modelUpdated == null)

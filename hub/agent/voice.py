@@ -29,8 +29,11 @@ from ``workspace.mode``) gates Albie's crew tools: they answer with an error unl
 the crew's gators live on that screen. None (the client never said) leaves them available.
 
 Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
-and no response until ``wake_router`` has read the transcript; it answers only if a gator was named, otherwise
-the committed item is deleted so room chatter never reaches the conversation.
+and no response until ``wake_router`` has read the transcript; it answers only if a gator was named (or the user
+faced Albie and agent/addressed.py's word rules don't rule it out), otherwise the committed item is deleted so room
+chatter never reaches the conversation. A gated turn (``begin_turn(require_name=True)``: a look-to-talk / follow-up
+reply) takes the same route and needs the name; when dropped it still ends with an empty stt.final, since Unity's
+hands-free session waits for one. "Stop" on these turns stops Albie only with his name or while facing him.
 
 Transcripts and agent.* go through the broadcast Emitter (other viewers stay in sync); tts.* and
 audio go to the owning socket only. The reader is the only task that sends tts.*/audio, so the
@@ -47,13 +50,16 @@ import os
 import re
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from . import addressed
 from . import events as ev
 from . import tools
-from .crew import lead_rules
+from .crew import TYPES, lead_rules
 from .events import Event
 from .wake import ALIASES, SPLIT_FIRST, SPLIT_SECOND
 
@@ -165,6 +171,18 @@ class VoiceSession(Protocol):
     def is_echo(self, text: str) -> bool: ...
 
 
+@dataclass
+class _Commit:
+    """One committed turn, until its transcript arrives. WakeListener sends segments back to back, so a segment's
+    transcript can land after the next one began (live 18:49: five real sentences came back as '' turns)."""
+
+    seq: int
+    wake: bool
+    gated: bool  # Unity's gated turn (its hands-free session wants a final)
+    flags: tuple[str | None, bool, bool]  # the WakeRouter's (target, facing, gated) for this turn
+    item: str | None = None
+
+
 class _Base:
     """Shared turn bookkeeping: transcript -> stt.*, utterance ids, echo guard."""
 
@@ -188,6 +206,8 @@ class _Base:
         self._last_final_t = 0.0
         self.wake_router: Any = None  # agent/wake.py WakeRouter, set by ws.py
         self._wake = False  # the open turn is a wake turn
+        self._gated = False  # ...that Unity opened as a gated turn (require_name): a dropped one still needs a final
+        self.last_reply, self.last_reply_t = "", 0.0  # Albie's last spoken line: context for addressed.judge
         self.workspace_mode: str | None = None  # workspace.mode from Unity; None = never told (ws.py keeps it current)
 
     def is_echo(self, text: str) -> bool:
@@ -206,6 +226,7 @@ class _Base:
         self._committed = False
         self._cancelled = False
         self._wake = wake and self.wake_router is not None
+        self._gated = False
 
     async def _transcript(self, text: str) -> None:
         if self._final_sent or not text or text == self._partial:
@@ -229,11 +250,21 @@ class _Base:
             self._wake = False
             decision = await self.wake_router.final(final)
             await self._wake_decided(decision.respond)
+            if self._gated and not decision.respond:
+                await self._emit(ev.stt_final(self.pet_id, "", voice=True))  # ends Unity's hands-free turn
             return
         await self._emit(ev.stt_final(self.pet_id, final, voice=True))
 
     async def _wake_decided(self, respond: bool) -> None:
         """Wake turn routed: answer it (respond) or forget it."""
+
+    async def addressed(self, text: str, gated: bool = False) -> bool:
+        """WakeRouter.judge: was this unnamed sentence said to Albie? His last line is the context."""
+        return await addressed.judge(text, self.last_reply or None, gated=gated)
+
+    def _spoke(self, text: str) -> None:
+        if text.strip():
+            self.last_reply, self.last_reply_t = text.strip(), time.monotonic()
 
 
 class GrokVoiceSession(_Base):
@@ -270,6 +301,9 @@ class GrokVoiceSession(_Base):
         self._last_activity = time.monotonic()
         self._fed = 0
         self._last_item: str | None = None  # item id of the last committed user turn (wake turns may delete it)
+        self._commits: deque[_Commit] = deque()  # sent input_audio_buffer.commit, waiting for .committed (in order)
+        self._by_item: dict[str, _Commit] = {}  # committed, waiting for the transcript
+        self._timed_out_seq = -1  # the turn _wake_timeout decided without a transcript
         self._wake_answered = False  # the last wake turn was routed to a reply (for the turn log)
         # current response
         self._utt: str | None = None
@@ -314,6 +348,8 @@ class GrokVoiceSession(_Base):
 
     async def _drop_socket(self) -> None:
         ws, self._ws = self._ws, None
+        self._commits.clear()  # a new socket starts a new conversation: nothing pending carries over
+        self._by_item.clear()
         if self._reader is not None and self._reader is not asyncio.current_task() and not self._reader.done():
             self._reader.cancel()
         self._reader = None
@@ -356,6 +392,8 @@ class GrokVoiceSession(_Base):
     # ------------------------------------------------------------ turn API (called by ws.py)
     async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
+        gated = require_name and not wake and self.wake_router is not None  # routed on its transcript, like a wake turn
+        wake = wake or gated
         if not wake:  # room chatter must not cut Albie off; a named turn barges in once it's routed
             await self.stop_speech("barge_in")
         await self._send({"type": "input_audio_buffer.clear"})
@@ -363,6 +401,9 @@ class GrokVoiceSession(_Base):
         self._drop_reply = False
         self._open_turn(wake)
         self._require_name = require_name and not self._wake  # a wake turn routes by name itself (agent/wake.py)
+        if gated:
+            self._gated = True
+            self.wake_router.begin(None, gated=True)
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -379,8 +420,11 @@ class GrokVoiceSession(_Base):
             await self._final("")
             return
         await self._send({"type": "input_audio_buffer.commit"})
+        r = self.wake_router
+        flags = (r.target, bool(r.facing), bool(r.gated)) if self._wake else (None, False, False)
+        self._commits.append(_Commit(self._turn_seq, self._wake, self._gated, flags))
         if self._wake:  # wait for the transcript (wake_router decides in _final)
-            job = asyncio.create_task(self._wake_timeout())
+            job = asyncio.create_task(self._wake_timeout(self._turn_seq))
             self._jobs.add(job)
             job.add_done_callback(self._jobs.discard)
             return
@@ -399,10 +443,32 @@ class GrokVoiceSession(_Base):
             self._response_requested = False
             await self._final("")
 
-    async def _wake_timeout(self) -> None:
+    async def _wake_timeout(self, seq: int) -> None:
         await asyncio.sleep(WAKE_FINAL_TIMEOUT_S)
-        if self._wake and not self._final_sent:
+        if seq == self._turn_seq and self._wake and not self._final_sent:  # a later segment's turn isn't ours to end
+            self._timed_out_seq = seq
+            log.info("wake turn: no transcript %.0f s after commit, deciding on %r", WAKE_FINAL_TIMEOUT_S, self._partial)
             await self._final()
+
+    async def _late_transcript(self, c: _Commit, text: str) -> None:
+        """A wake turn's transcript after its turn was superseded or timed out: route it now with its own flags."""
+        text = text.strip()
+        if is_stop(text):
+            if has_name(text) or c.flags[1]:  # "Albie, stop", or "stop" while looking at him
+                await self.stop_speech("barge_in")
+            respond = False
+        elif text and self.wake_router is not None:
+            respond = (await self.wake_router.final(text, c.flags)).respond
+        else:
+            respond = False
+        if respond:
+            await self.stop_speech("barge_in")
+            await self._request_response()
+            await self._emit(ev.thinking(self.pet_id))
+        elif c.item:
+            await self._send({"type": "conversation.item.delete", "item_id": c.item})
+        log.info("turn (late transcript): %r facing=%s gated=%s judged=%s %s", text[:120], c.flags[1],
+                 c.gated or c.flags[2], getattr(self.wake_router, "judged", None), "answered" if respond else "dropped")
 
     async def _wake_decided(self, respond: bool) -> None:
         self._wake_answered = respond
@@ -438,8 +504,15 @@ class GrokVoiceSession(_Base):
         if ws is None:
             return
         self._last_activity = time.monotonic()
-        async with self._send_lock:
-            await ws.send(json.dumps(obj))
+        try:
+            async with self._send_lock:
+                await ws.send(json.dumps(obj))
+        except Exception as exc:  # noqa: BLE001 - the socket died under us (Wi-Fi blip): reconnect on the next turn
+            # Live 18:19: one failed send used to switch voice off for the socket (ws.py _voice_call) until the
+            # headset reconnected, and every turn after that came back empty from the stt.py fallback.
+            log.warning("grok send failed (%s): dropping the socket, the next turn reconnects", exc)
+            if self._ws is ws:
+                await self._drop_socket()
 
     async def _read_loop(self, ws: Any) -> None:
         try:
@@ -481,9 +554,20 @@ class GrokVoiceSession(_Base):
                 text = self._partial + (msg.get("delta") or "")
             await self._transcript(text)
         elif t == "input_audio_buffer.committed":
-            self._committed = True
-            self._last_item = msg.get("item_id") or self._last_item  # a dropped wake turn deletes it
+            item = msg.get("item_id")
+            c = self._commits.popleft() if self._commits else None
+            if c is not None and item:
+                c.item = item
+                self._by_item[item] = c
+            if c is None or c.seq == self._turn_seq:
+                self._committed = True
+                self._last_item = item or self._last_item  # a dropped wake turn deletes it
         elif t == "conversation.item.input_audio_transcription.completed":
+            c = self._by_item.pop(msg.get("item_id") or "", None)
+            if c is not None and (c.seq != self._turn_seq or (self._final_sent and c.seq == self._timed_out_seq)):
+                if c.wake:  # an earlier segment's words: never this turn's, and not lost either
+                    await self._late_transcript(c, msg.get("transcript") or "")
+                return
             # Grok also sends .completed per segment while the user is still talking; only the one after commit is final.
             if self._committed:
                 await self._final(msg.get("transcript"))
@@ -538,7 +622,9 @@ class GrokVoiceSession(_Base):
         elif t == "error":
             err = msg.get("error") or {}
             message = err.get("message") if isinstance(err, dict) else str(err)
-            if "item not found" in (message or "").lower():  # a dropped turn's item.delete raced Grok: nothing lost
+            # A dropped turn's item.delete, or a cancel of a reply that just ended, raced Grok: nothing lost. Shown as
+            # "Voice error: ..." these made Albie look broken (live 18:48 "Cancellation failed: no active response").
+            if any(m in (message or "").lower() for m in ("item not found", "no active response")):
                 log.info("grok: %s (harmless)", message)
                 return
             log.warning("grok error: %s", msg)
@@ -613,6 +699,7 @@ class GrokVoiceSession(_Base):
             await asyncio.sleep(0.1)
         await self.start()
         self._suppress_transcript = True
+        self._spoke(text)
         await self._send({"type": "conversation.item.create", "item": {
             "type": "force_message", "role": "assistant", "interruptible": True,
             "content": [{"type": "output_text", "text": text}]}})
@@ -621,6 +708,15 @@ class GrokVoiceSession(_Base):
         if self._final_sent:
             return
         final = (text if text is not None else self._partial).strip()
+        crew_pid = (self.wake_router.crew_target(final)
+                    if not self._wake and self.wake_router is not None else None)
+        if crew_pid is not None:
+            # "Tester, run the hub tests" in one of Bit's own turns (hands-free, follow-up window, push-to-talk; the
+            # WakeListener is paused then): the crew gator gets it, Bit says nothing and goes back to idle.
+            self._drop_reply = True
+            await super()._final("")
+            await self.wake_router.final(final)
+            return
         stop = is_stop(final)
         named = "partial" if self._named else "final" if has_name(final) else "no"
         drop = stop or (self._require_name and named == "no")
@@ -628,10 +724,18 @@ class GrokVoiceSession(_Base):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         wake = self._wake
+        gated = self._gated or (wake and bool(self.wake_router.gated))  # read before the router resets it in final()
+        facing = wake and bool(self.wake_router.facing)  # read before the router resets it in final()
+        if stop and wake and (named != "no" or facing):
+            # A wake / gated turn never barges in by itself (side talk must not cut Albie off): only "Albie, stop"
+            # or "stop" while looking at him does. A plain "stop" to a teammate leaves him talking.
+            await self.stop_speech("barge_in")
         await super()._final(text)
         answered = self._wake_answered if wake else bool(final)
-        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s %s", final[:120], self._require_name, named,
-                 stop, wake, "answered" if answered and not drop else "dropped")
+        judged = self.wake_router.judged if wake else None
+        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s facing=%s gated=%s judged=%s %s", final[:120],
+                 self._require_name, named, stop, wake, facing, gated, judged,
+                 "answered" if answered and not drop else "dropped")
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
@@ -647,6 +751,7 @@ class GrokVoiceSession(_Base):
 
     async def _answer_finished(self, text: str) -> None:
         self._answer_done = True
+        self._spoke(text)
         await self._emit(ev.answer_done(self.pet_id, text.strip()))
 
 
@@ -796,7 +901,9 @@ def has_name(text: str, last: bool = True) -> bool:
 
 
 def keyterms_for(repo: Path | None) -> list[str]:
-    return list(dict.fromkeys(ROCKET_TERMS + vocab_terms(repo)))[:100]
+    # The crew's names right after Bit's, so "Hey Scout" isn't transcribed as "Hey Scott" (agent/wake.py routes by name).
+    crew_names = [t.name for t in TYPES.values()]
+    return list(dict.fromkeys(ROCKET_TERMS[:1] + crew_names + ROCKET_TERMS[1:] + vocab_terms(repo)))[:100]
 
 
 def vocab_terms(repo: Path | None, limit: int = 100) -> list[str]:

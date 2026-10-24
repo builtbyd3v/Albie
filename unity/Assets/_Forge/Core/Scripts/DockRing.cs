@@ -27,6 +27,7 @@ public class DockRing : MonoBehaviour
     static readonly int SelectedId = Shader.PropertyToID("_Selected"), EnabledId = Shader.PropertyToID("_Enabled");
     static readonly int FadeId = Shader.PropertyToID("_Fade"), OpacityId = Shader.PropertyToID("_Opacity");
     static readonly int ImprintId = Shader.PropertyToID("_Imprint");
+    static readonly int HalfId = Shader.PropertyToID("_Half"), WashId = Shader.PropertyToID("_Wash");
     static readonly int FaceColorId = Shader.PropertyToID("_FaceColor"), GlowColorId = Shader.PropertyToID("_GlowColor");
     static readonly int UnderlayColorId = Shader.PropertyToID("_UnderlayColor");
 
@@ -38,12 +39,16 @@ public class DockRing : MonoBehaviour
     [SerializeField] TextMeshPro text;
     [SerializeField] Color hue = ForgeTheme.Tool;
     [SerializeField] float radius = ForgeTheme.DockModeRing * 0.5f;
+    [SerializeField] float half;          // pill: half length of the straight part (mm); 0 = a ring
+    [SerializeField] float wash = 1f;     // the pool's dark contrast wash (a ring on its own has no dock behind it)
 
     public Button Button => button;
     public DockButton Input => input;
     public TextMeshPro Text => text;
     public Color Hue => hue;
     public float Radius => radius;
+    /// <summary>Half the button's width (mm): the radius for a ring, radius + the straight part for a pill.</summary>
+    public float HalfWidth => radius + half;
     /// <summary>Off: dimmed and not pressable (the Button's interactable follows).</summary>
     public bool Interactable
     {
@@ -66,7 +71,16 @@ public class DockRing : MonoBehaviour
     /// <see cref="Button"/>.onClick later). The label is sized like a dock mode label of that diameter.
     /// </summary>
     public static DockRing Create(Transform parent, string label, Color hue, float diameterMm, UnityAction onClick)
+        => Create(parent, label, hue, diameterMm, diameterMm, onClick);
+
+    /// <summary>
+    /// A pill of the same light (<paramref name="widthMm"/> by <paramref name="heightMm"/>, round ends): the dock's look for
+    /// a button that stands on its own, so it also gets a stronger dark wash under it (there is no dock behind it).
+    /// </summary>
+    public static DockRing Create(Transform parent, string label, Color hue, float heightMm, float widthMm, UnityAction onClick)
     {
+        float diameterMm = heightMm;
+        float halfMm = Mathf.Max(0f, (widthMm - heightMm) * 0.5f);
         var go = new GameObject("Ring " + label, typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster), typeof(CanvasGroup));
         if (parent != null)
         {
@@ -76,14 +90,14 @@ public class DockRing : MonoBehaviour
         go.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         var rt = (RectTransform)go.transform;
         float quad = diameterMm + 2f * GlowPad;
-        rt.sizeDelta = Vector2.one * quad;
+        rt.sizeDelta = new Vector2(quad + 2f * halfMm, quad);
         rt.localScale = Vector3.one * ForgePanel.MetersPerUnit;
 
         // Input: an invisible plate that never moves, a little bigger than the ring to aim at.
         var hit = new GameObject("Button", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
         hit.gameObject.layer = go.layer;
         hit.rectTransform.SetParent(rt, false);
-        hit.rectTransform.sizeDelta = Vector2.one * (diameterMm + 8f);
+        hit.rectTransform.sizeDelta = new Vector2(diameterMm + 2f * halfMm + 8f, diameterMm + 8f);
         hit.color = Color.clear;
         hit.canvasRenderer.cullTransparentMesh = true;
         var button = hit.gameObject.AddComponent<Button>();
@@ -103,12 +117,14 @@ public class DockRing : MonoBehaviour
         r.group = go.GetComponent<CanvasGroup>();
         r.hue = hue;
         r.radius = diameterMm * 0.5f;
-        r.pool = Layer("Pool", light, ForgeTheme.PoolLight, ForgeTheme.Quad, Vector2.one * (diameterMm + 60f), -0.1f, go.layer);
+        r.half = halfMm;
+        r.wash = halfMm > 0f ? 2.2f : 1f;
+        r.pool = Layer("Pool", light, ForgeTheme.PoolLight, ForgeTheme.Quad, new Vector2(diameterMm + 60f + 2f * halfMm, diameterMm + 60f), -0.1f, go.layer);
         r.lift = new GameObject("Lift").transform;
         r.lift.gameObject.layer = go.layer;
         r.lift.SetParent(light, false);
-        r.ring = Layer("Ring", r.lift, ForgeTheme.RingLight, ForgeTheme.Quad, Vector2.one * quad, -0.5f, go.layer);
-        r.text = Label(label, r.lift, diameterMm, ForgeTheme.DockModeLabel * diameterMm / ForgeTheme.DockModeRing, true, go.layer);
+        r.ring = Layer("Ring", r.lift, ForgeTheme.RingLight, ForgeTheme.Quad, new Vector2(quad + 2f * halfMm, quad), -0.5f, go.layer);
+        r.text = Label(label, r.lift, diameterMm + 2f * halfMm, ForgeTheme.DockModeLabel * diameterMm / ForgeTheme.DockModeRing, true, go.layer);
         r.label = r.text.GetComponent<MeshRenderer>();
         return r;
     }
@@ -163,12 +179,13 @@ public class DockRing : MonoBehaviour
     /// </summary>
     public static void SetLook(MaterialPropertyBlock block, MeshRenderer ring, MeshRenderer column, MeshRenderer pool, MeshRenderer label,
         Color hue, float radius, float near, float hover, float press, float select, float enable, float fade, float reveal = 1f,
-        SpriteRenderer icon = null)
+        SpriteRenderer icon = null, float half = 0f, float wash = -1f)
     {
         float quad = 2f * (radius + GlowPad);
         block.Clear();
         block.SetFloat(SizeId, quad);
         block.SetFloat(RadiusId, radius);
+        block.SetFloat(HalfId, half);
         block.SetColor(HueId, hue);
         block.SetFloat(HueTId, ForgeTheme.HueStrength);
         block.SetFloat(NearId, near);
@@ -182,6 +199,8 @@ public class DockRing : MonoBehaviour
         block.Clear();
         block.SetFloat(SizeId, 2f * radius + 60f);
         block.SetFloat(RadiusId, radius);
+        block.SetFloat(HalfId, half);
+        if (wash >= 0f) block.SetFloat(WashId, wash);
         block.SetColor(HueId, hue);
         block.SetFloat(HueTId, ForgeTheme.HueStrength);
         block.SetFloat(OpacityId, Mathf.Lerp(0.3f + 0.55f * near, 0.9f, select) * Mathf.Lerp(0.4f, 1f, enable) * reveal);
@@ -237,8 +256,18 @@ public class DockRing : MonoBehaviour
 
     void OnEnable()
     {
+        // ForgeTheme.Quad is made in code, not an asset, so a ring saved into a prefab by an editor builder (the START
+        // pill in PetRuntime) comes back with no mesh on its ring and pool: only the label drew. Put it back.
+        RestoreQuad(ring);
+        RestoreQuad(pool);
         shown = new Vector4(-1f, -1f, -1f, -1f);
         nextInteractorSearch = 0f;
+    }
+
+    static void RestoreQuad(MeshRenderer renderer)
+    {
+        if (renderer != null && renderer.TryGetComponent(out MeshFilter filter) && filter.sharedMesh == null)
+            filter.sharedMesh = ForgeTheme.Quad;
     }
 
     void LateUpdate()
@@ -265,6 +294,6 @@ public class DockRing : MonoBehaviour
         if ((state - shown).sqrMagnitude < 1e-7f) return;
         shown = state;
         lift.localScale = Vector3.one * ((1f + 0.05f * near) * (1f - 0.05f * press));
-        SetLook(block, ring, null, pool, label, hue, radius, near, hover, press, 0f, enable, fade);
+        SetLook(block, ring, null, pool, label, hue, radius, near, hover, press, 0f, enable, fade, 1f, null, half, wash);
     }
 }

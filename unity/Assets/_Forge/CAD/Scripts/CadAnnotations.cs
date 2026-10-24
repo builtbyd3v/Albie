@@ -179,7 +179,6 @@ public sealed class CadAnnotations
 
         // One chip per kind of part (copies share one), in the order the parts come. Copies are numbered names
         // ("Fin 1"), or names that start alike in the same material and mass ("Bearing in front", "Bearing out back").
-        var byKind = new Dictionary<string, Group>();
         var changed = info?.changedIds != null ? new HashSet<string>(info.changedIds) : null;
         var keyCounts = new Dictionary<string, int>();
         for (int i = 0; i < parts.Count; i++)
@@ -188,12 +187,58 @@ public sealed class CadAnnotations
             keyCounts.TryGetValue(key, out int n);
             keyCounts[key] = n + 1;
         }
+        var kinds = new string[parts.Count];
+        var distinct = new HashSet<string>();
         for (int i = 0; i < parts.Count; i++)
         {
-            var part = parts[i];
-            string kind = KindKey(part);
+            string kind = KindKey(parts[i]);
             // Alike names merge only as a set of three or more (bearings), not a pair that merely matches (housing halves).
-            if (kind.IndexOf('|') >= 0 && keyCounts[kind] < 3) kind = part.name;
+            if (kind.IndexOf('|') >= 0 && keyCounts[kind] < 3) kind = parts[i].name;
+            kinds[i] = kind;
+            distinct.Add(kind);
+        }
+        // Too many kinds for one readable column (the humanoid has about 50): one chip per mass group instead
+        // ("Legs  ×37", its mass), pointing at the group's part nearest the eyes.
+        if (distinct.Count > MaxNameChips && MassGroups(parts, analysis?.massBreakdown, changed)) { }
+        else BuildKinds(parts, kinds, changed);
+        BuildDiscs(model, analysis);
+        int needed = markers.Count + groups.Count + 2;
+        if (order.Length < needed) order = new int[needed + 8];
+    }
+
+    const int MaxNameChips = 12;
+
+    bool MassGroups(CadExploder parts, List<CadMassItem> rows, HashSet<string> changed)
+    {
+        if (rows == null) return false;
+        var index = new Dictionary<string, int>();
+        for (int i = 0; i < parts.Count; i++) index[parts[i].id] = i;
+        foreach (var row in rows)
+        {
+            if (row?.partIds == null || row.partIds.Count == 0) continue;
+            var group = new Group { callout = new Callout { label = Take(CadLabel.Style.Chip), leader = Color.white, ring = true } };
+            bool isNew = false;
+            foreach (var id in row.partIds)
+                if (id != null && index.TryGetValue(id, out int i))
+                {
+                    group.members.Add(i);
+                    if (changed != null && changed.Contains(id)) isNew = true;
+                }
+            if (group.members.Count == 0) continue;
+            int count = group.members.Count;
+            string title = (isNew ? "<color=#FF8A3D>•</color> " : "") + (row.label ?? CadLook.Pretty(row.id)) + (count > 1 ? "  ×" + count : "");
+            group.callout.label.SetText(title, CadLook.Grams(row.massG) + "  ·  " + Mathf.RoundToInt(row.share * 100f) + "% of the mass");
+            groups.Add(group);
+        }
+        return groups.Count > 0;
+    }
+
+    void BuildKinds(CadExploder parts, string[] kinds, HashSet<string> changed)
+    {
+        var byKind = new Dictionary<string, Group>();
+        for (int i = 0; i < parts.Count; i++)
+        {
+            string kind = kinds[i];
             if (!byKind.TryGetValue(kind, out var group))
             {
                 group = new Group { callout = new Callout { label = Take(CadLabel.Style.Chip), leader = Color.white, ring = true } };
@@ -216,7 +261,10 @@ public sealed class CadAnnotations
             if (first.massG >= 0f) sub += (sub.Length > 0 ? "  ·  " : "") + CadLook.Grams(first.massG) + (count > 1 ? " each" : "");
             group.callout.label.SetText(title, sub.Length > 0 ? sub : null);
         }
+    }
 
+    void BuildDiscs(CadModel model, CadAnalysis analysis)
+    {
         // A hovering design's prop discs, from its demo.
         var demo = analysis?.demo;
         if (demo != null && demo.kind == CadDemoPlayer.Hover && demo.spinParts != null)
@@ -232,8 +280,6 @@ public sealed class CadAnnotations
                 if (radius > 0f) discs.Add(new Disc { origin = o, axis = axis.normalized, radius = radius });
             }
         }
-        int needed = markers.Count + groups.Count + 2;
-        if (order.Length < needed) order = new int[needed + 8];
     }
 
     /// <summary>Older callers: no changed-part dots.</summary>
@@ -278,7 +324,7 @@ public sealed class CadAnnotations
     /// <summary>Draw this frame (CadViewer.LateUpdate, after anything that moves parts). Each kind fades in and out by itself.</summary>
     public void Tick(float dt, Vector3 eye, State s)
     {
-        bool moving = s.demo == CadDemoPlayer.Launch || s.demo == CadDemoPlayer.Hover;
+        bool moving = s.demo == CadDemoPlayer.Launch || s.demo == CadDemoPlayer.Hover || s.demo == CadDemoPlayer.Walk;
         bool markersOn = s.markers && !moving && (markers.Count > 0 || discs.Count > 0);
         markerFade = Mathf.MoveTowards(markerFade, markersOn ? 1f : 0f, dt / 0.25f);
         measureFade = Mathf.MoveTowards(measureFade, s.measure && dimensions.Count > 0 ? 1f : 0f, dt / 0.25f);

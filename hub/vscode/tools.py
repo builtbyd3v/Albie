@@ -41,14 +41,28 @@ def call(method: str, route: str, body: dict[str, Any] | None = None) -> Any:
         raise RuntimeError(json.load(e).get("error", str(e))) from None
 
 
+def in_project(path: str) -> str:
+    """Repo-relative path -> absolute, against the hub's project (agent/config.py). The extension resolves relative
+    paths against whatever folder VS Code has open (Unity opens it on unity/), so send it absolute ones."""
+    if os.path.isabs(path):
+        return path
+    from agent.config import ProjectNotFound, resolve_project  # late: agent imports this module
+
+    try:
+        return str(resolve_project(None).path / path)
+    except (ProjectNotFound, OSError):
+        return path
+
+
 def open_file(path: str, line: int = 1) -> Any:
-    """Open a workspace file at a line, centered."""
-    return call("POST", "/open", {"path": path, "line": line})
+    """Open a project file at a line, centered."""
+    return call("POST", "/open", {"path": in_project(path), "line": line})
 
 
 def highlight(path: str, start: int, end: int | None = None, note: str | None = None, ms: int = 4000) -> Any:
     """Make lines glow for a few seconds, with an optional inline note. Bit 'points' at code."""
-    return call("POST", "/highlight", {"path": path, "start": start, "end": end or start, "note": note, "ms": ms})
+    return call("POST", "/highlight",
+                {"path": in_project(path), "start": start, "end": end or start, "note": note, "ms": ms})
 
 
 def get_errors(path: str | None = None) -> Any:

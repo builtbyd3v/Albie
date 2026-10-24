@@ -129,7 +129,7 @@ def check_scene(analysis: dict, meta: dict, schema: list[dict] | None = None) ->
     assert sorted(in_rows) == sorted(parts), "each part in exactly one row"
 
     demo = analysis["demo"]
-    assert demo["kind"] in ("launch", "hover", "spin", "none")
+    assert demo["kind"] in ("launch", "hover", "spin", "walk", "none")
     for s in demo["spin_parts"]:
         assert s["id"] in parts and unit(s["dir"]) and s["spin"] == ("ccw" if s["rpm"] > 0 else "cw"), s
         assert s["motor_id"] is None or s["motor_id"] in parts

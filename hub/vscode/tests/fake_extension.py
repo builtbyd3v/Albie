@@ -33,3 +33,17 @@ def fake_extension(monkeypatch):
     monkeypatch.setattr(tools, "BASE", f"http://127.0.0.1:{server.server_port}")
     yield seen
     server.shutdown()
+
+
+@pytest.fixture
+def project_root(tmp_path, monkeypatch):
+    """A hub project at tmp_path, so relative paths resolve somewhere known."""
+    from agent.config import load_projects
+
+    cfg = tmp_path / "projects.yaml"
+    cfg.write_text(f'projects:\n  demo:\n    path: "{tmp_path}"\n')
+    monkeypatch.setenv("PROJECTS_FILE", str(cfg))
+    monkeypatch.setenv("DEFAULT_PROJECT", "demo")
+    load_projects.cache_clear()
+    yield tmp_path.resolve()
+    load_projects.cache_clear()

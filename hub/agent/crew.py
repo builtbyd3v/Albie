@@ -3,7 +3,8 @@
 Unity owns who exists (it hatches/sends home the gators and sends ``crew.roster`` on every change and on
 reconnect). The hub owns the work: ``assign`` starts a background runner turn for one member, with that
 type's persona and tool set, so several members work in parallel. Crew code tasks run in their own git
-worktree (runner.create_task_worktree), never in the main checkout, so their branches don't fight.
+worktree (runner.create_task_worktree), never in the main checkout, so their branches don't fight. When one
+finishes, its changes are applied to the main checkout as uncommitted edits (runner.land_task_worktree).
 
 Bit (the lead) drives the crew with four tools, registered lead-only in agent/tools.py so Grok and Bit's
 own Claude runner get them but crew runners don't: spawn_agent, dismiss_agent, assign_task, crew_status.

@@ -726,4 +726,62 @@ def test_each_turn_logs_one_line(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level("INFO", logger="agent.voice"):
         asyncio.run(run())
     turns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn:")]
-    assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False answered"]
+    assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False "
+                     "gated=False judged=None answered"]
+
+
+def test_a_dead_grok_socket_is_dropped_and_the_next_turn_reconnects() -> None:
+    """Live 18:19: a send on a socket that died (Wi-Fi blip) raised out of feed() and switched voice off for good."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        connects = []
+        real_connect = grok.connect
+
+        async def counting(url: str, key: str) -> MockGrok:
+            connects.append(url)
+            return await real_connect(url, key)
+
+        grok.connect = counting  # type: ignore[method-assign]
+        s = _session(grok, sink)
+        await s.begin_turn()
+
+        async def broken(_: str) -> None:
+            raise ConnectionError("no close frame received or sent")
+
+        grok.send = broken  # type: ignore[method-assign]
+        await s.feed(b"\x10\x00" * 1600)  # must not raise
+        assert s._ws is None
+        await s.commit_turn()  # nothing to commit: an empty final, so Unity goes back to idle
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+        del grok.send  # Wi-Fi back
+        await s.begin_turn()
+        assert s._ws is not None and len(connects) == 2
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_voice_stays_on_after_a_network_error() -> None:
+    """Live 18:19-18:28: after one ConnectionClosedError every turn went to the stt.py fallback and came back empty."""
+    from types import SimpleNamespace
+
+    import websockets.exceptions
+
+    from agent import ws as ws_mod
+
+    async def run() -> None:
+        errors: list[str] = []
+        voice = object()
+
+        async def reply_error(message: str, pet_id: str | None = None) -> None:
+            errors.append(message)
+
+        s = SimpleNamespace(voice=voice, pet_id="bit", reply_error=reply_error)
+
+        async def blip() -> None:
+            raise websockets.exceptions.ConnectionClosedError(None, None)
+
+        await ws_mod._voice_call(s, blip)
+        assert s.voice is voice and errors == []
+
+    asyncio.run(run())

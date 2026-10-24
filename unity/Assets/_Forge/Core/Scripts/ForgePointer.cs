@@ -98,6 +98,12 @@ public class ForgePointer
     /// <summary>Whether the pointer can push a panel back or pull it in (a poke can only slide it).</summary>
     public bool CanPush => source != Source.Poke;
 
+    /// <summary>Hand tracking is driving the rig (controllers put down). Hands have no thumbstick or buttons.</summary>
+    public static bool HandsActive => (OVRInput.GetActiveController() & OVRInput.Controller.Hands) != 0;
+
+    /// <summary>A pinching hand's ray: <see cref="Notches"/> stays 0, so reaching out stands in for the thumbstick.</summary>
+    public bool IsHand => source == Source.Ray && HandsActive;
+
     /// <summary>
     /// How far the hand or controller is from the eyes (m). Reaching out or pulling in pushes a held panel.
     /// 0 for the mouse, whose ray starts at the eyes.
@@ -117,8 +123,11 @@ public class ForgePointer
         return 0f;
     }
 
-    // The rig's interactors sit under ...InteractorsLeft / ...InteractorsRight. Hands report no thumbstick.
-    static OVRInput.Controller HandOf(Transform t)
+    /// <summary>
+    /// Which controller an interactor belongs to: the rig's interactors sit under ...InteractorsLeft / ...InteractorsRight.
+    /// Hands report no thumbstick or grip.
+    /// </summary>
+    public static OVRInput.Controller HandOf(Transform t)
     {
         for (; t != null; t = t.parent)
         {

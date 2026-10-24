@@ -48,7 +48,7 @@ see `screen-bridge/start.js`). Running `npm start` by hand still works: set `SCR
 ## Designs (the CAD library)
 
 Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is its id. Today: `rocket` (the hero),
-`quadcopter`, `gearbox`. Each keeps its own history (undo stays inside it); version numbers are unique across them.
+`quadcopter`, `gearbox`, `humanoid` (Unitree's G1, from its robot description). Each keeps its own history (undo stays inside it); version numbers are unique across them.
 
 - `GET /cad/parts` lists them; `POST /cad/part {"part": "gearbox"}` opens one; `POST /cad/preset {"name": "Hexacopter"}`
   applies a named preset to the open one. Everything else (`/cad/params`, undo, ...) acts on the open design.
@@ -67,10 +67,18 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
   `cad/scene.py` makes a generic one: the CG marker, overall width/depth/height, parts spread out from the centre, mass
   by top-level assembly, a demo of "launch" with `simulate_flight` (else none), a verdict from the worst metric, no
   constants. They land in the analysis block (`cad.model_updated`) in the GLB's frame: CAD_PLAN section 5, round 4.
+- **Designs from meshes** (the humanoid): a mesh pack in `cad/data/<name>/` (`display.glb`, `outline.npz`, `parts.json`,
+  made offline by a script in `cad/tools_offline/`) loads once per worker with `cad.meshes.pack(folder)`; `place(key,
+  transform, label, rgb)` puts a piece where you want it (a surfaceless face sharing the cached mesh). Give mesh parts a
+  `FixedMass(mass_g, cg_mm)` (no volume). `cad.robot.load(urdf)` reads a URDF: forward kinematics, limits, ratings and
+  `static_torques`. Nest assemblies along the kinematic chain at identity and place the leaves, and
+  `simulate_motion(result, masses) -> Motion` can animate the joints (`GET /cad/motion`, the Walk button). Licences and
+  sources sit next to the data (`NOTICE.md`).
 - Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
   `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
 - `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
   views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
+  Mesh designs take a mesh path (visible edges and silhouettes, no dashed hidden lines), about 6 s for the humanoid.
 
 ## Test
 
@@ -84,7 +92,7 @@ pytest            # a few minutes: CAD (geometry, RocketPy cross-check, designs,
 python -m cad.make_mocks       # -> hub/.data/mocks/cad/parts.json, <part>/vN/, regen_failed.json
 ```
 
-Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty.
+Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty; the humanoid stands → squats so deep its ankles run out of range and it tips back → arms forward balance it → 5 kg with the forearms out (wrists at 90%). The humanoid's states also carry `motion.json` (its GLBs are ~4.8 MB each).
 
 ## CAD module map
 
@@ -92,8 +100,13 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 |---|---|
 | `cad/parts/rocket.py` | The rocket: `PARAMS`, `build(params)`, presets, `analyze` (Barrowman stability). The file on the main screen. |
 | `cad/parts/quadcopter.py`, `gearbox.py` | Two more designs (prop clearance / thrust-to-weight; ratio / pinion rim, own involute gears). |
+| `cad/parts/humanoid.py` | The Unitree G1 posed by 10 parameters: balance and joint loads ("Will it stand?"), Walk from a recorded lap of Unitree's trained policy. |
 | `cad/parts/_template.py` | Copy me: a new file is a new design. |
 | `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `Metric`, `BuildResult`, rocket specs). |
+| `cad/meshes.py` | Mesh packs: pieces as surfaceless faces (cached per worker), their outline meshes for drawings. |
+| `cad/robot.py` | A robot from its URDF: kinematics, limits, ratings, static joint torques. |
+| `cad/data/unitree_g1/` | The G1's URDF, meshes, walk clip, both BSD-3 licences, `NOTICE.md`. |
+| `cad/tools_offline/` | One-off, dev-only scripts that made that data (their own venvs; see each docstring). |
 | `cad/export.py` | GLB + cad-vision schema 1.0 metadata, validated with cad-vision's loader rules. |
 | `cad/analysis.py` | Mass, CG, generic metrics (mass, size, parts), and the Barrowman helpers rockets use. |
 | `cad/scene.py` | What Unity draws on the model: markers, dimensions, explode vectors, mass breakdown, demo (part's or generic), in the GLB's frame. |
@@ -210,8 +223,10 @@ its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.p
 Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Albie leads: Grok and Albie's Claude runner get four
 lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
 `crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
-default `<repo>-crew/`) on `pet/<agent>/<task>` and is committed there, so nobody switches the main checkout's
-branch. When one finishes, Albie says so out loud (voice mode) and the gator shows the summary in its bubble.
+default `<repo>-crew/`) on `pet/<agent>/<task>`, started from the main checkout's current state (uncommitted edits
+included), so nobody switches the main checkout's branch. When one finishes, its changes are applied to the main
+checkout as uncommitted edits (what VS Code shows) and the worktree is removed; if they conflict, the worktree and
+branch are kept and named in the summary. Albie says so out loud (voice mode) and the gator shows the summary in its bubble.
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
 that member's turn without touching Albie's.
 
