@@ -9,8 +9,9 @@ namespace Forge.Pet
     /// AgentClient socket (stt.start → binary chunks → stt.stop). Transcripts come back as
     /// stt.partial / stt.final events and are re-raised as Partial/FinalTranscript.
     /// No per-frame allocations: fixed chunk buffers are allocated once per mic start.
+    /// Level (IMicLevel) is the RMS of the last chunk sent, for PushToTalk's hands-free endpointing.
     /// </summary>
-    public class HubSpeechToText : MonoBehaviour, ISpeechToText
+    public class HubSpeechToText : MonoBehaviour, ISpeechToText, IMicLevel
     {
         const int TargetRate = 16000;
 
@@ -24,6 +25,8 @@ namespace Forge.Pet
         float sendInterval = 0.1f;
 
         public bool IsListening { get; private set; }
+        /// <summary>RMS (0..1) of the last ~100 ms chunk; 0 when not listening.</summary>
+        public float Level { get; private set; }
         public event Action<string> PartialTranscript;
         public event Action<string> FinalTranscript;
         public event Action<string> Error;
@@ -67,6 +70,7 @@ namespace Forge.Pet
             if (_outBuf == null || _outBuf.Length != chunkOut * 2) _outBuf = new byte[chunkOut * 2];
             _readPos = 0;
             _timer = 0f;
+            Level = 0f;
 
             client.Send("stt.start", new JObject { ["pet_id"] = petId, ["sample_rate"] = TargetRate, ["encoding"] = "pcm16" });
             IsListening = true;
@@ -80,6 +84,7 @@ namespace Forge.Pet
             PumpAudio();                 // flush whole chunks still in the ring buffer
             Microphone.End(null);
             _clip = null;
+            Level = 0f;
             if (client != null) client.Send("stt.stop", new JObject { ["pet_id"] = petId });
             // FinalTranscript is raised when the hub answers stt.final.
         }
@@ -115,6 +120,7 @@ namespace Forge.Pet
         {
             int outCount = _outBuf.Length / 2;
             float step = outCount > 1 ? (_chunkIn - 1f) / (outCount - 1f) : 0f;
+            float sum = 0f;
             for (int i = 0; i < outCount; i++)
             {
                 float src = i * step;
@@ -122,11 +128,13 @@ namespace Forge.Pet
                 int i1 = i0 + 1 < _chunkIn ? i0 + 1 : i0;
                 float t = src - i0;
                 float f = _inBuf[i0 * channels] * (1f - t) + _inBuf[i1 * channels] * t;
+                sum += f * f;
                 int s = (int)(f * 32767f);
                 if (s > 32767) s = 32767; else if (s < -32768) s = -32768;
                 _outBuf[2 * i] = (byte)(s & 0xFF);
                 _outBuf[2 * i + 1] = (byte)((s >> 8) & 0xFF);
             }
+            Level = outCount > 0 ? Mathf.Sqrt(sum / outCount) : 0f;
             return outCount * 2;
         }
 

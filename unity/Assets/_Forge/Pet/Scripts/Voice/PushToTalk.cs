@@ -1,4 +1,5 @@
 using System;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -9,6 +10,13 @@ namespace Forge.Pet
     /// FinalTranscript → Thinking + GatorAgentBridge.Ask(text). PartialTranscript → caption (partial).
     /// With TypedSpeechToText the key only OPENS the input field (Enter sends, Esc cancels),
     /// because Space must be typeable while the field is focused.
+    ///
+    /// Hands-free (GatorSummon / whistle): BeginHandsFree() listens without a held key. The session ends on
+    /// endSilence after speech (mic level from IMicLevel), noSpeechTimeout without any speech (cancelled), or the
+    /// maxUtterance cap; CancelSession() drops it without asking. Pressing Space/A mid-session hands it to hold mode.
+    /// This stays the ONLY reader of transcripts, so nothing is ever asked twice.
+    /// Voice mode (AgentClient.VoiceActive with HubSpeechToText): the hub's voice session answers the turn itself,
+    /// so the final transcript is captioned but not sent as agent.ask.
     /// </summary>
     public class PushToTalk : MonoBehaviour
     {
@@ -23,11 +31,30 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Auto-found on this GameObject / scene if empty.")]
         GatorAgentBridge bridge;
 
+        [Header("Hands-free (whistle)")]
+        [SerializeField, Tooltip("Give up (cancel) if no speech is heard within this many seconds.")]
+        float noSpeechTimeout = 8f;
+        [SerializeField, Tooltip("Hard cap (s): stop listening and send what was said.")]
+        float maxUtterance = 20f;
+        [SerializeField, Tooltip("Silence (s) after speech that ends the utterance.")]
+        float endSilence = 0.9f;
+        [SerializeField, Tooltip("Mic RMS (0..1) that counts as speech.")]
+        float speechLevel = 0.03f;
+
         ISpeechToText _stt;
         bool _held;          // key physically held (hold-to-talk providers)
         bool _typedMode;     // current provider is TypedSpeechToText
+        bool _handsFree;     // a hands-free session is open (until SessionEnded)
+        bool _discardFinal;  // CancelSession: swallow the final transcript that is still on its way
+        bool _heardSpeech;
+        float _sessionStart, _lastSpeech;
 
         public ISpeechToText Provider => _stt;
+        /// <summary>A hands-free or held session is open.</summary>
+        public bool SessionActive => _handsFree || _held;
+        public bool HandsFree => _handsFree;
+        /// <summary>Hands-free session over. true = a transcript went on to be answered; false = cancelled / nothing heard / error / handed to hold mode.</summary>
+        public event Action<bool> SessionEnded;
 
         void Awake()
         {
@@ -51,10 +78,94 @@ namespace Forge.Pet
 
         void Update()
         {
-            if (talkAction == null) return;
-            if (talkAction.WasPressedThisFrame()) OnPressed();
-            if (talkAction.WasReleasedThisFrame()) OnReleased();
+            if (talkAction != null)
+            {
+                if (talkAction.WasPressedThisFrame()) OnPressed();
+                if (talkAction.WasReleasedThisFrame()) OnReleased();
+            }
+            if (_handsFree) UpdateHandsFree();
         }
+
+        // ---------------------------------------------------------------- hands-free API
+
+        /// <summary>Starts a hands-free listening session (mic permission asked first). False if one is already open or there is no STT.</summary>
+        public bool BeginHandsFree()
+        {
+            if (SessionActive) return false;
+            var stt = ResolveProvider();
+            if (stt == null || stt.IsListening) return false;
+            _handsFree = true;
+            _discardFinal = false;
+            _heardSpeech = false;
+            _sessionStart = _lastSpeech = Time.time;
+            StartHandsFreeAsync(stt);
+            return true;
+        }
+
+        /// <summary>Drops the open session without asking anything; the gator goes back to Wandering.</summary>
+        public void CancelSession()
+        {
+            if (!SessionActive) return;
+            _held = false;
+            if (_stt != null && _stt.IsListening)
+            {
+                _discardFinal = true;
+                if (_stt is HubSpeechToText) SendHub("stt.cancel");   // voice mode would otherwise answer the turn
+                _stt.StopListening();
+            }
+            if (caption != null) caption.Clear();
+            if (controller != null && controller.State == GatorState.Listening) controller.SetState(GatorState.Wandering);
+            EndHandsFree(false);
+        }
+
+        async void StartHandsFreeAsync(ISpeechToText stt)
+        {
+            try
+            {
+                if (!_typedMode)
+                {
+                    bool ok = await MicPermission.RequestAsync();
+                    if (this == null) return;
+                    if (!_handsFree) return;                 // cancelled while the permission dialog was up
+                    if (!ok)
+                    {
+                        if (caption != null) caption.SetText("I need microphone permission.", false);
+                        if (controller != null && controller.State == GatorState.Listening) controller.SetState(GatorState.Wandering);
+                        EndHandsFree(false);
+                        return;
+                    }
+                }
+                if (caption != null) caption.Clear();
+                if (controller != null) controller.SetState(GatorState.Listening);
+                _sessionStart = _lastSpeech = Time.time;
+                stt.StartListening();                        // failures arrive as Error → OnSttError ends the session
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                EndHandsFree(false);
+            }
+        }
+
+        void UpdateHandsFree()
+        {
+            if (_stt == null || !_stt.IsListening || _typedMode) return;   // typed: Enter / Esc end it
+            float now = Time.time;
+            if (_stt is IMicLevel mic && mic.Level >= speechLevel) { _heardSpeech = true; _lastSpeech = now; }
+
+            if (now - _sessionStart >= maxUtterance) _stt.StopListening();                 // cap: send what we have
+            else if (!_heardSpeech && now - _sessionStart >= noSpeechTimeout) CancelSession();
+            else if (_heardSpeech && now - _lastSpeech >= endSilence) _stt.StopListening();
+        }
+
+        void EndHandsFree(bool answered)
+        {
+            if (!_handsFree) return;
+            _handsFree = false;
+            SessionEnded?.Invoke(answered);
+        }
+
+        // ---------------------------------------------------------------- push-to-talk
 
         /// <summary>Resolves the provider lazily (config is loaded async, so EventSourceIsHub is known late).</summary>
         ISpeechToText ResolveProvider()
@@ -92,10 +203,19 @@ namespace Forge.Pet
         {
             try
             {
+                if (_handsFree)
+                {
+                    // Space/A during a whistle session: hold mode takes it over (release ends the utterance).
+                    _handsFree = false;
+                    SessionEnded?.Invoke(false);
+                    if (_stt != null && _stt.IsListening) { _held = !_typedMode; return; }
+                }
+
                 var stt = ResolveProvider();
                 if (stt == null) return;
                 if (_typedMode && stt.IsListening) return;   // typing: Space is a character, not PTT
                 _held = true;
+                _discardFinal = false;
 
                 if (!_typedMode)
                 {
@@ -122,27 +242,38 @@ namespace Forge.Pet
 
         void OnPartial(string text)
         {
+            if (_discardFinal) return;
+            if (_handsFree && !string.IsNullOrEmpty(text)) { _heardSpeech = true; _lastSpeech = Time.time; }
             if (caption != null && !string.IsNullOrEmpty(text)) caption.SetText(text, true);
         }
 
         void OnFinal(string text)
         {
+            if (_discardFinal)
+            {
+                _discardFinal = false;                       // cancelled session: the hub's (empty) final, ignore it
+                return;
+            }
             if (string.IsNullOrWhiteSpace(text))
             {
                 // Nothing heard: go back to idle instead of hanging in Listening.
                 if (caption != null) caption.Clear();
                 if (controller != null && controller.State == GatorState.Listening) controller.SetState(GatorState.Wandering);
+                EndHandsFree(false);
                 return;
             }
             if (caption != null) caption.SetText(text, false);
             if (controller != null) controller.SetState(GatorState.Thinking);
-            if (bridge != null) bridge.Ask(text);
+            if (HubVoiceAnswers()) { /* the hub's voice session is already answering this turn */ }
+            else if (bridge != null) bridge.Ask(text);
             else Debug.LogWarning("[PushToTalk] No GatorAgentBridge; transcript dropped: " + text);
+            EndHandsFree(true);
         }
 
         void OnSttError(string message)
         {
             _held = false;
+            _discardFinal = false;
             if (message != "cancelled")
             {
                 Debug.LogWarning("[PushToTalk] STT error: " + message);
@@ -150,6 +281,16 @@ namespace Forge.Pet
             }
             else if (caption != null) caption.Clear();
             if (controller != null && controller.State == GatorState.Listening) controller.SetState(GatorState.Wandering);
+            EndHandsFree(false);
+        }
+
+        bool HubVoiceAnswers() =>
+            _stt is HubSpeechToText && bridge != null && bridge.Source is AgentClient ac && ac.VoiceActive;
+
+        void SendHub(string type)
+        {
+            if (bridge == null || bridge.Source == null || bridge.Config == null) return;
+            bridge.Source.Send(type, new JObject { ["pet_id"] = bridge.Config.petId });
         }
 
         void Unsubscribe()

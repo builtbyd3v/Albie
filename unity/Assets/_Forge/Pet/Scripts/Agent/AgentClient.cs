@@ -15,11 +15,14 @@ namespace Forge.Pet
     /// Live hub connection over System.Net.WebSockets.ClientWebSocket (works on Android/IL2CPP).
     /// Socket I/O runs on a background Task; parsed events are queued and raised on the main
     /// thread in Update. Reconnects with 1,2,4..16 s backoff while enabled. Sends hello on connect.
+    /// Binary frames from the hub (voice-mode speech, PCM16) are raised as BinaryReceived on the main thread,
+    /// in the same order as the text events around them (tts.start → frames → tts.end).
     /// Android builds need Player Settings → Internet Access = Require.
     /// </summary>
     public class AgentClient : MonoBehaviour, IPetEventSource
     {
         struct Outgoing { public byte[] data; public int length; public bool binary; }
+        struct Incoming { public PetEvent evt; public byte[] data; public int length; }   // evt == null → binary
 
         [SerializeField, Tooltip("Receive buffer size in bytes (frames larger than this are assembled from fragments).")]
         int receiveBufferSize = 16 * 1024;
@@ -29,12 +32,19 @@ namespace Forge.Pet
         public event Action<PetEvent> EventReceived;
         /// <summary>Raised on the main thread when IsConnected flips.</summary>
         public event Action<bool> ConnectionChanged;
+        /// <summary>Binary frame from the hub (main thread). The buffer is pooled and reused after the call:
+        /// handlers must copy what they need before returning. Valid bytes = [0, length).</summary>
+        public event Action<byte[], int> BinaryReceived;
 
         public bool IsConnected => _connected;
+        /// <summary>The hub announced a speech-to-speech session for this socket (voice.ready); replies come as tts.* + audio.</summary>
+        public bool VoiceActive { get; private set; }
+        /// <summary>Sample rate from voice.ready (0 until then).</summary>
+        public int VoiceSampleRate { get; private set; }
         /// <summary>Human-readable connection status for UI ("connected", "connecting…", "offline: …").</summary>
         public string Status => _status;
 
-        readonly ConcurrentQueue<PetEvent> _inbox = new ConcurrentQueue<PetEvent>();
+        readonly ConcurrentQueue<Incoming> _inbox = new ConcurrentQueue<Incoming>();
         readonly ConcurrentQueue<Outgoing> _outbox = new ConcurrentQueue<Outgoing>();
         readonly SemaphoreSlim _sendSignal = new SemaphoreSlim(0);
 
@@ -44,12 +54,14 @@ namespace Forge.Pet
         volatile string _status = "idle";
         bool _lastReportedConnected;
         bool _warnedDrop;
+        int _audioOutRate;      // AudioSettings.outputSampleRate, read on the main thread for hello
 
         // ---------------- public API ----------------
 
         public void Connect(PetConfig cfg)
         {
             _cfg = cfg ?? new PetConfig();
+            _audioOutRate = AudioSettings.outputSampleRate;
             Disconnect();
             if (!isActiveAndEnabled) return;              // OnEnable will start it
             if (!Uri.TryCreate(_cfg.hubUrl, UriKind.Absolute, out var uri)) { _status = "bad hubUrl: " + _cfg.hubUrl; Debug.LogError("[AgentClient] " + _status); return; }
@@ -63,6 +75,7 @@ namespace Forge.Pet
             if (_cts != null) { _cts.Cancel(); _cts.Dispose(); _cts = null; }
             _connected = false;
             _status = "disconnected";
+            VoiceActive = false; VoiceSampleRate = 0;
         }
 
         /// <summary>Queues a JSON text frame. Dropped (with one warning) while offline.</summary>
@@ -94,11 +107,20 @@ namespace Forge.Pet
             if (_lastReportedConnected != _connected)
             {
                 _lastReportedConnected = _connected;
+                if (!_lastReportedConnected) { VoiceActive = false; VoiceSampleRate = 0; }
                 ConnectionChanged?.Invoke(_lastReportedConnected);
             }
-            while (_inbox.TryDequeue(out var e))
+            while (_inbox.TryDequeue(out var item))
             {
-                try { EventReceived?.Invoke(e); }
+                if (item.evt == null)
+                {
+                    try { BinaryReceived?.Invoke(item.data, item.length); }
+                    catch (Exception ex) { Debug.LogException(ex); }
+                    finally { ArrayPool<byte>.Shared.Return(item.data); }
+                    continue;
+                }
+                if (item.evt.type == "voice.ready") { VoiceActive = true; VoiceSampleRate = item.evt.GetInt("sample_rate"); }
+                try { EventReceived?.Invoke(item.evt); }
                 catch (Exception ex) { Debug.LogException(ex); }
             }
         }
@@ -129,7 +151,7 @@ namespace Forge.Pet
                         DrainOutbox();
                         // hello goes first, before Send() is allowed.
                         var hello = Encoding.UTF8.GetBytes(PetEvent.Build("hello", new JObject
-                        { ["client"] = "unity", ["pet_id"] = _cfg.petId, ["project_id"] = _cfg.projectId }));
+                        { ["client"] = "unity", ["pet_id"] = _cfg.petId, ["project_id"] = _cfg.projectId, ["audio_out_rate"] = _audioOutRate }));
                         Enqueue(new Outgoing { data = hello, length = hello.Length, binary = false });
                         _connected = true; _warnedDrop = false; loggedFailure = false; backoff = 1;
                         _status = "connected";
@@ -185,9 +207,15 @@ namespace Forge.Pet
                     {
                         string json = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
                         var e = PetEvent.Parse(json);
-                        if (e != null) _inbox.Enqueue(e);
+                        if (e != null) _inbox.Enqueue(new Incoming { evt = e });
                     }
-                    // Binary from hub (e.g. future TTS audio) is ignored for now.
+                    else if (r.MessageType == WebSocketMessageType.Binary && ms.Length > 0)
+                    {
+                        int len = (int)ms.Length;
+                        byte[] copy = ArrayPool<byte>.Shared.Rent(len);   // returned after dispatch in Update
+                        Buffer.BlockCopy(ms.GetBuffer(), 0, copy, 0, len);
+                        _inbox.Enqueue(new Incoming { data = copy, length = len });
+                    }
                     ms.SetLength(0);
                 }
             }

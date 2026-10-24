@@ -51,6 +51,7 @@ namespace Forge.Pet
 
             _tts = tts as ITextToSpeech;
             if (_tts == null) _tts = GetComponent<ITextToSpeech>();
+            if (_tts == null) _tts = GetComponentInChildren<ITextToSpeech>(true);   // e.g. StreamedPcmTextToSpeech on a "Voice" child
             if (_tts == null) _tts = gameObject.AddComponent<NullTextToSpeech>();
             _tts.SpeechEnded += OnSpeechEnded;
         }
@@ -174,6 +175,15 @@ namespace Forge.Pet
 
                 case "pet.state":
                     HandlePetState(e.GetString("mode"));
+                    break;
+
+                // Voice mode: the hub streams speech (StreamedPcmTextToSpeech plays it and raises SpeechStarted/Ended).
+                case "tts.start":
+                    SetStateIfChanged(GatorState.Answering);
+                    break;
+                case "tts.end":
+                case "tts.stop":
+                case "voice.ready":
                     break;
 
                 default:

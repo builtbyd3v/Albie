@@ -189,3 +189,64 @@ public void HopToUserDesk();  // convenience: HopTo(DeskSurface, point on desk n
 ```
 
 Event mapping unchanged. `pet.state follow` = floor following; `pet.state idle` while on the desk = desk wandering (controller decides by CurrentSurface).
+
+## Addendum B (2026-10-23): Grok voice + whistle (all events **proposed**, additive)
+
+Plans: `docs/VOICE_TTS_PLAN.md`, `docs/WHISTLE_PLAN.md`. Conversational path only: no tools, no `delegate`,
+no keep-out zone yet.
+
+Hub env: `VOICE_PROVIDER=none|grok|fake` (default `none` = everything above, unchanged), `XAI_API_KEY`,
+`GROK_VOICE_MODEL=grok-voice-3.0`, `GROK_VOICE`, `GROK_VOICE_OUT_RATE=48000`, `VOICE_IDLE_CLOSE_S=120`,
+`FAKE_VOICE_PACE`. One Grok session per `/ws/agent` socket (`hub/agent/voice.py`), push-to-talk = manual turn.
+
+Client → hub:
+```
+hello        { ..., audio_out_rate?: 48000 }    # AudioSettings.outputSampleRate; Grok speaks at it when supported
+stt.start / <binary PCM16 16 kHz> / stt.stop    # unchanged; voice mode: stt.start = barge-in + new turn, stt.stop = commit + response.create
+stt.cancel   { pet_id }                          # drop the open turn: audio after it is ignored, its stt.stop yields an empty stt.final
+tts.stop     { pet_id }                          # stop the current reply (ITextToSpeech.Stop)
+```
+Hub → the voice session's own socket only (never broadcast, no pet.state companion):
+```
+voice.ready  { pet_id, provider: "grok"|"fake", sample_rate }   # after hello
+tts.start    { pet_id, utterance_id, sample_rate, encoding: "pcm16", channels: 1 }
+<binary>     PCM16 LE mono @ sample_rate          # untagged; only tts audio flows hub → client
+tts.end      { pet_id, utterance_id }             # Unity raises SpeechEnded when its buffer drains
+tts.stop     { pet_id, utterance_id, reason: "barge_in"|"cancel"|"error" }   # flush immediately
+```
+Broadcast (existing events, new sources): Grok's user transcript → `stt.partial` (cumulative) / `stt.final { ..., voice: true }`;
+the spoken reply's transcript → `agent.partial_answer` / `agent.answer_done` (captions unchanged); commit → `agent.thinking`;
+Grok `error` → `agent.error`. `stt.final.voice = true` means "already being answered, don't `agent.ask` it"; the hub also
+ignores an `agent.ask` that repeats the last voice transcript within 10 s.
+
+Unity (namespace `Forge.Pet`, still no Meta types outside `Adapters/`):
+```csharp
+// AgentClient additions
+public event Action<byte[], int> BinaryReceived;   // main thread, ordered with EventReceived; buffer reused after the call
+public bool VoiceActive { get; }  public int VoiceSampleRate { get; }   // from voice.ready, reset on disconnect
+
+// Voice/StreamedPcmTextToSpeech : MonoBehaviour, ITextToSpeech, ITalkLevel   (own GameObject: "Voice" child + AudioSource)
+//   tts.* + binary → SPSC ring → OnAudioFilterRead (linear resample to the device rate, 120 ms pre-buffer, carrier-clip 3D)
+//   Speak() is a no-op while VoiceActive (fakes a speaking period otherwise); Stop() flushes + sends tts.stop
+public interface ITalkLevel { float Level { get; } bool IsTalking { get; } }   // smoothed loudness 0..1
+public interface IMicLevel { float Level { get; } }                            // HubSpeechToText: RMS of the last chunk
+
+// Voice/GatorTalkAnimator — while speaking: head-bone nod (additive, LateUpdate) + model squash pulse from Level, Mood.Happy
+
+// PushToTalk additions (still the only transcript reader)
+public bool BeginHandsFree();      // listen without a held key: ends on 0.9 s silence after speech, 8 s no speech (cancel), 20 s cap
+public void CancelSession();       // sends stt.cancel (hub provider), discards the final, → Wandering
+public bool SessionActive { get; }  public bool HandsFree { get; }  public event Action<bool> SessionEnded;  // true = answered
+// Voice mode: the final is captioned + Thinking, but not sent as agent.ask.
+
+// Whistle/WhistleButton — desk puck: Press(), HoverOn/Off(), SetVisual(Idle|Active|Busy), PlaceOnDesk(desk, head), event Pressed
+//   inputs: ISDK Poke/Ray via InteractableUnityEventWrapper (wired by the editor menu), mouse click, F, right controller B
+//   self-places at the desk's near edge to the user's right once GatorNavSurface.Desk is built; else 0.3 m right of the gator spawn
+// Whistle/GatorSummon — Toggle() (button), Summon(), Cancel(), IsActive, event Action<SummonEnd> Ended (Listening|Cancelled|Ignored)
+//   whistle SFX → HopToUserDesk() if on the floor with a desk, else ComeToUser() → arrived or 2.5 s → PushToTalk.BeginHandsFree()
+//   Thinking/Working: ignored ("One sec!"); Answering: TTS stopped first; any foreign state change during the trip cancels it
+```
+Bridge mapping additions: `tts.start` → Answering; `tts.end` / `tts.stop` / `voice.ready` are handled by the TTS (no state change).
+Editor: **Forge/Pet/6. Add Whistle To Open Scene** (`Editor/WhistleSetup.cs`) adds Voice + GatorTalkAnimator + GatorSummon to the
+gator and a WhistleButton with Poke/Ray interactables to the open scene (idempotent, doesn't save). Hand/controller presses need
+`OVRComprehensiveInteractionRig` in the scene's camera rig.
