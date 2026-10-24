@@ -523,3 +523,72 @@ def test_interim_completed_transcripts_are_not_final() -> None:
         await s.close()
 
     asyncio.run(run())
+
+
+def test_turn_grok_ignores_ends_as_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Noise-only turn (captured from grok-voice-3.0): Grok commits, then sends nothing at all, not even with
+    response.create. Without a timeout the hub waits forever and Unity sits in Thinking, deaf."""
+    monkeypatch.setattr(voice_mod, "NO_REPLY_S", 0.05)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        await asyncio.sleep(0.2)
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+
+        # A turn Grok does answer is untouched by the timeout.
+        n = len(sink.log)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Okay.")
+        grok.push(type="response.created")
+        await asyncio.sleep(0.2)
+        assert [v.payload["text"] for k, v in sink.log[n:] if k == "emit" and v.type == "stt.final"] == ["Okay."]
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text,stop", [
+    ("Stop.", True), ("Wait, stop, Bit.", True), ("Okay, quiet.", True), ("Never mind.", True), ("Stop that.", True),
+    ("Shh!", True), ("Wait, what does static margin mean?", False), ("Explain fins.", False), ("", False),
+])
+def test_stop_words(text: str, stop: bool) -> None:
+    assert voice_mod.is_stop(text) is stop
+
+
+def test_rocket_terms_lead_the_transcription_hints() -> None:
+    """'fins' was transcribed as 'Fizz' in a live test; the CAD vocabulary now biases grok-transcribe first."""
+    terms = voice_mod.keyterms_for(None)
+    assert {"fins", "nose cone", "static margin", "apogee"} <= set(terms) and len(terms) <= 100
+
+
+def test_stop_word_ends_the_turn_without_a_reply() -> None:
+    """'Stop' over Bit: he goes quiet without answering 'Okay, quiet', and no tool runs."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Stop.")
+        grok.push(type="response.created")
+        grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 100))
+        grok.push(type="response.output_audio_transcript.delta", delta="Okay, quiet.")
+        grok.push(type="response.function_call_arguments.done", name="vscode_run_command", call_id="x", arguments="{}")
+        grok.push(type="response.done")
+        await _settle()
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+        assert not [x for x in sink.flat() if x.startswith(("owner:tts", "bytes", "emit:agent.answer", "emit:agent.partial", "emit:agent.tool"))]
+        assert "response.cancel" in grok.types()
+        assert not [m for m in grok.sent if (m.get("item") or {}).get("type") == "function_call_output"]
+        await s.close()
+
+    asyncio.run(run())
