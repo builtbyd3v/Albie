@@ -9,7 +9,7 @@ Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
 | Item id (Workspace) | Prefab | What |
 |---|---|---|
 | `cad-viewer` (DeskCenter, Volume) | `Prefabs/CadViewer.prefab` | ForgeVolume variant + `CadViewer`. Size 0.26 x 0.5 x 0.26 m, slow turntable. Its label shows the open design's title. |
-| `cad-params` (Right, Panel) | `Prefabs/CadParamsPanel.prefab` | ForgePanel variant, UI under `Content`. 0.48 x 0.6 m (Workspace doesn't resize custom prefabs); resizable. |
+| `cad-params` (Right, Panel) | `Prefabs/CadParamsPanel.prefab` | ForgePanel variant + `CadParamsPanel`, which builds its UI at runtime under `Content`. 0.48 x 0.6 m (Workspace doesn't resize custom prefabs); resizable (min 0.42 x 0.52). |
 | `cad-drawing` (Left, Panel) | `Prefabs/CadDrawingPanel.prefab` | ForgePanel variant: the version's engineering drawing. 0.64 x 0.54 m. Replaces the `cad-timeline` placeholder (Core: `Workspace.DefaultModes` + `MainSceneBuilder`). |
 
 All of them find or create one shared `CadSession`, so they work wherever they're spawned.
@@ -23,26 +23,59 @@ All of them find or create one shared `CadSession`, so they work wherever they'r
   arrives as ForgeNet's `/ws` events (`cad.model_updated`, `cad.view`, `cad.regen_failed`). `GET /cad/latest` is only
   a fallback when the socket is down. The params for a version come from `GET /cad/params?v=N`.
 - **Mock**: `Assets/_Forge/Mocks/cad/` (a few stored versions of each design). Sliders and presets jump to the stored
-  version closest to what you asked for; the arrows step through them.
+  version closest to what you asked for, after a pretend 0.6 s build (`mockBuildSeconds`, 0 = at once) so the panel's
+  building state shows; if none is closer, a toast says so and the slider snaps back. History goes to any stored version.
+- **Building / failed**: `Building` and `BuildingWhat` from a change's request until its version lands (or fails);
+  `Failure` (the last `cad.regen_failed`, or a refused POST's body) until it's dismissed or a good build arrives;
+  `Notice` for toasts. `GetVersions` (`GET /cad/versions`, or the stored versions with their analyses) and
+  `GoToVersion` (mock: that stored version; hub: its values posted as a change, so it comes back as a new version).
+  The last 16 flights are cached by version (`TryGetFlight`).
 - Hub address: ForgeNet's `hubUrl` (on the Quest, the laptop's LAN IP). One setting for every module.
 - The CAD event payload classes (`CadModelUpdated`, `CadAnalysis`, `CadRegenFailed`, `CadView`) live in
   `Core/Net/ForgeEvents.cs` with the other hub events; `Scripts/CadData.cs` keeps the REST shapes and `CadMetric`.
 
 ## The design panel (`CadParamsPanel`)
 
-Generic over designs; everything comes from the hub:
+Built at runtime under `ForgePanel.Content` (scripts in `Scripts/Panel/`) to `HANDOFF_UI2/cad/CAD_UX_SPEC.md` section 2,
+with states and motion from sections 6 and 7 (boards: `CadPanels.dc.html`, `CadExperience.dc.html`). Generic over
+designs; everything comes from `CadSession`. Board numbers are named constants at the top of each section's class, so a
+layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is switched off.
 
-- Header: the design's title and version, and **Designs** (the library; refreshed each time it opens, so a new part
-  script shows up).
-- Presets row: the design's `PRESETS`.
-- Metrics (`analysis.metrics`): a `CadMetricGauge` for each metric with a min and max (bands, needle, a one-word chip:
-  the rocket's static margin, the drone's prop clearance), and a stats line for the rest, coloured by status.
-- Parameter rows from the design's `PARAMS`, in a scroll view with the stats line (drag the rows or the scrollbar;
-  desktop mode sends no wheel events to uGUI).
-- Undo / Reset / Explode, and the design's demo button (`analysis.demo`: **Fly** for the rocket, **Hover** for the
-  drone, **Run** for the gearbox; hidden for a design with none, disabled if `demo.blocked`, **Stop** while it runs;
-  Undo and Explode pause meanwhile). Versions older than the demo data fall back to Fly for flight designs.
-- **Expand** / **Back to desk**, and **Reassemble** while expanded (lit when parts are off).
+- **Header** (over Core's, no Core change): the design's glyph (`params.glyph`: rocket, drone, gears, box) on the
+  mode tile (Core's "CAD" text hidden), the title as the **Designs** menu (a 360 mm popover of the hub's library,
+  refreshed each time it opens), and the subtitle "v4 · 4 versions · Live" with the hub dot (amber "Offline, stored
+  versions"; pulsing orange "Building v5…").
+- **Tabs**: Overview · Parameters · Analysis · History (segmented, 0.15 s cross-fade).
+- **The verdict, always on top**: on Overview the 218 mm card (the question from the demo kind, `analysis.verdict`'s
+  headline with its status dot and sentence, a half-circle dial for the verdict's metric with band arcs and ticks, and
+  the to-scale instrument: rocket side view with CG / CP, quad top view with prop discs and overlap lenses, gearbox
+  front view with the pinion's rim; `CadInstrument`); on the other tabs the 56 mm strip (tap for Overview); while a demo
+  runs, telemetry (`CadTelemetry`, fed by `CadSession.DemoFrame`: Fly's phase, T+, altitude and speed, the flight curve
+  filling in; Hover's throttle meter, readouts and thrust budget; Run's two dials turning at the shown speed); a red
+  banner over it when a build fails (Undo, Dismiss). Building: the card dims to 42% under "Rebuilding with ..." and a
+  line of light runs along its top.
+- **Overview**: four tiles (rocket: Apogee, Top speed, To apogee, Off the rail from the flight; others: their first
+  four metrics after the verdict's), the demo's note, and Last change (the request, "v1 → v2 · by Bit · 4 min ago",
+  the parameter diffs, effect chips).
+- **Parameters**: presets and Reset all, then the hub's `groups` in order. Rows: label (orange dot once changed),
+  − / + steppers (the hub's `step`, sent 0.4 s after the last tap), a slider whose whole 32 mm track takes the pointer
+  (default tick from `params[].default`, an orange ring at the parent version's value, live value while dragging,
+  sent on release), value / unit / "was". Options and integer ranges of 4 or fewer are segmented pills. Pointing at a
+  row lights it, calls `CadViewer.HighlightParam(name)` and shows its `help` after 0.35 s. Fixed inputs
+  (`analysis.constants`) as info rows. Offline: one quiet line; during a demo the rows dim to 45% and pause.
+- **Analysis**: "On the model" toggles (markers, dimensions, part labels: `CadSession.SetMarkersShown` /
+  `SetMeasuring` / `SetLabelsShown`), a gauge card per ranged metric, the other metrics as stats, the size, the mass
+  breakdown (bar and rows by mass, materials from metadata.json), the rocket's flight profile / the quad's thrust budget
+  / the gearbox's speed and torque, the fixed inputs, the assumptions.
+- **History**: a sparkline of the verdict's metric across versions over its bands, then the versions newest first;
+  tap one to go back (`CadSession.GoToVersion`).
+- **Footer**: Undo · Expand / Back to desk · Explode / Assemble · Fly / Hover / Run (`demo.label`; Stop while running;
+  disabled while building or `demo.blocked`, with the reason above it). Reassemble shows above it while parts are off
+  on the stage. A toast above the footer for the session's notices.
+- Everything is plain uGUI (Buttons, a Slider per row, a ScrollRect), so the mouse (DesktopRig) and Interaction SDK
+  rays and pokes work. Shapes are `CadShape` (vector meshes on Core's PanelSurface material: one material with the
+  ForgeSurfaces, clipped by the scroll view); text is Inter. Built once; refilled only when the data changes (once a
+  frame at most); telemetry numbers go through `CadLiveText` (no allocations).
 
 ## What the viewer does
 
@@ -115,6 +148,7 @@ panel can use either and both stay in sync:
 | `DemoChanged`, `DemoFrame` (`CadDemoFrame`) | `DemoChanged`, `DemoFrame` | started / ended; every frame: phase, time, altitude, speed, progress, playback (×8), readouts |
 | `ShowMeasure(bool)`, `Measuring` | `SetMeasuring(bool)`, `Measuring`, `OverlaysChanged` | dimensions |
 | `ShowMarkers(bool)`, `MarkersShown` | `SetMarkersShown(bool)`, `MarkersShown` | markers and collars |
+| | `SetLabelsShown(bool)`, `LabelsShown` | the part chips while exploded |
 | `HighlightParam(name)`, `ClearParamHighlight()` | | a parameter's parts and dimension |
 
 ## Expand: the model up big (`CadViewer`; "Inspect" in code and the session)
@@ -137,7 +171,8 @@ panel can use either and both stay in sync:
 ## Take it apart (`CadTakeApart`, Inspect only)
 
 On the desk, dragging still turns the whole model (Core's `VolumeManipulator`). On the stage:
-- Point at a part: it gets a blue outline and a card with its name, material and mass (`metadata.json`).
+- Point at a part: it gets a blue outline and a graphite card (the viewer's chip look) with its name, material and
+  mass (`metadata.json`).
 - Grab it (mouse, controller ray, pinching hand ray), carry it, let go: it stays there. It keeps its pose relative to
   the pointer (cad-vision's `CADGrabSession` idea), so a controller or hand turns it by twisting. Mouse: **Shift** +
   drag turns it in place; scroll / thumbstick pushes it away or pulls it in.
@@ -166,7 +201,8 @@ On the desk, dragging still turns the whole model (Core's `VolumeManipulator`). 
 
 Open `CADSandbox.unity` and press Play (hub off = mocks; start the hub for live). Mouse works on the panels and, in
 Inspect, on the parts. Keys (Game view must have focus): P next design, 1-4 stored versions, Left/Right step,
-E explode, U undo, R reset, F the demo (Fly / Hover / Run; again to stop), I expand, M measure, N markers.
+E explode, U undo, R reset, F the demo (Fly / Hover / Run; again to stop), X a failed build (mock: the banner),
+I expand, M measure, N markers.
 (I, M and N are CadViewer's own keys, so they work in desktop mode too.)
 
 Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox).

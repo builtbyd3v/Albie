@@ -476,7 +476,7 @@ public class CadViewer : MonoBehaviour
         {
             markers = showMarkers && MarkersShown && together,
             measure = Measuring && together && !player.Running,
-            names = exploder.Exploded,
+            names = exploder.Exploded && (session == null || session.LabelsShown),
             stage = onStage && stageSettled,
             demo = player.Kind,
             cgCollar = cgRing.gameObject.activeSelf ? cgRing : null,

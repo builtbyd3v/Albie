@@ -22,6 +22,8 @@ public class CadSession : MonoBehaviour
     [Tooltip("Auto: follow ForgeNet (hub live = hub, no hub = mocks; switches to the hub when it appears).")]
     public Mode mode = Mode.Auto;
     public CadMockSet mocks;
+    [Tooltip("Mock mode: a change takes this long to 'build' (s), so the panel shows its building state. 0: at once.")]
+    public float mockBuildSeconds = 0.6f;
 
     public static CadSession Instance { get; private set; }
 
@@ -45,6 +47,19 @@ public class CadSession : MonoBehaviour
     public event Action<string> StatusChanged;
     public event Action<CadFlight> FlightReady;
 
+    /// <summary>A new version is being built: hub, from the POST until it arrives (or fails); mock, the pretend build.</summary>
+    public bool Building { get; private set; }
+    /// <summary>What's being built, in words, for the panel's "Rebuilding with ..." ("Fin count 4", a preset's name).</summary>
+    public string BuildingWhat { get; private set; }
+    public event Action BuildingChanged;
+    /// <summary>The last build that failed (cad.regen_failed), until it's dismissed or a good build arrives.</summary>
+    public CadRegenFailed Failure { get; private set; }
+    public event Action FailureChanged;
+    /// <summary>A short note for a toast: a mock with nothing closer, a request the hub refused.</summary>
+    public event Action<string> Notice;
+    /// <summary>Mock mode: Undo has somewhere to go back to.</summary>
+    public bool MockCanUndo => IsMock && mockHistory.Count > 1;
+
     /// <summary>The model is up in the big Inspect view (view only: the hub doesn't know about it).</summary>
     public bool Inspecting { get; private set; }
     /// <summary>Parts taken off the model in the Inspect view.</summary>
@@ -58,7 +73,9 @@ public class CadSession : MonoBehaviour
     public bool Measuring { get; private set; }
     /// <summary>Marker beads shown (analysis.markers: CG, CP, thrust, input, output...) and the rocket's CG / CP collars.</summary>
     public bool MarkersShown { get; private set; } = true;
-    public event Action OverlaysChanged;  // Measuring or MarkersShown changed
+    /// <summary>The part chips shown while exploded.</summary>
+    public bool LabelsShown { get; private set; } = true;
+    public event Action OverlaysChanged;  // Measuring, MarkersShown or LabelsShown changed
     /// <summary>The design's demo (Fly / Hover / Run) is running, or getting ready to (CadViewer sets it).</summary>
     public bool DemoRunning { get; private set; }
     public event Action<bool> DemoRequested;     // a panel asks the viewer to start (true) or stop (false) the demo
@@ -66,9 +83,13 @@ public class CadSession : MonoBehaviour
     public event Action<CadDemoFrame> DemoFrame; // every frame while a demo runs: phase and live readouts
 
     int mockPart = -1, mockIndex = -1;
-    CadFlight cachedFlight;
-    int cachedFlightVersion = -1;
+    readonly Dictionary<int, CadFlight> flights = new Dictionary<int, CadFlight>();  // by version, the last few
+    readonly Dictionary<int, List<Action<CadFlight>>> flightWaiters = new Dictionary<int, List<Action<CadFlight>>>();
     readonly List<int> mockHistory = new List<int>();
+    List<CadVersion> mockVersionList;  // the open mock design's stored versions, parsed once
+    int mockVersionPart = -1;
+    Coroutine mockBuild;
+    float buildStarted;
     bool fetching;
     CadModelUpdated pending;  // newest version announced while a fetch was running
 
@@ -135,7 +156,10 @@ public class CadSession : MonoBehaviour
     void StartHub()
     {
         IsMock = false;
-        cachedFlight = null;  // the hub's versions may not be the mocks' copies
+        flights.Clear();  // the hub's versions may not be the mocks' copies
+        if (mockBuild != null) StopCoroutine(mockBuild);
+        mockBuild = null;
+        EndBuild();
         SetStatus(HubLabel);
         RefreshParts();
         // The hub replays the current model to every client that connects, so ForgeNet usually has it already.
@@ -146,9 +170,11 @@ public class CadSession : MonoBehaviour
 
     // Commands (the same ones Bit's tools call on the hub)
 
-    public void SetParams(Dictionary<string, object> changes)
+    /// <param name="what">The change in words for the panel's building state ("Fin count 4"); optional.</param>
+    public void SetParams(Dictionary<string, object> changes, string what = null)
     {
-        if (IsMock) { ShowMockVersion(NearestMock(changes)); return; }
+        if (IsMock) { MockChange(NearestMock(changes), what); return; }
+        BeginBuild(what);
         SetStatus("Regenerating...");
         StartCoroutine(Post("/cad/params", JsonConvert.SerializeObject(changes)));
     }
@@ -156,9 +182,72 @@ public class CadSession : MonoBehaviour
     public void ApplyPreset(CadPreset preset)
     {
         if (preset == null) return;
-        if (IsMock) { ShowMockVersion(NearestMock(preset.parameters)); return; }
+        if (IsMock) { MockChange(NearestMock(preset.parameters), preset.name); return; }
+        BeginBuild(preset.name);
         SetStatus($"Applying {preset.name}...");
         StartCoroutine(Post("/cad/preset", JsonConvert.SerializeObject(new { name = preset.name })));
+    }
+
+    /// <summary>
+    /// Back to an earlier version (the panel's History). Mock: that stored version, like Undo. Hub: its values sent as
+    /// a change, so it comes back as a new version on top (the hub has no "check out vN"; Undo still steps back).
+    /// </summary>
+    public void GoToVersion(CadVersion v)
+    {
+        if (v == null) return;
+        if (IsMock)
+        {
+            if (mockPart < 0) return;
+            for (int i = 0; i < MockVersions.Count; i++)
+                if (MockEnvelope(i).version == v.version) { ShowMockVersion(i); return; }
+            return;
+        }
+        if (v.parameters == null || v.parameters.Count == 0) return;
+        BeginBuild("v" + v.version + "'s values");
+        SetStatus("Regenerating...");
+        StartCoroutine(Post("/cad/params", JsonConvert.SerializeObject(v.parameters)));
+    }
+
+    /// <summary>
+    /// The open design's versions, newest first: GET /cad/versions, or its stored versions in mock mode (each with its
+    /// analysis). Null if the hub didn't answer.
+    /// </summary>
+    public void GetVersions(Action<List<CadVersion>> done)
+    {
+        if (IsMock)
+        {
+            done(MockVersionList());
+            return;
+        }
+        StartCoroutine(GetText("/cad/versions", text =>
+        {
+            List<CadVersion> list = null;
+            if (text != null)
+            {
+                try { list = JsonConvert.DeserializeObject<List<CadVersion>>(text); }
+                catch (JsonException e) { Debug.LogWarning($"[CadSession] /cad/versions: {e.Message}"); }
+            }
+            list?.Sort((a, b) => b.version.CompareTo(a.version));
+            done(list);
+        }));
+    }
+
+    /// <summary>Clear the failed-build banner.</summary>
+    public void DismissFailure()
+    {
+        if (Failure == null) return;
+        Failure = null;
+        FailureChanged?.Invoke();
+    }
+
+    /// <summary>Mock mode (sandbox key X): pretend the next build failed, with the mock's cad.regen_failed.</summary>
+    public void MockFailure()
+    {
+        if (!IsMock || mocks == null || mocks.regenFailed == null || Latest == null) return;
+        var f = JsonConvert.DeserializeObject<CadEnvelope<CadRegenFailed>>(mocks.regenFailed.text).payload;
+        if (f == null) return;
+        f.keptVersion = Latest.info.version;
+        Fail(f);
     }
 
     /// <summary>Open another design from the library (its latest version comes back as a model update).</summary>
@@ -198,15 +287,20 @@ public class CadSession : MonoBehaviour
     public void Undo()
     {
         if (!IsMock) { StartCoroutine(Post("/cad/undo", "{}")); return; }
-        if (mockHistory.Count < 2) { SetStatus("Nothing to undo."); return; }
+        if (mockHistory.Count < 2) { SetStatus("Nothing to undo."); Notice?.Invoke("Nothing to undo."); return; }
         mockHistory.RemoveAt(mockHistory.Count - 1);
         ShowMock(mockHistory[mockHistory.Count - 1], record: false);
     }
 
     public void ResetDesign()
     {
-        if (IsMock) ShowMockVersion(0);
-        else StartCoroutine(Post("/cad/reset", "{}"));
+        if (IsMock)
+        {
+            MockChange(0, "the defaults");
+            return;
+        }
+        BeginBuild("the defaults");
+        StartCoroutine(Post("/cad/reset", "{}"));
     }
 
     public void SetView(bool explode, string focusId)
@@ -248,6 +342,13 @@ public class CadSession : MonoBehaviour
         OverlaysChanged?.Invoke();
     }
 
+    public void SetLabelsShown(bool on)
+    {
+        if (on == LabelsShown) return;
+        LabelsShown = on;
+        OverlaysChanged?.Invoke();
+    }
+
     /// <summary>Start (true) or stop (false) the design's demo: Fly, Hover or Run (CadViewer runs it).</summary>
     public void RequestDemo(bool run) => DemoRequested?.Invoke(run);
 
@@ -280,16 +381,25 @@ public class CadSession : MonoBehaviour
         }, timeout: 60));
     }
 
+    /// <summary>A version's flight if it has been fetched already (<see cref="GetFlight"/>).</summary>
+    public bool TryGetFlight(int version, out CadFlight flight) => flights.TryGetValue(version, out flight);
+
     /// <summary>
-    /// A version's flight, for the launch demo: GET <paramref name="source"/>?v=N (the hub runs its sim on the first
-    /// ask, a few seconds, then caches it) or the mock's stored flight.json. Null if there's none or it failed. Also
-    /// raises FlightReady (the panel's apogee). The last one is kept, so flying the same version again is instant.
+    /// A version's flight, for the launch demo and the panel: GET <paramref name="source"/>?v=N (the hub runs its sim on
+    /// the first ask, a few seconds, then caches it) or the mock's stored flight.json. Null if there's none or it failed.
+    /// Also raises FlightReady. The last few are kept, so flying (or showing) the same version again is instant, and a
+    /// second ask while one is on its way waits for it.
     /// </summary>
     public void GetFlight(int version, string source, Action<CadFlight> done)
     {
-        if (cachedFlight != null && cachedFlightVersion == version)
+        if (flights.TryGetValue(version, out var known))
         {
-            done(cachedFlight);
+            done(known);
+            return;
+        }
+        if (flightWaiters.TryGetValue(version, out var waiting))
+        {
+            waiting.Add(done);
             return;
         }
         if (IsMock)
@@ -307,6 +417,7 @@ public class CadSession : MonoBehaviour
         string path = string.IsNullOrEmpty(source) ? "/cad/flight" : source;
         path += (path.IndexOf('?') >= 0 ? "&v=" : "?v=") + version;
         SetStatus("Simulating the flight...");
+        flightWaiters[version] = new List<Action<CadFlight>>();
         StartCoroutine(GetText(path, text =>
         {
             CadFlight flight = null;
@@ -324,11 +435,16 @@ public class CadSession : MonoBehaviour
     {
         if (flight != null)
         {
-            cachedFlight = flight;
-            cachedFlightVersion = version;
+            if (flights.Count >= 16) flights.Clear();
+            flights[version] = flight;
             FlightReady?.Invoke(flight);
         }
         done(flight);
+        if (flightWaiters.TryGetValue(version, out var waiting))
+        {
+            flightWaiters.Remove(version);
+            foreach (var w in waiting) w(flight);
+        }
     }
 
     /// <summary>The stored mock version with this version number (mock labels end in /vN), or null.</summary>
@@ -402,6 +518,7 @@ public class CadSession : MonoBehaviour
     {
         if (IsMock || failure == null) return;
         SetStatus(failure.errorLine.HasValue ? $"{failure.error} (part script line {failure.errorLine})" : failure.error);
+        Fail(failure);
         ParamsChanged?.Invoke();  // snap the sliders back to the version that's still up
     }
 
@@ -461,6 +578,7 @@ public class CadSession : MonoBehaviour
     IEnumerator Post(string path, string json, bool refresh = true)
     {
         string error = null;
+        CadRegenFailed failure = null;
         using (var req = new UnityWebRequest(ForgeNet.Url(path), "POST"))
         {
             req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
@@ -468,11 +586,21 @@ public class CadSession : MonoBehaviour
             req.SetRequestHeader("Content-Type", "application/json");
             req.timeout = 30;
             yield return req.SendWebRequest();
-            if (req.result != UnityWebRequest.Result.Success) error = ErrorText(req);
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                error = ErrorText(req);
+                failure = FailureOf(req);
+            }
         }
         if (error != null)
         {
             SetStatus(error);
+            if (failure != null) Fail(failure);  // a build that failed (cad.regen_failed brings the same)
+            else
+            {
+                EndBuild();
+                Notice?.Invoke(error);
+            }
             ParamsChanged?.Invoke();  // snap the sliders back to the version that's still up
             yield break;
         }
@@ -500,6 +628,13 @@ public class CadSession : MonoBehaviour
         }
     }
 
+    /// <summary>The cad.regen_failed body of a refused build (500 / 422 with a detail object), else null.</summary>
+    static CadRegenFailed FailureOf(UnityWebRequest req)
+    {
+        try { return (JObject.Parse(req.downloadHandler.text)["detail"] as JObject)?.ToObject<CadRegenFailed>(); }
+        catch (JsonException) { return null; }
+    }
+
     static string ErrorText(UnityWebRequest req)
     {
         try
@@ -520,6 +655,10 @@ public class CadSession : MonoBehaviour
 
     void ShowMockPart(int part)
     {
+        if (mockBuild != null) StopCoroutine(mockBuild);
+        mockBuild = null;
+        EndBuild();
+        DismissFailure();
         mockPart = part;
         mockIndex = -1;
         mockHistory.Clear();
@@ -560,6 +699,67 @@ public class CadSession : MonoBehaviour
         JObject.Parse(MockVersions[index].metadata.text)["objects"].Select(o => (string)o["id"]));
 
     /// <summary>
+    /// Mock mode's answer to a change: after the pretend build (<see cref="mockBuildSeconds"/>), the stored version
+    /// <paramref name="index"/>; if that's the one already up, a toast and the sliders snap back at once.
+    /// </summary>
+    void MockChange(int index, string what)
+    {
+        if (mockBuild != null) StopCoroutine(mockBuild);
+        mockBuild = null;
+        if (index == mockIndex || mockBuildSeconds <= 0f)
+        {
+            EndBuild();
+            ShowMockChange(index);
+            return;
+        }
+        mockBuild = StartCoroutine(MockBuild(index, what));
+    }
+
+    IEnumerator MockBuild(int index, string what)
+    {
+        BeginBuild(what);
+        yield return new WaitForSeconds(mockBuildSeconds);
+        mockBuild = null;
+        EndBuild();
+        ShowMockChange(index);
+    }
+
+    void ShowMockChange(int index)
+    {
+        if (index != mockIndex)
+        {
+            ShowMockVersion(index);
+            return;
+        }
+        SetStatus("Mock mode: no stored design is closer; showing the current one.");
+        Notice?.Invoke($"This mock has {MockVersions.Count} stored versions: v{MockEnvelope(mockIndex).version} is still the nearest.");
+        ParamsChanged?.Invoke();  // snap the sliders back
+    }
+
+    /// <summary>The open mock design's stored versions, newest first (parsed once per design), head marked.</summary>
+    List<CadVersion> MockVersionList()
+    {
+        if (mockPart < 0) return new List<CadVersion>();
+        if (mockVersionList == null || mockVersionPart != mockPart)
+        {
+            mockVersionList = new List<CadVersion>();
+            mockVersionPart = mockPart;
+            for (int i = MockVersions.Count - 1; i >= 0; i--)
+            {
+                var e = MockEnvelope(i);
+                mockVersionList.Add(new CadVersion
+                {
+                    version = e.version, parent = e.previousVersion, source = e.source, parameters = e.parameters,
+                    label = e.label, primary = CadPrimary.Of(e.analysis), analysis = e.analysis,
+                });
+            }
+        }
+        int current = mockIndex >= 0 ? MockVersions.Count - 1 - mockIndex : -1;
+        for (int i = 0; i < mockVersionList.Count; i++) mockVersionList[i].head = i == current;
+        return new List<CadVersion>(mockVersionList);
+    }
+
+    /// <summary>
     /// The stored design that best has what was asked for: closest on the changed parameters first,
     /// then closest to the current design on the rest.
     /// </summary>
@@ -583,7 +783,6 @@ public class CadSession : MonoBehaviour
             }
             if (score < bestScore - 1e-9) { bestScore = score; best = i; }
         }
-        if (best == mockIndex) { SetStatus("Mock mode: no stored design is closer; showing the current one."); ParamsChanged?.Invoke(); }
         return best;
     }
 
@@ -597,8 +796,44 @@ public class CadSession : MonoBehaviour
         PartsChanged?.Invoke();
     }
 
+    // Building: from a change's request until its version arrives or fails.
+
+    void BeginBuild(string what)
+    {
+        BuildingWhat = string.IsNullOrEmpty(what) ? "your change" : what;
+        buildStarted = Time.unscaledTime;
+        Building = true;
+        BuildingChanged?.Invoke();
+    }
+
+    void EndBuild()
+    {
+        if (!Building) return;
+        Building = false;
+        BuildingChanged?.Invoke();
+    }
+
+    void Fail(CadRegenFailed failure)
+    {
+        EndBuild();
+        Failure = failure;
+        FailureChanged?.Invoke();
+    }
+
+    void Update()
+    {
+        // A build whose answer never came (the socket dropped mid-build): stop saying so after a while.
+        if (Building && !IsMock && Time.unscaledTime - buildStarted > 45f) EndBuild();
+    }
+
     void Publish(CadUpdate update)
     {
+        EndBuild();
+        if (Failure != null)
+        {
+            Failure = null;  // a good build clears the banner
+            FailureChanged?.Invoke();
+        }
         Latest = update;
         ModelChanged?.Invoke(update);
         ParamsChanged?.Invoke();

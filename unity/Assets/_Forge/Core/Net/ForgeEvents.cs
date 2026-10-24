@@ -72,6 +72,28 @@ public class CadAnalysis
     [JsonProperty("explode")] public CadExplode explode;
     [JsonProperty("mass_breakdown")] public List<CadMassItem> massBreakdown;
     [JsonProperty("demo")] public CadDemo demo;
+
+    // Round 4, part 2: the design panel's verdict and its fixed inputs (null / empty before then).
+    [JsonProperty("verdict")] public CadVerdict verdict;
+    [JsonProperty("constants")] public List<CadConstant> constants;
+    [JsonProperty("assumptions")] public List<string> assumptions;  // what the analysis assumes (rocket: Barrowman, ...)
+}
+
+/// <summary>The panel's answer for this version, from its metrics ("Unstable", "Likely to tumble. 0.84 cal ...").</summary>
+public class CadVerdict
+{
+    [JsonProperty("status")] public string status;            // ok | warn | bad
+    [JsonProperty("headline")] public string headline;
+    [JsonProperty("sentence")] public string sentence;
+    [JsonProperty("metric")] public string metric;            // the metric id it's about (the dial)
+}
+
+/// <summary>A fixed input that isn't a parameter (the rocket's motor, the gearbox's input motor): an info row.</summary>
+public class CadConstant
+{
+    [JsonProperty("label")] public string label;
+    [JsonProperty("value")] public string value;
+    [JsonProperty("note")] public string note;
 }
 
 /// <summary>A point to mark on the model: "cg" on every design, plus the design's own (cp, thrust, input, output...).</summary>
@@ -166,6 +188,7 @@ public class CadModelUpdated
     [JsonProperty("removed_ids")] public List<string> removedIds = new List<string>();
     [JsonProperty("source")] public string source;            // api | pet | preset | script | undo | reset | open | startup
     [JsonProperty("analysis")] public CadAnalysis analysis;
+    [JsonProperty("label")] public string label;              // the version in words: Bit's request, a preset, the change
 }
 
 public class CadRegenFailed

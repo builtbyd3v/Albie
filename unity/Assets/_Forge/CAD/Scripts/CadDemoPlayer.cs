@@ -633,6 +633,7 @@ public sealed class CadDemoPlayer
         frame.speedMps = spd;
         frame.progress = Mathf.Clamp01(t / Mathf.Max(tLand, 1e-3f));
         frame.playback = playback;
+        frame.countdownS = counting ? Countdown - tau : 0f;
         DrawLaunch(tau, t, counting, flying, playback, alt, spd, eye, dt);
     }
 

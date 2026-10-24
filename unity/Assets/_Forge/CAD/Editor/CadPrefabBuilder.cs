@@ -17,7 +17,7 @@ using UnityEngine.UI;
 /// - Mocks/cad/CadMocks.asset from Mocks/cad/parts.json + Mocks/cad/&lt;part&gt;/vN/ (refresh those with
 ///   hub: python -m cad.make_mocks, then copy; see the CAD README)
 /// - CadViewer.prefab: ForgeVolume variant + CadViewer (the open design on the desk, slot cad-viewer)
-/// - CadParamsPanel.prefab: ForgePanel variant, UI under Content (slot cad-params), for any design
+/// - CadParamsPanel.prefab: ForgePanel variant + CadParamsPanel, which builds its UI at runtime (slot cad-params)
 /// - CadDrawingPanel.prefab: ForgePanel variant, the version's engineering drawing (slot cad-drawing)
 /// - CADSandbox.unity: the prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
 /// Builds in an additive scratch scene, so whatever scene is open is left alone. GUIDs are kept on rebuild.
@@ -37,7 +37,6 @@ public static class CadPrefabBuilder
     static readonly Color RowBackground = new Color(1f, 1f, 1f, 0.05f);
     static readonly Color ButtonColor = new Color(0.16f, 0.45f, 0.85f, 0.95f);
     static readonly Color Muted = new Color(1f, 1f, 1f, 0.6f);
-    static readonly Color PresetColor = new Color(1f, 1f, 1f, 0.12f);
 
     [MenuItem("Forge/CAD/Build CAD Prefabs and Sandbox")]
     public static void BuildAll()
@@ -158,93 +157,13 @@ public static class CadPrefabBuilder
         panel.Title = "Design";
         panel.SizeMeters = new Vector2(0.48f, 0.6f);  // taller pokes through the wall in desktop mode's corner desk
         if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
-        var content = panel.Content;
-        var placeholder = content.Find("Placeholder");
+        var placeholder = panel.Content.Find("Placeholder");
         if (placeholder != null) placeholder.gameObject.SetActive(false);
 
-        var ui = NewRect("CadUI", content);
-        Stretch(ui, 0f, 0f, 0f, 0f);
-        var column = ui.gameObject.AddComponent<VerticalLayoutGroup>();
-        column.spacing = 8f;
-        column.childControlWidth = column.childControlHeight = true;
-        column.childForceExpandWidth = true;
-        column.childForceExpandHeight = false;
-
-        // Header: "Model rocket v3" + the Designs menu button
-        var headerRow = Row("Header", ui, 40f);
-        headerRow.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var header = NewText("Title", headerRow, "Design", 24f, TextAlignmentOptions.MidlineLeft);
-        header.fontStyle = FontStyles.Bold;
-        header.textWrappingMode = TextWrappingModes.NoWrap;
-        header.overflowMode = TextOverflowModes.Ellipsis;
-        Flexible(header.gameObject);
-        var designs = NewButton("Designs", headerRow, "Designs", 120f);
-
-        // Presets: one button each, built at runtime
-        var presets = Row("Presets", ui, 32f);
-        presets.GetComponent<HorizontalLayoutGroup>().spacing = 6f;
-        presets.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = true;
-        var presetTemplate = NewButton("PresetTemplate", presets, "Preset", -1f);
-        Flexible(presetTemplate.gameObject, 32f);
-        presetTemplate.GetComponent<Image>().color = PresetColor;
-        var presetLabel = presetTemplate.GetComponentInChildren<TMP_Text>();
-        presetLabel.fontStyle = FontStyles.Normal;
-        presetLabel.textWrappingMode = TextWrappingModes.NoWrap;
-        presetLabel.enableAutoSizing = true;  // long names shrink to fit their button instead of wrapping
-        presetLabel.fontSizeMin = 10f;
-        presetLabel.fontSizeMax = 15f;
-        Stretch(presetLabel.rectTransform, 4f, 0f, 4f, 0f);
-        presetTemplate.gameObject.SetActive(false);
-
-        // Metrics: gauges for the ones with a range, then a wrapping stats line
-        var gauges = NewRect("Gauges", ui);
-        var gaugeLayout = gauges.gameObject.AddComponent<VerticalLayoutGroup>();
-        gaugeLayout.spacing = 6f;
-        gaugeLayout.childControlWidth = gaugeLayout.childControlHeight = true;
-        gaugeLayout.childForceExpandWidth = true;
-        gaugeLayout.childForceExpandHeight = false;
-        var gaugeTemplate = BuildGaugeTemplate(gauges);
-
-        // The stats line and the parameter rows (built at runtime from GET /cad/params) scroll together, so a
-        // panel resized small still fits everything.
-        var scroll = BuildScroll(ui, out var rows);
-        var stats = NewText("Stats", rows, "", 16f, TextAlignmentOptions.TopLeft);
-        stats.textWrappingMode = TextWrappingModes.Normal;
-        var rowTemplate = BuildRowTemplate(rows);
-
-        // Buttons
-        var buttons = Row("Buttons", ui, 48f);
-        buttons.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var prev = NewButton("Prev", buttons, "<", 44f);
-        var undo = NewButton("Undo", buttons, "Undo", -1f);
-        var reset = NewButton("Reset", buttons, "Reset", -1f);
-        var explode = NewButton("Explode", buttons, "Explode", -1f);
-        var fly = NewButton("Fly", buttons, "Fly", -1f);
-        var next = NewButton("Next", buttons, ">", 44f);
-
-        // The big view: Inspect / Back to desk, and Reassemble while it's up
-        var view = Row("View", ui, 48f);
-        view.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var inspect = NewButton("Inspect", view, "Inspect", -1f);
-        var reassemble = NewButton("Reassemble", view, "Reassemble", -1f);
-
-        var status = NewText("Status", ui, "", 15f, TextAlignmentOptions.TopLeft);
-        status.color = Muted;
-        status.textWrappingMode = TextWrappingModes.Normal;
-        status.overflowMode = TextOverflowModes.Ellipsis;
-        Fixed(status.gameObject, -1f, 38f);
-
-        var picker = BuildPicker(ui, out var pickerEntry);
-
+        // CadParamsPanel builds its UI at runtime under Content (CAD UX spec section 2: header, tabs, verdict, tabs'
+        // content, footer), so the prefab is the panel and the component.
         var component = go.AddComponent<CadParamsPanel>();
         component.mocks = mocks;
-        SetRefs(component, ("header", header), ("designsButton", designs), ("picker", picker),
-            ("pickerEntry", pickerEntry), ("presetRow", presets), ("presetTemplate", presetTemplate),
-            ("gauges", gauges), ("gaugeTemplate", gaugeTemplate), ("stats", stats), ("scroll", scroll),
-            ("rows", rows), ("rowTemplate", rowTemplate), ("undoButton", undo), ("resetButton", reset),
-            ("explodeButton", explode), ("flyButton", fly), ("prevButton", prev), ("nextButton", next),
-            ("explodeLabel", explode.GetComponentInChildren<TMP_Text>()), ("inspectButton", inspect),
-            ("reassembleButton", reassemble), ("inspectLabel", inspect.GetComponentInChildren<TMP_Text>()), ("status", status));
         PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);

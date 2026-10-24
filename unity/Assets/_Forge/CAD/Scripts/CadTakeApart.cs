@@ -1,15 +1,14 @@
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
-using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 
 /// <summary>
 /// Take the model apart in the Inspect view (CadViewer's stage; on the desk, dragging still turns the whole model).
 /// Point at a part and it lights up; grab it with the mouse or a controller / hand ray, pull it off, turn it and let
 /// go: it stays there. Let go near its place and it snaps back; Reassemble (the panel) puts everything back.
-/// A card next to the part shows its name, material and mass. View only: the design version never changes.
+/// A card next to the part shows its name, material and mass: a graphite chip like the viewer's labels (CadLabel), sized
+/// to read the same at any distance. View only: the design version never changes.
 /// Mouse: drag to carry, Shift + drag to turn, scroll to push it away / pull it in. Rays: the part follows the
 /// controller or hand (twist to turn it), thumbstick to push / pull.
 /// A held part keeps its pose relative to the pointer (the idea of cad-vision's CADGrabSession, MIT).
@@ -58,8 +57,8 @@ public class CadTakeApart : MonoBehaviour
     Vector3 grabLocal;               // the grabbed point on the part
     bool turning;
     Vector3 turnDirection;
-    RectTransform card;
-    TMP_Text cardText;
+    CadLabel card;       // made on first use (it holds a MaterialPropertyBlock: not in a field initializer)
+    CadChips cardChip;
 
     void Awake()
     {
@@ -80,7 +79,8 @@ public class CadTakeApart : MonoBehaviour
 
     void OnDestroy()
     {
-        if (card != null) Destroy(card.gameObject);
+        card?.Destroy();
+        cardChip?.Destroy();
     }
 
     /// <summary>Give the model's parts grab shapes (CadViewer: the model went up on the stage, or a new version arrived there).</summary>
@@ -349,17 +349,26 @@ public class CadTakeApart : MonoBehaviour
     {
         if (p == null || p.transform == null || model == null)
         {
-            if (card != null && card.gameObject.activeSelf) card.gameObject.SetActive(false);
+            if (card != null && card.Alpha > 0f)
+            {
+                card.Hide();
+                cardChip.Hide();
+            }
             carded = null;
             return;
         }
-        if (card == null) BuildCard();
-        if (!card.gameObject.activeSelf) card.gameObject.SetActive(true);
-        if (p != carded || holding != cardHolding)
+        if (card == null)
+        {
+            card = new CadLabel(transform, "CadPartCard", CadLabel.Style.Read);
+            card.SetAnchor(1);  // the chip reads rightward from its point
+            cardChip = new CadChips("CadPartCardChip", transform);
+        }
+        bool moved = p != carded;
+        if (moved || holding != cardHolding)
         {
             carded = p;
             cardHolding = holding;
-            cardText.text = CardText(p, holding);
+            card.SetRaw(CardText(p, holding));
         }
         var head = Head;
         Vector3 centre = p.transform.TransformPoint(p.centre);
@@ -367,8 +376,12 @@ public class CadTakeApart : MonoBehaviour
         Vector3 right = Vector3.Cross(Vector3.up, toPart).normalized;
         Vector3 extents = p.handle != null ? p.handle.Shape.bounds.extents : Vector3.one * 0.03f;
         float side = Mathf.Abs(extents.x * right.x) + Mathf.Abs(extents.z * right.z);  // the part's half-width seen from here
-        Vector3 at = centre + right * (side + card.sizeDelta.x * 0.0005f + 0.02f) - toPart.normalized * 0.04f;
-        card.SetPositionAndRotation(at, Quaternion.LookRotation(at - head.position, Vector3.up));
+        Vector3 at = centre + right * (side + 0.02f) - toPart.normalized * 0.04f;
+        card.MoveTo(at, head.position, Time.deltaTime);
+        card.SetAlpha(1f);
+        cardChip.Begin();
+        card.Draw(cardChip);
+        cardChip.End();
     }
 
     string CardText(Piece p, bool holding)
@@ -380,48 +393,12 @@ public class CadTakeApart : MonoBehaviour
         if (kg.HasValue) facts += (facts.Length > 0 ? " · " : "") + (kg.Value < 1.0 ? $"{kg.Value * 1000.0:0.#} g" : $"{kg.Value:0.##} kg");
         string hint = holding ? (pointer != null && pointer.IsMouse ? MouseHint : RayHint) + "\nlet go near its place to put it back"
                     : p.off ? "grab to move it" : "grab to take it off";
-        return $"<b>{name}</b>\n{facts}\n<size=72%><alpha=#99>{hint}";
+        return "<b>" + name + "</b>" + (facts.Length > 0 ? "\n<size=82%><alpha=#B8>" + facts : "") + "\n<size=72%><alpha=#8C>" + hint;
     }
 
     static string Pretty(string id)
     {
         string s = id.Replace('_', ' ');
         return s.Length > 0 ? char.ToUpperInvariant(s[0]) + s.Substring(1) : s;
-    }
-
-    void BuildCard()
-    {
-        var go = new GameObject("CadPartCard", typeof(RectTransform), typeof(Canvas));
-        go.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
-        card = (RectTransform)go.transform;
-        card.sizeDelta = new Vector2(230f, 96f);  // 1 unit = 1 mm, as on ForgePanel
-        card.localScale = Vector3.one * 0.001f;
-
-        var background = new GameObject("Background", typeof(RectTransform), typeof(Image), typeof(Outline));
-        var rt = (RectTransform)background.transform;
-        rt.SetParent(card, false);
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = rt.offsetMax = Vector2.zero;
-        var image = background.GetComponent<Image>();
-        image.color = new Color(0.11f, 0.12f, 0.15f, 1f);  // opaque: Outline draws white copies underneath
-        image.raycastTarget = false;
-        var edge = background.GetComponent<Outline>();
-        edge.effectColor = new Color(1f, 1f, 1f, 0.55f);
-        edge.effectDistance = new Vector2(1.5f, -1.5f);
-
-        var text = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
-        rt = (RectTransform)text.transform;
-        rt.SetParent(card, false);
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(12f, 8f);
-        rt.offsetMax = new Vector2(-12f, -8f);
-        cardText = text.GetComponent<TextMeshProUGUI>();
-        cardText.fontSize = 17f;
-        cardText.color = Color.white;
-        cardText.alignment = TextAlignmentOptions.TopLeft;
-        cardText.textWrappingMode = TextWrappingModes.Normal;
-        cardText.raycastTarget = false;
     }
 }
