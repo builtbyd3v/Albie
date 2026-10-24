@@ -94,6 +94,7 @@ DELEGATE_TOOL = {
         "required": ["task"],
     },
 }
+NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
 
 
@@ -138,6 +139,7 @@ class _Base:
         self._partial = ""
         self._final_sent = True  # no turn open yet
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
+        self._turn_seq = 0
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -151,6 +153,7 @@ class _Base:
         )
 
     def _open_turn(self) -> None:
+        self._turn_seq += 1
         self._partial = ""
         self._final_sent = False
         self._committed = False
@@ -301,6 +304,18 @@ class GrokVoiceSession(_Base):
         await self._send({"type": "input_audio_buffer.commit"})
         await self._request_response()
         await self._emit(ev.thinking(self.pet_id))
+        guard = asyncio.create_task(self._no_reply_guard(self._turn_seq))
+        self._jobs.add(guard)
+        guard.add_done_callback(self._jobs.discard)
+
+    async def _no_reply_guard(self, seq: int) -> None:
+        """Grok drops a turn it hears no speech in (noise, a bump): no transcript, no response, no error.
+        Without this the turn never ends and Unity stays in Thinking, not listening."""
+        await asyncio.sleep(NO_REPLY_S)
+        if seq == self._turn_seq and not self._final_sent and not self._response_active:
+            log.info("grok sent nothing for %.0f s after commit: empty turn", NO_REPLY_S)
+            self._response_requested = False
+            await self._final("")
 
     async def cancel_turn(self) -> None:
         self._cancelled = True
