@@ -63,8 +63,17 @@ public class Workspace : MonoBehaviour
 
     void Reset() => modes = DefaultModes();
 
-    void OnEnable() => presence.stateChanged.AddListener(OnDeskState);
-    void OnDisable() => presence.stateChanged.RemoveListener(OnDeskState);
+    void OnEnable()
+    {
+        presence.stateChanged.AddListener(OnDeskState);
+        presence.frameChanged.AddListener(OnFrameChanged);
+    }
+
+    void OnDisable()
+    {
+        presence.stateChanged.RemoveListener(OnDeskState);
+        presence.frameChanged.RemoveListener(OnFrameChanged);
+    }
 
     void Start()
     {
@@ -83,6 +92,12 @@ public class Workspace : MonoBehaviour
         {
             dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
         }
+    }
+
+    // The user went round to another side of the desk: move the dock to the edge they're at.
+    void OnFrameChanged()
+    {
+        if (dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
     }
 
     public void Toggle(string modeId)
@@ -111,6 +126,7 @@ public class Workspace : MonoBehaviour
             openItems.Add(Unfold(mode.items[i], eye, i * 0.08f));
 
         ActiveMode = modeId;
+        presence.lockFrame = true;
         dock.SetActiveMode(modeId);
         modeChanged?.Invoke(modeId);
         Debug.Log($"[Workspace] Opened {modeId}: {mode.items.Count} item(s).");
@@ -121,6 +137,7 @@ public class Workspace : MonoBehaviour
         if (ActiveMode == null) return;
         FoldAll();
         ActiveMode = null;
+        presence.lockFrame = false;
         dock.SetActiveMode(null);
         modeChanged?.Invoke(null);
     }

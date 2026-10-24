@@ -249,6 +249,13 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - Mode switch: ML mode / CAD mode.
 - Performance: Quest at 72 fps. GPU instancing for repeated meshes, 2048 max textures, no allocations in `Update`.
 
+**Core ideas backlog (from the first simulator run, 2026-10-23):**
+- Move and resize panels: grab the title bar to move, corner handle to resize, bigger/smaller. Remember each mode's layout.
+- Layout style toggle: current arc around the eyes vs a flat wall (panels coplanar in a row, like a monitor array). Fix the overlaps some head positions cause in the arc (space slots by panel width).
+- Easier pressing: toggle controller models off (hands-first), and mouse clicking. Desktop mode gets mouse click via `DesktopRig`; in the simulator, turn on Keyboard and mouse > Point & click.
+- Make it look like Meta built it: Interaction SDK ships Meta's Horizon OS "UI Set" (buttons, toggles, sliders, backplates) in `com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet`. Restyle `ForgePanel` and the dock with it.
+- Sitting: on the Quest you just sit (head height). In the simulator press F to lower the head. The simulator room (chair included) is a passthrough image, so it can't be moved; MRUK has no chair label.
+
 ### 8.2 Screens (Hudson)
 - `screen-bridge/index.html`: "Share window" buttons, each a WebRTC video track labeled (`vscode`, `terminal`, `browser`). Signaling through the hub WS.
 - Unity: `com.unity.webrtc` receiver -> `RenderTexture` on a curved panel. Main screen center, extras angled left/right.

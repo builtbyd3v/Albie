@@ -27,12 +27,20 @@ public class DeskPresence : MonoBehaviour
     [Tooltip("Debug / desktop: treat the user as seated at the nearest table, wherever they are.")]
     public bool forceSeated;
 
+    [Tooltip("Keep the desk frame where it is (set by Workspace while a mode is open, so panels don't jump).")]
+    public bool lockFrame;
+
     public UnityEvent<DeskState> stateChanged = new UnityEvent<DeskState>();
+    /// <summary>The front edge moved (the user went round to another side of the desk).</summary>
+    public UnityEvent frameChanged = new UnityEvent();
 
     const float CheckInterval = 0.1f;
+    const int EdgeSwitchChecks = 5;  // a new edge must face the user for 0.5 s before the frame moves
 
     float nextCheck;
     Transform frame;
+    int edge = -1;
+    int edgeCandidateChecks;
 
     public DeskState State { get; private set; } = DeskState.Away;
     public MRUKAnchor Table { get; private set; }
@@ -82,6 +90,17 @@ public class DeskPresence : MonoBehaviour
             Table = table;
             UpdateFrame();
         }
+        else if (!lockFrame)
+        {
+            // Follow the user round the desk: whichever edge they're at becomes the front.
+            int facing = DeskTop.From(table).FacingEdgeIndex(h);
+            edgeCandidateChecks = facing != edge ? edgeCandidateChecks + 1 : 0;
+            if (edgeCandidateChecks >= EdgeSwitchChecks)
+            {
+                UpdateFrame();
+                frameChanged?.Invoke();
+            }
+        }
 
         float headHeight = h.y - locator.FloorY;
         bool seated = forceSeated || headHeight < (State == DeskState.Seated ? seatedExit : seatedEnter);
@@ -93,9 +112,11 @@ public class DeskPresence : MonoBehaviour
     {
         if (Table == null || head == null) return;
         var top = DeskTop.From(Table);
-        top.FacingEdge(head.position, out Vector3 mid, out Vector3 inward, out float edge, out float deskDepth);
+        edge = top.FacingEdgeIndex(head.position);
+        edgeCandidateChecks = 0;
+        top.Edge(edge, out Vector3 mid, out Vector3 inward, out float edgeLength, out float deskDepth);
         frame.SetPositionAndRotation(mid, Quaternion.LookRotation(inward, Vector3.up));
-        FrameWidth = edge;
+        FrameWidth = edgeLength;
         FrameDepth = deskDepth;
     }
 
