@@ -12,7 +12,9 @@
       "unit": "mm",
       "step": 5,
       "options": null,
-      "label": "Body length"
+      "label": "Body length",
+      "group": "Body",
+      "help": "Body tube length; the nose adds to it. Longer is more stable."
     },
     {
       "name": "body_diameter",
@@ -22,7 +24,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Body diameter"
+      "label": "Body diameter",
+      "group": "Body",
+      "help": "Outside diameter of the body tube. Wider adds drag and weight."
     },
     {
       "name": "nose_length",
@@ -32,7 +36,9 @@
       "unit": "mm",
       "step": 5,
       "options": null,
-      "label": "Nose length"
+      "label": "Nose length",
+      "group": "Nose",
+      "help": "A longer nose is slimmer and slips through the air more easily."
     },
     {
       "name": "nose_shape",
@@ -45,7 +51,9 @@
         "ogive",
         "cone"
       ],
-      "label": "Nose shape"
+      "label": "Nose shape",
+      "group": "Nose",
+      "help": "Ogive: rounded shoulders, low drag. Cone: straight sides."
     },
     {
       "name": "fin_count",
@@ -55,7 +63,9 @@
       "unit": "",
       "step": 1,
       "options": null,
-      "label": "Fin count"
+      "label": "Fin count",
+      "group": "Fins",
+      "help": "Fins, evenly spaced round the tail. More fins, more stability."
     },
     {
       "name": "fin_root",
@@ -65,7 +75,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin root chord"
+      "label": "Fin root chord",
+      "group": "Fins",
+      "help": "Fin length along the body tube."
     },
     {
       "name": "fin_tip",
@@ -75,7 +87,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin tip chord"
+      "label": "Fin tip chord",
+      "group": "Fins",
+      "help": "Fin length at its outer edge."
     },
     {
       "name": "fin_span",
@@ -85,7 +99,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin span"
+      "label": "Fin span",
+      "group": "Fins",
+      "help": "How far each fin sticks out. Bigger fins pull the CP back: more stable."
     },
     {
       "name": "fin_sweep",
@@ -95,7 +111,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Fin sweep"
+      "label": "Fin sweep",
+      "group": "Fins",
+      "help": "How far back the tip's leading edge sits from the root's."
     }
   ],
   "presets": [
@@ -129,5 +147,10 @@
   ],
   "features": [
     "flight"
+  ],
+  "groups": [
+    "Body",
+    "Nose",
+    "Fins"
   ]
 }

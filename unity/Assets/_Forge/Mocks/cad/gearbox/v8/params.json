@@ -12,7 +12,9 @@
       "unit": "",
       "step": 1,
       "options": null,
-      "label": "Pinion teeth"
+      "label": "Pinion teeth",
+      "group": "Gears",
+      "help": "Teeth on the small input gear. Under 14 they get undercut."
     },
     {
       "name": "gear_teeth",
@@ -22,7 +24,9 @@
       "unit": "",
       "step": 1,
       "options": null,
-      "label": "Gear teeth"
+      "label": "Gear teeth",
+      "group": "Gears",
+      "help": "Teeth on the big output gear. Ratio = gear teeth / pinion teeth."
     },
     {
       "name": "module",
@@ -32,7 +36,9 @@
       "unit": "mm",
       "step": 0.25,
       "options": null,
-      "label": "Gear module"
+      "label": "Gear module",
+      "group": "Gears",
+      "help": "Tooth size: pitch diameter / teeth. Bigger teeth carry more load."
     },
     {
       "name": "face_width",
@@ -42,7 +48,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Face width"
+      "label": "Face width",
+      "group": "Gears",
+      "help": "How wide the gears are along their shafts."
     },
     {
       "name": "shaft_diameter",
@@ -52,7 +60,9 @@
       "unit": "mm",
       "step": 1,
       "options": null,
-      "label": "Shaft diameter"
+      "label": "Shaft diameter",
+      "group": "Shafts",
+      "help": "Thicker shafts are stiffer but leave less metal round the pinion's bore."
     }
   ],
   "presets": [
@@ -87,5 +97,9 @@
       }
     }
   ],
-  "features": []
+  "features": [],
+  "groups": [
+    "Gears",
+    "Shafts"
+  ]
 }

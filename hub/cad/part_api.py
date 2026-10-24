@@ -6,6 +6,9 @@ Units are millimetres, Z up. Rocket parts put the tail at z=0 and the nose tip a
 A part script is one file in hub/cad/parts/ (the file name is the design's id). It defines PARAMS and
 build(params) -> BuildResult, and optionally TITLE, DESCRIPTION, PRESETS ({name: {param: value}}),
 analyze(result, masses) -> list[Metric] | Analysis, and simulate_flight(result, masses). See parts/_template.py.
+
+analyze() can also hand Unity things to draw (all optional, in part millimetres; cad/scene.py converts them to the
+GLB's frame and works out generic ones for whatever is left out): markers, dimensions, explode, demo, mass_groups.
 """
 from __future__ import annotations
 
@@ -13,9 +16,21 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+DEFAULT_GROUP = "General"            # the panel section of a parameter that names none
+
+Vec = tuple[float, float, float]     # a point or direction in part millimetres / axes (Z up)
+
 
 class ParamError(ValueError):
     """A parameter value the part cannot accept (wrong type, unknown option, unknown name)."""
+
+
+def nice_step(x: float) -> float:
+    """x rounded to 1, 2 or 5 times a power of ten (4.5 -> 5, 0.13 -> 0.1)."""
+    exponent = math.floor(math.log10(x))
+    mantissa = x / 10 ** exponent
+    nice = 1 if mantissa < 1.5 else 2 if mantissa < 3.5 else 5 if mantissa < 7.5 else 10
+    return float(f"{nice * 10 ** exponent:.6g}")
 
 
 @dataclass(frozen=True)
@@ -25,9 +40,21 @@ class Param:
     min: float | None = None
     max: float | None = None
     unit: str = ""
-    step: float | None = None
+    step: float | None = None     # the slider's and the fine stepper's increment; None: worked out from the range
     options: tuple[str, ...] | None = None
     label: str = ""
+    group: str = ""               # the panel section it sits in ("Body", "Fins"); "" = "General"
+    help: str = ""                # one short line on what it does (panel hint, Bit)
+
+    def fine_step(self) -> float | None:
+        """`step`, or for a number without one: 1 for whole numbers, else about a hundredth of the range."""
+        if self.step is not None or self.options is not None:
+            return self.step
+        if isinstance(self.default, int):
+            return 1
+        if self.min is None or self.max is None or self.max <= self.min:
+            return None
+        return nice_step((self.max - self.min) / 100)
 
     def coerce(self, value: Any) -> tuple[Any, bool]:
         """Return (value, was_clamped). Integer params round; numbers clamp to [min, max]."""
@@ -50,8 +77,14 @@ class Param:
 
     def schema(self, value: Any) -> dict[str, Any]:
         return {"name": self.name, "value": value, "min": self.min, "max": self.max, "unit": self.unit,
-                "step": self.step, "options": list(self.options) if self.options else None,
-                "label": self.label or self.name.replace("_", " ")}
+                "step": self.fine_step(), "options": list(self.options) if self.options else None,
+                "label": self.label or self.name.replace("_", " "),
+                "group": self.group or DEFAULT_GROUP, "help": self.help}
+
+
+def param_groups(schema: list[dict[str, Any]]) -> list[str]:
+    """The panel's sections in order: each parameter's group, first appearance first."""
+    return list(dict.fromkeys(p.get("group") or DEFAULT_GROUP for p in schema))
 
 
 @dataclass(frozen=True)
@@ -108,6 +141,8 @@ class RocketSpec:
     nose_shape: str  # "cone" | "ogive"
     fins: FinSet
     motor: str = ""
+    parachute_mm: float = 305.0     # flat diameter of the recovery parachute (12")
+    ejection_delay_s: float = 5.0   # the motor's delay: its ejection charge fires this long after burnout (C6-5)
 
 
 @dataclass
@@ -152,8 +187,93 @@ def band(value: float, bands: tuple[tuple[float, str], ...]) -> str:
     return bands[-1][1]
 
 
+@dataclass(frozen=True)
+class Marker:
+    """A labelled point on the model, e.g. the rocket's CP. The hub adds the CG (id "cg") itself.
+    kind lets Unity pick a style: cg | cp | thrust | input | output | ..."""
+    id: str
+    label: str
+    kind: str
+    position: Vec
+
+
+@dataclass(frozen=True)
+class Dimension:
+    """A length to call out on the model, measured from `start` to `end` (points on the model; the value is the
+    distance between them). The dimension line is drawn `offset_mm` away from them along `offset`, with extension
+    lines back to the points, so pick an offset that clears the geometry."""
+    id: str
+    label: str
+    start: Vec
+    end: Vec
+    offset: Vec = (0.0, 0.0, 1.0)
+    offset_mm: float = 10.0
+
+
+def box_dimensions(shape) -> list[Dimension]:
+    """Overall width (X), depth (Y) and height (Z) along the edges of `shape`'s bounding box: width on the front
+    bottom edge, depth on the right bottom edge, height on the front right edge. The hub's default dimensions."""
+    bb = shape.bounding_box()
+    (x0, y0, z0), (x1, y1, z1) = (bb.min.X, bb.min.Y, bb.min.Z), (bb.max.X, bb.max.Y, bb.max.Z)
+    gap = 0.06 * max(x1 - x0, y1 - y0, z1 - z0) + 4.0
+    return [Dimension("width", "Width", (x0, y0, z0), (x1, y0, z0), (0.0, -1.0, 0.0), gap),
+            Dimension("depth", "Depth", (x1, y0, z0), (x1, y1, z0), (1.0, 0.0, 0.0), gap),
+            Dimension("height", "Height", (x1, y0, z0), (x1, y0, z1), (1.0, 0.0, 0.0), gap)]
+
+
+@dataclass(frozen=True)
+class ExplodeMove:
+    """Where one part goes in the exploded view: `distance_mm` along `direction` (any length; the hub normalises it).
+    `order` staggers the animation: 0 moves first, then 1, ..."""
+    part: str          # part label
+    direction: Vec
+    distance_mm: float
+    order: int = 0
+
+
+@dataclass
+class Explode:
+    """How the design comes apart. `axis` names the idea: stack (along the long axis), radial (out from the centre),
+    shaft (along the shafts), auto (the hub's guess). Parts without a move stay put."""
+    axis: str = "auto"
+    moves: list[ExplodeMove] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Spinner:
+    """A part that turns in the demo, about the axis through `origin` along `direction`.
+    rpm is signed: positive turns counter-clockwise seen from the tip of `direction` (right-hand rule)."""
+    part: str                       # part label
+    origin: Vec
+    direction: Vec
+    rpm: float
+    rel_speed: float | None = None  # speed relative to the demo's input, signed (a gear train's ratio per gear)
+    motor: str | None = None        # label of the motor part that drives it (a drone's prop)
+
+
+@dataclass
+class Demo:
+    """What the panel's demo button does: kind launch (fly the trajectory from GET source), hover (lift off on
+    the spinning props) or spin (run the spinners), or none. values are the numbers the animation and readouts use."""
+    kind: str = "none"
+    label: str = ""                         # the button: Fly, Hover, Run
+    note: str = ""                          # one plain sentence for the panel
+    source: str | None = None               # launch: the endpoint with the trajectory ("/cad/flight")
+    axis: tuple[Vec, Vec] | None = None     # (origin, direction): launch / lift direction, or the input shaft
+    spinners: list[Spinner] = field(default_factory=list)
+    readouts: list[Metric] = field(default_factory=list)
+    values: dict[str, float] = field(default_factory=dict)
+    assumptions: list[str] = field(default_factory=list)
+
+
 @dataclass
 class Analysis:
-    """What analyze() returns when it adds fields of its own to the analysis block (the rocket's CG/CP markers)."""
+    """What analyze() returns when it adds more than metrics: fields of its own for the analysis block (the
+    rocket's margin) and, all optional, things for Unity to draw (part mm; None = the hub's generic version)."""
     metrics: list[Metric] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    markers: list[Marker] = field(default_factory=list)       # added to the hub's CG marker
+    dimensions: list[Dimension] | None = None                 # None: box_dimensions (width, depth, height)
+    explode: Explode | None = None                            # None: parts spread out from the centre
+    demo: Demo | None = None                                  # None: launch with simulate_flight, else none
+    mass_groups: dict[str, list[str]] | None = None           # {group label: part labels}; None: top-level assemblies

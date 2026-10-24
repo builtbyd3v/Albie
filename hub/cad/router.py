@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from cad.part_api import ParamError
+from cad.part_api import ParamError, param_groups
 from cad.service import CadService, RegenError, VersionRecord
 from events import CadView
 
@@ -80,9 +80,12 @@ async def open_part(body: OpenPart, cad: CadService = Depends(service)):
 
 @router.get("/params")
 def get_params(v: int | None = None, cad: CadService = Depends(service)):
+    """The design's parameters (each with its group, step, label and help), presets and features; `groups` lists
+    the parameter groups in panel order."""
     r = record(cad, v)
     return {"part": r.part, "title": r.title, "description": r.description, "version": r.version,
-            "params": r.param_schema, "presets": preset_list(r.presets), "features": r.features}
+            "params": r.param_schema, "presets": preset_list(r.presets), "features": r.features,
+            "groups": param_groups(r.param_schema)}
 
 
 @router.post("/params")
@@ -177,7 +180,8 @@ async def drawing_svg(v: int | None = None, cad: CadService = Depends(service)):
 
 @router.get("/flight")
 async def flight(v: int | None = None, cad: CadService = Depends(service)):
-    """Simulated launch to apogee on an Estes C6 (rocket designs): apogee, speeds, and a trajectory for the room arc."""
+    """Simulated flight on an Estes C6 (rocket designs): apogee, speeds, a trajectory for the room arc, and the
+    whole flight to landing as fixed-rate samples plus events (liftoff ... landing) for the Fly animation."""
     r = record(cad, v)
     try:
         return {"version": r.version, **await cad.flight(r.version)}

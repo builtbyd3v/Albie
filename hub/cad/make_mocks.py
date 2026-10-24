@@ -15,6 +15,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from cad.part_api import param_groups
 from cad.worker import run_job
 from events import CadModelUpdated, CadRegenFailed
 
@@ -77,7 +78,8 @@ def main(out: Path) -> None:
                                     removed_ids=removed, source="mock", analysis=result["analysis"])
             write_json(vdir / "params.json", {
                 "part": part, "title": result["title"], "description": result["description"], "version": version,
-                "params": result["schema"], "presets": preset_list(result["presets"]), "features": result["features"]})
+                "params": result["schema"], "presets": preset_list(result["presets"]), "features": result["features"],
+                "groups": param_groups(result["schema"])})
             write_json(vdir / "model_updated.json", {"type": "cad.model_updated", "payload": event.model_dump()})
             headline = result["analysis"]["metrics"][0]
             print(f"{part:10} v{version:<2} {name:17} {headline['label']} {headline['display']} ({headline['status']})"

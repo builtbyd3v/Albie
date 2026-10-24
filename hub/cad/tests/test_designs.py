@@ -11,6 +11,7 @@ from cad.export import read_glb_json
 from cad.worker import build_part, load_part, run_job
 
 from conftest import PARTS
+from test_scene import check_scene
 
 SCRIPTS = sorted(PARTS.glob("*.py"))  # _template.py too: a copy of it must work as a new design
 QUAD, GEARBOX = PARTS / "quadcopter.py", PARTS / "gearbox.py"
@@ -44,6 +45,7 @@ def test_design_builds_exports_and_reports_metrics(script, tmp_path):
         gltf = read_glb_json(out / "model.glb")
         extents = [abs(x) for a in gltf["accessors"] if len(a.get("max", [])) == 3 for x in a["max"] + a["min"]]
         assert max(extents) < 1.0 and r["glb_bytes"] < 2_000_000  # metres, and small enough for the Quest's Wi-Fi
+        check_scene(r["analysis"], meta)  # markers, dimensions, explode, mass breakdown, demo (test_scene.py)
 
 
 def test_quadcopter_clearance_is_the_gap_between_the_built_props():

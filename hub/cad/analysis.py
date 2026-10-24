@@ -1,9 +1,10 @@
 """Mass properties and generic metrics for any built part, plus the static stability helpers (Barrowman 1966)
-that rocket parts use in their analyze()."""
+that rocket parts use in their analyze(). The analysis block's markers, dimensions, explode, mass breakdown and
+demo come from cad/scene.py."""
 from __future__ import annotations
 
 import math
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from build123d import CenterOf, GeomType
 
@@ -111,8 +112,12 @@ def generic_metrics(total_g: float, size_mm: list[float], part_count: int) -> li
 
 
 def analyze(result: BuildResult, masses: Masses,
-            part_analyze: Callable[[BuildResult, Masses], list[Metric] | Analysis] | None = None) -> dict[str, Any]:
-    """The analysis block of cad.model_updated: generic fields and metrics, plus the part's own analyze()."""
+            part_analyze: Callable[[BuildResult, Masses], list[Metric] | Analysis] | None = None, *,
+            features: Iterable[str] = ()) -> dict[str, Any]:
+    """The analysis block of cad.model_updated: generic fields and metrics, plus the part's own analyze(), plus
+    what Unity draws (markers, dimensions, explode, mass_breakdown, demo). `features`: the design's ("flight")."""
+    from cad.scene import extras  # cad.scene imports this module, so not at the top
+
     total, cg = center_of_mass(result, masses)
     size = result.assembly.bounding_box().size
     size_mm = [round(size.X, 1), round(size.Y, 1), round(size.Z, 1)]
@@ -126,9 +131,11 @@ def analyze(result: BuildResult, masses: Masses,
                      + [{"name": p.name, "mass_g": p.mass_g} for p in result.point_masses],
     }
     own = part_analyze(result, masses) if part_analyze else []
+    plan = own if isinstance(own, Analysis) else Analysis()
     if isinstance(own, Analysis):
         out.update(own.extra)
         own = own.metrics
     ids = {m.id for m in own}
     out["metrics"] = [m.schema() for m in [*own, *(g for g in generic_metrics(total, size_mm, count) if g.id not in ids)]]
+    out.update(extras(result, masses, plan, cg_mm=cg, total_g=total, features=features))
     return out

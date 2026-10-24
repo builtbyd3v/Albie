@@ -117,8 +117,8 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
                            version=job.get("version"), created_at=job.get("created_at"),
                            highlight=job.get("highlight", ()))
             return {"ok": True, "timings_ms": {"build": round((t_build - t0) * 1000), **timings}}
-        analysis = analyze(result, masses, getattr(module, "analyze", None))
         info = part_info(module, script)
+        analysis = analyze(result, masses, getattr(module, "analyze", None), features=info["features"])
         exported = export_part(result, out_dir, part=info["part"], params=values, masses=masses)
         t_done = time.perf_counter()
         schema = [p.schema(values[p.name]) for p in module.PARAMS]
