@@ -52,6 +52,8 @@ public class DesktopRig : MonoBehaviour
     int hintState = -1;
     CanvasGroup hintGroup;
     float hintShownAt;
+    Vector3 pressDirection;
+    const float ClickSlopDegrees = 1.5f;  // a press that turns the pointer further than this is a drag (about uGUI's 10 px)
     const float HintHold = 7f, HintFade = 0.6f;  // the toast shows this long after it changes, then fades (s)
 
     void Awake()
@@ -214,6 +216,7 @@ public class DesktopRig : MonoBehaviour
 
         if (down && target != null)
         {
+            pressDirection = cam.ScreenPointToRay(screen).direction;
             pointer.pressPosition = screen;
             pointer.pointerPressRaycast = hit;
             pointer.eligibleForClick = true;
@@ -234,12 +237,18 @@ public class DesktopRig : MonoBehaviour
             ExecuteEvents.Execute(pointer.pointerDrag, pointer, ExecuteEvents.dragHandler);
         }
 
+        // A press that moves (the view turns, or the free cursor slides) is a drag, not a click: dragging a scroll list
+        // by one of its buttons mustn't press the button. The locked crosshair never moves on screen, so measure the ray.
+        if (pressed != null && pointer.eligibleForClick && !down &&
+            Vector3.Angle(pressDirection, cam.ScreenPointToRay(screen).direction) > ClickSlopDegrees)
+            pointer.eligibleForClick = false;
+
         if (up)
         {
             if (pressed != null)
             {
                 ExecuteEvents.Execute(pressed, pointer, ExecuteEvents.pointerUpHandler);
-                if (target != null && ExecuteEvents.GetEventHandler<IPointerClickHandler>(target) == pressed)
+                if (pointer.eligibleForClick && target != null && ExecuteEvents.GetEventHandler<IPointerClickHandler>(target) == pressed)
                     ExecuteEvents.Execute(pressed, pointer, ExecuteEvents.pointerClickHandler);
             }
             if (pointer.dragging && pointer.pointerDrag != null)
