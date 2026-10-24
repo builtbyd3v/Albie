@@ -18,6 +18,24 @@
   - Volumes show a hint line (`ForgeVolume.SetHint` / `SetCaption`; `Title` is never rewritten).
   - The desktop hint toast fades.
 
+**2026-10-24, CAD experience (branch `ui/cad-experience`, PR #35, stacked on #29):**
+- **Done: CAD round 4, for every design (rocket, quadcopter, gearbox, and any new part file).**
+  - **Hub (additive, `CAD_PLAN.md` section 5 "Round 4"):**
+    - per-version `analysis`: explode vectors, demo (launch / hover / spin), markers, dimensions, mass breakdown, verdict, constants
+    - flight samples and events on `/cad/flight`
+    - parameter groups, help, defaults and the parts each one shapes; version labels
+  - **Viewer:**
+    - Explode springs each part out along its own direction, with labels and leaders.
+    - Fly launches the rocket along its simulated trajectory, scaled to the room. Hover lifts the quad. Run turns the gearbox at its true ratio.
+    - Markers and dimensions sit on the model.
+    - Expand brings it up big, from the panel or from a ring on the desk.
+  - **Panel:**
+    - Tabs Overview · Parameters · Analysis · History.
+    - A verdict card ("Will it fly?") with a dial and a to-scale view, and live telemetry while it flies.
+    - Grouped parameters with steppers, analysis gauges and mass bars, version history.
+  - Mocks cover all of it, so it works with the hub off.
+  - Mockups: the design canvas row "CAD: the design panel and the viewer".
+
 **2026-10-23, Hudson (Core):**
 - **Done:** Unity project pushed in `unity/` (6000.6.7f1, Meta XR SDK 207.0.1, OpenXR 1.18.0, all Meta setup fixes applied). Teammates: clone and open it, see 6.1; no SDK setup needed.
 - **Done:** `Assets/_Forge/Core/Main.unity`: passthrough camera rig + Interaction SDK hands/controllers (ray + poke) + MRUK room. Floor-level tracking origin.
