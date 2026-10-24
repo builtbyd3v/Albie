@@ -5,7 +5,7 @@ using UnityEngine;
 /// <see cref="Workspace"/> adds it to every volume it opens; it makes its own grab boxes, so prefabs need nothing.
 /// - Drag the base: slide it around (on the desk). Scroll wheel / thumbstick: raise or lower it.
 /// - Drag the model: spin it (sideways) and tilt it toward you (up and down). Scroll wheel / thumbstick: scale it.
-/// The label in front of the base shows how while it's pointed at.
+/// A line of help fades in under the label while it's pointed at (<see cref="ForgeVolume.SetHint"/>).
 /// </summary>
 [RequireComponent(typeof(ForgeVolume))]
 public class VolumeManipulator : MonoBehaviour
@@ -17,7 +17,6 @@ public class VolumeManipulator : MonoBehaviour
     const float ScalePerNotch = 1.08f;
     const float MinScale = 0.4f, MaxScale = 3f;
     const float RaisePerNotch = 0.03f;  // m
-    const string HowTo = "\n<size=70%><alpha=#CC>drag here: move · drag model: turn\nscroll: raise / size";
 
     public Transform Head { get; private set; }
     /// <summary>Moved, turned or scaled since it opened (Workspace remembers these per mode).</summary>
@@ -40,8 +39,7 @@ public class VolumeManipulator : MonoBehaviour
     bool modelAway;
     Transform frame;
     VolumeHandle baseHandle, modelHandle;
-    string title;
-    bool showingHint;
+    Grab hinted;
     Vector3 builtSize;
 
     Grab grab;
@@ -57,7 +55,6 @@ public class VolumeManipulator : MonoBehaviour
         Head = eyes;
         frame = deskFrame;
         volume = GetComponent<ForgeVolume>();
-        title = volume.Title;
         if (baseHandle == null)
         {
             baseHandle = NewHandle("GrabBase", Grab.Move);
@@ -177,14 +174,23 @@ public class VolumeManipulator : MonoBehaviour
         }
     }
 
-    // Light up the base ring and show how to use it while pointed at.
+    // Light up the base ring while pointed at, and say what dragging does on the part that's pointed at (or held).
     void ShowHover()
     {
-        bool hovered = grab != Grab.None || baseHandle.Hovered || modelHandle.Hovered;
-        if (hovered == showingHint) return;
-        showingHint = hovered;
-        volume.Title = hovered ? title + HowTo : title;
-        volume.SetHighlight(hovered);
+        Grab over = grab != Grab.None ? grab : modelHandle.Hovered ? Grab.Turn : baseHandle.Hovered ? Grab.Move : Grab.None;
+        if (over == hinted) return;
+        hinted = over;
+        volume.SetHint(Hint(over));
+        volume.SetHighlight(over != Grab.None);
+    }
+
+    static string Hint(Grab over)
+    {
+        if (over == Grab.None) return null;
+        var rig = DesktopRig.Current;
+        bool mouse = rig != null && rig.isActiveAndEnabled;
+        if (over == Grab.Move) return mouse ? "Drag to move  ·  Scroll to raise" : "Grab to move  ·  Thumbstick to raise";
+        return mouse ? "Drag to turn  ·  Scroll to resize" : "Grab to turn  ·  Thumbstick to resize";
     }
 
     static void Angles(Vector3 dir, out float yaw, out float pitch)

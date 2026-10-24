@@ -36,6 +36,8 @@ public class ForgeVolume : MonoBehaviour
     Color accent = ForgeTheme.Tool;
     bool highlighted;
     float highlight;
+    TMP_Text hint;
+    float hintShown, hintTarget;
 
     public Transform ContentRoot => contentRoot;
 
@@ -60,6 +62,11 @@ public class ForgeVolume : MonoBehaviour
             highlight = Mathf.MoveTowards(highlight, highlighted ? 1f : 0f, Time.deltaTime / ForgeTheme.HoverFade);
             ShowBase();
         }
+        if (hint != null && hintShown != hintTarget)
+        {
+            hintShown = Mathf.MoveTowards(hintShown, hintTarget, Time.deltaTime / ForgeTheme.HoverFade);
+            hint.alpha = 0.72f * hintShown;
+        }
         if (!turntable) return;
         ViewYaw = (ViewYaw + turntableDegreesPerSecond * Time.deltaTime) % 360f;
         ApplyView();
@@ -74,6 +81,43 @@ public class ForgeVolume : MonoBehaviour
 
     /// <summary>Pointed at: the base ring brightens and a comet of light runs around it.</summary>
     public void SetHighlight(bool on) => highlighted = on;
+
+    /// <summary>
+    /// A small line of help under the label (how to move and turn it), faded in while set. Null or empty fades it
+    /// out. The label itself (<see cref="Title"/>) is left alone, so a module can retitle the volume at any time.
+    /// </summary>
+    public void SetHint(string text)
+    {
+        bool show = !string.IsNullOrEmpty(text);
+        if (show && hint == null) hint = MakeHint();
+        if (hint == null) return;
+        if (show && hint.text != text) hint.text = text;
+        hintTarget = show ? 1f : 0f;
+    }
+
+    // Under the label's canvas, which lies flat in front of the base (its "down" points at the viewer).
+    TMP_Text MakeHint()
+    {
+        if (label == null) return null;
+        var rt = (RectTransform)new GameObject("Hint", typeof(RectTransform)).transform;
+        rt.SetParent(label.transform.parent, false);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -1f);
+        rt.sizeDelta = new Vector2(320f, 30f);
+        var text = rt.gameObject.AddComponent<TextMeshProUGUI>();
+        text.font = ForgeTheme.Font != null ? ForgeTheme.Font : label.font;
+        if (ForgeTheme.Font != null) text.fontSharedMaterial = ForgeTheme.Font.material;
+        text.fontSize = 9.5f;
+        text.lineSpacing = 6f;
+        text.alignment = TextAlignmentOptions.Top;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
+        text.color = Color.white;
+        text.alpha = 0f;
+        text.raycastTarget = false;
+        return text;
+    }
 
     public void SetSize(Vector3 newSize)
     {
