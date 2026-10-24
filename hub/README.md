@@ -175,15 +175,30 @@ pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `
 
 ## Messaging (Slack)
 
-Bit is a Slack bot user in the hackathon workspace (PROJECT_CONTEXT 8.7 has the 15-minute app setup: Socket Mode,
-bot scopes, bot events, Messages tab, `/invite @Bit`). Socket Mode means the hub opens an outbound WebSocket to
-Slack, so there is no public URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
+Bit is a Slack bot user defined by `hub/manifest.json` (bot user, scopes, bot events, Socket Mode, Messages tab);
+`hub/.slack/` makes `hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so
+there is no public URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
 
-`hub/.env`:
+Setup with the Slack CLI (https://docs.slack.dev/tools/slack-cli), from `hub/`:
+
+```bash
+slack login                      # once per machine, into the team workspace
+slack install -E local           # creates "Bit (local)" from manifest.json and installs it
+slack run                        # start hook (scripts/slack_cli_start.py) writes SLACK_BOT_TOKEN + SLACK_APP_TOKEN to hub/.env, then exits
+slack auth list                  # your User ID -> SLACK_USER_ID in hub/.env
+slack api conversations.create --app local name=forge-team            # optional: Bit creates the demo channel...
+slack api conversations.invite  --app local channel=C... users=U...   # ...and invites you
+```
+
+Changed scopes or events? Edit `manifest.json` and run `slack run` again (it syncs the manifest and reinstalls).
+Another checkout of the repo: `slack app link -E local` (app id from `slack app list`). `.slack/apps.dev.json` is
+gitignored on purpose, it is per-checkout. Manual fallback: api.slack.com/apps with the same scopes and events.
+
+`hub/.env` after setup:
 
 ```
-SLACK_BOT_TOKEN=xoxb-...        # OAuth & Permissions > Bot User OAuth Token
-SLACK_APP_TOKEN=xapp-...        # Socket Mode app-level token, scope connections:write
+SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`
+SLACK_APP_TOKEN=xapp-...        # written by `slack run` (Socket Mode app-level token)
 SLACK_USER_ID=U...              # your member id; messages containing <@U...> count as mentions of you
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```

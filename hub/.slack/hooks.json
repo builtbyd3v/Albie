@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "get-manifest": "python3 scripts/slack_cli_manifest.py",
+    "start": "python3 scripts/slack_cli_start.py"
+  },
+  "config": {
+    "sdk-managed-connection-enabled": true,
+    "watch": {
+      "app": {
+        "filter-regex": "\\.py$",
+        "paths": [
+          "scripts"
+        ]
+      },
+      "manifest": {
+        "paths": [
+          "manifest.json"
+        ]
+      }
+    }
+  }
+}

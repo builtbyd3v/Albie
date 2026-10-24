@@ -50,11 +50,19 @@ class SlackService:
         if not self.enabled:
             log.warning("Slack disabled: set SLACK_BOT_TOKEN and SLACK_APP_TOKEN in hub/.env (PROJECT_CONTEXT 8.7)")
             return
+        import ssl
+
+        import certifi
         from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
         from slack_bolt.async_app import AsyncApp
+        from slack_sdk.web.async_client import AsyncWebClient
 
-        app = AsyncApp(token=self.settings.bot_token, token_verification_enabled=False)
-        self._client = app.client
+        # Explicit CA bundle: python.org builds on macOS ship without one, and both the Web API and the
+        # Socket Mode WebSocket (which reuses web_client.ssl) fail with CERTIFICATE_VERIFY_FAILED otherwise.
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        web_client = AsyncWebClient(token=self.settings.bot_token, ssl=ssl_ctx)
+        app = AsyncApp(client=web_client)
+        self._client = web_client
         subtypes = list(ACCEPTED_SUBTYPES)
 
         @app.event({"type": "message", "subtype": subtypes})
@@ -65,7 +73,7 @@ class SlackService:
         async def _mention(event: dict[str, Any]) -> None:
             await self.on_event(event)
 
-        self._handler = AsyncSocketModeHandler(app, self.settings.app_token)
+        self._handler = AsyncSocketModeHandler(app, self.settings.app_token, web_client=web_client)
         self._task = asyncio.create_task(self._connect(), name="slack-connect")
 
     async def _connect(self) -> None:
