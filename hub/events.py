@@ -1,13 +1,13 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
-Every message is {"type": ..., "payload": {...}}. Minimal skeleton: only the CAD events and ui.highlight
+Every message is {"type": ..., "payload": {...}}. Minimal skeleton: only the CAD, pet and ui.highlight events
 exist so far; add the other modules' models from PROJECT_CONTEXT section 7 next to these.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -53,6 +53,29 @@ class CadRegenFailed(BaseModel):
 class CadView(BaseModel):
     explode: bool | None = None
     focus_id: str | None = None
+
+
+class PetState(BaseModel):
+    pet_id: str
+    mode: Literal["follow", "idle", "listening", "thinking", "working", "speaking"]
+    target_panel: str | None = None
+
+
+class PetAction(BaseModel):
+    label: str
+    action_id: str
+
+
+class PetCard(BaseModel):
+    title: str
+    bullets: list[str]
+    actions: list[PetAction] | None = None
+
+
+class PetSay(BaseModel):
+    pet_id: str
+    text: str
+    card: PetCard | None = None
 
 
 class UiHighlight(BaseModel):

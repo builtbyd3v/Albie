@@ -16,6 +16,9 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent.brain import Brain
+from agent.router import router as agent_router
+from cad import tools as cad_tools
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
 from events import EventBus
@@ -32,6 +35,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         bus = EventBus()
         cad = CadService(data_dir / "cad", cad_script, bus)
         app.state.bus, app.state.cad = bus, cad
+        app.state.brain = Brain(bus, cad_tools.TOOLS, lambda name, args: cad_tools.call_tool(name, args, cad, bus))
         await cad.start()
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
         try:
@@ -46,6 +50,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app = FastAPI(title="Forge hub", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(cad_router)
+    app.include_router(agent_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
