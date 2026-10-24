@@ -92,6 +92,42 @@ async function fitVsCode() {
 const source = process.env.SCREEN_SOURCE || (await openVsCode());
 if (!process.env.SCREEN_SOURCE) await fitVsCode();
 
+// macOS stops drawing a hidden (Cmd+H) or minimized window, and one in full screen lives on its own Space: the capture
+// then gets no frames at all, and the headset shows nothing until VS Code comes back. Behind other windows is fine
+// (about 55 fps), so put it back there and give the front to whatever app had it.
+function keepVsCodeCapturable() {
+  const script = `tell application "System Events"
+    if not (exists process "Code") then return ""
+    set frontApp to name of first process whose frontmost is true
+    set why to ""
+    if visible of process "Code" is false then
+      set visible of process "Code" to true
+      set why to "hidden"
+    end if
+    tell process "Code"
+      repeat with w in (windows whose name contains " | ")
+        if value of attribute "AXFullScreen" of w is true then
+          set value of attribute "AXFullScreen" of w to false
+          set why to "full screen"
+        end if
+        if value of attribute "AXMinimized" of w is true then
+          set value of attribute "AXMinimized" of w to false
+          set why to "minimized"
+        end if
+      end repeat
+    end tell
+    if why is not "" and frontApp is not "Code" then set frontmost of process frontApp to true
+    return why
+  end tell`;
+  try {
+    const fixed = execFileSync("osascript", ["-e", script], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (fixed) console.log(`VS Code was ${fixed}: put it back behind the front app so the headset keeps getting frames`);
+  } catch {
+    // no Accessibility permission: nothing to do, the stream just pauses while VS Code is hidden
+  }
+}
+if (!process.env.SCREEN_SOURCE) setInterval(keepVsCodeCapturable, 2000);
+
 // Over USB, `adb reverse` makes localhost:<port> on the Quest reach this laptop, so ForgeNet's default
 // hubUrl (localhost) works with no IP to type: 8000 is the hub, 8766 signaling (video itself goes over Wi-Fi),
 // 8765 the JPEG fallback, which runs entirely over the cable. Re-run every 5 s to catch a late plug-in.
