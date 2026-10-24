@@ -112,13 +112,22 @@ Shader "Forge/PanelSurface"
                 return max(q.x, q.y) - radius;
             }
 
+            // A pill (negative corner) has truly round ends, a stadium or a circle; everything else squircle corners.
+            float Shape(float2 p, float2 halfSize, float corner)
+            {
+                if (corner >= 0.0) return SquircleBox(p, halfSize, corner);
+                float r = min(-corner, min(halfSize.x, halfSize.y));
+                float2 q = abs(p) - halfSize + r;
+                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+            }
+
             float4 frag(v2f i) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
                 float2 p = i.p.xy;
                 float2 halfSize = i.shape.xy;
                 float corner = i.shape.z, header = i.shape.w;
-                float d = SquircleBox(p, halfSize, corner);
+                float d = Shape(p, halfSize, corner);
                 float aa = max(fwidth(d), 1e-3);
                 float inside = 1.0 - smoothstep(-aa, aa, d);
                 float4 acc = 0;
