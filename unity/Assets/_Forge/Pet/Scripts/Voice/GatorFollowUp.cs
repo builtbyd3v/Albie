@@ -9,6 +9,9 @@ namespace Forge.Pet
     /// Skipped while the brain is still working (Thinking/Working: the spoken line was only "on it"), after errors,
     /// when a session is already open (barge-in, Space held), and with the typed STT field (it would just sit open).
     /// If the gator starts speaking again during the window, the window closes without asking anything.
+    /// Voice barge-in: while the gator speaks, the mic is monitored (HubSpeechToText.StartMonitoring, nothing sent).
+    /// Speech clearly louder than the gator's own echo opens a hands-free turn and cuts the gator off; the hub
+    /// stops Grok on stt.start and the monitored pre-roll keeps the first words.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorFollowUp : MonoBehaviour
@@ -26,9 +29,27 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Nobody replied: walk off and idle away from the user.")]
         bool wanderAwayWhenDone = true;
 
+        [Header("Voice barge-in")]
+        [SerializeField, Tooltip("Talking over the gator cuts it off, no button needed (mic permission must already be granted).")]
+        bool voiceBargeIn = true;
+        // Defaults from an AirPods run: speech 0.05-0.3, noise floor 0.006, the gator's echo ~0.01 x its output level.
+        [SerializeField, Tooltip("Mic RMS (0..1) that can count as the user talking over the gator.")]
+        float bargeLevel = 0.03f;
+        [SerializeField, Tooltip("Mic RMS must also be above this share of the gator's output level (rejects its own echo). Raise it if the gator cuts itself off.")]
+        float echoShare = 0.2f;
+        [SerializeField, Tooltip("Seconds of speech before it counts; quiet gaps between syllables count down instead of resetting.")]
+        float bargeSeconds = 0.3f;
+        // A one-word "Stop!" lasts ~0.3 s, too short for bargeSeconds at normal level, but it is loud (0.15-0.25).
+        [SerializeField, Tooltip("Mic RMS that counts as a short, loud word (\"Stop!\").")]
+        float loudLevel = 0.1f;
+        [SerializeField, Tooltip("Seconds above loudLevel that are enough on their own.")]
+        float loudSeconds = 0.15f;
+
         ITextToSpeech _tts;
+        ITalkLevel _talk;
+        HubSpeechToText _monitor;
         bool _following, _subscribed;
-        float _startAt = -1f;
+        float _startAt = -1f, _speechFor, _loudFor;
 
         void Awake()
         {
@@ -49,6 +70,7 @@ namespace Forge.Pet
                 enabled = false;
                 return;
             }
+            _talk = _tts as ITalkLevel;
             _tts.SpeechStarted += OnSpeechStarted;
             _tts.SpeechEnded += OnSpeechEnded;
             pushToTalk.SessionEnded += OnSessionEnded;
@@ -65,13 +87,22 @@ namespace Forge.Pet
         void OnSpeechStarted()
         {
             _startAt = -1f;
-            if (!_following) return;
-            _following = false;                       // talking over our own window: close it, ask nothing
-            pushToTalk.CancelSession();
+            if (_following)
+            {
+                _following = false;                   // talking over our own window: close it, ask nothing
+                pushToTalk.CancelSession();
+            }
+            if (voiceBargeIn && !pushToTalk.SessionActive && pushToTalk.CanListenHandsFree && pushToTalk.Provider is HubSpeechToText hub)
+            {
+                _monitor = hub;
+                _speechFor = _loudFor = 0f;
+                hub.StartMonitoring();
+            }
         }
 
         void OnSpeechEnded()
         {
+            if (_monitor != null) { _monitor.StopMonitoring(); _monitor = null; }
             if (pushToTalk.SessionActive) return;     // barge-in / Space: someone is already talking
             GatorState s = controller.State;
             if (s == GatorState.Answering || s == GatorState.Wandering || s == GatorState.TaskComplete)
@@ -80,12 +111,27 @@ namespace Forge.Pet
 
         void Update()
         {
+            if (_monitor != null && _monitor.IsMonitoring) CheckBargeIn();
             if (_startAt < 0f || Time.time < _startAt) return;
             _startAt = -1f;
             GatorState s = controller.State;
             if (pushToTalk.SessionActive || s == GatorState.Thinking || s == GatorState.Working || s == GatorState.Error) return;
             if (pushToTalk.CanListenHandsFree && pushToTalk.BeginHandsFree(listenSeconds)) _following = true;
             else if (wanderAwayWhenDone) controller.WanderAway();
+        }
+
+        void CheckBargeIn()
+        {
+            float echo = _talk != null ? _talk.Level * echoShare : 0f;
+            float level = _monitor.Level, dt = Time.deltaTime;
+            _speechFor = level >= bargeLevel && level >= echo ? _speechFor + dt : Mathf.Max(0f, _speechFor - dt);
+            _loudFor = level >= loudLevel && level >= echo ? _loudFor + dt : Mathf.Max(0f, _loudFor - dt);
+            if (_speechFor < bargeSeconds && _loudFor < loudSeconds) return;
+            var hub = _monitor;
+            _monitor = null;
+            // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
+            if (pushToTalk.BeginHandsFree()) _tts.Stop();
+            else hub.StopMonitoring();
         }
 
         void OnSessionEnded(bool answered)
