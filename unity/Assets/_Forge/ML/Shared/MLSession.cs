@@ -55,6 +55,9 @@ namespace Forge.ML
         public string RunId { get; private set; }
         // One line for the Training panel: why there's no live data, or what Train is doing.
         public string Notice { get; private set; }
+        // POST /ml/train sent, no answer yet. Train ignores presses until it clears, or while a run trains.
+        public bool TrainPending { get; private set; }
+        public bool TrainBusy => TrainPending || (IsLive && RunStatus == "training");
         public event Action Changed;
         // Data and Atlas were replaced from the hub: rebind textures, rebuild anything built from Data at Start.
         public event Action Reloaded;
@@ -204,9 +207,10 @@ namespace Forge.ML
                 Changed?.Invoke();
                 return;
             }
-            Notice = "Starting training..."; Changed?.Invoke();
-            ForgeNet.Post("/ml/train", new { epochs }, _ => { },
-                e => { Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+            if (TrainBusy) return;  // a second POST only gets the hub's 409 "still training"
+            TrainPending = true; Notice = "Starting training..."; Changed?.Invoke();
+            ForgeNet.Post("/ml/train", new { epochs }, _ => { TrainPending = false; Changed?.Invoke(); },
+                e => { TrainPending = false; Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
         }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
