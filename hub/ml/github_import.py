@@ -30,7 +30,7 @@ class GitHubImportError(ValueError):
     """The URL cannot be read or does not match a supported repository layout."""
 
 
-def _parse_url(url: str) -> tuple[str, str, str | None]:
+def _parse_url(url: str) -> tuple[str, str, str | None, str]:
     parsed = urlparse((url or "").strip())
     if parsed.scheme != "https" or parsed.hostname not in ("github.com", "www.github.com"):
         raise GitHubImportError("Paste a public https://github.com/owner/repository URL.")
@@ -40,14 +40,21 @@ def _parse_url(url: str) -> tuple[str, str, str | None]:
     if len(parts) == 2:
         owner, repo = parts
         ref = None
+        directory = ""
     elif len(parts) == 4 and parts[2] == "tree":
         owner, repo, _, ref = parts
+        directory = ""
+    elif len(parts) > 4 and parts[2] == "tree":
+        owner, repo, _, ref = parts[:4]
+        directory = "/".join(parts[4:])
     else:
-        raise GitHubImportError("Use a repository URL, optionally ending in /tree/<branch>.")
+        raise GitHubImportError("Use a repository URL or a GitHub folder URL ending in /tree/<ref>/<folder>.")
     repo = repo.removesuffix(".git")
-    if not NAME_RE.fullmatch(owner) or not NAME_RE.fullmatch(repo) or (ref and not NAME_RE.fullmatch(ref)):
+    if (not NAME_RE.fullmatch(owner) or not NAME_RE.fullmatch(repo) or
+            (ref and not NAME_RE.fullmatch(ref)) or
+            any(not NAME_RE.fullmatch(part) or part in (".", "..") for part in directory.split("/") if part)):
         raise GitHubImportError("The repository URL contains an unsupported owner, name, or branch.")
-    return owner, repo, ref
+    return owner, repo, ref, directory
 
 
 def _get_json(path: str, *, ref: str | None = None) -> object:
@@ -79,10 +86,11 @@ def _get_json(path: str, *, ref: str | None = None) -> object:
         raise GitHubImportError(f"Could not read the public GitHub repository ({type(exc).__name__}).") from exc
 
 
-def _read_file(owner: str, repo: str, path: str, ref: str) -> tuple[str, str]:
-    response = _get_json(f"/repos/{quote(owner)}/{quote(repo)}/contents/{quote(path)}", ref=ref)
+def _read_file(owner: str, repo: str, directory: str, path: str, ref: str) -> tuple[str, str]:
+    remote_path = "/".join(part for part in (directory, path) if part)
+    response = _get_json(f"/repos/{quote(owner)}/{quote(repo)}/contents/{quote(remote_path)}", ref=ref)
     if not isinstance(response, dict) or response.get("type") != "file":
-        raise GitHubImportError(f"{path} is not a regular file at the repository root.")
+        raise GitHubImportError(f"{path} is not a regular file in the selected GitHub folder.")
     size = response.get("size", 0)
     if not isinstance(size, int) or size > MAX_FILE_BYTES:
         raise GitHubImportError(f"{path} is larger than the {MAX_FILE_BYTES // 1000} KB import limit.")
@@ -114,22 +122,23 @@ def _has_function(tree: ast.AST, name: str) -> bool:
 
 def inspect_repository(url: str) -> dict:
     """Inspect GitHub Contents for the Forge CIFAR-10/SmallCNN layout without executing repo code."""
-    owner, repo, requested_ref = _parse_url(url)
+    owner, repo, requested_ref, directory = _parse_url(url)
     metadata = _get_json(f"/repos/{quote(owner)}/{quote(repo)}")
     if not isinstance(metadata, dict) or metadata.get("private"):
         raise GitHubImportError("Only public GitHub repositories are supported.")
     ref = requested_ref or str(metadata.get("default_branch") or "main")
-    root = _get_json(f"/repos/{quote(owner)}/{quote(repo)}/contents", ref=ref)
+    root_path = f"/{quote(directory)}" if directory else ""
+    root = _get_json(f"/repos/{quote(owner)}/{quote(repo)}/contents{root_path}", ref=ref)
     if not isinstance(root, list):
-        raise GitHubImportError("GitHub did not return a repository root directory.")
+        raise GitHubImportError("GitHub did not return the selected repository folder.")
     root_files = {item.get("name") for item in root if isinstance(item, dict) and item.get("type") == "file"}
     present = [name for name in SUPPORTED_FILES if name in root_files]
     missing = [name for name in SUPPORTED_FILES if name not in root_files]
     result = {
-        "import_id": hashlib.sha256(f"{owner}/{repo}@{ref}".encode()).hexdigest()[:12],
+        "import_id": hashlib.sha256(f"{owner}/{repo}@{ref}/{directory}".encode()).hexdigest()[:12],
         "repository": f"{owner}/{repo}", "url": url.strip(), "ref": ref,
         "supported": False, "format": None, "model": None, "dataset": None,
-        "files": present, "reason": "Missing root files: " + ", ".join(missing) if missing else None,
+        "files": present, "reason": "Missing supported files: " + ", ".join(missing) if missing else None,
     }
     if missing:
         return result
@@ -137,7 +146,7 @@ def inspect_repository(url: str) -> dict:
     contents: dict[str, str] = {}
     hashes: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=len(SUPPORTED_FILES)) as pool:
-        fetched = pool.map(lambda path: _read_file(owner, repo, path, ref), SUPPORTED_FILES)
+        fetched = pool.map(lambda path: _read_file(owner, repo, directory, path, ref), SUPPORTED_FILES)
         for path, (source, sha) in zip(SUPPORTED_FILES, fetched):
             contents[path], hashes[path] = source, sha
     try:

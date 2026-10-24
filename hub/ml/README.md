@@ -17,14 +17,16 @@ pytest ml/tests
 | `GET /ml/sample/{id}` | detail card: metadata + latest prediction |
 | `GET /ml/runs`, `/ml/results/{run}`, `/ml/confusion/{run}`, `/ml/summary/{run}` | results reflect relabel/remove (`relabeled`, `removed`, recomputed `correct`) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running |
-| `POST /ml/github/import {url}` | inspect a public GitHub repo through the Contents API; supports the root-level CIFAR-10 + SmallCNN format only |
+| `POST /ml/github/import {url}` | inspect a public GitHub repo or selected folder through the Contents API; supports CIFAR-10 + SmallCNN |
 | `POST /ml/github/train {import_id, epochs}` | runs the approved local CIFAR-10/SmallCNN worker for 5–10 epochs; GitHub source is never executed |
 | `POST /ml/samples/{id}/relabel {label_idx}`, `/remove` | write `.forge/labels_override.json`, broadcast `ml.sample_updated` |
 | `POST /ml/ingest {run_id, events}` | forge SDK → `/ws`, `ml.*` only |
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
-The Training panel accepts a public GitHub URL. Import inspects `train.py`, `model.py`, `data.py`, and
-`requirements.txt` from the repository root and statically checks for the supported `SmallCNN` + CIFAR-10
+The Training panel accepts a public GitHub repository URL or a folder URL such as
+`https://github.com/hudmarr/gatorhack-dubz/tree/b8c66ef08a05fc9ad3bfcdc94f5eab5e270e3924/ml-examples/cifar10`.
+Import inspects `train.py`, `model.py`, `data.py`, and `requirements.txt` from the selected folder and statically
+checks for the supported `SmallCNN` + CIFAR-10
 structure. It does not clone, import, or run repository code. A supported import selects the reviewed local
 `ml-examples/cifar10` trainer and dataset. That worker records epoch, train/validation loss and accuracy, and
 learning rate through Forge SDK; the SDK streams `ml.metrics`, `ml.class_acc`, and `ml.probe` events to the hub.
