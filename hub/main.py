@@ -1,11 +1,13 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Modules: CAD, agent (pet), VS Code push, messaging (Slack). The ML router is still to come.
+Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process). The ML router
+is still to come.
 `/ws` is shared: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. `/ws/agent` is the same agent protocol alone. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
-Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py).
+Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
+SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py).
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
 from messaging.router import router as messaging_router
+from screens import ScreenBridgeService
+from screens import router as screens_router
 from vscode.router import router as vscode_router
 
 HUB_DIR = Path(__file__).resolve().parent
@@ -47,6 +51,9 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
         await cad.start()
         await slack.start()
+        screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)
+        app.state.screens = screens
+        await screens.start()
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
         try:
             yield
@@ -55,6 +62,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
+            await screens.stop()
             await slack.stop()
             await cad.stop()
 
@@ -64,6 +72,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(agent_router)
     app.include_router(vscode_router)
     app.include_router(messaging_router)
+    app.include_router(screens_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
@@ -82,7 +91,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.get("/health")
     def health():
-        return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(), **agent_health()}
+        return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
+                "screen": app.state.screens.health(), **agent_health()}
 
     return app
 

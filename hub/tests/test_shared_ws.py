@@ -20,7 +20,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cfg = tmp_path / "projects.yaml"
     cfg.write_text(f'projects:\n  demo:\n    path: "{repo}"\n    default_mode: "qa"\n')
     for k, v in {"FAKE_AGENT": "1", "FAKE_AGENT_DELAY": "0.01", "PROJECTS_FILE": str(cfg), "DEFAULT_PROJECT": "demo",
-                 "STT_PROVIDER": "none", "VOICE_PROVIDER": "fake", "FAKE_VOICE_PACE": "0"}.items():
+                 "STT_PROVIDER": "none", "VOICE_PROVIDER": "fake", "FAKE_VOICE_PACE": "0", "SCREEN_BRIDGE": "0"}.items():
         monkeypatch.setenv(k, v)
     from agent.config import load_projects
 
@@ -67,3 +67,10 @@ def test_cad_and_voice_share_one_socket(client: TestClient) -> None:
             if t == "cad.view":
                 break
         assert t == "cad.view"
+
+
+def test_health_reports_the_screen_bridge(client: TestClient) -> None:
+    """One process: /health carries the screen bridge too (off here, so no child is spawned in tests)."""
+    body = client.get("/health").json()
+    assert body["screen"] == {"enabled": False, "state": "stopped", "source": None}
+    assert client.get("/screens/status").json()["enabled"] is False
