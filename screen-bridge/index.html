@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- Screen Bridge sender: shares one window to Unity over WebRTC. Needs signaling.py running.
+     Serve it (python -m http.server 8080) and open http://localhost:8080; getDisplayMedia needs a secure context. -->
+<meta charset="utf-8">
+<title>Screen Bridge</title>
+<body style="margin:0;background:#111;color:#ccc;font:13px monospace">
+<button id="share">Share window</button>
+<span id="status">signaling: connecting...</span>
+<video id="preview" autoplay muted style="width:100%"></video>
+<script>
+  const host = new URLSearchParams(location.search).get("host") || location.hostname || "localhost";
+  const ws = new WebSocket(`ws://${host}:8766`);
+  const status = document.getElementById("status");
+  let stream, pc;
+
+  ws.onopen = () => (status.textContent = "signaling: connected");
+  ws.onclose = () => (status.textContent = "signaling: disconnected");
+  ws.onmessage = async ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.type === "ready" && stream) call();
+    else if (msg.type === "answer") await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+  };
+
+  document.getElementById("share").onclick = async () => {
+    // ponytail: 1920 cap keeps the Quest texture under its 2048 limit
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { max: 1920 }, height: { max: 1920 }, frameRate: 30 },
+      audio: false,
+    });
+    stream.getVideoTracks()[0].contentHint = "text"; // favor sharp text over frame rate
+    document.getElementById("preview").srcObject = stream;
+    call();
+  };
+
+  // One fresh connection per call, so a restarted Unity just sends "ready" again.
+  async function call() {
+    pc?.close();
+    pc = new RTCPeerConnection();
+    pc.onconnectionstatechange = () => (status.textContent = `video: ${pc.connectionState}`);
+    const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], { direction: "sendonly" });
+    // H.264 first: the Quest decodes it in hardware.
+    const codecs = RTCRtpSender.getCapabilities("video").codecs;
+    transceiver.setCodecPreferences([
+      ...codecs.filter((c) => c.mimeType === "video/H264"),
+      ...codecs.filter((c) => c.mimeType !== "video/H264"),
+    ]);
+    await pc.setLocalDescription();
+    // Wait for all network candidates so they ship inside the offer.
+    if (pc.iceGatheringState !== "complete")
+      await new Promise((done) =>
+        pc.addEventListener("icegatheringstatechange", () => pc.iceGatheringState === "complete" && done()),
+      );
+    ws.send(JSON.stringify({ type: "offer", sdp: pc.localDescription.sdp }));
+  }
+</script>
