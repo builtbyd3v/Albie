@@ -10,7 +10,7 @@ Read `PROJECT_CONTEXT.md` first. It's the source of truth: the pitch, demo scrip
 - Ship features as prefabs. No scene-only setup that someone else has to recreate.
 - UI goes inside `ForgePanel` and must work with mouse (DesktopRig) and Interaction SDK ray/poke.
 - Quest performance: no allocations or LINQ in `Update`, instancing for repeated meshes, textures 2048 max.
-- Unity networking: NativeWebSocket for WS, `UnityWebRequest` for REST, Newtonsoft for JSON. Marshal WS callbacks to the main thread.
+- Unity networking: go through `ForgeNet` (`Core/Net/`): `ForgeEvents.On...` / `ForgeNet.On` for hub events, `ForgeNet.Get/Post` for REST. Don't open your own sockets. Hub off = mock mode (`Resources/Mocks/`, `ForgeMockPlayer`).
 - Python: FastAPI routers per module, type hints, pydantic models mirroring `events.py`.
 - Never send a real message or take an irreversible action from the pet without a user confirmation step.
 - Small commits, pull often, never break `main`.

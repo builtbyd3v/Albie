@@ -72,11 +72,15 @@ class VizPlan(BaseModel):
 
 
 class EventBus:
-    STICKY = {"cad.model_updated", "viz.plan"}  # replayed to clients that connect later
+    STICKY = {"cad.model_updated", "cad.view", "viz.plan"}  # replayed to clients that connect later
 
     def __init__(self) -> None:
         self._clients: set[WebSocket] = set()
         self._last: dict[str, dict[str, Any]] = {}
+
+    def latest(self, prefix: str = "") -> dict[str, dict[str, Any]]:
+        """Last sticky payload per type: lets a client without a WebSocket poll for state."""
+        return {t: m["payload"] for t, m in self._last.items() if t.startswith(prefix)}
 
     async def publish(self, type_: str, payload: BaseModel | dict[str, Any]) -> None:
         body = payload.model_dump() if isinstance(payload, BaseModel) else payload
