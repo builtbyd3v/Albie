@@ -16,7 +16,8 @@
   - To plug a module in: make a prefab from these (a prefab variant is easiest), send it to Hudson, and it goes into that mode's item list on the `Workspace` object in Main (slot + prefab). Panel IDs come from section 7.
 - **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
 - **Next (Hudson):** `DesktopRig` (WASD + mouse fallback, press E to sit), then `ForgeNet` (WS/REST client), then grab/move for panels and volumes.
-- **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Unity CAD viewer (phase 2) not started. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
+- **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
+- **CAD Unity done (phase 2):** `Assets/_Forge/CAD/Prefabs/CadViewer.prefab` (ForgeVolume variant, slot `cad-viewer`) and `CadParamsPanel.prefab` (ForgePanel variant, slot `cad-params`) work from mocks (`CADSandbox.unity`) and live against the hub. **Hudson:** slot them into the CAD mode; read the "Notes for Core" in `Assets/_Forge/CAD/README.md` (PointableCanvasModule exclusive mode blocks mouse UI; glTFast shaders must be included in player builds).
 
 ---
 

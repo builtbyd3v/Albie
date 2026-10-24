@@ -1,0 +1,10 @@
+{
+  "type": "cad.regen_failed",
+  "payload": {
+    "source": "script",
+    "kind": "build",
+    "error": "ZeroDivisionError: division by zero",
+    "error_line": 76,
+    "kept_version": 4
+  }
+}
