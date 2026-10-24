@@ -50,6 +50,9 @@ public class DesktopRig : MonoBehaviour
     GameObject hovered;
     GameObject pressed;
     int hintState = -1;
+    CanvasGroup hintGroup;
+    float hintShownAt;
+    const float HintHold = 7f, HintFade = 0.6f;  // the toast shows this long after it changes, then fades (s)
 
     void Awake()
     {
@@ -250,14 +253,28 @@ public class DesktopRig : MonoBehaviour
         return target != null;
     }
 
-    // Rebuilt only when what it says changes (not a new string every frame).
+    // Rebuilt only when what it says changes (not a new string every frame). The toast shows for a few seconds after
+    // each change (sitting down, grabbing a panel, freeing the cursor), then gets out of the way.
     void UpdateHint()
     {
         if (hint == null) return;
+        if (hintGroup == null)
+        {
+            // The toast pill around the text (Forge > Restyle Desktop HUD), or just the text on an older HUD.
+            var pill = hint.transform.parent != null && hint.transform.parent.name == "HintPill" ? hint.transform.parent : hint.transform;
+            hintGroup = pill.GetComponent<CanvasGroup>();
+            if (hintGroup == null) hintGroup = pill.gameObject.AddComponent<CanvasGroup>();
+            hintGroup.blocksRaycasts = hintGroup.interactable = false;
+        }
         bool atDesk = presence != null && presence.AtDesk;
         int state = (PanelManipulator.Grabbing > 0 ? 1 : 0) | (cursorLocked ? 2 : 0) | (Seated ? 4 : 0) | (atDesk ? 8 : 0);
+        bool holding = PanelManipulator.Grabbing > 0;
+        float alpha = holding ? 1f : Mathf.Clamp01(1f - (Time.time - hintShownAt - HintHold) / HintFade);
+        if (!Mathf.Approximately(hintGroup.alpha, alpha)) hintGroup.alpha = alpha;
         if (state == hintState) return;
         hintState = state;
+        hintShownAt = Time.time;
+        hintGroup.alpha = 1f;
         if (PanelManipulator.Grabbing > 0)
         {
             hint.text = cursorLocked ? "Holding a panel · look around to carry it · scroll: push back / pull in · release to drop"
