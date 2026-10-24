@@ -166,9 +166,12 @@ namespace Forge.Pet
 
         void Update()
         {
-            if (autoPlace && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
-
-            BindCrew();
+            if (Time.time >= _nextPlaceCheck)
+            {
+                _nextPlaceCheck = Time.time + 0.5f;
+                if (autoPlace) UpdatePlacement();
+                BindCrew();
+            }
             bool gated = _crew != null && !_crew.CrewAllowed;
             if (gated != _gated) ApplyGate(gated);
             if (_gated) return;

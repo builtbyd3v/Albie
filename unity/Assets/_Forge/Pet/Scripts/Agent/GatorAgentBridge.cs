@@ -208,7 +208,7 @@ namespace Forge.Pet
                     break;
 
                 case "pet.state":
-                    HandlePetState(e.GetString("mode"));
+                    HandlePetState(e.GetString("mode"), e.GetString("target_panel", null));
                     break;
 
                 // Voice mode: the hub streams speech (StreamedPcmTextToSpeech plays it and raises SpeechStarted/Ended).
@@ -248,15 +248,16 @@ namespace Forge.Pet
             }
         }
 
-        void HandlePetState(string mode)
+        // target_panel ("screen-main", "cad-viewer", "messages"): Thinking / Working walk to that panel (GatorController).
+        void HandlePetState(string mode, string targetPanel)
         {
             switch (mode)
             {
                 case "follow": SetStateIfChanged(GatorState.Following); break;
                 case "idle": SetStateIfChanged(GatorState.Wandering); break;
                 case "listening": SetStateIfChanged(GatorState.Listening); break;
-                case "thinking": SetStateIfChanged(GatorState.Thinking); ApplyMood(Mood.Squint); break;
-                case "working": SetStateIfChanged(GatorState.Working); break;
+                case "thinking": SetBusyState(GatorState.Thinking, targetPanel); ApplyMood(Mood.Squint); break;
+                case "working": SetBusyState(GatorState.Working, targetPanel); break;
                 case "speaking": SetStateIfChanged(GatorState.Answering); break;
                 default:
                     if (_unknownLogged.Add("pet.state:" + mode)) Debug.Log("[GatorAgentBridge] Unknown pet.state mode '" + mode + "'.");
@@ -279,6 +280,13 @@ namespace Forge.Pet
         void SetStateIfChanged(GatorState s)
         {
             if (controller != null && controller.State != s) controller.SetState(s);
+        }
+
+        void SetBusyState(GatorState s, string targetPanel)
+        {
+            if (controller == null) return;
+            if (!string.IsNullOrEmpty(targetPanel)) controller.SetState(s, targetPanel);   // re-targets even in the same state
+            else if (controller.State != s) controller.SetState(s);
         }
 
         void ApplyMood(Mood m)

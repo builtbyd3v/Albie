@@ -28,6 +28,14 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Future: Working morphs the gator into a blob (not implemented yet).")]
         bool workingBlobMorph = false;
 
+        [Header("Working at a panel (pet.state target_panel)")]
+        [SerializeField, Tooltip("Panels float at eye level: stand at the desk point nearest the panel, this far (m) in from the edge (plus deskEdgeInset).")]
+        float panelStandOff = 0.10f;
+        [SerializeField, Tooltip("Volumes sit on the desk (the rocket): stand beside them, this far (m) past their footprint.")]
+        float volumeStandOff = 0.06f;
+        [SerializeField, Tooltip("Emote played on arriving at the panel (\"\" = none).")]
+        string workingEmote = "Bounce";
+
         [Header("Wandering")]
         [SerializeField, Tooltip("Optional wander center. Empty = around the user, or around the spawn point if there is no user.")]
         Transform wanderCenter;
@@ -60,8 +68,11 @@ namespace Forge.Pet
         GatorExpressions expressions;
         Vector3 homePosition;
         float stateEnterTime, nextActionTime, approachStartTime, greetTime;
-        bool started, tripActive, approachingUser, introGreeted, needRepath;
+        bool started, tripActive, approachingUser, introGreeted, needRepath, workTripActive;
         Vector3 lastUserPos;
+        string workTargetId;             // pet.state target_panel while Thinking / Working
+        Transform workTarget;            // the open panel / volume it resolved to (PetWorkspace)
+        Action workLanded;
 
         float StateElapsed => Time.time - stateEnterTime;
 
@@ -90,6 +101,23 @@ namespace Forge.Pet
             StandUp();                          // any state change ends a sit/lay rest immediately
             EnterState(s);
             StateChanged?.Invoke(s);
+        }
+
+        /// <summary>
+        /// SetState with a pet.state target_panel ("screen-main", "cad-viewer", "messages"): Thinking / Working walk (or
+        /// hop) to the desk spot in front of that open panel, face it and play the working emote there; an unknown or
+        /// closed panel falls back to the plain state. Same state again with a new panel re-targets.
+        /// </summary>
+        public void SetState(GatorState s, string targetPanel)
+        {
+            bool busyState = s == GatorState.Thinking || s == GatorState.Working;
+            workTargetId = busyState && !string.IsNullOrEmpty(targetPanel) ? targetPanel : null;
+            if (started && s == State)
+            {
+                if (busyState && workTargetId != null && !hopping && !AnticsBusy && !BusyInTerritory) TryStartWorkTrip();
+                return;
+            }
+            SetState(s);
         }
 
         /// <summary>Leave Intro to the serialized stateAfterIntro (no-op in other states).</summary>
@@ -139,10 +167,11 @@ namespace Forge.Pet
         void EnterState(GatorState s)
         {
             stateEnterTime = Time.time;
-            tripActive = approachingUser = introGreeted = false;
+            tripActive = approachingUser = introGreeted = workTripActive = false;
             evacuating = false;                 // a state change cancels a keep-out run (re-checked within 0.5 s)
             needRepath = true;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
+            if (s != GatorState.Thinking && s != GatorState.Working) ClearWorkTarget();
 
             switch (s)
             {
@@ -165,10 +194,11 @@ namespace Forge.Pet
                 case GatorState.Working:
                     faceUser = true; SetMood(Mood.Squint);
                     if (BusyInTerritory) GoToTerritoryFront();       // crew: work at the front of its own area
+                    else if (TryStartWorkTrip()) { }                  // Bit: to the desk spot in front of target_panel
                     else if (IsFarFromUser(nearUserDistance)) ComeToUser(); else StopMoving();
                     if (s == GatorState.Working && workingBlobMorph)
                     {
-                        // TODO(blob): morph into the blob and arc-jump into target_panel here.
+                        // TODO(blob): morph into the blob and arc-jump into the panel instead of walking there.
                     }
                     break;
                 case GatorState.Answering:
@@ -288,17 +318,17 @@ namespace Forge.Pet
             if (dist > 0.3f) MoveTo(goal, dist > 3f);
         }
 
-        // Thinking / Working: stay near the user, idle with occasional variants.
+        // Thinking / Working: stay near the user (or at the target panel), idle with occasional variants.
         void UpdateFidget()
         {
             if (approachingUser) return;
-            if (!BusyInTerritory && IsFarFromUser(nearUserDistance + 1f)) { ComeToUser(); return; }
+            if (!BusyInTerritory && workTarget == null && IsFarFromUser(nearUserDistance + 1f)) { ComeToUser(); return; }
             if (Time.time < nextActionTime) return;
             nextActionTime = Time.time + UnityEngine.Random.Range(3f, 6f);
             if (UnityEngine.Random.value < 0.5f) PlayIdleVariant();
         }
 
-        // Finish a ComeToUser trip: stop and face the user.
+        // Finish a ComeToUser / panel trip: stop and face the user (the panel wins while workTarget is set).
         void UpdateApproach()
         {
             if (!approachingUser || State == GatorState.Intro) return;
@@ -308,7 +338,75 @@ namespace Forge.Pet
                 approachingUser = false;
                 faceUser = true;
                 nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
+                if (workTripActive) { workTripActive = false; ArriveAtWorkTarget(); }
             }
+        }
+
+        // ---------------------------------------------------------------- working at a panel
+
+        // Resolve workTargetId to an open panel / volume and head for the desk spot in front of it. False = nothing to do
+        // (no target, panel not open, no desk): the caller falls back to the usual come-to-user.
+        bool TryStartWorkTrip()
+        {
+            if (workTargetId == null) return false;
+            if (!PetWorkspace.TryGetItemTransform(workTargetId, out Transform t))
+            {
+                Debug.Log("[GatorController] target_panel '" + workTargetId + "' isn't open; staying with the user.", this);
+                workTarget = null;
+                return false;
+            }
+            workTarget = t;
+            faceTarget = t;
+            faceUser = false;
+            GatorNavSurface desk = GatorNavSurface.Desk;
+            if (desk == null || !desk.IsBuilt) return false;    // no desk to stand on: at least face it
+
+            Vector3 goal = PanelStandPoint(desk, t);
+            if (!OnDesk)
+            {
+                if (hopping) return true;
+                if (workLanded == null) workLanded = ArriveAtWorkTarget;
+                HopTo(desk, goal, workLanded);
+                return hopping;
+            }
+            if (FlatDistance(goal) < 0.06f) { StopMoving(); ArriveAtWorkTarget(); return true; }
+            if (!MoveTo(goal, false)) return false;
+            approachingUser = true;             // UpdateApproach finishes the trip
+            approachStartTime = Time.time;
+            workTripActive = true;
+            return true;
+        }
+
+        void ArriveAtWorkTarget()
+        {
+            if (workTarget == null) return;
+            faceTarget = workTarget;
+            if (!string.IsNullOrEmpty(workingEmote)) PlayEmote(workingEmote);
+        }
+
+        void ClearWorkTarget()
+        {
+            workTargetId = null;
+            if (workTarget != null && faceTarget == workTarget) faceTarget = null;
+            workTarget = null;
+        }
+
+        // Desk spot for an open item: volumes (the rocket) sit on the desk, so stand beside them on the side nearer the
+        // gator; panels float at eye level, so stand at the desk point nearest / under them, pulled in from the edge
+        // (screen-main: front-centre; messages: the right edge beside the card stack). Keep-out safe.
+        Vector3 PanelStandPoint(GatorNavSurface desk, Transform item)
+        {
+            Vector3 p = item.position;
+            ForgeVolume volume = item.GetComponent<ForgeVolume>();
+            if (volume != null)
+            {
+                float half = 0.5f * Mathf.Max(volume.size.x * Mathf.Abs(item.lossyScale.x), volume.size.z * Mathf.Abs(item.lossyScale.z), 0.1f);
+                Vector3 right = desk.Rotation * Vector3.right;
+                Vector3 a = p + right * (half + volumeStandOff), b = p - right * (half + volumeStandOff);
+                p = desk.ClosestPoint(FlatDistance(a) <= FlatDistance(b) ? a : b, deskEdgeInset);
+            }
+            else p = desk.ClosestPoint(p, deskEdgeInset + panelStandOff);
+            return KeepOutSafePoint(desk, p);
         }
 
         bool ComeToUserInternal(bool run)
