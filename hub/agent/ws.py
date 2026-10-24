@@ -396,4 +396,8 @@ async def _on_stt_stop(s: Session) -> None:
         if decision.respond:
             await _on_ask(s, AgentAsk(pet_id=s.pet_id, text=decision.rest or text))
         return
+    if s.wake is not None and s.wake.crew_target(text):  # "Tester, ..." in Bit's own turn: the crew gator's
+        await Emitter(s.pet_id)(ev.stt_final(s.pet_id, ""))  # Bit: nothing to answer
+        await s.wake.final(text)
+        return
     await Emitter(s.pet_id)(ev.stt_final(s.pet_id, text))

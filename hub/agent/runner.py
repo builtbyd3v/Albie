@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -53,6 +54,8 @@ CODE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"]
 DOCS_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write"]
 # Reviewer / Sentinel: read-only git through Bash (dontAsk denies every other command).
 REVIEW_BASH = ["Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(git branch:*)"]
+# Scribe: Bash only to commit its docs on its own branch.
+DOCS_BASH = ["Bash(git add:*)", "Bash(git commit:*)", "Bash(git status:*)", "Bash(git diff:*)"]
 # Irreversible / out-of-scope actions the pet must never take without a human.
 CODE_DENY = [
     "Bash(git push:*)",
@@ -116,12 +119,15 @@ def crew_prompt(agent: AgentType, mode: ConcreteMode) -> str:
 
 
 def _crew_tools(agent: AgentType, mode: ConcreteMode) -> tuple[list[str], list[str]]:
-    """(built-in tools, extra allowed patterns) for a crew member's kit."""
+    """(built-in tools, auto-approved tools) for a crew member's kit. A kit with a Bash allow-list gets the Bash
+    tool but only its listed commands approved (a bare "Bash" would approve every command)."""
     if agent.kit == "review":
-        return QA_TOOLS + ["Bash"], REVIEW_BASH
+        return QA_TOOLS + ["Bash"], QA_TOOLS + REVIEW_BASH
     if mode == "qa" or agent.kit in ("read", "cad"):
-        return QA_TOOLS, []
-    return (DOCS_TOOLS if agent.kit == "docs" else CODE_TOOLS), []
+        return QA_TOOLS, QA_TOOLS
+    if agent.kit == "docs":
+        return DOCS_TOOLS + ["Bash"], DOCS_TOOLS + DOCS_BASH
+    return CODE_TOOLS, CODE_TOOLS
 
 
 def crew_forge_allow(agent: AgentType) -> tuple[str, ...]:
@@ -136,19 +142,20 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
     lead = agent is None
     allow: tuple[str, ...] | None = None
     if lead:
-        tools, extra = (QA_TOOLS if mode == "qa" else CODE_TOOLS), []
+        tools = QA_TOOLS if mode == "qa" else CODE_TOOLS
+        approved = tools
         from .crew import lead_rules  # registers the crew tools; imported late (crew imports this module lazily)
 
         prompt = (QA_PROMPT if mode == "qa" else CODE_PROMPT) + lead_rules()
     else:
-        tools, extra = _crew_tools(agent, mode)
+        tools, approved = _crew_tools(agent, mode)
         prompt = crew_prompt(agent, mode)
         allow = crew_forge_allow(agent)
     deny = (CODE_DENY if lead else CREW_DENY) if mode == "code" else []
     effort = os.getenv("AGENT_QA_EFFORT" if mode == "qa" else "AGENT_CODE_EFFORT")
     return ClaudeAgentOptions(
         tools=tools,  # built-in tools that exist at all
-        allowed_tools=tools + extra + forge_tools.mcp_names(lead, allow),  # ...auto-approved, plus the hub tools
+        allowed_tools=approved + forge_tools.mcp_names(lead, allow),  # ...auto-approved, plus the hub tools
         mcp_servers={forge_tools.SERVER: forge_tools.mcp_server(pet_id, lead, allow)},
         disallowed_tools=deny,
         permission_mode="dontAsk",  # never prompt: anything not pre-approved is denied
@@ -175,6 +182,11 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _git_bytes(repo: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+    """Patches stay bytes (binary files, any text encoding)."""
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, input=stdin, timeout=60)
+
+
 def create_task_branch(repo: Path, text: str, task_id: str) -> str | None:
     """Create and check out pet/<slug>-<shortid>. None if repo isn't a git work tree."""
     if _git(repo, "rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
@@ -193,19 +205,49 @@ def worktree_root(repo: Path) -> Path:
     return Path(raw).expanduser() if raw else repo.parent / f"{repo.name}-crew"
 
 
-def create_task_worktree(repo: Path, text: str, task_id: str, pet_id: str) -> tuple[Path, str] | None:
-    """New worktree on pet/<pet>/<slug>-<shortid> from HEAD, so crew members never switch the main checkout's
-    branch under each other. None if repo isn't a git work tree."""
+def create_task_worktree(repo: Path, text: str, task_id: str, pet_id: str) -> tuple[Path, str, str] | None:
+    """New worktree on pet/<pet>/<slug>-<shortid>, so crew members never switch the main checkout's branch under
+    each other. It starts from the main checkout as it is now: `git stash create` snapshots uncommitted tracked
+    edits (Bit's) as a commit without touching the checkout; HEAD if there are none. Returns (path, branch, base
+    commit), None if repo isn't a git work tree."""
     if _git(repo, "rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
         return None
+    base = _git(repo, "stash", "create").stdout.strip() or _git(repo, "rev-parse", "HEAD").stdout.strip() or "HEAD"
     branch = f"pet/{_slug(pet_id, 16)}/{_slug(text)}-{task_id[:6]}"
     path = worktree_root(repo) / f"{_slug(pet_id, 16)}-{task_id[:6]}"
     path.parent.mkdir(parents=True, exist_ok=True)
-    res = _git(repo, "worktree", "add", "-b", branch, str(path), "HEAD")
+    res = _git(repo, "worktree", "add", "-b", branch, str(path), base)
     if res.returncode != 0:
         raise RuntimeError(f"git worktree add failed: {res.stderr.strip()}")
-    log.info("created worktree %s on %s", path, branch)
-    return path, branch
+    log.info("created worktree %s on %s from %s", path, branch, base[:10])
+    return path, branch, base
+
+
+_land_lock = threading.Lock()  # one crew task lands in the main checkout at a time
+
+
+def land_task_worktree(repo: Path, path: Path, branch: str, base: str) -> str | None:
+    """Bring a finished crew task into the main checkout as plain uncommitted edits: everything in the worktree
+    since `base` (commits and anything left uncommitted) goes through `git apply`, which changes only files on disk
+    (never the index or branch) and applies all or nothing. Then the worktree and its branch are removed. If it
+    doesn't apply (the user or Bit changed the same lines), both stay so it can be merged by hand.
+    Returns a short spoken note, or None when the task changed nothing."""
+    with _land_lock:
+        _git(path, "add", "-A")  # include uncommitted and new files
+        files = _git(path, "diff", "--cached", "--name-only", base).stdout.split()
+        if files:
+            patch = _git_bytes(path, "diff", "--cached", "--binary", base).stdout
+            res = _git_bytes(repo, "apply", "--whitespace=nowarn", "-", stdin=patch)
+            if res.returncode != 0:
+                log.warning("crew changes on %s didn't apply: %s", branch, res.stderr.decode(errors="replace").strip())
+                return (f"My changes conflicted with yours, so they're still on branch {branch}, "
+                        f"in {path.parent.name}/{path.name}.")
+        _git(repo, "worktree", "remove", "--force", str(path))
+        _git(repo, "branch", "-D", branch)
+        log.info("landed %d file(s) from %s", len(files), branch)
+    if not files:
+        return None
+    return f"My changes are in your checkout: {len(files)} file{'s' if len(files) != 1 else ''}."
 
 
 # ------------------------------------------------------------- progress text
@@ -335,11 +377,12 @@ async def _run_code(
 ) -> str:
     task_id = uuid.uuid4().hex[:8]
     cwd: Path | None = None
+    base: str | None = None
     if agent is None:  # Bit: a branch in the main checkout (unchanged)
         branch = await asyncio.to_thread(create_task_branch, project.path, text, task_id)
     else:  # crew: its own worktree, so parallel members never share a checkout
         made = await asyncio.to_thread(create_task_worktree, project.path, text, task_id, pet_id)
-        cwd, branch = made if made else (None, None)
+        cwd, branch, base = made if made else (None, None, None)
     title = text if len(text) <= 60 else text[:57] + "..."
     await emit(ev.task_started(pet_id, task_id, title))
     if branch is None:
@@ -368,6 +411,14 @@ async def _run_code(
     if _cancelled(control):
         return ""
     summary = summary or last_text or "Done."
+    if cwd is not None and branch and base:  # crew: bring the work back to the checkout the user has open
+        try:
+            note = await asyncio.to_thread(land_task_worktree, project.path, cwd, branch, base)
+        except Exception:
+            log.exception("landing %s failed", branch)
+            note = f"I couldn't bring my changes over, so they're still on branch {branch}."
+        if note:
+            summary = f"{note} {summary}"  # first, so the spoken announcement keeps it
     await emit(ev.task_complete(pet_id, task_id, summary, branch=branch))
     return summary
 
