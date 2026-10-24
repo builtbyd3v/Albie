@@ -81,7 +81,7 @@ def run_command(command: str, *args: Any) -> Any:
 
 
 def train() -> Any:
-    """Type forgeBit.trainCommand into VS Code's "Bit" terminal, so the run shows on the streamed screen."""
+    """Type forgeBit.trainCommand into VS Code's "Albie" terminal, so the run shows on the streamed screen."""
     return call("POST", "/train", {})
 
 
@@ -115,7 +115,7 @@ TOOLS: list[dict[str, Any]] = [
                     "workbench.action.zoomReset.",
      "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "vscode_train",
-     "description": "Start the training script in VS Code's 'Bit' terminal, so the run shows on the main screen. "
+     "description": "Start the training script in VS Code's 'Albie' terminal, so the run shows on the main screen. "
                     "If it crashes, you'll get a vscode.event with the exit code.",
      "parameters": {"type": "object", "properties": {}}},
 ]
@@ -138,7 +138,7 @@ async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(handler, args)
     except urllib.error.URLError as e:
-        return {"error": f"VS Code isn't reachable (is the Forge Bit extension running?): {e.reason}"}
+        return {"error": f"VS Code isn't reachable (is the Forge Albie extension running?): {e.reason}"}
     except (RuntimeError, KeyError) as e:
         return {"error": str(e)}
 

@@ -1,7 +1,8 @@
 # Forge (working name): Spatial Workspace for Engineers
 
 > Single source of truth for the hackathon. Every human and every coding agent reads this first.
-> "Forge" (project) and "Bit" (pet) are placeholder names. Rename freely.
+> "Forge" (project) is a placeholder name. Rename freely.
+> The pet is called Albie (said AL-bee). Internal ids, files and events still use bit.
 > v2: switched to Unity + Meta XR SDK. Laptop-first until the Quest 3 arrives.
 > v3 (2026-10-24): messaging switched from WhatsApp Cloud API to Slack (Bolt for Python, Socket Mode). No tunnel, no allowlist, no 24-hour window. Section 10 (team split) is stale; the real split lives in chat.
 
@@ -59,7 +60,7 @@
 - **CAD Inspect, take apart, drawing (2026-10-24):** **Inspect** on the design panel (or key I) brings the model up big in front of you; there you can pull parts off with the mouse or a controller / hand ray, turn them, snap them back or Reassemble (a card shows each part's name, material, mass). The hub draws every version as an engineering sheet (`GET /cad/drawing.png`), shown by `CadDrawingPanel.prefab` (slot `cad-drawing`, tap to zoom). Core change made: `VolumeManipulator.ModelAway`.
 - **CAD screens (2026-10-24, branch `cad/versions-and-drawing`):** CAD mode is now: the **drawing on the middle screen** (in place of VS Code, which stays in ML and SCR), the model on the desk in front of it, the design panel on the right, and a real **Versions** panel on the left (`CadVersionsPanel.prefab`, slot `cad-timeline`: the metric across versions, then every version; tap one to go back). Core: the main panel now stands behind whatever is in the middle of the desk (`Workspace.BehindDesk`), so the model no longer pokes through the screen.
 - **CAD humanoid (2026-10-24, branch `cad/humanoid`):** a fourth design, **Humanoid robot**: Unitree's G1 (88 parts, 29 joints and two 3-finger hands, BSD-3, vendored in `hub/cad/data/unitree_g1/`) posed by 10 parameters, answering "Will it stand?" (balance margin over its feet, each motor's static torque against its rating), and **Walk**: one lap of Unitree's own trained walking policy, recorded in MuJoCo, played on the desk or life size. Expand gains a **Life size** pill. Hub: mesh parts (`cad/meshes.py`), URDF kinematics (`cad/robot.py`), `FixedMass`, `GET /cad/motion`, a mesh path for drawings. Details: `CAD_PLAN.md` section 5 "Round 5", the CAD README.
-- **Pet plan written: `PET_PLAN.md` (2026-10-24).** How Bit lives in Main: `DeskPresence` is the clock, an `ArrivalDirector` does hop → Slack digest → open the CODE screen, the crew is gated to CODE, the hub supervises Dev's screen bridge so `uvicorn` is the only process, and the deprecated typed paths go. PR order and the Core edits Adrian makes with Hudson's OK are in its section 5.
+- **Pet plan written: `PET_PLAN.md` (2026-10-24).** How Albie lives in Main: `DeskPresence` is the clock, an `ArrivalDirector` does hop → Slack digest → open the CODE screen, the crew is gated to CODE, the hub supervises Dev's screen bridge so `uvicorn` is the only process, and the deprecated typed paths go. PR order and the Core edits Adrian makes with Hudson's OK are in its section 5.
 - **ML plan written: `ML_PLAN.md`.** Open any ML repo: an LLM classifier reads the code and picks its type (image classifier, regression, ...), each type has a fixed list of visuals, and a second step writes the glue code into `.forge/`. ML A + ML B: start with its section 0 (pick and clean your repos); the image classification layout is its section 5.3. Open: which LLM and which live training graphs (the ML team decides), and how VS Code connects (ML_PLAN section 3, doesn't block ML work).
 
 **2026-10-24, Adrian (Main wiring, branch `feat/main-wiring`):**
@@ -87,8 +88,8 @@ Meta just announced its VR Glasses (Project Phoenix) at Connect 2026: a lightwei
 
 Everything we build serves this 3 to 4 minute script. If a feature is not in the script, it is a stretch goal.
 
-1. **Enter the room.** User is standing. Bit trots alongside, following them.
-2. **Sit at the desk.** The desk is detected (Quest: Mixed Reality Utility Kit finds the `TABLE`) or walked up to (laptop). Bit hops onto the desk. The workspace unfolds: keyboard and trackpad glow in, the main screen (real VS Code) rises, side panels fan out.
+1. **Enter the room.** User is standing. Albie trots alongside, following them.
+2. **Sit at the desk.** The desk is detected (Quest: Mixed Reality Utility Kit finds the `TABLE`) or walked up to (laptop). Albie hops onto the desk. The workspace unfolds: keyboard and trackpad glow in, the main screen (real VS Code) rises, side panels fan out.
 3. **ML mode.** VS Code shows an image classifier project instrumented with our 3-line Python SDK. User hits "Train."
    - **Above:** live training curves (loss, accuracy, train vs val) animate epoch by epoch. Overfitting warning fires if val loss climbs.
    - **Center left:** 3D diagram of the model, layers as blocks, input shape on top, output shape on bottom, pulses as batches flow.
@@ -96,9 +97,9 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
    - **Right:** results panel and a dot wall: one green (correct) or red (wrong) dot per validation image. "Show mistakes" opens a gallery of the wrong ones; click one: image, predicted label, probability bars for every class, true label (ML_PLAN 5.3).
    - User spots a mislabeled image and hits **Relabel** or **Remove**. Model was right, data was wrong.
    - Confusion matrix appears automatically when training finishes.
-4. **Ask the pet.** "Hey Bit, why is my model so bad at cats?" Bit says "one sec," morphs into a glowing blob, leaps into the results panel, the cat row lights up in the confusion matrix, then Bit pops back out with an answer card and suggested actions.
-5. **CAD mode.** A model rocket appears with a parameter panel. "Bit, make the body tube 20% longer and add a fourth fin." Bit walks to the rocket, tinkers, the rocket regenerates on the spot.
-6. **Team admin.** A Slack message arrives. Bit perks up: "Hudson in #forge-team asks if the demo build will be ready by 3, want me to answer?" User: "Yeah, tell him yes and I'll ping him when it's pushed." Bit writes the reply, a card pops up beside it with the exact text and Send / Cancel; the user taps Send (or says "send it"), and the message lands in the thread **under the user's own name** and buzzes the teammate's phone. (Sender and text are placeholders; "mom says dinner in 30" works just as well as a Slack DM.) Earlier, in step 2, Bit already greeted the user with the unread digest, see 8.8. Tested live against the real workspace, no fake path.
+4. **Ask the pet.** "Hey Albie, why is my model so bad at cats?" Albie says "one sec," morphs into a glowing blob, leaps into the results panel, the cat row lights up in the confusion matrix, then Albie pops back out with an answer card and suggested actions.
+5. **CAD mode.** A model rocket appears with a parameter panel. "Albie, make the body tube 20% longer and add a fourth fin." Albie walks to the rocket, tinkers, the rocket regenerates on the spot.
+6. **Team admin.** A Slack message arrives. Albie perks up: "Hudson in #forge-team asks if the demo build will be ready by 3, want me to answer?" User: "Yeah, tell him yes and I'll ping him when it's pushed." Albie writes the reply, a card pops up beside it with the exact text and Send / Cancel; the user taps Send (or says "send it"), and the message lands in the thread **under the user's own name** and buzzes the teammate's phone. (Sender and text are placeholders; "mom says dinner in 30" works just as well as a Slack DM.) Earlier, in step 2, Albie already greeted the user with the unread digest, see 8.8. Tested live against the real workspace, no fake path.
 7. **Close:** "Every engineer gets a desk that understands their work and a teammate that never sleeps."
 
 ---
@@ -272,7 +273,7 @@ GET  /messages/history?channel=<id>&limit=50&before=<ts>
                                          top-level only (a threaded message carries reply_count); the user's own messages included (is_me)
 POST /messages/channels/{id}/seen     -> { ok, unread: 0 }   (that conversation is open in the panel; notify.channels follows)
 GET  /messages/users/me               -> { user_id, name, display_name }   (who the hub posts as)
-POST /messages/drafts { channel?, text, thread_ts?, reply_to_ts? } -> Draft   (Bit WRITES the reply; nothing is posted. Same as the messages_send tool.
+POST /messages/drafts { channel?, text, thread_ts?, reply_to_ts? } -> Draft   (Albie WRITES the reply; nothing is posted. Same as the messages_send tool.
                                          channel: an id, "#name", or a person's name = their DM)
 PATCH /messages/drafts/{id} { text?, channel?, thread_ts? } -> Draft   (the user edited the composer; re-emits notify.draft with the same draft_id and edited: true)
 POST /messages/drafts/{id}/send      -> { ts }   (the Send button, or "yes, send it" through messages_confirm; posts under the USER's own name)
@@ -379,7 +380,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 
 ### 8.7 Pet brain, voice, Slack
 - Voice: Grok Voice Agent session in the hub. Push-to-talk (spacebar on desktop, trigger/pinch-hold in XR) to start; server VAD ends the turn.
-- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_list_channels`, `messages_read_channel`, `messages_send` (writes a **draft** and returns `awaiting_confirmation`; Bit says what it wrote and asks you to hit Send or say so), `messages_confirm` (`send: true|false` on the open draft, for "send it" / "never mind"). There is no tool that posts directly.
+- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_list_channels`, `messages_read_channel`, `messages_send` (writes a **draft** and returns `awaiting_confirmation`; Albie says what it wrote and asks you to hit Send or say so), `messages_confirm` (`send: true|false` on the open draft, for "send it" / "never mind"). There is no tool that posts directly.
 - **`delegate(task)` tool** for anything that needs real analysis ("why is it bad at cats?", "suggest a design change"): the hub runs a reasoning model with read access to run results / CAD script, returns a card. While it runs, emit `pet.state working` (blob dive) and have the voice model say "give me a sec."
 - Every tool call also emits `pet.state` so the body animates.
 - Persona: short, cute, competent. 1 to 3 spoken sentences, details go in the card.
@@ -390,10 +391,10 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 
 ### 8.8 Messages: the Slack panel, Mentions, digest and Send / Cancel (Unity `messages` + `messages-mentions`, hub `messaging`)
 - **Slack panel** (`Messages/Resources/SlackPanel.prefab`, ForgePanel variant, slot Main of MSG mode): conversations on the left (Channels / Direct messages from `notify.channels`, sticky on connect; unread pill, mention dot, bold when unread), the open conversation on the right (`GET /messages/history`, oldest at the top, auto-scroll to the newest unless you scrolled up, "Load earlier" when `has_more`), a composer at the bottom. Showing a conversation and new messages in it `POST /messages/channels/{id}/seen`. Rows are the module's translucent slate cards inside Hudson's graphite frame; `<@U..>` renders as @name, your mentions in the accent; your own messages (`is_me`) are inset and tinted.
-- **Composer:** what you type becomes a draft (`POST /messages/drafts`) that is sent at once (`POST .../send`). A draft from Bit (`notify.draft`) lands in the field as editable text with Send / Cancel and "Bit wrote this"; Send `PATCH`es the edited text first; Cancel `POST`s `.../cancel`. **Ask Bit** (and tapping a message) sends `messages.focus {pet_id, ts, channel}`: Bit reads it aloud and offers to answer. Quest: the field opens the system keyboard; desktop: the keyboard types into it (Enter sends).
+- **Composer:** what you type becomes a draft (`POST /messages/drafts`) that is sent at once (`POST .../send`). A draft from Albie (`notify.draft`) lands in the field as editable text with Send / Cancel and "Albie wrote this"; Send `PATCH`es the edited text first; Cancel `POST`s `.../cancel`. **Ask Albie** (and tapping a message) sends `messages.focus {pet_id, ts, channel}`: Albie reads it aloud and offers to answer. Quest: the field opens the system keyboard; desktop: the keyboard types into it (Enter sends).
 - **Mentions panel** (`MentionsPanel.prefab`, slot Left): "New for you", unread DMs and mentions across conversations, newest first, 8 at most plus "+N more"; tapping a card opens that conversation in the Slack panel; cards clear once seen.
-- **Arrival digest:** when the pet has landed after `DeskPresence` goes Seated, Unity calls `POST /messages/digest`; the hub answers with `notify.digest` and a `pet.say` line Bit speaks ("You have 3 new messages, 1 mentions you."; `count == 0` -> silence). With MSG mode closed a floating Mentions panel shows the digest's cards (4 at most) beside Bit for ~20 s; tapping one opens MSG mode on it.
-- **Send / Cancel card (`DraftCard.prefab`):** only while the Slack panel is closed: `notify.draft` pops the card beside Bit (recipient, the text, **Send** / **Cancel**, same slate look); it closes itself on `notify.sent` / `notify.draft_cancelled`. Nothing leaves Slack without a Send. Spec and files: `unity/Assets/_Forge/Messages/README.md`.
+- **Arrival digest:** when the pet has landed after `DeskPresence` goes Seated, Unity calls `POST /messages/digest`; the hub answers with `notify.digest` and a `pet.say` line Albie speaks ("You have 3 new messages, 1 mentions you."; `count == 0` -> silence). With MSG mode closed a floating Mentions panel shows the digest's cards (4 at most) beside Albie for ~20 s; tapping one opens MSG mode on it.
+- **Send / Cancel card (`DraftCard.prefab`):** only while the Slack panel is closed: `notify.draft` pops the card beside Albie (recipient, the text, **Send** / **Cancel**, same slate look); it closes itself on `notify.sent` / `notify.draft_cancelled`. Nothing leaves Slack without a Send. Spec and files: `unity/Assets/_Forge/Messages/README.md`.
 
 ---
 
@@ -427,7 +428,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 
 1. **Engine:** Unity 6 + Meta XR SDK. Decided.
 2. **Voice:** Grok Voice Agent API (`grok-voice-think-fast-1.0`) + `delegate` to a reasoning model. ElevenLabs Agents is the fallback if Grok's voices don't fit the pet's personality.
-3. **Messaging:** Slack (Bolt for Python, Socket Mode) in the team workspace, with the **user's own token** so Bit reads the user's inbox and posts as the user, and a **draft -> confirm card -> send** flow so nothing is sent without a tap or a spoken yes. Decided (v3, 2026-10-24). Replaces WhatsApp Cloud API: no tunnel, no allowlist, no 24-hour window, and a work message fits the "Jarvis for engineers" pitch.
+3. **Messaging:** Slack (Bolt for Python, Socket Mode) in the team workspace, with the **user's own token** so Albie reads the user's inbox and posts as the user, and a **draft -> confirm card -> send** flow so nothing is sent without a tap or a spoken yes. Decided (v3, 2026-10-24). Replaces WhatsApp Cloud API: no tunnel, no allowlist, no 24-hour window, and a work message fits the "Jarvis for engineers" pitch.
 4. **CAD engine:** build123d 0.13 (hub) + cad-vision's GLB/metadata loader and shaders (Unity). Decided, see `CAD_PLAN.md`.
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
 6. **Unity version:** `6000.6.7f1` (Unity 6.6), Meta XR SDK 207.0.1, OpenXR 1.18.0, simulator v207.1. Decided.

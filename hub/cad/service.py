@@ -76,7 +76,7 @@ def version_label(record: "VersionRecord") -> str:
         return record.label
     if record.parent is None:
         return "Defaults"
-    return {"script": f"Saved {record.part}.py", "reset": "Reset to defaults", "pet": "Changed by Bit",
+    return {"script": f"Saved {record.part}.py", "reset": "Reset to defaults", "pet": "Changed by Albie",
             "preset": "Preset"}.get(record.source, "Edited")
 
 

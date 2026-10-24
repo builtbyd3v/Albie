@@ -114,7 +114,7 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
 | `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
-| `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+| `cad/tools.py` | Albie's CAD tools (JSON schemas + `call_tool`) for the agent module. |
 
 ## Agent module (pet)
 
@@ -136,8 +136,8 @@ agent/
   ws.py       the /ws session: hello, agent.ask, agent.cancel, stt.*, tts.stop, crew.roster, workspace.mode, binary audio
   router.py   GET /agent/projects
   runner.py   real turns via ClaudeSDKClient (qa = read-only, code = edits on a pet/* branch); crew tool allowlist
-  crew.py     Bit's crew: agent types, roster, parallel member turns, the lead-only crew tools
-  wake.py     "Hey Bit" / "<Crew name>, ..." routing for always-on wake turns
+  crew.py     Albie's crew: agent types, roster, parallel member turns, the lead-only crew tools
+  wake.py     "Hey Albie" / "<Crew name>, ..." routing for always-on wake turns
   speech.py   live voice sessions by pet id: speak(text) and note(text) for other modules (digest, focus)
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
@@ -200,7 +200,7 @@ Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
 - spoken text -> `agent.partial_answer` / `agent.answer_done`, so captions work unchanged
 - `tts.stop` from the client stops the current reply
 
-Grok also gets Bit's fast tools (CAD, VS Code, Slack drafts, the crew) and `delegate` for the Claude runner. Unity's
+Grok also gets Albie's fast tools (CAD, VS Code, Slack drafts, the crew) and `delegate` for the Claude runner. Unity's
 `workspace.mode {mode}` tells the hub which view is open: Grok gets a one-line note about it, and the crew tools
 only work while the CODE view is open (they answer an error otherwise). `VOICE_PROVIDER=fake` speaks a canned reply from
 `agent/assets/fake_voice_24k.pcm` with no key, for Unity testing:
@@ -212,23 +212,23 @@ VOICE_PROVIDER=fake FAKE_AGENT=1 SCREEN_BRIDGE=0 .venv/bin/uvicorn main:app
 ### Say a gator's name (wake turns)
 
 Unity's `WakeListener` keeps the mic on and sends each speech segment as `stt.start {wake: true}`. `agent/wake.py`
-only answers segments that name a gator ("Hey Bit, ...", "Tester, run the tests"); a name on its own
+only answers segments that name a gator ("Hey Albie, ...", "Tester, run the tests"); a name on its own
 ("Hey Scout") comes back as `wake.listen` and that gator takes the next sentence. Anything else is dropped
 without a caption (and deleted from the Grok conversation). In voice mode every segment is transcribed by xAI.
 
 ### Crew (extra gators, one per agent type)
 
-The user hatches helper gators in Unity (the egg on the desk, the N key, or "Bit, hatch a tester"). Each one is
+The user hatches helper gators in Unity (the egg on the desk, the N key, or "Albie, hatch a tester"). Each one is
 its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.py` `TYPES`): Scout, Builder, Fixer,
-Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Bit leads: Grok and Bit's Claude runner get four
+Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Albie leads: Grok and Albie's Claude runner get four
 lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
 `crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
 default `<repo>-crew/`) on `pet/<agent>/<task>`, started from the main checkout's current state (uncommitted edits
 included), so nobody switches the main checkout's branch. When one finishes, its changes are applied to the main
 checkout as uncommitted edits (what VS Code shows) and the worktree is removed; if they conflict, the worktree and
-branch are kept and named in the summary. Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
+branch are kept and named in the summary. Albie says so out loud (voice mode) and the gator shows the summary in its bubble.
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
-that member's turn without touching Bit's.
+that member's turn without touching Albie's.
 
 ### Test
 
@@ -264,7 +264,7 @@ pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `
 
 ## Messaging (Slack)
 
-Bit reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
+Albie reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
 `hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
 `hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so there is no public
 URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
@@ -288,7 +288,7 @@ api.slack.com/apps with the same manifest.
 ```
 SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`: the app's identity
 SLACK_APP_TOKEN=xapp-...        # written by `slack run`: Socket Mode
-SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Bit sees only invited channels and posts as "Bit"
+SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Albie sees only invited channels and posts as "Bit"
 SLACK_USER_ID=U...              # optional, derived from the user token; only needed without it
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```
@@ -302,7 +302,7 @@ Live check without Unity:
 .venv/bin/python scripts/slack_smoke.py                              # listen: print every inbox message
 .venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hi"   # write a draft, post nothing (notify.draft)
 .venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hi"   # dev shortcut: draft + send with no confirmation
-.venv/bin/python scripts/slack_smoke.py --digest                     # what Bit would say on sit-down
+.venv/bin/python scripts/slack_smoke.py --digest                     # what Albie would say on sit-down
 .venv/bin/python scripts/slack_smoke.py --channels                   # the panel's channel list (names, kinds, unread)
 .venv/bin/python scripts/slack_smoke.py --history "#forge-team" 10   # the last 10 top-level messages of one conversation
 ```
@@ -334,9 +334,9 @@ or a person's name: "tell Hudson ..." drafts into their DM (opened with `convers
 | `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
-| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a message (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
+| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Albie" on a message (same as the ws message `messages.focus`): Albie says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
 | `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
-| Bit's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
+| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
 | Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
 **Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's
@@ -350,7 +350,7 @@ is waited out per run, a second one stops it; a missing scope skips that convers
 Map: `messaging/settings.py` (env), `store.py` (last 200 messages per conversation, merged by ts; a seen mark per
 conversation plus the digest's floor in `.data/messages/state.json`, the old single `last_seen_ts` migrates to the
 floor), `slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, user
-and channel records, history, drafts, digest), `router.py`, `tools.py`. Inbox rules: Bit's posts and other bots are
+and channel records, history, drafts, digest), `router.py`, `tools.py`. Inbox rules: Albie's posts and other bots are
 ignored; your own messages are stored and pushed with `is_me` but never counted as unread or as a mention; a post
 delivered twice (bot + user subscription, or `app_mention` + `message`, or history + live) is recorded once; a DM or
 group DM is `is_dm` and counts as a mention; thread replies are stored (for the digest and focus) but left out of
