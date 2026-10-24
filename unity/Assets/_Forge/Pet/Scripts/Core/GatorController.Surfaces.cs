@@ -48,7 +48,8 @@ namespace Forge.Pet
         /// <summary>Jump + parabolic arc to landing (agent disabled while airborne), then Warp + SetWanderArea(target).</summary>
         public void HopTo(GatorNavSurface target, Vector3 landing, Action onLanded = null)
         {
-            if (hopping || agent == null) return;
+            if (hopping || agent == null || AnticsBusy) return;
+            StandUp(false);                     // Jump leaves Sit/Lay by itself
             if (target != null && target.IsBuilt)
             {
                 // Snap the landing onto the target's NavMesh (small radius so we don't pick another surface).

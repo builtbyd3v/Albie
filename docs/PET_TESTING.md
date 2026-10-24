@@ -23,8 +23,11 @@ so the agent is faked inside Unity.
 | Intro | Gator runs to ~1 m in front of the camera, faces it, jumps, happy eyes, then starts wandering (walk/run mix, idle pauses, occasional jump/bounce, random blinks). |
 | Move around | Click the Game view to lock the cursor; **WASD** + mouse look, **Esc** unlocks. If you walk off the floor you respawn. |
 | States (keys **1–9**) | 1 Intro, 2 Wandering, 3 Following, 4 Listening (faces you, attentive eyes), 5 Thinking (squint), 6 Answering (bounce + happy), 7 Working, 8 TaskComplete (**spin** then back to wandering), 9 Error (fear + sad eyes, recovers after 3 s). |
-| Emotes | **J** jump, **B** bounce, **K** spin, **P** poke (Clicked anim + happy), **C** come to user, **M** cycle moods, **T** test caption. |
+| Emotes | **J** jump, **B** bounce, **K** spin, **P** poke (Clicked anim + happy; ×3 quickly = roll), **C** come to user, **M** cycle moods (now incl. Sleepy), **T** test caption, **L** lay down, **R** roll. |
 | Click the gator | Left-click on it → same as poke. |
+| Rest pauses | While Wandering, ~65 % of pauses are long (3–9 s): 40 % **Sit**, 30 % **Lay** (sometimes sleepy eyes), 30 % plain idle with Idle_B/C. It stands up when the next trip starts, on any state key (1–9) or **C**. **L** = lay down now. |
+| **Roll** | **R**, or **P** ×3 within 4 s (or 3 quick clicks): Roll anim + dizzy eyes, body slides 0.35 m sideways (random left/right). Further pokes are ignored until it recovers. |
+| **Roll off the desk** | **H** to hop onto the desk, walk/wait until it's near an edge, then **R** (repeat until it rolls the right way): it falls to the floor, lies on its back (Death pose, dizzy → dead eyes) for 2.5 s, stands up and hops back onto the desk. Rolling on the floor never falls. |
 | **Desk hop** | **H**: gator jumps onto the desk cube (lands on the edge nearest you, faces you) and from then on wanders only on the desk top. **G**: hops back down to the floor. |
 | Push-to-talk (typed) | Press **Space** → gator goes Listening and a text field opens at the bottom. Type a question, **Enter** → Thinking → caption streams the (fake) answer → Answering (bounce) → Wandering. Esc cancels. |
 | Coding task flow | Type something with an imperative verb, e.g. `fix the bug in the websocket handler` → Thinking → Working (caption shows progress %) → **TaskComplete spin** → caption "Done! Changes are on a new branch." |

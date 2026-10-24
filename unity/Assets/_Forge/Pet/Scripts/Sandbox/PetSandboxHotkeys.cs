@@ -6,7 +6,8 @@ namespace Forge.Pet
     /// <summary>
     /// Keyboard testing for the pet sandbox:
     /// 1-9 = GatorState Intro..Error (enum order), P = poke, J/B/S = Jump/Bounce/Spin,
-    /// C = ComeToUser, M = cycle moods, T = test caption, H = hop onto the user's desk, G = hop back to the floor.
+    /// C = ComeToUser, M = cycle moods, T = test caption, H = hop onto the user's desk, G = hop back to the floor,
+    /// L = lay down (rest), R = roll sideways (off the desk edge -> fall + stun + hop back). P x3 within 4 s also rolls.
     /// Note: S also walks backwards on DesktopRig; rebind spinKey if that bothers you.
     /// </summary>
     public class PetSandboxHotkeys : MonoBehaviour
@@ -22,6 +23,8 @@ namespace Forge.Pet
         [SerializeField] Key captionKey = Key.T;
         [SerializeField, Tooltip("GatorController.HopToUserDesk().")] Key hopDeskKey = Key.H;
         [SerializeField, Tooltip("GatorController.HopToFloor().")] Key hopFloorKey = Key.G;
+        [SerializeField, Tooltip("GatorController.Rest(RestPose.Lay).")] Key layKey = Key.L;
+        [SerializeField, Tooltip("GatorController.StartRoll().")] Key rollKey = Key.R;
 
         GatorInteraction interaction;
         GatorExpressions expressions;
@@ -58,11 +61,13 @@ namespace Forge.Pet
             if (kb[comeKey].wasPressedThisFrame) gator.ComeToUser();
             if (kb[hopDeskKey].wasPressedThisFrame) gator.HopToUserDesk();
             if (kb[hopFloorKey].wasPressedThisFrame) gator.HopToFloor();
+            if (kb[layKey].wasPressedThisFrame) gator.Rest(RestPose.Lay);
+            if (kb[rollKey].wasPressedThisFrame) gator.StartRoll();
             if (kb[pokeKey].wasPressedThisFrame && interaction != null) interaction.Poke();
 
             if (kb[moodKey].wasPressedThisFrame && expressions != null)
             {
-                moodIndex = (moodIndex + 1) % 7;               // Mood has 7 values
+                moodIndex = (moodIndex + 1) % 8;               // Mood has 8 values (incl. Sleepy)
                 expressions.SetMood((Mood)moodIndex);
             }
             if (kb[captionKey].wasPressedThisFrame && caption != null)

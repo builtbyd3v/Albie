@@ -38,10 +38,11 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- public API
 
-        /// <summary>Animator trigger: "Jump" | "Bounce" | "Clicked" | "Spin" | "Sit" | "Fear".</summary>
+        /// <summary>Animator trigger: "Jump" | "Bounce" | "Clicked" | "Spin" | "Sit" | "Lay" | "Fear" (ignored while rolling/stunned).</summary>
         public void PlayEmote(string animatorTrigger)
         {
             if (animator == null || string.IsNullOrEmpty(animatorTrigger)) return;
+            if (AnticsBusy) return;              // rolling / lying stunned: ignore outside emotes (e.g. poke "Clicked")
             int hash = Animator.StringToHash(animatorTrigger);
             if (!HasParam(hash)) { Debug.LogWarning("[GatorController] Animator has no trigger '" + animatorTrigger + "'", this); return; }
             animator.SetTrigger(hash);
@@ -97,7 +98,7 @@ namespace Forge.Pet
         // True if the agent can move. Off-mesh: retries a snap every second, warns once.
         bool AgentReady()
         {
-            if (agent == null) return false;
+            if (agent == null || AnticsBusy) return false;   // a roll/fall drives the transform with the agent off
             if (agent.enabled && agent.isOnNavMesh) return true;
             if (Time.time < nextNavRetry) return false;
             nextNavRetry = Time.time + 1f;
@@ -175,7 +176,7 @@ namespace Forge.Pet
             bool moving = IsMoving();
             if (agent != null && agent.enabled) agent.updateRotation = moving;
 
-            if (!moving && !hopping)       // the hop arc owns rotation while airborne
+            if (!moving && !hopping && !AnticsBusy)       // the hop arc / roll own rotation
             {
                 Transform t = faceTarget != null ? faceTarget : (faceUser ? PetUser.Head : null);
                 if (t != null) RotateToward(t.position);
@@ -211,7 +212,7 @@ namespace Forge.Pet
         // Plays Idle_B (1) or Idle_C (2) once; IdleIndex is reset to 0 shortly after.
         void PlayIdleVariant()
         {
-            if (animator == null || !hasIdleIndex) return;
+            if (animator == null || !hasIdleIndex || restPose != RestPose.Idle) return;   // not while sitting/laying
             animator.SetInteger(IdleIndexId, Random.value < 0.5f ? 1 : 2);
             idleIndexResetAt = Time.time + 0.3f;
         }

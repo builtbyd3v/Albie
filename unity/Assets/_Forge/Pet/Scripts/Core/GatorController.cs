@@ -86,6 +86,7 @@ namespace Forge.Pet
             if (started && s == State) return;
             started = true;
             State = s;
+            StandUp();                          // any state change ends a sit/lay rest immediately
             EnterState(s);
             StateChanged?.Invoke(s);
         }
@@ -101,6 +102,7 @@ namespace Forge.Pet
         {
             Transform head = PetUser.Head;
             if (head == null) return;
+            StandUp();
             ComeToUserInternal(!OnDesk && FlatDistance(head.position) > 3f);
         }
 
@@ -157,6 +159,7 @@ namespace Forge.Pet
         {
             if (!started) return;
             if (hopping) { UpdateHop(); UpdateMotion(); return; }   // state logic resumes after landing
+            if (UpdateAntics()) { UpdateMotion(); return; }        // roll / fall / stun (GatorController.Antics.cs)
             AutoDetectSurface();
             switch (State)
             {
@@ -222,9 +225,11 @@ namespace Forge.Pet
             else BeginPause();
         }
 
-        // Idle pause between trips, with an occasional fidget or emote.
+        // Idle pause between trips: often a long rest (sit / lay / idle, see Antics.cs), else a short pause
+        // with an occasional fidget or emote.
         void BeginPause()
         {
+            if (TryBeginRest()) return;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
             float r = UnityEngine.Random.value;
             if (r < emoteChance) PlayEmote(UnityEngine.Random.value < 0.5f ? "Jump" : "Bounce");
