@@ -100,19 +100,19 @@ PrefabInstance:
       propertyPath: m_text
       value: Training dashboard
       objectReference: {fileID: 0}
-    - target: {fileID: 6279271600979682112, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
       value: 779.99994
       objectReference: {fileID: 0}
-    - target: {fileID: 6279271600979682112, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
       value: 579.99994
       objectReference: {fileID: 0}
-    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
       value: 779.99994
       objectReference: {fileID: 0}
-    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
       value: 579.99994
       objectReference: {fileID: 0}

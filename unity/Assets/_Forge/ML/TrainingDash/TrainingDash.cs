@@ -31,7 +31,7 @@ namespace Forge.ML
             int e = session.EpochIndex;
             status.text = e < 0 ? "Waiting for mock training…" : $"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
             progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
-            warning.text = session.Overfit ? "OVERFIT: validation loss rose twice while training loss fell" : "";
+            warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : "";
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
             if (!session.Done) return;
             int n = session.Data.classes.Length; var matrix = new int[n,n];

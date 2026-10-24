@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e82bcec166884e50b41c931e0ebe62f7, type: 3}
+  m_Name: MLMockAssets
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.ML.MLMockAssets
+  classes: {fileID: 4900000, guid: 4760e20edaa75a22e4e7b50879b7835b, type: 3}
+  dataset: {fileID: 4900000, guid: f4ec63cc8dbbc82ac9e7223ba1bae56b, type: 3}
+  atlasMetadata: {fileID: 4900000, guid: 3c0eb00294cefca1bae7a67f8e283890, type: 3}
+  graph: {fileID: 4900000, guid: 50f3e73929d639c589de1bdedc4ab364, type: 3}
+  results: {fileID: 4900000, guid: e4dca2bb0adf27bc59f460b39795dbd6, type: 3}
+  confusion: {fileID: 4900000, guid: e1075373bedeba9d96c838a9eba562c2, type: 3}
+  events: {fileID: 4900000, guid: 71dff8377d41f003a13ba7e79ace34f4, type: 3}
+  atlas: {fileID: 2800000, guid: bddb0e4434d5561c663a296130e9e0ce, type: 3}

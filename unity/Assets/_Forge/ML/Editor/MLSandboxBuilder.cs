@@ -17,6 +17,7 @@ public static class MLSandboxBuilder
         if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
         if (AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.PanelPath) == null)
             throw new System.InvalidOperationException("Core ForgePanel prefab is required. Ask Core to build its prefabs first.");
+        BuildMockReferences();
         var atlas = new Material(Shader.Find("Forge/ML/InstancedAtlas")) { enableInstancing = true };
         var block = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
         SaveMaterial(atlas, Folder+"Atlas.mat"); SaveMaterial(block, Folder+"Layer.mat");
@@ -46,6 +47,26 @@ public static class MLSandboxBuilder
         EditorSceneManager.SaveScene(scene, "Assets/_Forge/ML/MLSandbox.unity");
         AssetDatabase.SaveAssets();
         Debug.Log("[ML] Built four prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
+    }
+    static void BuildMockReferences()
+    {
+        const string resourceFolder = "Assets/_Forge/ML/Resources";
+        if (!AssetDatabase.IsValidFolder(resourceFolder)) AssetDatabase.CreateFolder("Assets/_Forge/ML", "Resources");
+        const string path = resourceFolder + "/MLMockAssets.asset";
+        var assets = AssetDatabase.LoadAssetAtPath<MLMockAssets>(path);
+        if (assets == null) { assets = ScriptableObject.CreateInstance<MLMockAssets>(); AssetDatabase.CreateAsset(assets, path); }
+        const string source = "Assets/_Forge/Mocks/ml/";
+        assets.classes = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_classes.json");
+        assets.dataset = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_dataset_val.json");
+        assets.atlasMetadata = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_atlas_val.json");
+        assets.graph = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_graph.json");
+        assets.results = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_results.json");
+        assets.confusion = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_confusion.json");
+        assets.events = AssetDatabase.LoadAssetAtPath<TextAsset>(source + "ml_events.json");
+        assets.atlas = AssetDatabase.LoadAssetAtPath<Texture2D>(source + "ml_atlas_val.png");
+        // Validate the imported size without changing the generated atlas importer.
+        assets.Load(out _, out _, out _);
+        EditorUtility.SetDirty(assets);
     }
     static GameObject Panel<T>(string name, string id, string title, Vector2 size) where T : Component
     {
