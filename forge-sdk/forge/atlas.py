@@ -62,9 +62,10 @@ def _label(target: Any) -> int:
 
 
 def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
-    """Returns (atlas image, {cell, cols, index}, [{id, label_idx}]).
+    """Returns (atlas image, {cell, cols, index}, [{id, name, kind, label_idx}]).
 
     Ids come from `dataset.ids` when the dataset has them (stable across removals), else `val_0000`...
+    Names (file names for the picked-image card) come from `dataset.names` when present, else the id.
 
     Cell `i` sits at column `i % cols`, row `i // cols` counted from the top. Datasets bigger than
     fit in a 2048 px atlas are truncated with a warning (64 px cells: 1,024 images, ML_PLAN 11).
@@ -79,6 +80,7 @@ def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.I
     rows = math.ceil(n / cols)
     atlas = Image.new("RGB", (cols * cell, rows * cell))
     ids = getattr(dataset, "ids", None)
+    names = getattr(dataset, "names", None)
     index: dict[str, int] = {}
     items: list[dict] = []
     for i in range(n):
@@ -90,5 +92,6 @@ def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.I
         atlas.paste(thumb, ((i % cols) * cell, (i // cols) * cell))
         sid = ids[i] if ids is not None else sample_id(i, split)
         index[sid] = i
-        items.append({"id": sid, "label_idx": _label(target)})
+        items.append({"id": sid, "name": names[i] if names is not None else sid, "kind": "image",
+                      "label_idx": _label(target)})
     return atlas, {"cell": [cell, cell], "cols": cols, "index": index}, items

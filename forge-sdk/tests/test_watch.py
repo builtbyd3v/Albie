@@ -54,7 +54,7 @@ def test_atlas_uses_raw_colors_through_subset_and_normalize():
     image, meta, items = atlas.build(Subset(base, range(10, 30)))
     assert base.transform is NORMALIZED  # restored
     assert meta["cols"] == 5 and meta["cell"] == [64, 64] and image.size == (5 * 64, 4 * 64)
-    assert items[0] == {"id": "val_0000", "label_idx": 0}  # base index 10 -> label 0
+    assert items[0] == {"id": "val_0000", "name": "val_0000", "kind": "image", "label_idx": 0}  # base 10 -> 0
     assert image.getpixel((0, 0)) == (10, 100, 200)  # un-normalized pixel from base index 10
     assert meta["index"]["val_0019"] == 19
 

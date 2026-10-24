@@ -24,7 +24,7 @@ def log_epochs(losses):
 
 def test_every_event_lands_in_events_jsonl_with_increasing_time(tmp_path, capsys):
     log_epochs([(1.0, 1.1), (0.9, 1.0)])
-    forge.evaluate(None, None)
+    forge.evaluate(nn.Sequential(nn.Flatten(), nn.Linear(4, 2)), [(torch.zeros(4), 0), (torch.ones(4), 1)])
     events = load_events(run_dir(tmp_path))
     assert [e["type"] for e in events] == ["ml.run_state", "ml.metrics", "ml.run_state", "ml.metrics",
                                            "ml.run_state", "ml.results_ready", "ml.run_state"]

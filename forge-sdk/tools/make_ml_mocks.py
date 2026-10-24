@@ -23,6 +23,7 @@ import torch
 import torchvision
 
 from forge import atlas as forge_atlas
+from forge import evaluation
 from forge import graph as forge_graph
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -133,12 +134,12 @@ def wrong_class(true: int, rng: random.Random) -> int:
     return rng.choices(choices, [weights.get(CLASSES[k], 1) for k in choices])[0]
 
 
-def make_results(clean_labels: list[int], noise: dict[int, int], rng: random.Random) -> list[dict]:
-    """noise: {val index: noisy label}, the same flips the real repo trains with."""
+def make_predictions(clean_labels: list[int], noise: dict[int, int], rng: random.Random) -> tuple[list, np.ndarray]:
+    """Simulated (labels, [N, C] probs). noise: {val index: noisy label}, the flips the real repo trains with."""
     labels = [noise.get(i, label) for i, label in enumerate(clean_labels)]
     noisy = set(noise)
 
-    samples = []
+    probs = []
     for i in range(VAL_SIZE):
         clean = clean_labels[i]
         if i in noisy:
@@ -148,9 +149,8 @@ def make_results(clean_labels: list[int], noise: dict[int, int], rng: random.Ran
             pred, conf = clean, rng.uniform(0.55, 0.99)
         else:
             pred, conf = wrong_class(clean, rng), rng.uniform(0.35, 0.8)
-        samples.append({"id": sample_id(i), "true_idx": labels[i], "pred_idx": pred,
-                        "probs": probs_for(pred, conf, rng), "correct": pred == labels[i]})
-    return samples
+        probs.append(probs_for(pred, conf, rng))
+    return labels, np.array(probs)
 
 
 def make_events(final_val_acc: float, rng: random.Random) -> list[dict]:
@@ -219,21 +219,25 @@ def main() -> None:
     write_meta(atlas_path, TEXTURE_META)
     write_json("ml_atlas_val.json", {"atlas_url": "/ml/files/ml_atlas_val.png", **atlas_meta})
 
-    samples = make_results(clean_labels[:VAL_SIZE], noise, rng)
+    labels, probs = make_predictions(clean_labels[:VAL_SIZE], noise, rng)
+    # Same code path as forge.evaluate.
+    results, confusion, summary = evaluation.classification(val.ids, labels, probs, CLASSES)
     # Dataset shows the (possibly noisy) labels the model was trained against.
-    write_json("ml_dataset_val.json", [{"id": s["id"], "label_idx": s["true_idx"],
-                                        "thumb_url": f"/ml/image/{s['id']}"} for s in samples])
-    write_json("ml_results.json", {"samples": samples})
+    write_json("ml_dataset_val.json", [{"id": sid, "name": name, "kind": "image", "label_idx": label,
+                                        "thumb_url": f"/ml/image/{sid}"}
+                                       for sid, name, label in zip(val.ids, val.names, labels)])
+    write_json("ml_results.json", results)
+    write_json("ml_confusion.json", confusion)
     flipped = [{"id": sample_id(i), "clean_idx": clean_labels[i], "noisy_idx": n} for i, n in noise.items()]
     write_json("ml_noise.json", {"seed": NOISE_SEED, "rate": NOISE_RATE, "flipped": flipped})
 
-    matrix = np.zeros((len(CLASSES), len(CLASSES)), dtype=int)
-    for s in samples:
-        matrix[s["true_idx"], s["pred_idx"]] += 1
-    write_json("ml_confusion.json", {"labels": CLASSES, "matrix": matrix.tolist()})
-
-    val_acc = sum(s["correct"] for s in samples) / VAL_SIZE
-    write_json("ml_events.json", make_events(val_acc, rng))
+    val_acc = summary["accuracy"]
+    events = make_events(val_acc, rng)
+    write_json("ml_events.json", events)
+    metrics = [e["payload"] for e in events if e["type"] == "ml.metrics"]
+    best = max(metrics, key=lambda m: m["val_acc"])
+    summary.update(val_loss=metrics[-1]["val_loss"], best_epoch=best["epoch"], best_val_acc=best["val_acc"])
+    write_json("ml_summary.json", summary)
 
     print(f"wrote mocks to {OUT.relative_to(ROOT)}: val_acc={val_acc:.3f}, flipped={len(noise)}")
 
