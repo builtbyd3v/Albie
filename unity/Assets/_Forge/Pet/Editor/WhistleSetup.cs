@@ -10,7 +10,8 @@
 // Idempotent: re-running reuses what exists and re-wires it. Interaction SDK types are looked up by name so this
 // file compiles without the SDK (the button then works with mouse / F / controller B only).
 // Save the scene yourself afterwards. -executeMethod Forge.Pet.Editor.WhistleSetup.AddWhistleToOpenScene
-// (The internal helpers are shared with CrewSetup.)
+// (The internal helpers are shared with CrewSetup and PetRuntimeSetup, which builds the same pieces into
+// Prefabs/PetRuntime.prefab inside a preview scene with UseUndo = false.)
 
 using System;
 using System.Reflection;
@@ -30,6 +31,9 @@ namespace Forge.Pet.Editor
         static readonly Vector3 ColliderSize = new Vector3(0.08f, 0.03f, 0.08f);
         const float FaceHeight = 0.016f;          // top of the cap above the button origin
         const float PokeSize = 0.07f;
+
+        /// Menu commands record Undo; PetRuntimeSetup turns this off while it builds inside a preview scene.
+        internal static bool UseUndo = true;
 
         [MenuItem("Forge/Pet/6. Add Whistle To Open Scene", priority = 6)]
         public static void AddWhistleToOpenScene()
@@ -62,16 +66,16 @@ namespace Forge.Pet.Editor
 
         // ------------------------------------------------------------------ voice
 
-        static StreamedPcmTextToSpeech AddVoice(GameObject gator)
+        internal static StreamedPcmTextToSpeech AddVoice(GameObject gator)
         {
             var voice = gator.GetComponentInChildren<StreamedPcmTextToSpeech>(true);
             if (voice == null)
             {
                 var go = new GameObject("Voice");
-                Undo.RegisterCreatedObjectUndo(go, "Add Voice");
+                RegisterCreated(go, "Add Voice");
                 go.transform.SetParent(gator.transform, false);
                 go.transform.position = HeadPosition(gator);
-                voice = Undo.AddComponent<StreamedPcmTextToSpeech>(go);   // RequireComponent adds the AudioSource
+                voice = Add<StreamedPcmTextToSpeech>(go);   // RequireComponent adds the AudioSource
                 var src = go.GetComponent<AudioSource>();
                 if (src != null) { src.playOnAwake = false; src.spatialBlend = 1f; }
             }
@@ -83,21 +87,24 @@ namespace Forge.Pet.Editor
             return voice;
         }
 
-        static void AddTalkAnimator(GameObject gator, StreamedPcmTextToSpeech voice)
+        internal static void AddTalkAnimator(GameObject gator, StreamedPcmTextToSpeech voice)
         {
             var talk = gator.GetComponent<GatorTalkAnimator>();
-            if (talk == null) talk = Undo.AddComponent<GatorTalkAnimator>(gator);
+            if (talk == null) talk = Add<GatorTalkAnimator>(gator);
             SetRef(talk, "tts", voice);
             Animator animator = gator.GetComponentInChildren<Animator>(true);
             Transform head = animator != null ? FindChild(animator.transform, "head") : null;
             if (head != null) SetRef(talk, "headBone", head);
             else Debug.LogWarning("[WhistleSetup] No 'head' bone under the gator's Animator; GatorTalkAnimator will only pulse.");
+            Transform jaw = animator != null ? FindChild(animator.transform, "jaw") : null;   // PR 26's Gator_Model.fbx
+            if (jaw != null) SetRef(talk, "jawBone", jaw);
+            else Debug.Log("[WhistleSetup] No 'jaw' bone (PR 26 not merged?): the mouth won't move while Bit speaks.");
         }
 
-        static void AddSummon(GameObject gator, WhistleButton button, StreamedPcmTextToSpeech voice)
+        internal static void AddSummon(GameObject gator, WhistleButton button, StreamedPcmTextToSpeech voice)
         {
             var summon = gator.GetComponent<GatorSummon>();
-            if (summon == null) summon = Undo.AddComponent<GatorSummon>(gator);
+            if (summon == null) summon = Add<GatorSummon>(gator);
             var ptt = gator.GetComponent<PushToTalk>();
             if (ptt == null) ptt = Object.FindAnyObjectByType<PushToTalk>();
             if (ptt == null) Debug.LogWarning("[WhistleSetup] No PushToTalk in the scene; the whistle can't listen without it.");
@@ -108,10 +115,10 @@ namespace Forge.Pet.Editor
             SetRef(summon, "sfxSource", button.GetComponent<AudioSource>());
         }
 
-        static void AddFollowUp(GameObject gator, StreamedPcmTextToSpeech voice)
+        internal static void AddFollowUp(GameObject gator, StreamedPcmTextToSpeech voice)
         {
             var follow = gator.GetComponent<GatorFollowUp>();
-            if (follow == null) follow = Undo.AddComponent<GatorFollowUp>(gator);
+            if (follow == null) follow = Add<GatorFollowUp>(gator);
             SetRef(follow, "tts", voice);
             var ptt = gator.GetComponent<PushToTalk>();
             if (ptt == null) ptt = Object.FindAnyObjectByType<PushToTalk>();
@@ -124,9 +131,14 @@ namespace Forge.Pet.Editor
         static WhistleButton FindOrCreateButton(GatorController gator)
         {
             var existing = Object.FindAnyObjectByType<WhistleButton>(FindObjectsInactive.Include);
-            if (existing != null) return existing;
+            return existing != null ? existing : CreateButton(gator, null);
+        }
 
+        /// A new whistle puck 0.3 m to the gator's right (it places itself on the desk at runtime), under `parent` (may be null).
+        internal static WhistleButton CreateButton(GatorController gator, Transform parent)
+        {
             var go = new GameObject("WhistleButton");
+            if (parent != null) go.transform.SetParent(parent, false);
             Transform g = gator.transform;
             go.transform.position = g.position + g.right * 0.3f + Vector3.up * (ColliderSize.y * 0.5f);
             go.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized, Vector3.up);
@@ -148,7 +160,7 @@ namespace Forge.Pet.Editor
             var button = go.AddComponent<WhistleButton>();
             SetRef(button, "visual", cap);
             SetRef(button, "gator", gator);
-            Undo.RegisterCreatedObjectUndo(go, "Create WhistleButton");
+            RegisterCreated(go, "Create WhistleButton");
             return button;
         }
 
@@ -183,7 +195,7 @@ namespace Forge.Pet.Editor
 
         // ------------------------------------------------------------------ Interaction SDK (by name)
 
-        static string AddInteractionSdk(WhistleButton button)
+        internal static string AddInteractionSdk(WhistleButton button, bool warnNoInteractors = true)
         {
             Type poke = FindType("Oculus.Interaction.PokeInteractable");
             Type ray = FindType("Oculus.Interaction.RayInteractable");
@@ -234,7 +246,8 @@ namespace Forge.Pet.Editor
 
             Type pokeInteractor = FindType("Oculus.Interaction.PokeInteractor");
             Type rayInteractor = FindType("Oculus.Interaction.RayInteractor");
-            bool hasInteractors = (pokeInteractor != null && Object.FindAnyObjectByType(pokeInteractor, FindObjectsInactive.Include) != null)
+            bool hasInteractors = !warnNoInteractors
+                               || (pokeInteractor != null && Object.FindAnyObjectByType(pokeInteractor, FindObjectsInactive.Include) != null)
                                || (rayInteractor != null && Object.FindAnyObjectByType(rayInteractor, FindObjectsInactive.Include) != null);
             if (!hasInteractors)
                 Debug.LogWarning("[WhistleSetup] No Poke/RayInteractor in this scene: add OVRComprehensiveInteractionRig " +
@@ -259,7 +272,7 @@ namespace Forge.Pet.Editor
                 Debug.LogWarning($"[WhistleSetup] {wrapper.GetType().Name}.{fieldName} not found; wire it by hand.");
                 return;
             }
-            Undo.RecordObject(wrapper, "Wire whistle event");
+            if (UseUndo) Undo.RecordObject(wrapper, "Wire whistle event");
             var evt = (UnityEvent)field.GetValue(wrapper);
             if (evt == null) { evt = new UnityEvent(); field.SetValue(wrapper, evt); }
             for (int i = evt.GetPersistentEventCount() - 1; i >= 0; i--)   // idempotent: drop our old listener
@@ -285,7 +298,7 @@ namespace Forge.Pet.Editor
             Transform t = parent.Find(name);
             if (t != null) return t.gameObject;
             var go = new GameObject(name);
-            Undo.RegisterCreatedObjectUndo(go, "Create " + name);
+            RegisterCreated(go, "Create " + name);
             go.transform.SetParent(parent, false);
             return go;
         }
@@ -293,7 +306,15 @@ namespace Forge.Pet.Editor
         internal static Component Ensure(GameObject go, Type t)
         {
             Component c = go.GetComponent(t);
-            return c != null ? c : Undo.AddComponent(go, t);
+            if (c != null) return c;
+            return UseUndo ? Undo.AddComponent(go, t) : go.AddComponent(t);
+        }
+
+        internal static T Add<T>(GameObject go) where T : Component => UseUndo ? Undo.AddComponent<T>(go) : go.AddComponent<T>();
+
+        internal static void RegisterCreated(GameObject go, string undoName)
+        {
+            if (UseUndo) Undo.RegisterCreatedObjectUndo(go, undoName);
         }
 
         internal static Type FindType(string fullName)

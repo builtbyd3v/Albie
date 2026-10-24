@@ -176,19 +176,19 @@ PrefabInstance:
       propertyPath: m_text
       value: VS Code
       objectReference: {fileID: 0}
-    - target: {fileID: 6279271600979682112, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
       value: 899.99994
       objectReference: {fileID: 0}
-    - target: {fileID: 6279271600979682112, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
       value: 550
       objectReference: {fileID: 0}
-    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
       value: 899.99994
       objectReference: {fileID: 0}
-    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+    - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
       value: 550
       objectReference: {fileID: 0}
@@ -208,6 +208,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 2894739284190203916, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       insertIndex: -1
       addedObject: {fileID: 3969227051951047512}
+    - targetCorrespondingSourceObject: {fileID: 2894739284190203916, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4686524299784004442}
   m_SourcePrefab: {fileID: 100100000, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
 --- !u!1 &6415020660726269157 stripped
 GameObject:
@@ -255,6 +258,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::JpegScreenReceiver
   streamUrl: ws://localhost:8765
+--- !u!114 &4686524299784004442
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6415020660726269157}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3b91f8da12996496b8515c5c12a47a35, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScreenContext
+  interval: 2
 --- !u!224 &8674606599517159637 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 669050599645238332, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}

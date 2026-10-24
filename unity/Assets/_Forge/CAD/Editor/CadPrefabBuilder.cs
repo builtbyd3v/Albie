@@ -18,7 +18,8 @@ using UnityEngine.UI;
 ///   hub: python -m cad.make_mocks, then copy; see the CAD README)
 /// - CadViewer.prefab: ForgeVolume variant + CadViewer (the open design on the desk, slot cad-viewer)
 /// - CadParamsPanel.prefab: ForgePanel variant + CadParamsPanel, which builds its UI at runtime (slot cad-params)
-/// - CadDrawingPanel.prefab: ForgePanel variant, the version's engineering drawing (slot cad-drawing)
+/// - CadDrawingPanel.prefab: ForgePanel variant, the version's engineering drawing (slot cad-drawing, the middle screen)
+/// - CadVersionsPanel.prefab: ForgePanel variant + CadVersionsPanel, the design's versions (slot cad-timeline, left)
 /// - CADSandbox.unity: the prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
 /// Builds in an additive scratch scene, so whatever scene is open is left alone. GUIDs are kept on rebuild.
 /// </summary>
@@ -31,6 +32,7 @@ public static class CadPrefabBuilder
     public const string ViewerPath = PrefabDir + "/CadViewer.prefab";
     public const string PanelPath = PrefabDir + "/CadParamsPanel.prefab";
     public const string DrawingPath = PrefabDir + "/CadDrawingPanel.prefab";
+    public const string VersionsPath = PrefabDir + "/CadVersionsPanel.prefab";
     public const string SandboxPath = Root + "/CADSandbox.unity";
     const string MockSetPath = MockDir + "/CadMocks.asset";
 
@@ -56,7 +58,8 @@ public static class CadPrefabBuilder
             var viewer = BuildViewer(mocks);
             var panel = BuildPanel(mocks);
             var drawing = BuildDrawingPanel(mocks);
-            FillSandbox(scene, viewer, panel, drawing, mocks);
+            var versions = BuildVersionsPanel(mocks);
+            FillSandbox(scene, viewer, panel, drawing, versions, mocks);
             EditorSceneManager.SaveScene(scene, SandboxPath);
         }
         finally
@@ -68,8 +71,20 @@ public static class CadPrefabBuilder
             }
         }
         AssetDatabase.SaveAssets();
-        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {DrawingPath}, {SandboxPath} (mocks: " +
+        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {DrawingPath}, {VersionsPath}, {SandboxPath} (mocks: " +
                   string.Join(", ", mocks.parts.Select(p => $"{p.part} x{p.versions.Count}")) + ")");
+    }
+
+    // Only the side panels (the drawing and the versions), leaving the viewer, the design panel and the sandbox as they are.
+    [MenuItem("Forge/CAD/Build Drawing and Versions Panels")]
+    public static void BuildSidePanels()
+    {
+        EnsureFolder(PrefabDir);
+        var mocks = BuildMockSet();
+        BuildDrawingPanel(mocks);
+        BuildVersionsPanel(mocks);
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[CadPrefabBuilder] Built {DrawingPath}, {VersionsPath}");
     }
 
     // Mocks
@@ -178,7 +193,7 @@ public static class CadPrefabBuilder
         var panel = go.GetComponent<ForgePanel>();
         panel.panelId = "cad-drawing";
         panel.Title = "Drawing";
-        panel.SizeMeters = new Vector2(0.64f, 0.54f);  // an A3 sheet (1.41 : 1) under the title bar, plus a status line
+        panel.SizeMeters = new Vector2(0.8f, 0.66f);  // the middle screen: an A3 sheet (1.41 : 1) under the title bar, plus a status line
         if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
         var content = panel.Content;
         var placeholder = content.Find("Placeholder");
@@ -208,6 +223,28 @@ public static class CadPrefabBuilder
         PrefabUtility.SaveAsPrefabAsset(go, DrawingPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(DrawingPath);
+    }
+
+    // Versions panel
+
+    static GameObject BuildVersionsPanel(CadMockSet mocks)
+    {
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.PanelPath));
+        go.name = "CadVersionsPanel";
+        var panel = go.GetComponent<ForgePanel>();
+        panel.panelId = "cad-timeline";
+        panel.Title = "Versions";
+        panel.SizeMeters = new Vector2(0.48f, 0.6f);  // the design panel's size, on the other side
+        if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
+        var placeholder = panel.Content.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        // CadVersionsPanel builds its list at runtime under Content (the History tab's body).
+        var component = go.AddComponent<CadVersionsPanel>();
+        component.mocks = mocks;
+        PrefabUtility.SaveAsPrefabAsset(go, VersionsPath);
+        Object.DestroyImmediate(go);
+        return AssetDatabase.LoadAssetAtPath<GameObject>(VersionsPath);
     }
 
     static CadParamRow BuildRowTemplate(RectTransform parent)
@@ -367,7 +404,8 @@ public static class CadPrefabBuilder
 
     // Sandbox
 
-    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, GameObject drawingPrefab, CadMockSet mocks)
+    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, GameObject drawingPrefab, GameObject versionsPrefab,
+        CadMockSet mocks)
     {
         var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener)).GetComponent<Camera>();
         camera.tag = "MainCamera";
@@ -395,11 +433,14 @@ public static class CadPrefabBuilder
         var panel = (GameObject)PrefabUtility.InstantiatePrefab(panelPrefab, scene);
         // A root RectTransform's x/y are serialized as m_AnchoredPosition; setting .position moves it live but
         // doesn't record that override on a prefab instance, so set the serialized value directly.
-        ((RectTransform)panel.transform).anchoredPosition3D = new Vector3(0.36f, 1.12f, 0.32f);
-        panel.transform.rotation = Quaternion.Euler(0f, 20f, 0f);
+        // As in Main's CAD mode: the drawing behind the model, the design panel right, the versions left.
+        ((RectTransform)panel.transform).anchoredPosition3D = new Vector3(0.62f, 1.12f, 0.36f);
+        panel.transform.rotation = Quaternion.Euler(0f, 24f, 0f);
         var drawing = (GameObject)PrefabUtility.InstantiatePrefab(drawingPrefab, scene);
-        ((RectTransform)drawing.transform).anchoredPosition3D = new Vector3(-0.45f, 1.1f, 0.42f);
-        drawing.transform.rotation = Quaternion.Euler(0f, -18f, 0f);
+        ((RectTransform)drawing.transform).anchoredPosition3D = new Vector3(0.0f, 1.24f, 0.7f);
+        var versions = (GameObject)PrefabUtility.InstantiatePrefab(versionsPrefab, scene);
+        ((RectTransform)versions.transform).anchoredPosition3D = new Vector3(-0.62f, 1.12f, 0.36f);
+        versions.transform.rotation = Quaternion.Euler(0f, -24f, 0f);
 
         // Mouse UI. ForgePanel's ray/poke canvas asserts a PointableCanvasModule exists (as in Main), but adding one
         // in the Editor turns on its exclusive mode (Reset), which disables every other input module at Start.

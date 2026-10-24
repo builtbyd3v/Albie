@@ -26,6 +26,11 @@ namespace Forge.Pet
     /// Whistle (any WhistleButton): clears the desk for Bit. Idle crew gators go home; busy ones (GatorAgentBridge.Busy)
     /// line up along the desk's back edge, away from the user, and keep working there. A gator leaves the line when
     /// its task is done; the others' areas stop short of the line while it exists.
+    ///
+    /// Workspace gate (Main): the egg / picker and the N / X keys only work while the desk mode gateModeId ("code") is open
+    /// (CrewAllowed); when it closes the crew stays on the desk, keeps its antics, but its speech bubbles are muted until the
+    /// mode returns. Bit is never muted; the hub's crew.spawn / crew.dismiss are never gated. Scenes without a Workspace
+    /// (the sandboxes) are never gated.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorCrew : MonoBehaviour
@@ -57,6 +62,10 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Line distance (m) in from the back edge; the other areas keep twice this clear.")]
         float lineupInset = 0.07f;
 
+        [Header("Workspace gate")]
+        [SerializeField, Tooltip("Egg / picker and N / X only work while this desk mode is open; crew captions are muted otherwise. Empty = never gated. No Workspace in the scene = never gated.")]
+        string gateModeId = "code";
+
         [Header("Keyboard")]
         [SerializeField, Tooltip("Hatch the type shown on the egg (or the next free type).")]
         InputAction hatchAction = new InputAction("CrewHatch", InputActionType.Button, "<Keyboard>/n");
@@ -69,6 +78,7 @@ namespace Forge.Pet
             "GatorMrukAdapter", "GatorSandboxNav", "PetSandboxHotkeys", "GatorSummon", "GatorFollowUp", "GatorTalkAnimator",
             "PushToTalk", "HubSpeechToText", "TypedSpeechToText", "StreamedPcmTextToSpeech", "AgentClient", "MockEventSource",
             "GatorCrew", "GatorHatchery", "WhistleButton", "DesktopRig", "SandboxRigSelector", "GatorCrewMember", "WakeListener", "GatorNameTag",
+            "ArrivalDirector",
         };
 
         public static GatorCrew Instance { get; private set; }
@@ -76,6 +86,8 @@ namespace Forge.Pet
         public GatorController Lead => lead;
         /// <summary>Raised after a gator hatched or left.</summary>
         public event Action Changed;
+        /// <summary>Hatching from the egg / keyboard is available: the gate mode is open, or there is no gate / no Workspace.</summary>
+        public bool CrewAllowed => string.IsNullOrEmpty(gateModeId) || !PetWorkspace.HasWorkspace || PetWorkspace.ActiveMode == gateModeId;
 
         readonly List<GatorCrewMember> _members = new List<GatorCrewMember>(GatorAgentTypes.All.Length);
         readonly List<GatorController> _gators = new List<GatorController>(GatorAgentTypes.All.Length + 1);
@@ -86,9 +98,8 @@ namespace Forge.Pet
         GatorAgentBridge _leadBridge;
         IPetEventSource _source;
         GatorHatchery _hatchery;
-        TypedSpeechToText _typed;
         Transform _staging;
-        bool _wasConnected, _leadCalm, _territoriesDirty;
+        bool _wasConnected, _leadCalm, _territoriesDirty, _lastAllowed = true;
         float _nextLayoutCheck;
         int _layoutHash;
         float _leadRestChance, _leadRunChance;
@@ -176,6 +187,7 @@ namespace Forge.Pet
             var bridge = go.GetComponent<GatorAgentBridge>();
             if (bridge != null) bridge.UseSharedSource(type.Id, _leadBridge);
             go.transform.SetParent(null, true);          // wakes up now
+            member.SetMuted(!CrewAllowed);               // hatched by the hub while the code mode is closed: quiet until it opens
 
             _members.Add(member);
             OnCrewChanged();
@@ -228,7 +240,14 @@ namespace Forge.Pet
             if (connected && !_wasConnected) SendRoster();      // after AgentClient's hello on (re)connect
             _wasConnected = connected;
 
-            if (!TypingInField())
+            bool allowed = CrewAllowed;
+            if (allowed != _lastAllowed)
+            {
+                _lastAllowed = allowed;
+                for (int i = 0; i < _members.Count; i++) if (_members[i] != null) _members[i].SetMuted(!allowed);
+                if (_members.Count > 0) Debug.Log("[GatorCrew] " + (allowed ? "Code mode open: crew unmuted." : "Code mode closed: crew muted."), this);
+            }
+            if (allowed && !TypedSpeechToText.AnyListening)   // sandbox text box open: N / X are letters
             {
                 if (hatchAction.WasPressedThisFrame()) HatchFromKeyboard();
                 if (dismissAction.WasPressedThisFrame()) DismissLast();
@@ -489,12 +508,6 @@ namespace Forge.Pet
                 }
             }
             _scratch.Clear();
-        }
-
-        bool TypingInField()
-        {
-            if (_typed == null) _typed = FindAnyObjectByType<TypedSpeechToText>();
-            return _typed != null && _typed.IsListening;
         }
     }
 }
