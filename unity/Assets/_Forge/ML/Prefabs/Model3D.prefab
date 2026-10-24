@@ -34,11 +34,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6879995215226452, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: m_SizeDelta.x
-      value: 479.99997
+      value: 560
       objectReference: {fileID: 0}
     - target: {fileID: 6879995215226452, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: m_SizeDelta.y
-      value: 600
+      value: 499.99997
       objectReference: {fileID: 0}
     - target: {fileID: 6879995215226452, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: m_LocalPosition.x
@@ -102,19 +102,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
-      value: 479.99997
+      value: 560
       objectReference: {fileID: 0}
     - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
-      value: 600
+      value: 499.99997
       objectReference: {fileID: 0}
     - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.x
-      value: 479.99997
+      value: 560
       objectReference: {fileID: 0}
     - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
-      value: 600
+      value: 499.99997
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects:
@@ -143,4 +143,5 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Forge.ML.Model3D
   session: {fileID: 0}
-  blockMaterial: {fileID: 2100000, guid: 62181479aefc14764b2b472c262c590f, type: 2}
+  slabMaterial: {fileID: 2100000, guid: 92a6171b4b7582a42991cc46eadb35cb, type: 2}
+  beamMaterial: {fileID: 2100000, guid: 29e8c23ef0381574ea0ec1fb6964eefa, type: 2}

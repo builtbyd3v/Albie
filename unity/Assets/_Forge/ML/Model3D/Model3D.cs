@@ -21,8 +21,8 @@ namespace Forge.ML
         public Material beamMaterial;
 
         // mm (canvas units)
-        const float GroupThickness = 12f, GroupGap = 10f, LayerThickness = 5f, LayerPitch = 19f, OpenPad = 16f;
-        const float TopBar = 40f, BottomBar = 30f, CalloutWidth = 200f, CalloutHeight = 132f, TagWidth = 170f;
+        const float GroupThickness = 12f, GroupGap = 10f, LayerThickness = 5f, LayerPitch = 19f, OpenPad = 30f;
+        const float TopBar = 46f, BottomBar = 30f, CalloutWidth = 190f, CalloutHeight = 132f, TagWidth = 170f;
         const float DefaultYaw = -34f, DefaultPitch = -26f;
 
         sealed class Slab
@@ -173,7 +173,9 @@ namespace Forge.ML
         void BuildChrome(MLLayer[] data)
         {
             long total = 0; foreach (var layer in data) total += layer.@params;
-            MLUI.Caps(root, $"{groups.Length} blocks  ·  {data.Length} layers  ·  {MLUI.Count(total)} params", 4, 11, 330, 16, 10);
+            MLUI.Caps(root, $"{groups.Length} blocks  ·  {data.Length} layers  ·  {MLUI.Count(total)} params", 4, 8, 330, 16, 10);
+            var hint = MLUI.Text(root, "Drag to turn  ·  scroll to zoom  ·  click a block to open it", 4, 26, 330, 14, 9.5f);
+            hint.color = MLUI.Faint; hint.textWrappingMode = TextWrappingModes.NoWrap;
             var reset = MLUI.Pill(root, "Reset view", 0, 4, 92, 28, ResetView); RightAlign(reset.Rect, 4, 4);
             expandAll = MLUI.Pill(root, "Open all", 0, 4, 84, 28, ToggleAll); RightAlign(expandAll.Rect, 102, 4);
 
@@ -189,20 +191,16 @@ namespace Forge.ML
                 var label = MLUI.Text(legend, name, x + 11, 7, 80, 16, 10); label.color = MLUI.Sub; label.textWrappingMode = TextWrappingModes.NoWrap;
                 x += 19 + label.GetPreferredValues(name).x;
             }
-            var hint = MLUI.Text(legend, "Drag to turn  ·  Scroll to zoom  ·  Click a block to open it", 0, 7, 10, 16, 10);
-            hint.color = MLUI.Faint; hint.alignment = TextAlignmentOptions.Right; hint.textWrappingMode = TextWrappingModes.NoWrap;
-            hint.rectTransform.anchorMin = new Vector2(0, 1); hint.rectTransform.anchorMax = new Vector2(1, 1);
-            hint.rectTransform.offsetMin = new Vector2(x + 12, -23); hint.rectTransform.offsetMax = new Vector2(-4, -7);
 
-            // Brackets (left) for open blocks, one tag (right) per layer, the input and output ends.
+            // One tag per layer on the right, grouped under a header per open block (its pill closes it); the input and output ends.
             for (int g = 0; g < groups.Length; g++)
             {
                 var group = groups[g]; int index = g;
                 group.bracket = MLUI.Rect("Bracket " + group.title, root, 0, 0, 1, 1);
                 group.line = MLUI.Fill(group.bracket, 0, 0, 1.4f, 10, MLUI.Faint);
-                group.tickTop = MLUI.Fill(group.bracket, 0, 0, 7, 1.4f, MLUI.Faint);
-                group.tickBottom = MLUI.Fill(group.bracket, 0, 0, 7, 1.4f, MLUI.Faint);
-                group.pill = MLUI.Pill(group.bracket, group.title + "   ×", 0, 0, 0, 22, () => SetOpen(index, false));
+                group.tickTop = MLUI.Fill(group.bracket, 0, 0, 5, 1.4f, MLUI.Faint);
+                group.tickBottom = MLUI.Fill(group.bracket, 0, 0, 5, 1.4f, MLUI.Faint);
+                group.pill = MLUI.Pill(group.bracket, group.title.ToUpperInvariant() + "   ×", 0, 0, 0, 20, () => SetOpen(index, false));
                 group.bracket.gameObject.SetActive(false);
             }
             tags = new Tag[data.Length];
@@ -237,7 +235,7 @@ namespace Forge.ML
             calloutShapes = MLUI.Text(callout, "", 14, 47, 176, 20, 14); calloutShapes.fontStyle = FontStyles.Bold; calloutShapes.textWrappingMode = TextWrappingModes.NoWrap;
             calloutMeta = MLUI.Text(callout, "", 14, 69, 176, 14, 10.5f); calloutMeta.color = MLUI.Sub;
             calloutKinds = MLUI.Text(callout, "", 14, 85, 176, 14, 9.5f); calloutKinds.textWrappingMode = TextWrappingModes.NoWrap;
-            calloutKinds.overflowMode = TextOverflowModes.Ellipsis;
+            calloutKinds.overflowMode = TextOverflowModes.Truncate;
             MLUI.Pill(callout, "Open", 14, 102, 70, 22, () => { if (calloutGroup >= 0) SetOpen(calloutGroup, true); });
             var note = MLUI.Text(callout, "or click the block", 92, 106, 100, 14, 9.5f); note.color = MLUI.Faint;
             calloutFade.alpha = 0; callout.gameObject.SetActive(false); calloutLeader.gameObject.SetActive(false);
@@ -324,14 +322,14 @@ namespace Forge.ML
 
             // Fit the stack between the top bar and the legend (it grows as blocks open), in the left part of the panel.
             Rect r = root.rect;
-            float stageTop = r.yMax - TopBar - 22f, stageBottom = r.yMin + BottomBar + 22f;
+            float stageTop = r.yMax - TopBar - 30f, stageBottom = r.yMin + BottomBar + 26f;
             float c = Mathf.Cos(viewPitch * Mathf.Deg2Rad), s = Mathf.Abs(Mathf.Sin(viewPitch * Mathf.Deg2Rad));
-            float projected = stackHeight * c + 2f * maxHalfDiag * s + 8f;
-            float target = Mathf.Clamp(Mathf.Min((stageTop - stageBottom) / projected, r.width * 0.5f / (2f * maxHalfDiag)), 0.3f, 1.25f);
+            float projected = (stackHeight * c + 2f * maxHalfDiag * s) * 1.12f + 8f;
+            float target = Mathf.Clamp(Mathf.Min((stageTop - stageBottom) / projected, r.width * 0.4f / (2f * maxHalfDiag)), 0.3f, 1.25f);
             fit = Mathf.Lerp(fit, target, 1f - Mathf.Exp(-dt * 6f));
             float scale = fit * viewZoom;
             tower.localScale = new Vector3(scale, scale, scale);
-            stage.localPosition = new Vector3(r.xMin + r.width * 0.4f, (stageTop + stageBottom) * 0.5f, -(maxHalfDiag * scale + 16f));
+            stage.localPosition = new Vector3(r.xMin + r.width * 0.37f, (stageTop + stageBottom) * 0.5f, -(maxHalfDiag * scale + 16f));
 
             if (packet >= 0f) { packet += dt / 1.3f; if (packet > 1.2f) packet = -1f; }
 
@@ -402,7 +400,7 @@ namespace Forge.ML
             for (int g = 0; g < groups.Length; g++)
             {
                 var group = groups[g];
-                float minX = float.MaxValue, from = float.MaxValue, to = float.MinValue, fade = 0f;
+                float from = float.MaxValue, to = float.MinValue, fade = 0f;
                 for (int i = group.first; i < group.first + group.count; i++)
                 {
                     var s = layers[i]; var tag = tags[i];
@@ -414,19 +412,17 @@ namespace Forge.ML
                     tag.rect.anchoredPosition = new Vector2(column, -(s.midY - 8f));
                     bool lit = i == hoverLayer || i == selectedLayer;
                     tag.leader.color = new Color(1, 1, 1, (lit ? 0.55f : 0.2f) * alpha);
-                    MLUI.SetLine(tag.leader.rectTransform, new Vector2(s.maxX + 3f, s.midY), new Vector2(column - 5f, s.midY), 1f);
-                    minX = Mathf.Min(minX, s.minX); from = Mathf.Min(from, s.midY); to = Mathf.Max(to, s.midY); fade = Mathf.Max(fade, s.vis);
+                    MLUI.SetLine(tag.leader.rectTransform, new Vector2(s.maxX + 3f, s.midY), new Vector2(column - 16f, s.midY), 1f);
+                    from = Mathf.Min(from, s.midY); to = Mathf.Max(to, s.midY); fade = Mathf.Max(fade, s.vis);
                 }
                 bool bracket = group.open && fade > 0.25f;
                 if (group.bracket.gameObject.activeSelf != bracket) group.bracket.gameObject.SetActive(bracket);
                 if (!bracket) continue;
-                float x = minX - 14f;
-                from -= 7f; to += 7f;
+                float x = column - 10f;
+                from -= 6f; to += 6f;
                 group.line.rectTransform.anchoredPosition = new Vector2(x, -from); group.line.rectTransform.sizeDelta = new Vector2(1.4f, to - from);
                 group.tickTop.rectTransform.anchoredPosition = new Vector2(x, -from); group.tickBottom.rectTransform.anchoredPosition = new Vector2(x, -to + 1.4f);
-                var pill = group.pill.Rect; float w = pill.sizeDelta.x, px = x - 8f - w, py = from - 2f;
-                if (px < 2f) { px = Mathf.Max(2f, x - w * 0.5f); py = from - 28f; }
-                pill.anchoredPosition = new Vector2(px, -py);
+                group.pill.Rect.anchoredPosition = new Vector2(x - 2f, -(from - 25f));
             }
 
             if (inputTag != null)

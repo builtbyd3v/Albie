@@ -62,7 +62,7 @@ namespace Forge.ML
             s.color = color; s.Corner = corner; s.Outline = outline; s.raycastTarget = false; return s;
         }
         public static ForgeSurface Card(Transform parent, float x, float y, float w, float h, float corner = 14)
-            => Surface(parent, x, y, w, h, CardColor, corner, 0.5f);
+            => Surface(parent, x, y, w, h, CardColor, corner, 0.2f);
         public static ForgeSurface Well(Transform parent, float x, float y, float w, float h, float corner = 12)
             => Surface(parent, x, y, w, h, Ink, corner, 0.12f);
         /// <summary>A small round dot (legend keys, status lights).</summary>
@@ -94,6 +94,22 @@ namespace Forge.ML
             Vector2 d = to - from; line.pivot = new Vector2(0, 0.5f);
             line.anchoredPosition = new Vector2(from.x, -from.y); line.sizeDelta = new Vector2(d.magnitude, width);
             line.localRotation = Quaternion.Euler(0, 0, -Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+        }
+        // Class identity colors (dataset scrub bar, class keys): ten hues at one lightness, kept apart from the
+        // right / wrong green and red where they appear side by side.
+        static readonly Color[] Classes =
+        {
+            new Color32(0x6A, 0xA7, 0xFF, 0xFF), new Color32(0xFF, 0xB4, 0x5C, 0xFF), new Color32(0x59, 0xD6, 0xA0, 0xFF), new Color32(0xFF, 0x7A, 0x8A, 0xFF),
+            new Color32(0xB4, 0x8C, 0xFF, 0xFF), new Color32(0x4F, 0xD3, 0xE6, 0xFF), new Color32(0xF2, 0xD4, 0x5C, 0xFF), new Color32(0xFF, 0x8F, 0xD0, 0xFF),
+            new Color32(0x9B, 0xD8, 0x6A, 0xFF), new Color32(0xC9, 0xA2, 0x7A, 0xFF),
+        };
+        public static Color ClassColor(int index) => index < 0 ? Faint : Classes[index % Classes.Length];
+        /// <summary>A score from 0 to 1 as red, through amber, to green (accuracy, F1); below 0 = unavailable.</summary>
+        public static Color Heat(float value)
+        {
+            if (value < 0) return new Color(1, 1, 1, 0.04f);
+            value = Mathf.Clamp01(value);
+            return value < 0.5f ? Color.Lerp(Bad, Warn, value * 2f) : Color.Lerp(Warn, Good, value * 2f - 1f);
         }
         /// <summary>357034 → "357K".</summary>
         public static string Count(long n) => n >= 1000000 ? (n / 1e6f).ToString(n >= 10000000 ? "0" : "0.0") + "M" : n >= 1000 ? (n / 1e3f).ToString(n >= 10000 ? "0" : "0.0") + "K" : n.ToString();

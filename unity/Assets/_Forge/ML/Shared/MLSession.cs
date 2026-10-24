@@ -53,6 +53,8 @@ namespace Forge.ML
         public bool IsLive => useLiveEvents && ForgeNet.Status == ForgeNetStatus.Live;
         public bool HubData { get; private set; }
         public string RunId { get; private set; }
+        // One line for the Training panel: why there's no live data, or what Train is doing.
+        public string Notice { get; private set; }
         public event Action Changed;
         // Data and Atlas were replaced from the hub: rebind textures, rebuild anything built from Data at Start.
         public event Action Reloaded;
@@ -130,20 +132,20 @@ namespace Forge.ML
                 BuildAtlas(); ownsAtlas = true;
             }
             TotalEpochs = Data.metrics.Length;
-            replayStarted = Time.time;
-            nextTick = Time.time + secondsPerEpoch;
+            replayStarted = Time.unscaledTime;
+            nextTick = Time.unscaledTime + secondsPerEpoch;
         }
         void Update()
         {
             if (!replay || Done) return;
             if (timeline != null)
             {
-                float elapsed = (Time.time - replayStarted) * Mathf.Max(.01f, replaySpeed);
+                float elapsed = (Time.unscaledTime - replayStarted) * Mathf.Max(.01f, replaySpeed);
                 while (nextEvent < timeline.Length && timeline[nextEvent].t <= elapsed) ApplyReplayEvent(timeline[nextEvent++]);
                 return;
             }
-            if (Time.time < nextTick) return;
-            nextTick = Time.time + Mathf.Max(.1f, secondsPerEpoch);
+            if (Time.unscaledTime < nextTick) return;
+            nextTick = Time.unscaledTime + Mathf.Max(.1f, secondsPerEpoch);
             int next = EpochIndex + 1;
             if (next < Data.metrics.Length) ApplyMetrics(Data.metrics[next]);
             if (next >= Data.metrics.Length - 1) SetRunState("done", TotalEpochs);
@@ -191,7 +193,21 @@ namespace Forge.ML
             }
             RestartMock();
         }
-        void RestartMock() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
+        void RestartMock() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.unscaledTime; nextTick = Time.unscaledTime + secondsPerEpoch; Changed?.Invoke(); }
+        // Live hub: start a real training run on the laptop (ML_PLAN 7.4 POST /ml/train). Its events come back
+        // over /ws, so the curves, dot wall and live graphs fill in as it trains.
+        public void Train(int epochs)
+        {
+            if (!IsLive)
+            {
+                Notice = "Training needs the hub: start it on the laptop and set ForgeNet's Hub Url.";
+                Changed?.Invoke();
+                return;
+            }
+            Notice = "Starting training..."; Changed?.Invoke();
+            ForgeNet.Post("/ml/train", new { epochs }, _ => { },
+                e => { Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+        }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
         public void Relabel(MLSample sample, int label)
@@ -255,7 +271,7 @@ namespace Forge.ML
             {
                 // A new run, or a replay of the current one: start the curves over.
                 if (newRun) RunId = state.runId;
-                Data.metrics = new MLMetrics[0]; EpochIndex = -1; Done = Overfit = false; OverfitReason = null;
+                Data.metrics = new MLMetrics[0]; EpochIndex = -1; Done = Overfit = false; OverfitReason = null; Notice = null;
             }
             SetRunState(state.status, state.totalEpochs);
         }
@@ -348,8 +364,19 @@ namespace Forge.ML
             if (error == null && meta != null && meta.atlas_url != atlasUrl) yield return ForgeNet.GetBytes(meta.atlas_url, v => png = v, fail);
             loading = false;
             if (error != null || classes == null || entries == null || meta == null || entries.Length == 0)
+            {
+                // Connected to a hub without the ML router (or an empty repo): play the demo run so the panels
+                // aren't blank, and say why on the Training panel.
                 Debug.LogWarning("[ML] Hub data unavailable, keeping the current data: " + (error ?? "empty dataset"));
-            else ApplyHubData(classes, entries, meta, graph, runId, results, confusion, history, png);
+                Notice = "No ML data from the hub (" + (error ?? "empty dataset") + "). Showing the demo run.";
+                if (!HubData) { replay = true; RestartMock(); }
+                else Changed?.Invoke();
+            }
+            else
+            {
+                if (Notice != null && Notice.StartsWith("No ML data")) Notice = null;
+                ApplyHubData(classes, entries, meta, graph, runId, results, confusion, history, png);
+            }
             if (reloadQueued) { reloadQueued = false; LoadFromHub(RunId); }
         }
         void ApplyHubData(string[] classes, MLDatasetEntry[] entries, MLAtlasMetadata meta, MLGraph graph, string runId,

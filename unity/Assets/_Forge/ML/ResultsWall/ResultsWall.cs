@@ -11,39 +11,50 @@ using UnityEngine.InputSystem;
 namespace Forge.ML
 {
     /// <summary>
-    /// Validation results: every image as a dot (GPU instanced, one draw), laid out as one block per class with its
-    /// accuracy, green when right and red when wrong. Hover a dot to preview it, select it to inspect it in the card on
-    /// the right (probabilities, Relabel / Remove / Looks fine). With nothing selected the card shows overall and
-    /// per-class accuracy. The toolbar switches the wall to wrong-only, or to a paged gallery of mistakes (all, most
-    /// confident first, or one class).
+    /// How well the run did, in five tabs. Overview: the fit verdict, an accuracy dial and the headline scores, best
+    /// and worst classes. Classes: precision, recall and F1 per class. Confusion: the matrix and the most confused
+    /// pairs. Confidence: how sure it is when right and when wrong, and calibration. Images: every image as a dot,
+    /// one block per class, green right and red wrong (hover to preview, select to inspect, Relabel / Remove), plus
+    /// galleries of mistakes and of suspect labels. Clicking a class, pair or cell anywhere opens those images.
+    /// The pages draw from <see cref="MLReport"/>; this file has the tabs and the Images tab, ResultsWall.Pages.cs
+    /// the other four.
     /// </summary>
     [RequireComponent(typeof(ForgePanel))]
-    public class ResultsWall : MonoBehaviour
+    public partial class ResultsWall : MonoBehaviour
     {
+        public enum Tab { Overview, Classes, Confusion, Confidence, Images }
+        static readonly string[] TabNames = { "Overview", "Classes", "Confusion", "Confidence", "Images" };
+        static readonly float[] TabWidths = { 92, 80, 94, 100, 80 };
+
         public MLSession session;
         public Material dotMaterialAsset;
         const int MaxSamples = 1023;
         const int GalleryPageSize = 24;
         const int GalleryColumns = 4;
-        const float Toolbar = 28f, WallTop = 58f, CardTop = 36f, CardWidth = 250f, Gap = 10f, Pad = 10f, BlockLabel = 15f;
+        const float TabBar = 30f, BodyTop = 42f, Toolbar = 24f, WallTop = 54f, CardTop = 34f, CardWidth = 250f, Gap = 10f, Pad = 10f, BlockLabel = 15f;
         static readonly Color Pending = new Color(.55f, .58f, .62f);
         static readonly Color Popup = new Color(0.11f, 0.12f, 0.15f, 0.97f);
         readonly Vector2[] dotCenters = new Vector2[MaxSamples];   // top-left mm in the wall
         readonly Vector4[] dotUvs = new Vector4[MaxSamples];
         readonly Vector4[] dotColors = new Vector4[MaxSamples];
         readonly int[] visibleSamples = new int[MaxSamples];
-        RectTransform root, content, dynamicContent, card;
+        readonly RectTransform[] pages = new RectTransform[TabNames.Length];
+        readonly ForgePill[] tabPills = new ForgePill[TabNames.Length];
+        RectTransform root, images, content, dynamicContent, card;
         RectTransform hoverTip, hoverRing, selectRing;
         RawImage hoverImage;
-        TMP_Text hoverTitle, hoverText, filterLabel, pageLabel;
-        ForgePill allPill, wrongPill, mistakesPill, confidentPill, classPill, prevPill, nextPill;
+        TMP_Text hoverTitle, hoverText, filterLabel, pageLabel, runLabel;
+        ForgePill allPill, wrongPill, mistakesPill, suspectPill, classPill, prevPill, nextPill;
         int classFilter = -1, truth = -1, predicted = -1, selected = -1, page, hovered = -1;
-        bool wrongDots, gallery, confidentMistakes, classPicker, relabeling;
+        bool wrongDots, gallery, suspects, classPicker, relabeling, wasDone, reveal;
         int dotCount;
         float dotPitch = 9f;
-        ConfidenceComparer confidenceComparer;
+        Tab tab = Tab.Overview;
+        MLReport report;
         StatusComparer statusComparer;
         MLDotField dots;
+        public Tab ActiveTab => tab;
+        public MLReport Report => report;
         public int VisibleDotCount => gallery || classPicker ? 0 : dotCount;
         public bool IsGallery => gallery;
         public bool IsClassPicker => classPicker;
@@ -55,30 +66,55 @@ namespace Forge.ML
         void Start()
         {
             session = MLSession.Resolve(session); root = GetComponent<ForgePanel>().Content;
-            confidenceComparer = new ConfidenceComparer(this); statusComparer = new StatusComparer(this);
-            var r = root.rect; float wallWidth = r.width - CardWidth - Gap, wallHeight = r.height - WallTop;
+            statusComparer = new StatusComparer(this);
+            var r = root.rect;
 
-            // Toolbar: the wall's two views, then the three galleries; paging on the right.
+            // Tabs, and the run they describe on the right.
             float x = 0;
-            allPill = Segment("All images", ref x, 86, ShowAll);
-            wrongPill = Segment("Wrong only", ref x, 90, ShowWrongDots);
-            x += 12;
-            mistakesPill = Segment("Show mistakes", ref x, 108, ShowMistakes);
-            confidentPill = Segment("Most confident", ref x, 112, ShowConfidentMistakes);
-            classPill = Segment("By class", ref x, 76, ShowClassPicker);
-            nextPill = MLUI.Pill(root, "›", r.width - 30, 0, 30, Toolbar, () => ChangePage(1));
-            prevPill = MLUI.Pill(root, "‹", r.width - 64, 0, 30, Toolbar, () => ChangePage(-1));
-            pageLabel = MLUI.Text(root, "", r.width - 150, 7, 80, 16, 10.5f); pageLabel.color = MLUI.Sub; pageLabel.alignment = TextAlignmentOptions.Right;
+            for (int i = 0; i < TabNames.Length; i++)
+            {
+                var t = (Tab)i;
+                tabPills[i] = MLUI.Pill(root, TabNames[i], x, 0, TabWidths[i], TabBar, () => ShowTab(t));
+                tabPills[i].name = "Tab " + TabNames[i];
+                x += TabWidths[i] + 4;
+                pages[i] = MLUI.Rect(TabNames[i] + " page", root, 0, BodyTop, r.width, r.height - BodyTop);
+            }
+            runLabel = MLUI.Caps(root, "", x + 8, 9, r.width - x - 8, 14, 9); runLabel.alignment = TextAlignmentOptions.TopRight; runLabel.color = MLUI.Faint;
+            images = pages[(int)Tab.Images];
+            BuildImages();
 
-            filterLabel = MLUI.Caps(root, "", 2, 39, wallWidth - 170, 14, 9.5f);
+            report = MLReport.Build(session); wasDone = session.Done;
+            session.SamplesChanged += OnSamplesChanged; session.Changed += OnChanged; session.PairSelected += FilterPair; session.Reloaded += OnReloaded;
+            Refresh();
+            ShowTab(Tab.Overview);
+        }
+
+        void BuildImages()
+        {
+            var r = images.rect; float wallWidth = r.width - CardWidth - Gap, wallHeight = r.height - WallTop;
+            // The wall's two views, then the galleries; paging on the right.
+            float x = 0;
+            allPill = Segment("All images", ref x, 82, ShowAll);
+            wrongPill = Segment("Wrong only", ref x, 86, ShowWrongDots);
+            x += 10;
+            mistakesPill = Segment("Show mistakes", ref x, 104, ShowMistakes);
+            suspectPill = Segment("Suspect labels", ref x, 108, ShowSuspects);
+            classPill = Segment("By class", ref x, 72, ShowClassPicker);
+            nextPill = MLUI.Pill(images, "›", r.width - 28, 0, 28, Toolbar, () => ChangePage(1));
+            prevPill = MLUI.Pill(images, "‹", r.width - 60, 0, 28, Toolbar, () => ChangePage(-1));
+            pageLabel = MLUI.Text(images, "", r.width - 140, 5, 74, 16, 10.5f); pageLabel.color = MLUI.Sub; pageLabel.alignment = TextAlignmentOptions.Right;
+
+            filterLabel = MLUI.Caps(images, "", 2, 35, wallWidth - 170, 14, 9.5f);
             float key = wallWidth - 160;
             Key(ref key, "Correct", MLUI.Good); Key(ref key, "Wrong", MLUI.Bad); Key(ref key, "Pending", Pending);
 
-            content = MLUI.Rect("Dot wall", root, 0, WallTop, wallWidth, wallHeight);
+            content = MLUI.Rect("Dot wall", images, 0, WallTop, wallWidth, wallHeight);
             var well = content.gameObject.AddComponent<ForgeSurface>(); well.color = MLUI.Ink; well.Corner = 14; well.Outline = 0.12f;
             var input = content.gameObject.AddComponent<MLResultsWallInput>(); input.owner = this;
             dynamicContent = MLUI.Rect("Dynamic content", content, 0, 0, wallWidth, wallHeight);
-            dots = MLUI.Rect("Dots", content, 0, 0, wallWidth, wallHeight).gameObject.AddComponent<MLDotField>();
+            var dotsObject = MLUI.Rect("Dots", content, 0, 0, wallWidth, wallHeight).gameObject;
+            // The CanvasRenderer first: added at runtime, the Graphic doesn't always bring one and then draws nothing.
+            dotsObject.AddComponent<CanvasRenderer>(); dots = dotsObject.AddComponent<MLDotField>();
             dots.raycastTarget = false; if (dotMaterialAsset != null) dots.material = dotMaterialAsset;
             selectRing = Ring("Selected ring", 0.95f);
             hoverRing = Ring("Hover ring", 0.7f);
@@ -89,20 +125,61 @@ namespace Forge.ML
             hoverText = MLUI.Text(hoverTip, "", 67, 25, 88, 36, 9.5f); hoverText.color = MLUI.Sub;
             hoverTip.gameObject.SetActive(false);
 
-            card = MLUI.Rect("Detail", root, wallWidth + Gap, CardTop, CardWidth, r.height - CardTop);
-
-            session.SamplesChanged += Refresh; session.PairSelected += FilterPair; session.Reloaded += OnReloaded; Refresh();
+            card = MLUI.Rect("Detail", images, wallWidth + Gap, CardTop, CardWidth, r.height - CardTop);
         }
-        void OnReloaded() { if (selected >= session.Data.samples.Length) selected = -1; Refresh(); }
+
+        // ---- Tabs ----
+
+        public void ShowTab(Tab next)
+        {
+            tab = next;
+            for (int i = 0; i < pages.Length; i++) { pages[i].gameObject.SetActive(i == (int)tab); tabPills[i].On = i == (int)tab; }
+            if (tab != Tab.Images) DrawPage();
+        }
+        void DrawPage()
+        {
+            var p = pages[(int)tab];
+            MLUI.Clear(p);
+            float w = p.rect.width, h = p.rect.height;
+            switch (tab)
+            {
+                case Tab.Overview: DrawOverviewPage(p, w, h); break;
+                case Tab.Classes: DrawClassesPage(p, w, h); break;
+                case Tab.Confusion: DrawConfusionPage(p, w, h); break;
+                case Tab.Confidence: DrawConfidencePage(p, w, h); break;
+            }
+        }
+        void OnSamplesChanged() { report = MLReport.Build(session); Refresh(); if (tab != Tab.Images) DrawPage(); }
+        // Run state and epochs: the verdict follows the run; when it finishes, the Overview opens with its numbers.
+        void OnChanged()
+        {
+            report = MLReport.Build(session);
+            UpdateRunLabel();
+            if (session.Done && !wasDone) { reveal = true; ShowTab(Tab.Overview); }
+            else if (tab == Tab.Overview) DrawPage();
+            wasDone = session.Done;
+        }
+        void OnReloaded() { if (selected >= session.Data.samples.Length) selected = -1; report = MLReport.Build(session); Refresh(); if (tab != Tab.Images) DrawPage(); }
+        void UpdateRunLabel()
+        {
+            runLabel.text = $"{(string.IsNullOrEmpty(session.RunId) ? "Demo run" : "Run " + session.RunId)}  ·  {report.evaluated + report.pending:N0} images  ·  {report.classes} classes".ToUpperInvariant();
+        }
+
+        // Open the Images tab on one class (from Overview, Classes or the Images card).
+        public void ShowClass(int index)
+        {
+            classFilter = index; wrongDots = gallery = suspects = classPicker = relabeling = false; truth = predicted = -1; selected = -1; page = 0;
+            Refresh(); ShowTab(Tab.Images);
+        }
 
         ForgePill Segment(string title, ref float x, float width, UnityEngine.Events.UnityAction click)
         {
-            var pill = MLUI.Pill(root, title, x, 0, width, Toolbar, click); x += width + 4; return pill;
+            var pill = MLUI.Pill(images, title, x, 0, width, Toolbar, click); x += width + 4; return pill;
         }
         void Key(ref float x, string label, Color color)
         {
-            MLUI.Dot(root, x, 42, 7, color);
-            var text = MLUI.Text(root, label, x + 10, 38, 50, 14, 9.5f); text.color = MLUI.Sub;
+            MLUI.Dot(images, x, 38, 7, color);
+            var text = MLUI.Text(images, label, x + 10, 34, 50, 14, 9.5f); text.color = MLUI.Sub;
             x += 16 + text.GetPreferredValues(label).x;
         }
         RectTransform Ring(string name, float alpha)
@@ -111,18 +188,21 @@ namespace Forge.ML
             ring.rectTransform.pivot = new Vector2(0.5f, 0.5f); ring.gameObject.SetActive(false); return ring.rectTransform;
         }
 
+        // ---- Images tab ----
+
         public void FilterPair(int trueClass, int predictedClass)
         {
-            truth = trueClass; predicted = predictedClass; wrongDots = gallery = confidentMistakes = classPicker = relabeling = false;
+            truth = trueClass; predicted = predictedClass; wrongDots = gallery = suspects = classPicker = relabeling = false;
             classFilter = -1; selected = -1; page = 0; Refresh();
+            ShowTab(Tab.Images);
         }
 
-        void ShowAll() { wrongDots = gallery = confidentMistakes = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
-        void ShowWrongDots() { wrongDots = true; gallery = confidentMistakes = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
-        void ShowMistakes() { gallery = true; wrongDots = true; confidentMistakes = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
-        void ShowConfidentMistakes() { gallery = true; wrongDots = true; confidentMistakes = true; classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        void ShowAll() { wrongDots = gallery = suspects = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        void ShowWrongDots() { wrongDots = true; gallery = suspects = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        void ShowMistakes() { gallery = true; wrongDots = true; suspects = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        public void ShowSuspects() { gallery = true; wrongDots = true; suspects = true; classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); ShowTab(Tab.Images); }
         void ShowClassPicker() { classPicker = true; gallery = relabeling = false; selected = -1; page = 0; Refresh(); }
-        void ChooseClass(int index) { classFilter = index; gallery = true; wrongDots = true; confidentMistakes = false; classPicker = relabeling = false; truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        void ChooseClass(int index) { classFilter = index; gallery = true; wrongDots = true; suspects = false; classPicker = relabeling = false; truth = predicted = -1; selected = -1; page = 0; Refresh(); }
         void ChangePage(int delta)
         {
             if (!gallery) return;
@@ -145,6 +225,7 @@ namespace Forge.ML
             }
             dots.Set(session.Atlas, gallery || classPicker ? 0 : dotCount, dotCenters, dotUvs, dotColors, dotPitch * 0.8f);
             UpdateToolbar();
+            UpdateRunLabel();
             ShowDetail();
         }
 
@@ -153,21 +234,32 @@ namespace Forge.ML
             bool wall = !gallery && !classPicker;
             allPill.On = wall && !wrongDots && truth < 0;
             wrongPill.On = wall && wrongDots;
-            mistakesPill.On = gallery && !confidentMistakes && classFilter < 0;
-            confidentPill.On = gallery && confidentMistakes;
+            mistakesPill.On = gallery && !suspects && classFilter < 0;
+            suspectPill.On = gallery && suspects;
             classPill.On = classPicker || (gallery && classFilter >= 0);
             prevPill.gameObject.SetActive(gallery); nextPill.gameObject.SetActive(gallery);
             int pages = Mathf.Max(1, Mathf.CeilToInt(dotCount / (float)GalleryPageSize));
             pageLabel.text = gallery ? $"{page + 1} / {pages}" : "";
             string what = classPicker ? "Choose a class to browse its mistakes" :
                 truth >= 0 ? $"True {session.Data.classes[truth]}  →  predicted {session.Data.classes[predicted]}" :
-                gallery ? (confidentMistakes ? "Most confident mistakes" : "Mistakes") + (classFilter < 0 ? "" : "  ·  " + session.Data.classes[classFilter]) :
-                wrongDots ? "Wrong predictions" : "All validation images";
+                gallery ? (suspects ? "Suspect labels  ·  most likely mislabelled first" : "Mistakes") + (classFilter < 0 ? "" : "  ·  " + session.Data.classes[classFilter]) :
+                (wrongDots ? "Wrong predictions" : "All validation images") + (classFilter < 0 ? "" : "  ·  " + session.Data.classes[classFilter]);
             filterLabel.text = (classPicker ? what : $"{what}  ·  {dotCount:N0}").ToUpperInvariant();
         }
 
         void BuildVisibleSamples()
         {
+            if (suspects)
+            {
+                // The report already ranks the wrong images by how unlikely the model found their label.
+                foreach (int i in report.suspects)
+                {
+                    if (dotCount >= MaxSamples) break;
+                    var s = session.Data.samples[i];
+                    if (!s.removed && (classFilter < 0 || s.true_idx == classFilter)) visibleSamples[dotCount++] = i;
+                }
+                return;
+            }
             for (int i = 0; i < session.Data.samples.Length && dotCount < MaxSamples; i++)
             {
                 var s = session.Data.samples[i];
@@ -175,8 +267,7 @@ namespace Forge.ML
                     (truth >= 0 && (s.true_idx != truth || s.pred_idx != predicted))) continue;
                 visibleSamples[dotCount++] = i;
             }
-            if (confidentMistakes) Array.Sort(visibleSamples, 0, dotCount, confidenceComparer);
-            else Array.Sort(visibleSamples, 0, dotCount, statusComparer);
+            Array.Sort(visibleSamples, 0, dotCount, statusComparer);
         }
 
         // One block per class (sorted right, wrong, pending inside each), sized to fill the wall; one flat block for a
@@ -186,20 +277,21 @@ namespace Forge.ML
             float width = content.rect.width, height = content.rect.height;
             if (dotCount == 0) { Empty("No matching images"); return; }
             int classes = session.Data.classes.Length;
-            bool blocks = truth < 0 && classes > 1 && classes <= 20;
+            bool blocks = truth < 0 && classFilter < 0 && classes > 1 && classes <= 20;
             int blockCount = blocks ? classes : 1;
             var perBlock = new int[blockCount];
             for (int v = 0; v < dotCount; v++) perBlock[blocks ? Mathf.Clamp(session.Data.samples[visibleSamples[v]].true_idx, 0, classes - 1) : 0]++;
             int most = 1; foreach (int n in perBlock) most = Mathf.Max(most, n);
             float label = blocks ? BlockLabel : 0f, gapX = 14f, gapY = 8f;
-            int columns = Mathf.CeilToInt(Mathf.Sqrt(most * (blocks ? 1f : width / height)));
-            int rows = Mathf.CeilToInt(most / (float)columns);
-            int across = 1; dotPitch = 0f;
+            // Try every arrangement (blocks across, dots across a block) and keep the one with the biggest dots.
+            int columns = 1, rows = most, across = 1; dotPitch = 0f;
+            for (int dc = 1; dc <= most; dc++)
             for (int bc = 1; bc <= blockCount; bc++)
             {
+                int dr = Mathf.CeilToInt(most / (float)dc);
                 int br = Mathf.CeilToInt(blockCount / (float)bc);
-                float p = Mathf.Min((width - 2 * Pad - (bc - 1) * gapX) / (bc * columns), (height - 2 * Pad - br * label - (br - 1) * gapY) / (br * rows));
-                if (p > dotPitch) { dotPitch = p; across = bc; }
+                float p = Mathf.Min((width - 2 * Pad - (bc - 1) * gapX) / (bc * dc), (height - 2 * Pad - br * label - (br - 1) * gapY) / (br * dr));
+                if (p > dotPitch + 0.01f) { dotPitch = p; across = bc; columns = dc; rows = dr; }
             }
             dotPitch = Mathf.Min(dotPitch, 16f);
             float blockWidth = columns * dotPitch, blockHeight = label + rows * dotPitch;
@@ -216,9 +308,9 @@ namespace Forge.ML
                 {
                     float bx = left + c % across * (blockWidth + gapX), by = top + c / across * (blockHeight + gapY);
                     var name = MLUI.Text(dynamicContent, session.Data.classes[c], bx, by, blockWidth * 0.68f, 13, 9); name.color = MLUI.Sub;
-                    name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
+                    name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Truncate;
                     float accuracy = seen[c] == 0 ? -1f : right[c] / (float)seen[c];
-                    var value = MLUI.Text(dynamicContent, accuracy < 0 ? "—" : accuracy.ToString("P0"), bx + blockWidth * 0.5f, by, blockWidth * 0.5f, 13, 9);
+                    var value = MLUI.Text(dynamicContent, accuracy < 0 ? "—" : accuracy.ToString("0%"), bx + blockWidth * 0.5f, by, blockWidth * 0.5f, 13, 9);
                     value.alignment = TextAlignmentOptions.TopRight; value.fontStyle = FontStyles.Bold; value.color = AccuracyColor(accuracy);
                 }
             }
@@ -256,8 +348,8 @@ namespace Forge.ML
                 var truthText = MLUI.Text(tile.transform, session.Data.classes[s.true_idx], photo + 9, 4, tileWidth - photo - 12, 12, 8.5f); truthText.color = MLUI.Sub;
                 var predText = MLUI.Text(tile.transform, "→ " + session.Data.classes[pred], photo + 9, 15, tileWidth - photo - 12, 14, 10);
                 predText.color = MLUI.Bad; predText.fontStyle = FontStyles.Bold;
-                foreach (var t in new[] { truthText, predText }) { t.textWrappingMode = TextWrappingModes.NoWrap; t.overflowMode = TextOverflowModes.Ellipsis; }
-                var confidence = MLUI.Text(tile.transform, Confidence(s).ToString("P0") + " sure", photo + 9, 29, tileWidth - photo - 12, 12, 8.5f); confidence.color = MLUI.Faint;
+                foreach (var t in new[] { truthText, predText }) { t.textWrappingMode = TextWrappingModes.NoWrap; t.overflowMode = TextOverflowModes.Truncate; }
+                var confidence = MLUI.Text(tile.transform, Confidence(s).ToString("0%") + " sure", photo + 9, 29, tileWidth - photo - 12, 12, 8.5f); confidence.color = MLUI.Faint;
             }
             if (dotCount == 0) Empty("No mistakes here");
         }
@@ -292,12 +384,6 @@ namespace Forge.ML
             return count;
         }
 
-        sealed class ConfidenceComparer : IComparer<int>
-        {
-            readonly ResultsWall owner;
-            public ConfidenceComparer(ResultsWall owner) { this.owner = owner; }
-            public int Compare(int a, int b) => Confidence(owner.session.Data.samples[b]).CompareTo(Confidence(owner.session.Data.samples[a]));
-        }
         // By class, then right before wrong before not yet predicted, so each class block reads like a bar.
         sealed class StatusComparer : IComparer<int>
         {
@@ -363,18 +449,18 @@ namespace Forge.ML
             MLUI.Stat(card, "Classes", classes.ToString(), 168, 96, 70, MLUI.TextColor).fontSize = 18;
             MLUI.Fill(card, 16, 138, w - 32, 1, new Color(1, 1, 1, 0.07f));
             MLUI.Caps(card, "Per class", 16, 147, 80);
-            var hint = MLUI.Text(card, "tap for its mistakes", 80, 146, w - 96, 14, 9); hint.color = MLUI.Faint; hint.alignment = TextAlignmentOptions.TopRight;
+            var hint = MLUI.Text(card, "tap to show one class", 80, 146, w - 96, 14, 9); hint.color = MLUI.Faint; hint.alignment = TextAlignmentOptions.TopRight;
             float rowTop = 164, row = Mathf.Clamp((h - rowTop - 10) / Mathf.Max(1, classes), 11f, 18f);
             float barX = 86, barWidth = w - barX - 52;
             for (int c = 0; c < classes && rowTop + (c + 1) * row <= h - 4; c++)
             {
                 int label = c; float y = rowTop + c * row, value = seen[c] == 0 ? -1f : right[c] / (float)seen[c];
                 var rowButton = HoverButton("Class " + session.Data.classes[c], card, 8, y, w - 16, row, 0f, 6);
-                rowButton.onClick.AddListener(() => ChooseClass(label));
-                var name = MLUI.Text(card, session.Data.classes[c], 16, y + row * 0.5f - 7, 68, 14, 10); name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
+                rowButton.onClick.AddListener(() => ShowClass(label));
+                var name = MLUI.Text(card, session.Data.classes[c], 16, y + row * 0.5f - 7, 68, 14, 10); name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Truncate;
                 MLUI.Surface(card, barX, y + row * 0.5f - 2.5f, barWidth, 5, new Color(1, 1, 1, 0.07f), 2.5f);
                 if (value > 0) MLUI.Surface(card, barX, y + row * 0.5f - 2.5f, Mathf.Max(5, barWidth * value), 5, AccuracyColor(value), 2.5f);
-                var pct = MLUI.Text(card, value < 0 ? "—" : value.ToString("P0"), w - 52, y + row * 0.5f - 7, 36, 14, 10); pct.alignment = TextAlignmentOptions.TopRight; pct.color = MLUI.Sub;
+                var pct = MLUI.Text(card, value < 0 ? "—" : value.ToString("0%"), w - 52, y + row * 0.5f - 7, 36, 14, 10); pct.alignment = TextAlignmentOptions.TopRight; pct.color = MLUI.Sub;
             }
         }
 
@@ -384,7 +470,7 @@ namespace Forge.ML
             int classes = session.Data.classes.Length, pred = Mathf.Clamp(s.pred_idx, 0, classes - 1);
             Color status = StatusColor(s);
             MLUI.Caps(card, "Image", 16, 16, 60);
-            var id = MLUI.Text(card, s.name ?? s.id, 62, 14, w - 106, 14, 9.5f); id.color = MLUI.Faint; id.textWrappingMode = TextWrappingModes.NoWrap; id.overflowMode = TextOverflowModes.Ellipsis;
+            var id = MLUI.Text(card, s.name ?? s.id, 62, 14, w - 106, 14, 9.5f); id.color = MLUI.Faint; id.textWrappingMode = TextWrappingModes.NoWrap; id.overflowMode = TextOverflowModes.Truncate;
             MLUI.Pill(card, "×", w - 40, 10, 26, 22, DismissDetail).name = "Close";
             MLUI.Surface(card, 14, 36, 100, 100, new Color(status.r, status.g, status.b, 0.18f), 10, 0.7f);
             MLUI.Photo(card, session, selected, 18, 40, 92, 92);
@@ -393,7 +479,7 @@ namespace Forge.ML
             var truthText = MLUI.Text(card, session.Data.classes[s.true_idx], x, 50, w - x - 14, 18, 14); truthText.fontStyle = FontStyles.Bold;
             MLUI.Caps(card, "Predicted", x, 74, w - x - 14);
             var predText = MLUI.Text(card, s.pred_idx < 0 ? "—" : session.Data.classes[pred], x, 86, w - x - 14, 18, 14); predText.fontStyle = FontStyles.Bold; predText.color = status;
-            var sure = MLUI.Text(card, s.pred_idx < 0 ? "not predicted yet" : $"{Confidence(s):P0} confident", x, 106, w - x - 14, 14, 10); sure.color = MLUI.Sub;
+            var sure = MLUI.Text(card, s.pred_idx < 0 ? "not predicted yet" : $"{Confidence(s):0%} confident", x, 106, w - x - 14, 14, 10); sure.color = MLUI.Sub;
             MLUI.Surface(card, x, 122, 62, 15, new Color(status.r, status.g, status.b, 0.16f), 7.5f);
             var chip = MLUI.Caps(card, s.pred_idx < 0 ? "Pending" : s.correct ? "Correct" : "Wrong", x, 124, 62, 12, 8); chip.alignment = TextAlignmentOptions.Top; chip.color = status;
 
@@ -405,12 +491,12 @@ namespace Forge.ML
                 float p = s.probs != null && c < s.probs.Length ? s.probs[c] : 0, y = rowTop + c * row;
                 bool isPred = c == s.pred_idx, isTrue = c == s.true_idx;
                 var name = MLUI.Text(card, session.Data.classes[c], 16, y, 66, row, 9.5f);
-                name.color = isPred ? status : isTrue ? MLUI.TextColor : MLUI.Sub; name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
+                name.color = isPred ? status : isTrue ? MLUI.TextColor : MLUI.Sub; name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Truncate;
                 if (isPred || isTrue) name.fontStyle = FontStyles.Bold;
                 MLUI.Surface(card, barX, y + row * 0.5f - 2.5f, barWidth, 5, new Color(1, 1, 1, 0.06f), 2.5f);
                 Color fill = isPred ? status : isTrue ? new Color(1, 1, 1, 0.8f) : new Color(MLUI.Accent.r, MLUI.Accent.g, MLUI.Accent.b, 0.6f);
                 if (p * barWidth >= 1f) MLUI.Surface(card, barX, y + row * 0.5f - 2.5f, Mathf.Max(5, barWidth * Mathf.Clamp01(p)), 5, fill, 2.5f);
-                var pct = MLUI.Text(card, p.ToString("P0"), w - 50, y, 36, row, 9.5f); pct.alignment = TextAlignmentOptions.TopRight; pct.color = isPred ? status : MLUI.Sub;
+                var pct = MLUI.Text(card, p.ToString("0%"), w - 50, y, 36, row, 9.5f); pct.alignment = TextAlignmentOptions.TopRight; pct.color = isPred ? status : MLUI.Sub;
             }
             float actions = h - 38;
             MLUI.Button(card, "Relabel", 14, actions, 70, 26, () => { relabeling = true; ShowDetail(); });
@@ -463,7 +549,7 @@ namespace Forge.ML
             int pred = Mathf.Clamp(sample.pred_idx, 0, session.Data.classes.Length - 1);
             string hex = ColorUtility.ToHtmlStringRGB(StatusColor(sample));
             hoverText.text = sample.pred_idx < 0 ? $"{sample.name ?? sample.id}\nnot predicted yet"
-                : $"<color=#{hex}>{(sample.correct ? "Correct" : "→ " + session.Data.classes[pred])}</color>  {Confidence(sample):P0}\n{sample.name ?? sample.id}";
+                : $"<color=#{hex}>{(sample.correct ? "Correct" : "→ " + session.Data.classes[pred])}</color>  {Confidence(sample):0%}\n{sample.name ?? sample.id}";
             float x = centre.x + dotPitch, y = centre.y - 66 - dotPitch * 0.6f;
             if (x + 158 > content.rect.width - 4) x = centre.x - dotPitch - 158;
             if (y < 4) y = centre.y + dotPitch;
@@ -502,7 +588,7 @@ namespace Forge.ML
         public void SelectById(string id)
         {
             for (int i = 0; i < session.Data.samples.Length; i++) if (session.Data.samples[i].id == id)
-            { gallery = classPicker = relabeling = false; selected = i; Refresh(); return; }
+            { gallery = classPicker = relabeling = false; selected = i; Refresh(); ShowTab(Tab.Images); return; }
         }
         void DismissDetail() { selected = -1; relabeling = false; ShowDetail(); }
 
@@ -523,7 +609,7 @@ namespace Forge.ML
 
         void OnDestroy()
         {
-            if (session != null) { session.SamplesChanged -= Refresh; session.PairSelected -= FilterPair; session.Reloaded -= OnReloaded; }
+            if (session != null) { session.SamplesChanged -= OnSamplesChanged; session.Changed -= OnChanged; session.PairSelected -= FilterPair; session.Reloaded -= OnReloaded; }
         }
     }
 }

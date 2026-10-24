@@ -31,7 +31,7 @@ public static class MLSandboxBuilder
         model.GetComponent<Model3D>().beamMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Beam.mat");
         Save(model,"Model3D");
         SaveMaterial(new Material(Shader.Find("Forge/ML/DotUI")), Folder+"DotUI.mat");
-        var results = Panel<ResultsWall>("ResultsWall", "ml-results", "Validation results", new Vector2(.65f,.45f));
+        var results = Panel<ResultsWall>("ResultsWall", "ml-results", "Results", new Vector2(.74f,.50f));
         results.GetComponent<ResultsWall>().dotMaterialAsset = AssetDatabase.LoadAssetAtPath<Material>(Folder+"DotUI.mat");
         Save(results,"ResultsWall");
         Save(Panel<TrainingDash>("TrainingDash", "ml-training", "Training dashboard", new Vector2(.78f,.58f)),"TrainingDash");
@@ -74,7 +74,7 @@ public static class MLSandboxBuilder
         var session = new GameObject("Shared ML session"); session.AddComponent<MLSession>(); session.AddComponent<MLLayoutController>();
         Place("DataStack", new Vector3(-1f,1.35f,0), camera);
         Place("Model3D", new Vector3(-.39f,1.35f,0), camera);
-        Place("ResultsWall", new Vector3(.26f,1.35f,0), camera);
+        Place("ResultsWall", new Vector3(.31f,1.35f,0), camera);
         Place("TrainingDash", new Vector3(.02f,1.95f,.15f), camera);
         Place("VizCard", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
         Place("RegressionResults", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);

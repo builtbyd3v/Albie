@@ -172,7 +172,9 @@ namespace Forge.ML
         }
         void RenderLine()
         {
-            var chart = MLUI.Rect("Line chart", root, 16, 52, 700, 248).gameObject.AddComponent<VizLine>();
+            var chartObject = MLUI.Rect("Line chart", root, 16, 52, 700, 248).gameObject;
+            chartObject.AddComponent<CanvasRenderer>();
+            var chart = chartObject.AddComponent<VizLine>();
             chart.values = values; chart.secondaryValues = secondaryValues;
             AddLabels(labels ?? xLabels, 16, 304, 700);
         }

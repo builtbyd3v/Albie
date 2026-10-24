@@ -7,37 +7,38 @@ using UnityEngine.UI;
 namespace Forge.ML
 {
     /// <summary>
-    /// Training at a glance: epoch, losses, accuracy and learning rate as big numbers, loss and accuracy curves,
-    /// an overfit banner, then live per-class accuracy and the probe strip while it trains, and the confusion matrix
-    /// (click a cell to filter the results wall) with per-class accuracy when it's done.
+    /// Training as it happens: epoch, losses, accuracy and learning rate as big numbers, loss and accuracy curves (the
+    /// best epoch marked once known), a banner for overfitting, the hub or the finished run, then per-class accuracy
+    /// over the epochs and the probe strip. The evaluation (confusion, per-class scores) lives on the Results panel.
     /// </summary>
     [RequireComponent(typeof(ForgePanel))]
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
-        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 128, BannerY = 200, SectionY = 236, SummaryY = 258;
-        TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, warning, sectionTitle, lossMax;
-        ForgeSurface progress, statusChip, banner;
-        ForgePill toggle;
+        [Tooltip("Epochs for the Train button (POST /ml/train).")] public int trainEpochs = 10;
+        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, BannerY = 204, SectionY = 242, SummaryY = 260;
+        TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, bannerLabel, bannerText, sectionTitle, lossMax;
+        ForgeSurface progress, statusChip, banner, bannerDot;
         MLCurve loss, accuracy;
         RectTransform root, summary;
         float width;
         readonly List<float[]> classHistory = new List<float[]>();
         readonly List<MLProbeSample> probes = new List<MLProbeSample>();
-        bool showLiveGraphs = true, wasDone;
         int firstHistoryEpoch = 1;
         public int AccuracyEpochCount => classHistory.Count;
         public int ProbeCount => probes.Count;
         void Start()
         {
             session = MLSession.Resolve(session); root = GetComponent<ForgePanel>().Content; width = root.rect.width;
-            epochValue = MLUI.Stat(root, "Epoch", "—", 2, Kpi, 120, MLUI.TextColor);
-            trainLossValue = MLUI.Stat(root, "Train loss", "—", 130, Kpi, 110, MLUI.Train);
-            valLossValue = MLUI.Stat(root, "Val loss", "—", 248, Kpi, 110, MLUI.Val);
-            valAccValue = MLUI.Stat(root, "Val accuracy", "—", 366, Kpi, 120, MLUI.Good);
-            lrValue = MLUI.Stat(root, "Learning rate", "—", 494, Kpi, 110, MLUI.TextColor);
-            statusChip = MLUI.Surface(root, width - 194, 4, 88, 22, new Color(1, 1, 1, 0.08f), 11);
-            statusText = MLUI.Caps(root, "", width - 194, 8, 88, 14, 9); statusText.alignment = TextAlignmentOptions.Top;
+            epochValue = MLUI.Stat(root, "Epoch", "—", 2, Kpi, 86, MLUI.TextColor);
+            trainLossValue = MLUI.Stat(root, "Train loss", "—", 92, Kpi, 86, MLUI.Train);
+            valLossValue = MLUI.Stat(root, "Val loss", "—", 182, Kpi, 86, MLUI.Val);
+            valAccValue = MLUI.Stat(root, "Val accuracy", "—", 272, Kpi, 100, MLUI.Good);
+            lrValue = MLUI.Stat(root, "LR", "—", 376, Kpi, 70, MLUI.TextColor);
+            foreach (var stat in new[] { epochValue, trainLossValue, valLossValue, valAccValue, lrValue }) stat.fontSize = 21;
+            statusChip = MLUI.Surface(root, width - 292, 4, 88, 22, new Color(1, 1, 1, 0.08f), 11);
+            statusText = MLUI.Caps(root, "", width - 292, 8, 88, 14, 9); statusText.alignment = TextAlignmentOptions.Top;
+            MLUI.Pill(root, "Train", width - 196, 1, 92, 28, () => session.Train(trainEpochs)).On = true;
             MLUI.Button(root, "Replay", width - 98, 1, 98, 28, session.Restart);
             MLUI.Surface(root, 0, ProgressY, width, 4, new Color(1, 1, 1, 0.07f), 2);
             progress = MLUI.Surface(root, 0, ProgressY, 0, 4, MLUI.Accent, 2); progress.Glow = 0.5f;
@@ -48,14 +49,15 @@ namespace Forge.ML
             lossMax = MLUI.Text(root, "", 12, ChartY + 24, 40, 12, 8.5f); lossMax.color = MLUI.Faint;
             var top = MLUI.Text(root, "100%", chart + 24, ChartY + 24, 40, 12, 8.5f); top.color = MLUI.Faint;
 
-            banner = MLUI.Surface(root, 0, BannerY, width, 28, new Color(MLUI.Warn.r, MLUI.Warn.g, MLUI.Warn.b, 0.12f), 10, 0.5f);
-            MLUI.Dot(banner.transform, 12, 10, 8, MLUI.Warn);
-            MLUI.Caps(banner.transform, "Overfitting", 28, 8, 110, 14, 9.5f).color = MLUI.Warn;
-            warning = MLUI.Text(banner.transform, "", 132, 6, width - 150, 16, 11); warning.color = MLUI.TextColor;
+            // One banner line: overfitting, a hub notice, or the finished run.
+            banner = MLUI.Surface(root, 0, BannerY, width, 28, Color.clear, 10, 0.5f);
+            bannerDot = MLUI.Dot(banner.transform, 12, 10, 8, MLUI.Warn);
+            bannerLabel = MLUI.Caps(banner.transform, "", 28, 8, 110, 14, 9.5f);
+            bannerText = MLUI.Text(banner.transform, "", 128, 6, width - 140, 16, 11); bannerText.textWrappingMode = TextWrappingModes.NoWrap;
+            bannerText.overflowMode = TextOverflowModes.Truncate;
 
-            sectionTitle = MLUI.Caps(root, "", 2, SectionY + 6, 560, 14, 9.5f);
-            toggle = MLUI.Pill(root, "Results", width - 110, SectionY, 110, 24, () => { showLiveGraphs = !showLiveGraphs; Refresh(); });
-            summary = MLUI.Rect("Evaluation", root, 0, SummaryY, width, root.rect.height - SummaryY);
+            sectionTitle = MLUI.Caps(root, "", 2, SectionY, 560, 14, 9.5f);
+            summary = MLUI.Rect("Live graphs", root, 0, SummaryY, width, root.rect.height - SummaryY);
             session.Changed += Refresh;
             session.Reloaded += OnSessionReloaded;
             session.Metrics += OnMetrics;
@@ -90,67 +92,27 @@ namespace Forge.ML
             statusChip.color = new Color(stateColor.r, stateColor.g, stateColor.b, 0.16f);
             progress.rectTransform.sizeDelta = new Vector2(width * (e + 1) / Mathf.Max(1, session.TotalEpochs), 4);
             progress.color = session.Done ? MLUI.Good : MLUI.Accent;
-            banner.gameObject.SetActive(session.Overfit);
-            warning.text = string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason;
+
+            int best = MLReport.BestEpoch(session.Data.metrics, e);
+            loss.marker = accuracy.marker = session.Done || session.Overfit ? best : -1;
+            if (session.Overfit)
+                Banner(MLUI.Warn, "Overfitting", (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason)
+                    + (best >= 0 ? $"  ·  best epoch {best + 1}" : ""));
+            else if (!string.IsNullOrEmpty(session.Notice)) Banner(MLUI.Accent, "Hub", session.Notice);
+            else if (session.Done && best >= 0)
+                Banner(MLUI.Good, "Finished", $"best val accuracy {session.Data.metrics[best].val_acc:0.0%} at epoch {best + 1}  ·  full evaluation on the Results panel");
+            else banner.gameObject.SetActive(false);
+
             float max = 1; for (int i = 0; i <= e && i < session.Data.metrics.Length; i++) max = Mathf.Max(max, session.Data.metrics[i].train_loss, session.Data.metrics[i].val_loss);
             lossMax.text = max.ToString("0.0");
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
-            // Switch to the results once, when the run finishes; the toggle can still go back to the live graphs.
-            if (session.Done && !wasDone) showLiveGraphs = false;
-            wasDone = session.Done;
-            bool live = !session.Done || showLiveGraphs;
-            toggle.gameObject.SetActive(session.Done);
-            toggle.GetComponentInChildren<TMP_Text>().text = live ? "Results" : "Live graphs";
-            if (live) DrawLiveGraphs(); else DrawEvaluation();
+            DrawLiveGraphs();
         }
-        void DrawEvaluation()
+        void Banner(Color tone, string label, string text)
         {
-            sectionTitle.text = "CONFUSION MATRIX  ·  ROWS TRUE, COLUMNS PREDICTED  ·  CLICK A CELL TO FILTER RESULTS";
-            int n = session.Data.classes.Length; var matrix = new int[n,n];
-            foreach (var s in session.Data.samples) if (!s.removed && s.pred_idx >= 0) matrix[s.true_idx,s.pred_idx]++;
-            int max = 1; for (int r = 0; r < n; r++) for (int c = 0; c < n; c++) if (r != c) max = Mathf.Max(max, matrix[r,c]);
-            int diagonal = 1; for (int r = 0; r < n; r++) diagonal = Mathf.Max(diagonal, matrix[r,r]);
-            float height = summary.rect.height, labels = 70, header = 16;
-            float cell = Mathf.Min(24f, (height - header - 4) / n), matrixWidth = labels + n * cell + 16;
-            MLUI.Well(summary, 0, 0, matrixWidth, height);
-            for (int r = 0; r < n; r++)
-            {
-                var name = MLUI.Text(summary, session.Data.classes[r], 10, header + r * cell + cell * 0.5f - 7, labels - 14, 14, 9.5f);
-                name.color = MLUI.Sub; name.alignment = TextAlignmentOptions.TopRight; name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
-                var index = MLUI.Text(summary, r.ToString(), labels + r * cell, 3, cell, 12, 8.5f); index.color = MLUI.Faint; index.alignment = TextAlignmentOptions.Top;
-                for (int c = 0; c < n; c++)
-                {
-                    int rr = r, cc = c, v = matrix[r,c];
-                    Color hue = r == c ? MLUI.Good : MLUI.Bad;
-                    float t = v == 0 ? 0 : Mathf.Sqrt(v / (float)(r == c ? diagonal : max));
-                    var shade = Color.Lerp(new Color(1, 1, 1, 0.04f), new Color(hue.r, hue.g, hue.b, 0.85f), t);
-                    var square = MLUI.Surface(summary, labels + c * cell + 1, header + r * cell + 1, cell - 2, cell - 2, shade, 4);
-                    square.raycastTarget = true;
-                    var b = square.gameObject.AddComponent<Button>(); b.targetGraphic = square; b.onClick.AddListener(() => session.SelectPair(rr,cc));
-                    var colors = b.colors; colors.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1); colors.fadeDuration = 0.06f; b.colors = colors;
-                    if (v > 0)
-                    {
-                        var count = MLUI.Text(square.transform, v.ToString(), 0, (cell - 2) * 0.5f - 6, cell - 2, 12, 8.5f);
-                        count.alignment = TextAlignmentOptions.Top; count.color = t > 0.55f ? new Color(0.05f, 0.06f, 0.08f) : MLUI.Sub;
-                    }
-                }
-            }
-            // Per-class accuracy beside it.
-            float x = matrixWidth + 12, w = width - x, row = Mathf.Min(22f, (height - 24) / n);
-            MLUI.Well(summary, x, 0, w, height);
-            MLUI.Caps(summary, "Per-class accuracy", x + 14, 9, 200);
-            for (int r = 0; r < n; r++)
-            {
-                int total = 0; for (int c = 0; c < n; c++) total += matrix[r,c];
-                float value = total == 0 ? -1 : matrix[r,r] / (float)total, y = 28 + r * row;
-                var name = MLUI.Text(summary, session.Data.classes[r], x + 14, y + row * 0.5f - 7, 80, 14, 10);
-                name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
-                float barX = x + 100, barWidth = w - 100 - 60;
-                MLUI.Surface(summary, barX, y + row * 0.5f - 3, barWidth, 6, new Color(1, 1, 1, 0.07f), 3);
-                if (value > 0) MLUI.Surface(summary, barX, y + row * 0.5f - 3, Mathf.Max(6, barWidth * value), 6, HeatColor(value), 3);
-                var pct = MLUI.Text(summary, value < 0 ? "—" : value.ToString("P0"), x + w - 54, y + row * 0.5f - 7, 40, 14, 10);
-                pct.alignment = TextAlignmentOptions.TopRight; pct.color = MLUI.Sub;
-            }
+            banner.gameObject.SetActive(true);
+            banner.color = new Color(tone.r, tone.g, tone.b, 0.12f);
+            bannerDot.color = tone; bannerLabel.text = label.ToUpperInvariant(); bannerLabel.color = tone; bannerText.text = text;
         }
         void DrawLiveGraphs()
         {

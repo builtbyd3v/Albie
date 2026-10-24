@@ -9,6 +9,7 @@ namespace Forge.ML
     {
         public MLSession session;
         public bool accuracy;
+        [Tooltip("Epoch index to mark with a dashed line (the best epoch), -1 for none.")] public int marker = -1;
         const float LineWidth = 1.6f, Marker = 3.2f;
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -23,6 +24,12 @@ namespace Forge.ML
             if (session == null || session.EpochIndex < 1) return;
             float max = 1;
             if (!accuracy) for (int i = 0; i <= session.EpochIndex; i++) max = Mathf.Max(max, session.Data.metrics[i].train_loss, session.Data.metrics[i].val_loss);
+            if (marker >= 0 && marker <= session.EpochIndex)
+            {
+                float x = Point(marker, 1, r, max).x;
+                var dash = new Color(1, 1, 1, 0.45f);
+                for (float y = r.yMin; y < r.yMax; y += 6f) Quad(vh, new Vector2(x - 0.5f, y), new Vector2(x + 0.5f, Mathf.Min(y + 3f, r.yMax)), dash, dash);
+            }
             for (int series = 0; series < 2; series++)
             {
                 Color col = series == 0 ? MLUI.Train : MLUI.Val;
