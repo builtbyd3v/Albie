@@ -85,15 +85,22 @@ class EventBus:
                 dead.append(ws)
         self._clients.difference_update(dead)
 
+    async def attach(self, ws: WebSocket) -> None:
+        """Start publishing to an accepted socket (replays sticky state). Someone else owns its receive loop."""
+        self._clients.add(ws)
+        for message in list(self._last.values()):
+            await ws.send_json(message)
+
+    def detach(self, ws: WebSocket) -> None:
+        self._clients.discard(ws)
+
     async def serve(self, ws: WebSocket) -> None:
         await ws.accept()
-        self._clients.add(ws)
         try:
-            for message in list(self._last.values()):
-                await ws.send_json(message)
+            await self.attach(ws)
             while True:
                 await ws.receive_text()  # clients don't publish yet; keep the socket open
         except (WebSocketDisconnect, asyncio.CancelledError):
             pass
         finally:
-            self._clients.discard(ws)
+            self.detach(ws)

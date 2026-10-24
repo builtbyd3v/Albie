@@ -1,8 +1,8 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
 Minimal skeleton (CAD + agent so far); Person 5 owns the hub and adds the ml and messaging routers.
-The agent (pet) module serves its own socket at `/ws/agent` for now (its own broadcast bus in
-agent/bus.py); folding it into the `/ws` EventBus is Person 5's call. See README "Agent module (pet)".
+`/ws` is shared: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
+the hub through one ForgeNet socket. `/ws/agent` is the same agent protocol alone. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py).
@@ -54,9 +54,16 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
-        await app.state.bus.serve(websocket)
+        # One socket per Unity client (ForgeNet): the EventBus publishes CAD/... events to it, and the agent
+        # session reads it (hello, agent.*, stt.*, tts.stop, binary mic audio; other types are ignored).
+        await websocket.accept()
+        try:
+            await app.state.bus.attach(websocket)
+            await agent_socket(websocket, accept=False)
+        finally:
+            app.state.bus.detach(websocket)
 
-    @app.websocket("/ws/agent")  # pet agent socket (own bus in agent/bus.py) until Person 5 unifies onto /ws
+    @app.websocket("/ws/agent")  # agent only (python -m agent, ws_smoke, older clients); same protocol as /ws
     async def ws_agent(websocket: WebSocket):
         await agent_socket(websocket)
 

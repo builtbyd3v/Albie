@@ -61,8 +61,11 @@ class Session:
         await Emitter(pet_id or self.pet_id)(ev.error(pet_id or self.pet_id, message))
 
 
-async def handle_socket(ws: WebSocket) -> None:
-    await ws.accept()
+async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
+    """Run the agent session on ws until it disconnects. accept=False: the caller already accepted it
+    (main.py's shared /ws, where the CAD EventBus also publishes to the same socket)."""
+    if accept:
+        await ws.accept()
     bus.add(ws)
     s = Session(ws=ws)
     log.info("ws connected (%d total)", bus.count)
