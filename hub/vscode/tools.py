@@ -19,6 +19,7 @@ then relaunch VS Code with the project open. Try it from hub/:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import urllib.error
@@ -68,6 +69,64 @@ def run_command(command: str, *args: Any) -> Any:
 def train() -> Any:
     """Type forgeBit.trainCommand into VS Code's "Bit" terminal, so the run shows on the streamed screen."""
     return call("POST", "/train", {})
+
+
+# For the agent module, same shape as cad/tools.py. Prefix "vscode" -> panel "screen-main" in the brain's PANELS.
+TOOLS: list[dict[str, Any]] = [
+    {"name": "vscode_get_context",
+     "description": "What the engineer is looking at in VS Code right now: file, cursor line, selected text, "
+                    "visible lines, error count. Call this first when they say 'this', 'here' or 'my code'.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "vscode_get_errors",
+     "description": "Errors and warnings VS Code shows, with file, line and message. Omit path for the whole "
+                    "workspace.",
+     "parameters": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "workspace-relative file, e.g. train.py"}}}},
+    {"name": "vscode_open_file",
+     "description": "Open a file at a line in VS Code, centered. The engineer sees it on the main screen.",
+     "parameters": {"type": "object", "properties": {
+         "path": {"type": "string"}, "line": {"type": "integer", "minimum": 1}},
+         "required": ["path"]}},
+    {"name": "vscode_highlight",
+     "description": "Point at code: lines glow for a few seconds with an optional short note at the end, e.g. "
+                    "'lr is 10x too high'. Use it whenever you talk about specific lines.",
+     "parameters": {"type": "object", "properties": {
+         "path": {"type": "string"}, "start": {"type": "integer", "minimum": 1},
+         "end": {"type": "integer", "minimum": 1}, "note": {"type": "string", "maxLength": 60}},
+         "required": ["path", "start"]}},
+    {"name": "vscode_run_command",
+     "description": "Run a VS Code command. Only these work: workbench.action.togglePanel, "
+                    "workbench.action.files.save, editor.action.formatDocument, workbench.actions.view.problems, "
+                    "workbench.action.terminal.toggleTerminal, workbench.action.zoomIn, workbench.action.zoomOut, "
+                    "workbench.action.zoomReset.",
+     "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+    {"name": "vscode_train",
+     "description": "Start the training script in VS Code's 'Bit' terminal, so the run shows on the main screen. "
+                    "If it crashes, you'll get a vscode.event with the exit code.",
+     "parameters": {"type": "object", "properties": {}}},
+]
+
+_HANDLERS = {
+    "vscode_get_context": lambda a: get_context(),
+    "vscode_get_errors": lambda a: {"errors": get_errors(a.get("path"))},
+    "vscode_open_file": lambda a: open_file(a["path"], a.get("line", 1)),
+    "vscode_highlight": lambda a: highlight(a["path"], a["start"], a.get("end"), a.get("note")),
+    "vscode_run_command": lambda a: run_command(a["command"]),
+    "vscode_train": lambda a: train(),
+}
+
+
+async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Run one tool off the event loop. Errors come back as {"error": ...} so the model can recover and explain."""
+    handler = _HANDLERS.get(name)
+    if handler is None:
+        return {"error": f"Unknown tool {name!r}"}
+    try:
+        return await asyncio.to_thread(handler, args)
+    except urllib.error.URLError as e:
+        return {"error": f"VS Code isn't reachable (is the Forge Bit extension running?): {e.reason}"}
+    except (RuntimeError, KeyError) as e:
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
