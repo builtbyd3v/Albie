@@ -35,6 +35,11 @@ namespace Forge.Pet
 
         bool OnDesk => CurrentSurface != null && CurrentSurface.IsBuilt && CurrentSurface == GatorNavSurface.Desk;
 
+        /// <summary>Mid-air between surfaces (HopTo / HopToUserDesk / HopToFloor).</summary>
+        public bool IsHopping => hopping;
+        /// <summary>Standing on the registered desk surface (GatorNavSurface.Desk), not mid-hop.</summary>
+        public bool OnDeskSurface => OnDesk && !hopping;
+
         // ---------------------------------------------------------------- public API
 
         /// <summary>Wander inside surface (uniform XZ samples). Null = radius around the user/wanderCenter.</summary>
