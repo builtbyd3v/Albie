@@ -1,7 +1,14 @@
 """Bit's Slack connection: Bolt AsyncApp over Socket Mode, running inside the hub's event loop.
 
-Inbound `message` / `app_mention` events become SlackMessage -> MessageStore + notify.message on the EventBus.
-`send` posts with chat.postMessage (in-thread when thread_ts is given) and emits notify.sent.
+Two identities (PROJECT_CONTEXT 8.7):
+- the app's bot token keeps the socket and is the fallback identity;
+- the USER's token (SLACK_USER_TOKEN) is how Bit reads the user's inbox (names of DMs it can't see as a bot)
+  and posts replies under the user's own name. Without it Bit falls back to the bot: it only sees channels it
+  was invited to and posts as "Bit", with one warning.
+
+Inbound `message` / `app_mention` events (bot and user subscriptions, deduped) -> SlackMessage -> MessageStore +
+notify.message on the EventBus. Sending is two steps: `create_draft` emits notify.draft and nothing leaves;
+`send_draft` (the card's Send button or the messages_confirm tool) posts it and emits notify.sent.
 `digest` is the sit-down summary: notify.digest, pet.say and the spoken greeting through `voice_speak`.
 
 Without tokens the service stays disabled (one warning) and the hub boots as usual. Connection trouble is
@@ -12,11 +19,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from events import EventBus, NotifyDigest, NotifySent, SlackMessage
+from events import Draft, EventBus, NotifyDigest, NotifyDraftCancelled, NotifySent, SlackMessage
 
 from .settings import SlackSettings
 from .store import MessageStore
@@ -26,6 +34,11 @@ log = logging.getLogger("forge.messaging")
 VoiceSpeak = Callable[[str, str], Awaitable[bool]]
 ACCEPTED_SUBTYPES: tuple[str | None, ...] = (None, "thread_broadcast", "file_share")
 RECONNECT_S = (2, 5, 10, 30)
+DRAFT_EXPIRY_S = 120.0
+
+
+class DraftError(LookupError):
+    """No open draft with that id (never existed, already sent, cancelled or expired)."""
 
 
 class SlackService:
@@ -37,13 +50,25 @@ class SlackService:
         self.enabled = settings.configured
         self.connected = False
         self.bot_user_id: str | None = None
-        self._client: Any = None            # slack_sdk.web.async_client.AsyncWebClient (or a test stub)
-        self._handler: Any = None           # AsyncSocketModeHandler
+        self.user_id: str = settings.user_id        # the human; derived from the user token when we have one
+        self.user_name: str | None = None
+        self._client: Any = None                    # bot AsyncWebClient (or a test stub)
+        self._user_client: Any = None               # user AsyncWebClient when SLACK_USER_TOKEN is set
+        self._handler: Any = None                   # AsyncSocketModeHandler
         self._task: asyncio.Task[None] | None = None
         self._user_names: dict[str, str] = {}
-        self._channel_names: dict[str, str] = {}
-        self._channel_ids: dict[str, str] = {}   # "#name" -> id
+        self._channels: dict[str, tuple[str, bool]] = {}   # id -> (name, is_dm)
+        self._channel_ids: dict[str, str] = {}             # "name" -> id
         self._recent: deque[tuple[str, str]] = deque(maxlen=200)  # (channel, ts) already recorded
+        self._warned_as_bot = False
+        # drafts: exactly one open at a time
+        self.open_draft: Draft | None = None
+        self.draft_expiry_s = DRAFT_EXPIRY_S
+        self._expiry: asyncio.Task[None] | None = None
+
+    @property
+    def as_user(self) -> bool:
+        return self._user_client is not None
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -63,9 +88,12 @@ class SlackService:
         web_client = AsyncWebClient(token=self.settings.bot_token, ssl=ssl_ctx)
         app = AsyncApp(client=web_client)
         self._client = web_client
-        subtypes = list(ACCEPTED_SUBTYPES)
+        if self.settings.user_token:
+            self._user_client = AsyncWebClient(token=self.settings.user_token, ssl=ssl_ctx)
+        else:
+            log.warning("No SLACK_USER_TOKEN: Bit reads only channels it was invited to and posts as Bit, not as you")
 
-        @app.event({"type": "message", "subtype": subtypes})
+        @app.event("message")  # bot and user subscriptions both land here; accepts() filters subtypes and senders
         async def _message(event: dict[str, Any]) -> None:
             await self.on_event(event)
 
@@ -84,9 +112,13 @@ class SlackService:
                     auth = await self._client.auth_test()
                     self.bot_user_id = auth["user_id"]
                     log.info("Slack bot %s (%s) in team %s", auth.get("user"), self.bot_user_id, auth.get("team"))
+                if self._user_client is not None and self.user_name is None:
+                    me = await self._user_client.auth_test()
+                    self.user_id, self.user_name = me["user_id"], me.get("user") or me["user_id"]
+                    log.info("Slack user token: acting as %s (%s)", self.user_name, self.user_id)
                 await self._handler.connect_async()
                 self.connected = True
-                log.info("Slack Socket Mode connected")
+                log.info("Slack Socket Mode connected (posting as %s)", "you" if self.as_user else "Bit")
                 return
             except asyncio.CancelledError:
                 raise
@@ -97,20 +129,28 @@ class SlackService:
                 await asyncio.sleep(delay)
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+        for task in (self._task, self._expiry):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._task = self._expiry = None
         if self._handler is not None and self.connected:
             with contextlib.suppress(Exception):
                 await self._handler.close_async()
         self.connected = False
 
     def health(self) -> dict[str, Any]:
-        return {"enabled": self.enabled, "connected": self.connected, "bot_user_id": self.bot_user_id}
+        return {"enabled": self.enabled, "connected": self.connected, "as_user": self.as_user,
+                "bot_user_id": self.bot_user_id, "user_id": self.user_id or None,
+                "open_draft": self.open_draft.draft_id if self.open_draft else None}
 
     # ------------------------------------------------------------------ inbound
+    @property
+    def _reader(self) -> Any:
+        """Client for lookups: the user's view when we have it (it can see their DMs), else the bot's."""
+        return self._user_client if self._user_client is not None else self._client
+
     def accepts(self, event: dict[str, Any]) -> bool:
         if event.get("subtype") not in ACCEPTED_SUBTYPES:
             return False
@@ -118,9 +158,11 @@ class SlackService:
             return False
         if self.bot_user_id and event["user"] == self.bot_user_id:
             return False
+        if self.user_id and event["user"] == self.user_id:
+            return False  # the user's own messages are not their inbox
         key = (event.get("channel", ""), event.get("ts", ""))
         if key in self._recent:
-            return False  # app_mention and message arrive for the same post
+            return False  # bot + user subscriptions, or app_mention + message, deliver the same post twice
         return True
 
     async def on_event(self, event: dict[str, Any]) -> SlackMessage | None:
@@ -129,26 +171,29 @@ class SlackService:
             return None
         self._recent.append((event.get("channel", ""), event.get("ts", "")))
         channel = event["channel"]
+        name, is_dm = await self.channel_info(channel)
+        text = event["text"]
         msg = SlackMessage(
             channel=channel,
-            channel_name=await self.channel_name(channel),
+            channel_name=name,
+            is_dm=is_dm,
             user=event["user"],
-            user_name=await self.user_name(event["user"]),
-            text=event["text"],
+            user_name=await self.user_display_name(event["user"]),
+            text=text,
             ts=event["ts"],
             thread_ts=event.get("thread_ts"),
-            mentions_me=bool(self.settings.user_id) and f"<@{self.settings.user_id}>" in event["text"],
+            mentions_me=is_dm or (bool(self.user_id) and f"<@{self.user_id}>" in text),
         )
         self.store.add(msg)
         await self.bus.publish("notify.message", msg)
         log.info("slack #%s %s: %.80s", msg.channel_name, msg.user_name, msg.text)
         return msg
 
-    async def user_name(self, user_id: str) -> str:
+    async def user_display_name(self, user_id: str) -> str:
         if user_id not in self._user_names:
             name = user_id
             try:
-                info = (await self._client.users_info(user=user_id))["user"]
+                info = (await self._reader.users_info(user=user_id))["user"]
                 profile = info.get("profile") or {}
                 name = profile.get("display_name") or info.get("real_name") or info.get("name") or user_id
             except Exception as e:  # noqa: BLE001
@@ -156,18 +201,27 @@ class SlackService:
             self._user_names[user_id] = name
         return self._user_names[user_id]
 
-    async def channel_name(self, channel_id: str) -> str:
-        if channel_id not in self._channel_names:
-            name = channel_id
+    async def channel_info(self, channel_id: str) -> tuple[str, bool]:
+        """(channel_name, is_dm). DMs are named "dm", group DMs "group-dm"."""
+        if channel_id not in self._channels:
+            name, is_dm = channel_id, False
             try:
-                info = (await self._client.conversations_info(channel=channel_id))["channel"]
-                name = "dm" if info.get("is_im") else info.get("name") or channel_id
+                info = (await self._reader.conversations_info(channel=channel_id))["channel"]
+                if info.get("is_im"):
+                    name, is_dm = "dm", True
+                elif info.get("is_mpim"):
+                    name, is_dm = "group-dm", True
+                else:
+                    name = info.get("name") or channel_id
             except Exception as e:  # noqa: BLE001
                 log.warning("conversations.info %s failed: %s", channel_id, e)
-            self._channel_names[channel_id] = name
-        return self._channel_names[channel_id]
+            self._channels[channel_id] = (name, is_dm)
+        return self._channels[channel_id]
 
-    # ------------------------------------------------------------------ outbound
+    async def channel_name(self, channel_id: str) -> str:
+        return (await self.channel_info(channel_id))[0]
+
+    # ------------------------------------------------------------------ channels
     async def resolve_channel(self, channel: str | None) -> str:
         """Channel id, or '#name' / 'name' looked up once via conversations.list; empty -> SLACK_DEFAULT_CHANNEL."""
         value = (channel or self.settings.default_channel or "").strip()
@@ -179,27 +233,91 @@ class SlackService:
         if name not in self._channel_ids:
             cursor = None
             while True:
-                page = await self._client.conversations_list(types="public_channel,private_channel", limit=200,
+                page = await self._reader.conversations_list(types="public_channel,private_channel", limit=200,
                                                              cursor=cursor, exclude_archived=True)
                 for ch in page.get("channels", []):
                     self._channel_ids[ch["name"].lower()] = ch["id"]
-                    self._channel_names.setdefault(ch["id"], ch["name"])
+                    self._channels.setdefault(ch["id"], (ch["name"], False))
                 cursor = (page.get("response_metadata") or {}).get("next_cursor") or None
                 if not cursor:
                     break
         if name not in self._channel_ids:
-            raise LookupError(f"No Slack channel named #{name} (is Bit invited to it?)")
+            who = "you are" if self.as_user else "Bit is"
+            raise LookupError(f"No Slack channel named #{name} (is it one {who} in?)")
         return self._channel_ids[name]
 
-    async def send(self, channel: str | None, text: str, thread_ts: str | None = None) -> str:
+    # ------------------------------------------------------------------ drafts (the only way out)
+    async def create_draft(self, text: str, channel: str | None = None, thread_ts: str | None = None,
+                           reply_to_ts: str | None = None) -> Draft:
+        """Write a reply and show it (notify.draft). Nothing is posted until send_draft. Replaces any open draft."""
         if not self.enabled:
             raise RuntimeError("Slack is not configured on this hub")
+        text = text.strip()
+        if not text:
+            raise ValueError("text is empty")
+        reply_to = self._find(reply_to_ts or thread_ts)
+        if reply_to is not None and channel is None:
+            channel = reply_to.channel
+        if thread_ts is None and reply_to is not None:
+            thread_ts = reply_to.thread_ts or reply_to.ts
         channel_id = await self.resolve_channel(channel)
-        res = await self._client.chat_postMessage(channel=channel_id, text=text, thread_ts=thread_ts)
+        await self._clear_draft("superseded")
+        draft = Draft(draft_id=uuid.uuid4().hex[:8], channel=channel_id, channel_name=await self.channel_name(channel_id),
+                      text=text, thread_ts=thread_ts, reply_to=reply_to)
+        self.open_draft = draft
+        self._expiry = asyncio.create_task(self._expire(draft.draft_id), name=f"draft-expiry-{draft.draft_id}")
+        await self.bus.publish("notify.draft", draft)
+        log.info("draft %s -> #%s: %.80s", draft.draft_id, draft.channel_name, draft.text)
+        return draft
+
+    async def send_draft(self, draft_id: str | None = None) -> tuple[Draft, str]:
+        """Post the open draft (the Send button / "yes, send it"). Returns (draft, ts) and emits notify.sent."""
+        draft = self._take(draft_id)
+        if self._user_client is None and not self._warned_as_bot:
+            self._warned_as_bot = True
+            log.warning("posting as Bit (no SLACK_USER_TOKEN)")
+        res = await (self._user_client or self._client).chat_postMessage(channel=draft.channel, text=draft.text,
+                                                                           thread_ts=draft.thread_ts)
         ts = res["ts"]
-        await self.bus.publish("notify.sent", NotifySent(channel=channel_id, channel_name=await self.channel_name(channel_id),
-                                                         text=text, ts=ts))
-        return ts
+        await self.bus.publish("notify.sent", NotifySent(draft_id=draft.draft_id, channel=draft.channel,
+                                                         channel_name=draft.channel_name, text=draft.text, ts=ts))
+        log.info("sent draft %s as %s, ts=%s", draft.draft_id, "you" if self.as_user else "Bit", ts)
+        return draft, ts
+
+    async def cancel_draft(self, draft_id: str | None = None) -> Draft:
+        draft = self._take(draft_id)
+        await self.bus.publish("notify.draft_cancelled", NotifyDraftCancelled(draft_id=draft.draft_id, reason="cancelled"))
+        return draft
+
+    def _take(self, draft_id: str | None) -> Draft:
+        """Pop the open draft if `draft_id` matches it (None = whichever is open); stops the expiry timer."""
+        draft = self.open_draft
+        if draft is None or (draft_id and draft_id != draft.draft_id):
+            raise DraftError(f"No open draft{f' {draft_id}' if draft_id else ''} (sent, cancelled or expired?)")
+        self.open_draft = None
+        if self._expiry is not None:
+            self._expiry.cancel()
+            self._expiry = None
+        return draft
+
+    async def _clear_draft(self, reason: str) -> None:
+        if self.open_draft is None:
+            return
+        draft = self._take(None)
+        await self.bus.publish("notify.draft_cancelled", NotifyDraftCancelled(draft_id=draft.draft_id, reason=reason))
+
+    async def _expire(self, draft_id: str) -> None:
+        await asyncio.sleep(self.draft_expiry_s)
+        if self.open_draft is not None and self.open_draft.draft_id == draft_id:
+            self._expiry = None  # we are that task; don't cancel ourselves in _take
+            draft = self._take(draft_id)
+            await self.bus.publish("notify.draft_cancelled", NotifyDraftCancelled(draft_id=draft.draft_id, reason="expired"))
+            log.info("draft %s expired unsent", draft_id)
+
+    def _find(self, ts: str | None) -> SlackMessage | None:
+        if not ts:
+            return None
+        return next((m for m in self.store.latest(len(self.store)) if m.ts == ts), None)
 
     # ------------------------------------------------------------------ digest
     async def digest(self, pet_id: str = "bit") -> NotifyDigest:

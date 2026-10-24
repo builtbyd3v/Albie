@@ -1,12 +1,16 @@
-"""REST for messaging (PROJECT_CONTEXT section 7): /messages/latest, /messages/send, /messages/digest."""
+"""REST for messaging (PROJECT_CONTEXT section 7): /messages/latest, /messages/drafts[/{id}/send|cancel], /messages/digest.
+
+There is no direct send endpoint. A draft is created (nothing posted), Unity shows it as a Send / Cancel card,
+and only /drafts/{id}/send posts it, under the user's own name.
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from events import NotifyDigest, SlackMessage
+from events import Draft, NotifyDigest, SlackMessage
 
-from .slack_client import SlackService
+from .slack_client import DraftError, SlackService
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -22,14 +26,19 @@ def enabled(request: Request) -> SlackService:
     return svc
 
 
-class SendRequest(BaseModel):
-    channel: str | None = None   # id or #name; omitted -> SLACK_DEFAULT_CHANNEL
+class DraftRequest(BaseModel):
+    channel: str | None = None     # id or #name; omitted -> the replied-to message's channel, else SLACK_DEFAULT_CHANNEL
     text: str
-    thread_ts: str | None = None
+    thread_ts: str | None = None   # reply in this thread
+    reply_to_ts: str | None = None  # the message being answered (attaches reply_to, implies its channel + thread)
 
 
-class SendReply(BaseModel):
+class SentReply(BaseModel):
     ts: str
+
+
+class OkReply(BaseModel):
+    ok: bool = True
 
 
 class DigestRequest(BaseModel):
@@ -41,16 +50,38 @@ async def latest(n: int = Query(5, ge=1, le=50), svc: SlackService = Depends(ena
     return svc.store.latest(n)
 
 
-@router.post("/send", response_model=SendReply)
-async def send(req: SendRequest, svc: SlackService = Depends(enabled)) -> SendReply:
+@router.post("/drafts", response_model=Draft)
+async def create_draft(req: DraftRequest, svc: SlackService = Depends(enabled)) -> Draft:
+    """Write the reply and emit notify.draft. Posts nothing."""
     if not req.text.strip():
         raise HTTPException(422, "text is empty")
     try:
-        return SendReply(ts=await svc.send(req.channel, req.text, req.thread_ts))
+        return await svc.create_draft(req.text, req.channel, req.thread_ts, req.reply_to_ts)
     except LookupError as e:
         raise HTTPException(404, str(e)) from None
     except Exception as e:  # noqa: BLE001 - Slack API errors come back as a readable 502
+        raise HTTPException(502, f"Slack error: {e}") from None
+
+
+@router.post("/drafts/{draft_id}/send", response_model=SentReply)
+async def send_draft(draft_id: str, svc: SlackService = Depends(enabled)) -> SentReply:
+    """The card's Send button: post the draft under the user's name, emit notify.sent."""
+    try:
+        _, ts = await svc.send_draft(draft_id)
+        return SentReply(ts=ts)
+    except DraftError as e:
+        raise HTTPException(404, str(e)) from None
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Slack refused the message: {e}") from None
+
+
+@router.post("/drafts/{draft_id}/cancel", response_model=OkReply)
+async def cancel_draft(draft_id: str, svc: SlackService = Depends(enabled)) -> OkReply:
+    try:
+        await svc.cancel_draft(draft_id)
+    except DraftError as e:
+        raise HTTPException(404, str(e)) from None
+    return OkReply()
 
 
 @router.post("/digest", response_model=NotifyDigest)
