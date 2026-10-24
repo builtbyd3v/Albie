@@ -273,7 +273,7 @@ public static class ForgePrefabBuilder
         bar.sizeDelta = new Vector2(0f, ForgeTheme.PanelHeader);
 
         var title = bar.Find("Title").GetComponent<TMP_Text>();
-        StyleText(title, 16f, ForgeTheme.PanelText, FontStyles.Bold, TextAlignmentOptions.Left);
+        StyleText(title, 17f, ForgeTheme.PanelText, FontStyles.Bold, TextAlignmentOptions.Left);
         PlaceInHeader(title.rectTransform, 20f, ForgeTheme.PanelHeader * 0.5f, 22f);
 
         var subtitleTransform = bar.Find("Subtitle");
@@ -290,7 +290,7 @@ public static class ForgePrefabBuilder
             var badgeRect = (RectTransform)new GameObject("Badge", typeof(RectTransform)).transform;
             badgeRect.SetParent(bar, false);
             badge = badgeRect.gameObject.AddComponent<ForgeSurface>();
-            badgeLabel = NewText("Label", badgeRect, "", 9f, TextAlignmentOptions.Center);
+            badgeLabel = NewText("Label", badgeRect, "", 11.5f, TextAlignmentOptions.Center);
             Stretch(badgeLabel.rectTransform, 0f, 0f, 0f, 0f);
         }
         else
@@ -301,15 +301,15 @@ public static class ForgePrefabBuilder
         var badgeRt = (RectTransform)badge.transform;
         badgeRt.anchorMin = badgeRt.anchorMax = new Vector2(0f, 1f);
         badgeRt.pivot = new Vector2(0.5f, 0.5f);
-        badgeRt.sizeDelta = new Vector2(34f, 34f);
-        badgeRt.anchoredPosition = new Vector2(20f + 17f, -ForgeTheme.PanelHeader * 0.5f);
+        badgeRt.sizeDelta = new Vector2(40f, 40f);
+        badgeRt.anchoredPosition = new Vector2(20f + 20f, -ForgeTheme.PanelHeader * 0.5f);
         badge.Style = ForgeSurface.Kind.Fill;
-        badge.Corner = 10f;
-        badge.Outline = 0.35f;
-        badge.color = ForgeTheme.Tint(Color.white, 0.16f);
+        badge.Corner = 12f;
+        badge.Outline = 0.4f;
+        badge.color = ForgeTheme.Tint(Color.white, 0.2f);
         badge.raycastTarget = false;
-        StyleText(badgeLabel, 9f, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
-        badgeLabel.characterSpacing = 4f;
+        StyleText(badgeLabel, 11.5f, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
+        badgeLabel.characterSpacing = 3f;
         badge.gameObject.SetActive(false);
 
         var content = (RectTransform)rt.Find("Content");
