@@ -286,7 +286,7 @@ notify.draft_cancelled { draft_id, reason: "cancelled"|"superseded"|"expired" }
 notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest first, at most 4; `line` is the spoken sentence, empty when count is 0)
 ```
 
-Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`.
+Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`, `messages-mentions`.
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 
