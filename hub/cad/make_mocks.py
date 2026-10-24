@@ -3,7 +3,8 @@
     python -m cad.make_mocks [out_dir]     (from hub/; default hub/.data/mocks/cad)
 
 parts.json is GET /cad/parts. Per state <part>/vN/: model.glb, metadata.json, analysis.json, params.json
-(GET /cad/params), model_updated.json (the /ws message) and, for the rocket, flight.json (GET /cad/flight).
+(GET /cad/params), model_updated.json (the /ws message), drawing.png (GET /cad/drawing.png; changed parts in
+orange) and, for the rocket, flight.json (GET /cad/flight).
 Version numbers run on across designs, as on the hub. Plus regen_failed.json.
 Copy the folder to Assets/_Forge/Mocks/cad/ (see the CAD README).
 """
@@ -66,6 +67,11 @@ def main(out: Path) -> None:
             if previous:
                 changed = [i for i, f in result["fingerprints"].items() if previous.get(i) != f]
                 removed = [i for i in previous if i not in result["fingerprints"]]
+            drawing = run_job({"op": "drawing", "script": script, "params": params, "out_dir": str(vdir),
+                               "version": version, "highlight": changed})
+            if not drawing["ok"]:
+                raise SystemExit(f"{part} {name} drawing: {drawing['error']}")
+            (vdir / "drawing.svg").unlink()  # Unity shows the PNG
             event = CadModelUpdated(version=version, part=part, title=result["title"], params=result["params"],
                                     previous_version=version - 1 if previous else None, changed_ids=changed,
                                     removed_ids=removed, source="mock", analysis=result["analysis"])
