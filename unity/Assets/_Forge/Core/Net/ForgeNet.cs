@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -20,6 +21,8 @@ public enum ForgeNetStatus { Connecting, Live, Mock }
 /// <list type="bullet">
 /// <item>Events: <see cref="ForgeEvents"/> (one static event per type) or <see cref="On"/> for any type. Raised on the main thread.</item>
 /// <item>REST: <see cref="Get"/>, <see cref="GetBytes"/>, <see cref="Post"/>, or <see cref="Url"/> to hand a URL to a loader (glTFast).</item>
+/// <item>Sending on the socket: <see cref="Send"/> (JSON event) and <see cref="SendBinary"/> (raw bytes, e.g. mic audio);
+/// binary frames from the hub arrive as <see cref="BinaryReceived"/>, in order with the events around them.</item>
 /// <item>Mocks: in <see cref="ForgeNetMode.Auto"/> it falls back to mock mode when no hub answers. Then REST reads
 /// <c>Resources/Mocks/&lt;path&gt;</c> (or a <see cref="MockRest"/> handler) and <see cref="ForgeMockPlayer"/> plays events.</item>
 /// </list>
@@ -41,7 +44,12 @@ public class ForgeNet : MonoBehaviour
 
     static ForgeNet instance;
 
-    readonly ConcurrentQueue<string> inbox = new ConcurrentQueue<string>();
+    // Socket frames in arrival order: text (JSON event) or binary (pooled buffer, returned after dispatch).
+    struct Frame { public bool binary; public string text; public byte[] data; public int length; }
+
+    readonly ConcurrentQueue<Frame> inbox = new ConcurrentQueue<Frame>();
+    readonly ConcurrentQueue<Frame> outbox = new ConcurrentQueue<Frame>();
+    readonly SemaphoreSlim outboxSignal = new SemaphoreSlim(0);
     readonly Dictionary<string, List<Action<JToken>>> handlers = new Dictionary<string, List<Action<JToken>>>();
     readonly Dictionary<string, JToken> last = new Dictionary<string, JToken>();
     readonly Dictionary<string, Func<string, string>> mockRest = new Dictionary<string, Func<string, string>>();
@@ -66,6 +74,9 @@ public class ForgeNet : MonoBehaviour
     public static ForgeNetStatus Status { get; private set; } = ForgeNetStatus.Connecting;
     public static bool IsMock => Status == ForgeNetStatus.Mock;
     public static event Action<ForgeNetStatus> StatusChanged;
+    /// <summary>Binary frame from the hub, on the main thread. The buffer is reused after the call: copy what you need.
+    /// Valid bytes are [0, length).</summary>
+    public static event Action<byte[], int> BinaryReceived;
 
     // ---- Events ---------------------------------------------------------------------------------------------
 
@@ -93,6 +104,26 @@ public class ForgeNet : MonoBehaviour
         payload = default;
         if (instance == null || !instance.last.TryGetValue(type, out var token)) return false;
         payload = token.ToObject<T>();
+        return true;
+    }
+
+    /// <summary>Send a JSON event <c>{"type", "payload"}</c> to the hub over <c>/ws</c>. Dropped (returns false) unless Live.</summary>
+    public static bool Send(string type, object payload)
+    {
+        if (Status != ForgeNetStatus.Live || string.IsNullOrEmpty(type)) return false;
+        var message = new JObject { ["type"] = type, ["payload"] = payload as JToken ?? (payload == null ? new JObject() : JToken.FromObject(payload)) };
+        byte[] bytes = Encoding.UTF8.GetBytes(message.ToString(Formatting.None));
+        Instance.Enqueue(new Frame { data = bytes, length = bytes.Length });
+        return true;
+    }
+
+    /// <summary>Send raw bytes as one binary frame (copied, so the caller may reuse the buffer). Dropped unless Live.</summary>
+    public static bool SendBinary(byte[] data, int offset, int count)
+    {
+        if (Status != ForgeNetStatus.Live || data == null || count <= 0) return false;
+        byte[] copy = ArrayPool<byte>.Shared.Rent(count);
+        Buffer.BlockCopy(data, offset, copy, 0, count);
+        Instance.Enqueue(new Frame { binary = true, data = copy, length = count });
         return true;
     }
 
@@ -170,8 +201,16 @@ public class ForgeNet : MonoBehaviour
     {
         UpdateStatus();
         // Drain a bounded number per frame so a burst can't stall a frame.
-        for (int i = 0; i < 64 && inbox.TryDequeue(out string message); i++)
+        for (int i = 0; i < 64 && inbox.TryDequeue(out Frame frame); i++)
         {
+            if (frame.binary)
+            {
+                try { BinaryReceived?.Invoke(frame.data, frame.length); }
+                catch (Exception e) { Debug.LogException(e); }
+                finally { ArrayPool<byte>.Shared.Return(frame.data); }
+                continue;
+            }
+            string message = frame.text;
             JObject json;
             try { json = JObject.Parse(message); }
             catch (Exception e)
@@ -221,6 +260,35 @@ public class ForgeNet : MonoBehaviour
         catch (Exception e) { Debug.LogException(e); }
     }
 
+    void Enqueue(Frame frame)
+    {
+        outbox.Enqueue(frame);
+        outboxSignal.Release();
+    }
+
+    // Outgoing frames queued while disconnected are stale (old audio, old asks): drop them.
+    void DrainOutbox()
+    {
+        while (outbox.TryDequeue(out Frame frame))
+            if (frame.binary) ArrayPool<byte>.Shared.Return(frame.data);
+    }
+
+    // Writes queued frames while the socket is open (one sender at a time, as ClientWebSocket requires).
+    async Task SendLoop(ClientWebSocket socket, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested && socket.State == WebSocketState.Open)
+        {
+            await outboxSignal.WaitAsync(token);
+            if (!outbox.TryDequeue(out Frame frame)) continue;
+            try
+            {
+                await socket.SendAsync(new ArraySegment<byte>(frame.data, 0, frame.length),
+                    frame.binary ? WebSocketMessageType.Binary : WebSocketMessageType.Text, true, token);
+            }
+            finally { if (frame.binary) ArrayPool<byte>.Shared.Return(frame.data); }
+        }
+    }
+
     // Background task: connect, read messages into the inbox, reconnect every 2 s after a drop.
     async Task RunSocket(Uri uri, CancellationToken token)
     {
@@ -228,7 +296,9 @@ public class ForgeNet : MonoBehaviour
         while (!token.IsCancellationRequested)
         {
             using (var socket = new ClientWebSocket())
+            using (var sending = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
+                Task sender = null;
                 try
                 {
                     using (var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(token))
@@ -237,7 +307,9 @@ public class ForgeNet : MonoBehaviour
                         await socket.ConnectAsync(uri, connectTimeout.Token);
                     }
                     socketError = null;
+                    DrainOutbox();
                     socketOpen = true;
+                    sender = SendLoop(socket, sending.Token);
                     var message = new MemoryStream();
                     while (socket.State == WebSocketState.Open && !token.IsCancellationRequested)
                     {
@@ -250,12 +322,29 @@ public class ForgeNet : MonoBehaviour
                             message.Write(buffer, 0, result.Count);
                         } while (!result.EndOfMessage);
                         if (result.MessageType == WebSocketMessageType.Close) break;
-                        inbox.Enqueue(Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length));
+                        if (result.MessageType == WebSocketMessageType.Binary)
+                        {
+                            int length = (int)message.Length;
+                            byte[] data = ArrayPool<byte>.Shared.Rent(Math.Max(1, length));
+                            Buffer.BlockCopy(message.GetBuffer(), 0, data, 0, length);
+                            inbox.Enqueue(new Frame { binary = true, data = data, length = length });
+                        }
+                        else inbox.Enqueue(new Frame { text = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length) });
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { }
                 catch (Exception e) { socketError = e.InnerException?.Message ?? e.Message; }
-                finally { socketOpen = false; }
+                finally
+                {
+                    socketOpen = false;
+                    sending.Cancel();  // the sender must not outlive this socket
+                    if (sender != null)
+                    {
+                        try { await sender; }
+                        catch (Exception) { }  // cancelled, or the socket died mid-send
+                    }
+                    DrainOutbox();
+                }
             }
             try { await Task.Delay(2000, token); }
             catch (OperationCanceledException) { }
