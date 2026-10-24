@@ -158,10 +158,12 @@ public class DockRing : MonoBehaviour
     /// <summary>
     /// Drive one ring's shaders: the ring quad (and its light column when given and enabled), the pool and the label,
     /// from the smoothed near / hover / press / select / enable values (0..1) and the dock's fade. <paramref name="reveal"/>
-    /// (0..1, normally 1) hides the pool and label while a ring is still appearing.
+    /// (0..1, normally 1) hides the pool, label and icon while a ring is still appearing. With an <paramref name="icon"/>
+    /// (a mode's white svg filling the ring) the label is a hint that fades in only while hovered.
     /// </summary>
     public static void SetLook(MaterialPropertyBlock block, MeshRenderer ring, MeshRenderer column, MeshRenderer pool, MeshRenderer label,
-        Color hue, float radius, float near, float hover, float press, float select, float enable, float fade, float reveal = 1f)
+        Color hue, float radius, float near, float hover, float press, float select, float enable, float fade, float reveal = 1f,
+        SpriteRenderer icon = null)
     {
         float quad = 2f * (radius + GlowPad);
         block.Clear();
@@ -188,12 +190,15 @@ public class DockRing : MonoBehaviour
         pool.SetPropertyBlock(block);
 
         float alpha = Mathf.Lerp(0.7f + 0.3f * near, 1f, select) * Mathf.Lerp(0.25f, 1f, enable) * fade * reveal;
+        // Under an icon the label is a hint: it fades in only while a pointer is on the button.
+        float textAlpha = icon != null ? alpha * hover : alpha;
         Color halo = Color.Lerp(Color.white, hue, 0.6f);
         block.Clear();
-        block.SetColor(FaceColorId, new Color(1f, 1f, 1f, alpha));
-        block.SetColor(GlowColorId, new Color(1f, 1f, 1f, 0.55f * alpha));
-        block.SetColor(UnderlayColorId, new Color(halo.r, halo.g, halo.b, 0.32f * alpha));
+        block.SetColor(FaceColorId, new Color(1f, 1f, 1f, textAlpha));
+        block.SetColor(GlowColorId, new Color(1f, 1f, 1f, 0.55f * textAlpha));
+        block.SetColor(UnderlayColorId, new Color(halo.r, halo.g, halo.b, 0.32f * textAlpha));
         label.SetPropertyBlock(block);
+        if (icon != null) icon.color = new Color(1f, 1f, 1f, alpha);
     }
 
     /// <summary>The Interaction SDK pointers in the scene (found when something shows; the rig is picked by then).</summary>

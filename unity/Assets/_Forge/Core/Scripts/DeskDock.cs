@@ -29,6 +29,7 @@ public class DeskDock : MonoBehaviour
     public float inset = 0.09f;
 
     const float GlowPad = DockRing.GlowPad;  // room around each ring's quad for its glow (mm)
+    const float IconFill = 1.05f;  // icon size as a multiple of the ring's radius (about half the ring across)
 
     // One button: its input (fixed in place) and its light (animated).
     class Ring
@@ -43,6 +44,7 @@ public class DeskDock : MonoBehaviour
         public Transform lift, aim;
         public MeshRenderer ring, pool, column, label;
         public TextMeshPro text;
+        public SpriteRenderer icon;  // modes with a DockIcons svg; null otherwise
         public bool selected, enabled = true;
         public float near, hover, press, select, enable = 1f;
         public float liftFrom, liftTo, liftStart = -10f;
@@ -122,7 +124,9 @@ public class DeskDock : MonoBehaviour
         foreach (var mode in workspace.modes)
         {
             string id = mode.id;
-            AddRing($"Mode {id}", mode.label, true, mode.color, ForgeTheme.DockModeRing, ForgeTheme.DockModeLabel, ref x, () => workspace.Toggle(id)).modeId = id;
+            var r = AddRing($"Mode {id}", mode.label, true, mode.color, ForgeTheme.DockModeRing, ForgeTheme.DockModeLabel, ref x, () => workspace.Toggle(id));
+            r.modeId = id;
+            AddIcon(r, ForgeTheme.DockIcon(id), ForgeTheme.DockModeLabel);
         }
         dividerX = x + 0.6f;
         x += 1.2f + ForgeTheme.DockGap;
@@ -183,6 +187,22 @@ public class DeskDock : MonoBehaviour
         r.label = r.text.GetComponent<MeshRenderer>();
         rings.Add(r);
         return r;
+    }
+
+    // A mode with an icon: the white icon fills the ring and its label moves just below it.
+    void AddIcon(Ring r, Sprite sprite, float labelMm)
+    {
+        if (sprite == null) return;
+        var icon = new GameObject("Icon").AddComponent<SpriteRenderer>();
+        icon.gameObject.layer = gameObject.layer;
+        icon.transform.SetParent(r.aim, false);
+        icon.transform.localPosition = new Vector3(0f, 0f, -0.8f);
+        icon.transform.localScale = Vector3.one * (r.radius * IconFill / Mathf.Max(sprite.bounds.size.x, sprite.bounds.size.y));
+        icon.sprite = sprite;
+        icon.shadowCastingMode = ShadowCastingMode.Off;
+        icon.receiveShadows = false;
+        r.icon = icon;
+        r.text.transform.localPosition = new Vector3(0f, -(r.radius + 0.68f * labelMm), -0.8f);
     }
 
     Transform Child(string name, Transform parent)
@@ -394,7 +414,7 @@ public class DeskDock : MonoBehaviour
             r.column.transform.localScale = new Vector3(s.x, s.y, Mathf.Max(lift, 0.001f));
         }
 
-        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade, plop);
+        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade, plop, r.icon);
     }
 
     void StartLift(Ring r, bool up, float now)

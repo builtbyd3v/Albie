@@ -7,6 +7,7 @@ using UnityEngine;
 /// one ringed), then the versions newest first, 56 mm each: version chip (white when current), the request or label,
 /// "diffs · source · time ago", and the metric with its status dot ("CURRENT" under it). Tapping a version goes back to
 /// it (CadSession.GoToVersion: the stored version in mock mode; the hub rebuilds its values as a new version).
+/// Also the body of the left Versions panel (CadVersionsPanel), which passes its own go-back instead of an owner.
 /// </summary>
 public sealed class CadHistoryTab : CadPanelTab
 {
@@ -28,11 +29,13 @@ public sealed class CadHistoryTab : CadPanelTab
     readonly List<Row> rows = new List<Row>();
     readonly List<CadVersion> chrono = new List<CadVersion>();  // the sparkline's versions, oldest first
     readonly TextMeshProUGUI empty;
+    readonly System.Action<int> goTo;
     CadMetric bands;
     int current, shownRows;
 
-    public CadHistoryTab(RectTransform parent, CadParamsPanel owner) : base(parent, "History", owner)
+    public CadHistoryTab(RectTransform parent, CadParamsPanel owner, System.Action<int> goTo = null) : base(parent, "History", owner)
     {
+        this.goTo = goTo ?? owner.GoToVersion;
         var fill = CadUi.Surface(Root, "Spark", CadUi.White(0.04f), 14f, 0.06f);
         card = fill.rectTransform;
         sparkTitle = CadUi.Text(card, "Title", CadUi.Body, CadUi.White(0.72f));
@@ -82,7 +85,7 @@ public sealed class CadHistoryTab : CadPanelTab
     {
         var r = new Row();
         r.button = CadButton.Create(Root, "Version", CadButton.Row, 13f, null);
-        r.button.Button.onClick.AddListener(() => owner.GoToVersion(r.version));
+        r.button.Button.onClick.AddListener(() => goTo(r.version));
         r.chip = CadUi.Pill(r.button.transform, "Chip", CadUi.White(0.08f));
         CadUi.Place(r.chip.rectTransform, 10f, (RowH - 34f) * 0.5f, 34f, 34f);
         r.chipText = CadUi.Text(r.chip.transform, "Text", CadUi.Body, Color.white, bold: true, align: TextAlignmentOptions.Center);

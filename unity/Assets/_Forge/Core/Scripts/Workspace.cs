@@ -617,22 +617,10 @@ public class Workspace : MonoBehaviour
     // FarLeft), each at least at its nominal angle and far enough out not to overlap its neighbour.
     void LayOut(Vector3 eye)
     {
-        OpenItem main = Find(WorkspaceSlot.Main);
-        float mainY = 0f;
-        if (main != null) mainY = PlaceInRow(main, eye, 0f, -0.08f);
-        PlaceSide(eye, main, +1, WorkspaceSlot.Right, WorkspaceSlot.FarRight);
-        PlaceSide(eye, main, -1, WorkspaceSlot.Left, WorkspaceSlot.FarLeft);
-
+        // The desk first: the main panel stands behind what's in the middle of it (CAD's model), not through it.
         foreach (var o in openItems)
         {
-            if (o.item.slot == WorkspaceSlot.Above)
-            {
-                // Clear of the main panel's top edge.
-                float up = 0.36f;
-                if (main != null) up = Mathf.Max(up, mainY - eye.y + Size(main).y * 0.5f + panelGap + Size(o).y * 0.5f);
-                PlaceInRow(o, eye, 0f, up, layout == WorkspaceLayout.Curved ? 0.05f : 0f);
-            }
-            else if (IsDeskSlot(o.item.slot))
+            if (IsDeskSlot(o.item.slot))
             {
                 WorkspaceSlot slot = o.item.slot;
                 float x = Mathf.Min(0.3f, Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.12f));
@@ -647,6 +635,23 @@ public class Workspace : MonoBehaviour
             }
         }
 
+        OpenItem main = Find(WorkspaceSlot.Main);
+        float mainY = 0f;
+        if (main != null) mainY = PlaceInRow(main, eye, 0f, -0.08f, BehindDesk(eye));
+        PlaceSide(eye, main, +1, WorkspaceSlot.Right, WorkspaceSlot.FarRight);
+        PlaceSide(eye, main, -1, WorkspaceSlot.Left, WorkspaceSlot.FarLeft);
+
+        foreach (var o in openItems)
+        {
+            if (o.item.slot == WorkspaceSlot.Above)
+            {
+                // Clear of the main panel's top edge.
+                float up = 0.36f;
+                if (main != null) up = Mathf.Max(up, mainY - eye.y + Size(main).y * 0.5f + panelGap + Size(o).y * 0.5f);
+                PlaceInRow(o, eye, 0f, up, layout == WorkspaceLayout.Curved ? 0.05f : 0f);
+            }
+        }
+
         // Out of the room's walls (RoomFit): what fits keeps its place, and the rest come closer or toward the middle,
         // clear of those if they can.
         if (RoomFit.Begin(presence.Frame, eye))
@@ -658,6 +663,18 @@ public class Workspace : MonoBehaviour
                 if (Floats(o) && RoomFit.InWall(o.position, o.rotation, FitSize(o), o.panel == null))
                     RoomFit.Fit(ref o.position, ref o.rotation, FitSize(o), o.panel == null, layout == WorkspaceLayout.Curved);
         }
+    }
+
+    // How much further than panelRadius the main panel goes to stand behind the volume in the middle of the desk (its
+    // back plus a gap), along the row's depth: the distance from the eyes (curved) or straight ahead (flat).
+    float BehindDesk(Vector3 eye)
+    {
+        OpenItem desk = Find(WorkspaceSlot.DeskCenter);
+        if (desk == null || desk.volume == null) return 0f;
+        Vector3 d = desk.position - eye;
+        float along = layout == WorkspaceLayout.Curved ? new Vector2(d.x, d.z).magnitude : d.z;
+        float back = along + desk.volume.size.z * desk.go.transform.localScale.z * 0.5f + panelGap;
+        return Mathf.Max(0f, back - panelRadius);
     }
 
     // Panels and volumes in the air (not the ones standing on the desk).
@@ -682,6 +699,7 @@ public class Workspace : MonoBehaviour
             case "ml-datastack": return "The dataset, as a stack of photos";
             case "ml-model3d": return "The model's layers, as blocks";
             case "cad-timeline": return "Every version of the design, newest first.";
+            case "cad-drawing": return "The design's engineering drawing: views, dimensions, parts list.";
             case "messages": return "Slack messages land here, with replies Bit drafts for you.";
             case "screen-left":
             case "screen-right": return "Share a window from Screen Bridge to see it here.";
@@ -803,13 +821,13 @@ public class Workspace : MonoBehaviour
             id = "cad", label = "CAD", color = ForgeTheme.CAD,
             items =
             {
-                new WorkspaceItem("screen-main", "rocket.py", WorkspaceSlot.Main),
+                new WorkspaceItem("cad-drawing", "Drawing", WorkspaceSlot.Main),
                 new WorkspaceItem("cad-viewer", "Rocket", WorkspaceSlot.DeskCenter, WorkspaceItemKind.Volume),
                 new WorkspaceItem("cad-params", "Parameters", WorkspaceSlot.Right),
                 new WorkspaceItem("cad-timeline", "Versions", WorkspaceSlot.Left),
             },
         },
-        // The landing mode: just the editor. The pet opens it after the sit-down digest.
+        // The landing mode: just the editor. The pet opens it on START, after the arrival greeting.
         new WorkspaceMode
         {
             id = "code", label = "CODE", color = ForgeTheme.Code,
