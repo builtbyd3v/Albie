@@ -13,13 +13,16 @@ Both find or create one shared `CadSession`, so they work wherever they're spawn
 
 ## Where the data comes from: `CadSession`
 
-- **Auto** (default): pings `hubUrl` (`http://127.0.0.1:8000`) at start; hub up = live, hub down = mocks.
-- **Hub**: REST to the hub (`POST /cad/params` on slider release, undo, reset, view, flight). Changes made elsewhere
-  (Bit's voice tools, saving `rocket.py`) arrive by polling `GET /cad/latest` every 0.5 s. When `ForgeNet` lands,
-  replace `CadSession.Poll` with its `/ws` events (`cad.model_updated`, `cad.view`); the payloads are the same.
+- **Auto** (default): follows `ForgeNet` (Core/Net). Hub live = hub mode, no hub = mocks; if the hub appears later it
+  switches to the hub.
+- **Hub**: REST to the hub (`POST /cad/params` on slider release, undo, reset, view, flight). Every change, wherever it
+  came from (sliders, Bit's voice tools, saving `rocket.py`), arrives as ForgeNet's `/ws` events
+  (`cad.model_updated`, `cad.view`, `cad.regen_failed`). `GET /cad/latest` is only a fallback when the socket is down.
 - **Mock**: `Assets/_Forge/Mocks/cad/` (the demo's 4 designs). Sliders jump to the stored design that has the value
   you asked for; the arrows step through them.
-- On the Quest, 127.0.0.1 is the headset: put a `CadSession` in Main with `hubUrl` = the laptop's IP (or read it from ForgeNet).
+- Hub address: ForgeNet's `hubUrl` (on the Quest, the laptop's LAN IP). One setting for every module.
+- The CAD event payload classes (`CadModelUpdated`, `CadAnalysis`, `CadRegenFailed`, `CadView`) live in
+  `Core/Net/ForgeEvents.cs` with the other hub events; `Scripts/CadData.cs` keeps the REST shapes.
 
 ## What the viewer does
 
