@@ -39,12 +39,17 @@ namespace Forge.Pet
         float echoShare = 0.2f;
         [SerializeField, Tooltip("Seconds of speech before it counts; quiet gaps between syllables count down instead of resetting.")]
         float bargeSeconds = 0.3f;
+        // A one-word "Stop!" lasts ~0.3 s, too short for bargeSeconds at normal level, but it is loud (0.15-0.25).
+        [SerializeField, Tooltip("Mic RMS that counts as a short, loud word (\"Stop!\").")]
+        float loudLevel = 0.1f;
+        [SerializeField, Tooltip("Seconds above loudLevel that are enough on their own.")]
+        float loudSeconds = 0.15f;
 
         ITextToSpeech _tts;
         ITalkLevel _talk;
         HubSpeechToText _monitor;
         bool _following, _subscribed;
-        float _startAt = -1f, _loudFor;
+        float _startAt = -1f, _speechFor, _loudFor;
 
         void Awake()
         {
@@ -90,7 +95,7 @@ namespace Forge.Pet
             if (voiceBargeIn && !pushToTalk.SessionActive && pushToTalk.CanListenHandsFree && pushToTalk.Provider is HubSpeechToText hub)
             {
                 _monitor = hub;
-                _loudFor = 0f;
+                _speechFor = _loudFor = 0f;
                 hub.StartMonitoring();
             }
         }
@@ -118,9 +123,10 @@ namespace Forge.Pet
         void CheckBargeIn()
         {
             float echo = _talk != null ? _talk.Level * echoShare : 0f;
-            bool loud = _monitor.Level >= bargeLevel && _monitor.Level >= echo;
-            _loudFor = loud ? _loudFor + Time.deltaTime : Mathf.Max(0f, _loudFor - Time.deltaTime);
-            if (_loudFor < bargeSeconds) return;
+            float level = _monitor.Level, dt = Time.deltaTime;
+            _speechFor = level >= bargeLevel && level >= echo ? _speechFor + dt : Mathf.Max(0f, _speechFor - dt);
+            _loudFor = level >= loudLevel && level >= echo ? _loudFor + dt : Mathf.Max(0f, _loudFor - dt);
+            if (_speechFor < bargeSeconds && _loudFor < loudSeconds) return;
             var hub = _monitor;
             _monitor = null;
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
