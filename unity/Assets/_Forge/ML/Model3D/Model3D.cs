@@ -45,10 +45,12 @@ namespace Forge.ML
                 var material = blockMaterial != null ? new Material(blockMaterial) : new Material(Shader.Find("Universal Render Pipeline/Unlit"));
                 colors[i] = TypeColor(layer.type); material.SetColor("_BaseColor",colors[i]); materials[i] = material; go.GetComponent<Renderer>().sharedMaterial = material;
                 float y = 30+i*step;
-                MLUI.Text(root, string.Join("×",layer.in_shape), 190, y, 260, 17, 13);
-                MLUI.Text(root, layer.name+" · "+layer.type, 190, y+17, 260, 17, 12).color = colors[i];
-                MLUI.Text(root, string.Join("×",layer.out_shape), 190, y+34, 260, 19, 15);
-                var hit = MLUI.Rect("Layer hit " + i, root, 180, y, 280, 56).gameObject;
+                // One line per layer: a layer's input shape is the previous layer's output, so drawing both on rows
+                // `step` apart (about 30 with 16 layers) put each shape twice, 3 units apart: it read as doubled text.
+                // The input shape is still in the detail line on hover.
+                var label = MLUI.Text(root, $"{layer.name} · {layer.type}  <color=#FFFFFFB3>{string.Join("×",layer.out_shape)}</color>", 190, y, 260, 19, 13);
+                label.color = colors[i]; label.textWrappingMode = TMPro.TextWrappingModes.NoWrap; label.overflowMode = TMPro.TextOverflowModes.Truncate;
+                var hit = MLUI.Rect("Layer hit " + i, root, 180, y, 280, Mathf.Max(19, step)).gameObject;
                 var image = hit.AddComponent<Image>(); image.color = new Color(0, 0, 0, .001f);
                 var input = hit.AddComponent<MLModelLayerInput>(); input.owner = this; input.layerIndex = i;
             }
