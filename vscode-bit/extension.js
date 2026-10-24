@@ -7,6 +7,7 @@
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
 //   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /layout    { zoom? }              the headset layout: zoomed editor, Bit's terminal under it, no side bars or chat
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
@@ -122,12 +123,35 @@ async function run({ command, args = [] }) {
   return (await vscode.commands.executeCommand(command, ...args)) ?? null;
 }
 
+function bitTerminal() {
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  terminal.show(true);
+  return terminal;
+}
+
 function train() {
   const cmd = config().get("trainCommand");
   if (!cmd) throw new Error("set forgeBit.trainCommand first");
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
-  terminal.show(true);
-  terminal.sendText(cmd);
+  bitTerminal().sendText(cmd);
+}
+
+// screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
+// terminal is where training shows, so the side bar and Copilot chat only cost columns.
+// Zoom is per window (not saved to settings): level 1 = 120%, which reads well on the panel at 1 m.
+// There is no command to set the panel's height, so: editor to its tallest, then 2 steps back. In the
+// 1280x800 window that leaves about 20 lines of code over 8 lines of terminal.
+async function layout({ zoom = 1 }) {
+  const run = (id, times = 1) =>
+    Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
+  await run("workbench.action.closeSidebar");
+  await run("workbench.action.closeAuxiliaryBar");
+  await run("notifications.clearAll");
+  await run("workbench.action.zoomReset");
+  await run("workbench.action.zoomIn", zoom);
+  bitTerminal();
+  await run("workbench.action.focusActiveEditorGroup");
+  await run("workbench.action.increaseViewHeight", 40);
+  await run("workbench.action.decreaseViewHeight", 2);
 }
 
 // Highlighted while Bit acts, then back to idle after `ms`.
@@ -150,6 +174,7 @@ const routes = {
   "POST /highlight": (b) => highlight(b).then(() => (status(b.note ?? `looking at line ${b.start}`, b.ms), null)),
   "POST /run": (b) => run(b).then((result) => (status(`ran ${b.command.split(".").pop()}`), { result })),
   "POST /train": () => (train(), status("started training", 6000)),
+  "POST /layout": (b) => layout(b).then(() => null),
 };
 
 function readBody(req) {
