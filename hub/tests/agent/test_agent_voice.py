@@ -523,3 +523,33 @@ def test_interim_completed_transcripts_are_not_final() -> None:
         await s.close()
 
     asyncio.run(run())
+
+
+def test_turn_grok_ignores_ends_as_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Noise-only turn (captured from grok-voice-3.0): Grok commits, then sends nothing at all, not even with
+    response.create. Without a timeout the hub waits forever and Unity sits in Thinking, deaf."""
+    monkeypatch.setattr(voice_mod, "NO_REPLY_S", 0.05)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        await asyncio.sleep(0.2)
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+
+        # A turn Grok does answer is untouched by the timeout.
+        n = len(sink.log)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Okay.")
+        grok.push(type="response.created")
+        await asyncio.sleep(0.2)
+        assert [v.payload["text"] for k, v in sink.log[n:] if k == "emit" and v.type == "stt.final"] == ["Okay."]
+        await s.close()
+
+    asyncio.run(run())
