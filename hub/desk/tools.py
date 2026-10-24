@@ -14,22 +14,25 @@ from .timer import human
 
 TOOLS: list[dict[str, Any]] = [
     {"name": "timer_start",
-     "description": "Start the focus timer (one at a time: this replaces a running one). It shows as a pill above the "
-                    "screens and rings when time is up. Then say in a few words what you set.",
+     "description": "Start a focus timer. Up to 5 run at once, each with its own name; they show as pills above the "
+                    "screens and each rings when its time is up. Give it a name when the user says what it's for "
+                    "('tea', 'standup'). Then say in a few words what you set.",
      "parameters": {"type": "object", "properties": {
          "minutes": {"type": "number", "description": "length in minutes (0.5 = 30 seconds, 90 = an hour and a half)"},
-         "label": {"type": "string", "description": "what it's for, only if the user said (e.g. 'tea'); default Focus"}},
+         "label": {"type": "string", "description": "what it's for, if the user said (e.g. 'tea'); default Focus"}},
          "required": ["minutes"]}},
     {"name": "timer_control",
-     "description": "Change the focus timer. pause / resume; add: `minutes` more (negative takes time off; on a timer "
-                    "that already rang it runs again for that long); stop: cancels it AND turns off the ring, so use "
-                    "it for 'turn it off', 'stop the timer', 'I'm done'.",
+     "description": "Change a timer. pause / resume; add: `minutes` more (negative takes time off; on a timer that "
+                    "already rang it runs again for that long); stop: cancels it AND turns off its ring, so use it "
+                    "for 'turn it off', 'stop the timer', 'I'm done'. `timer` is its name (or 'all'); leave it out "
+                    "when there's only one it can mean (stop without one turns off whichever are ringing).",
      "parameters": {"type": "object", "properties": {
          "action": {"type": "string", "enum": ["pause", "resume", "add", "stop"]},
+         "timer": {"type": "string", "description": "which one: its name, or 'all' (optional)"},
          "minutes": {"type": "number", "description": "add only"}},
          "required": ["action"]}},
     {"name": "timer_status",
-     "description": "How much time is left on the focus timer, and whether it's running, paused or ringing.",
+     "description": "Every timer: its name, how much time is left, and whether it's running, paused or ringing.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "notes_add",
      "description": "Write something down in the user's notes, one note per call; the notes panel opens to show it. "
@@ -82,20 +85,29 @@ async def call_tool(name: str, args: dict[str, Any], desk: DeskService) -> dict[
     """Run one tool. Errors come back as {"error": ...} so the model can explain them."""
     try:
         if name == "timer_start":
-            return _timer(await desk.timer.start(_num(args, "minutes") * 60, str(args.get("label") or "")))
+            t = await desk.timers.start(_num(args, "minutes") * 60, str(args.get("label") or ""))
+            return {**_timer(t), "timers": len(desk.timers)}
         if name == "timer_control":
-            action = args.get("action")
+            action = str(args.get("action") or "")
+            if action not in ("pause", "resume", "add", "stop"):
+                return {"error": f"unknown timer action {action!r}"}
+            minutes = _num(args, "minutes") if action == "add" else 0.0
+            picked = desk.timers.pick(args.get("timer"), action)
+            if action == "stop" and len(picked) > 1:
+                for t in picked:
+                    await desk.timers.stop(t.timer_id)
+                return {"stopped": [t.label for t in picked], "timers": len(desk.timers)}
+            ref = picked[0].timer_id
             if action == "pause":
-                return _timer(await desk.timer.pause())
+                return _timer(await desk.timers.pause(ref))
             if action == "resume":
-                return _timer(await desk.timer.resume())
+                return _timer(await desk.timers.resume(ref))
             if action == "add":
-                return _timer(await desk.timer.add(_num(args, "minutes") * 60))
-            if action == "stop":
-                return {**_timer(await desk.timer.stop()), "stopped": True}
-            return {"error": f"unknown timer action {action!r}"}
+                return _timer(await desk.timers.add(ref, minutes * 60))
+            return {"stopped": [(await desk.timers.stop(ref)).label], "timers": len(desk.timers)}
         if name == "timer_status":
-            return _timer(desk.timer.state())
+            timers = desk.timers.states()
+            return {"timers": [_timer(t) for t in timers]} if timers else {"timers": [], "note": "no timer is set"}
 
         if name == "notes_add":
             note = await desk.add_note(str(args.get("text") or ""))
@@ -147,9 +159,7 @@ def _num(args: dict[str, Any], key: str) -> float:
 
 
 def _timer(s: TimerState) -> dict[str, Any]:
-    if s.status == "idle":
-        return {"status": "idle", "note": "no timer is set"}
-    return {"status": s.status, "label": s.label, "left": human(s.remaining_s), "remaining_s": s.remaining_s,
+    return {"name": s.label, "status": s.status, "left": human(s.remaining_s), "remaining_s": s.remaining_s,
             "length": human(s.duration_s)}
 
 

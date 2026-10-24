@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)), **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)) and the **desk** extras (timer, notes, movie; see [Desk](#desk-timer-notes-movie)). The ML router is still to come.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)), **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)) and the **desk** extras (timers, notes, movie; see [Desk](#desk-timers-notes-movie)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -287,34 +287,34 @@ caches, drafts, digest), `router.py`, `tools.py`. Inbox rules: your own messages
 ignored; a post delivered twice (bot + user subscription, or `app_mention` + `message`) is recorded once; a DM or
 group DM is `is_dm` and counts as a mention.
 
-## Desk (timer, notes, movie)
+## Desk (timers, notes, movie)
 
-Extras Bit adds on top of any mode: a **focus timer**, the user's **notes** and a **movie screen** above the desk. They
+Extras Bit adds on top of any mode: named **focus timers**, the user's **notes** and a **movie screen** above the desk. They
 don't belong to ML / CAD / SCR / MSG and stay open across mode switches. `ui.widgets` says which ones are showing;
 the hub owns all of it (`desk/service.py`), Unity's buttons and Bit's tools both go through it, so they raise the
-same events. Every desk event replays fresh to a client that connects later (`EventBus.sticky`): the timer's
+same events. Every desk event replays fresh to a client that connects later (`EventBus.sticky`): the timers'
 remaining time and the movie's position are computed at that moment, not copied from the last message.
 
 **Proposed contract additions** (PROJECT_CONTEXT section 7; models in `events.py`, mirror them in `ForgeEvents.cs`):
 
 | | |
 |---|---|
-| `GET /timer` | `TimerState {timer_id, label, status: idle\|running\|paused\|ringing, duration_s, remaining_s}` |
-| `POST /timer/start {minutes \| seconds, label?}` | one timer at a time; replaces a running one. Rings at the end until stopped |
-| `POST /timer/pause` · `/resume` · `/stop` · `/add {minutes}` | stop also turns off the ring; add on a rung timer runs it again; negative takes time off |
+| `GET /timers` | `TimersUpdated {timers: TimerState[]}`: ringing first, then by time left (the minimized dot shows the first). `TimerState {timer_id, label, status: running\|paused\|ringing, duration_s, remaining_s}` |
+| `POST /timers {minutes \| seconds, label?}` | a new timer (up to 5), named by `label` (default Focus; a repeat becomes "tea 2"). Rings at its end until stopped |
+| `POST /timers/{id}/pause` · `/resume` · `/stop` · `/add {minutes}` · `POST /timers/stop_all` | stop also turns off its ring and removes it; add on a rung timer runs it again; negative takes time off |
 | `GET /notes` | `NotesUpdated {notes: Note[] (newest first), last_removed?}`, `Note {id, text, done, created_at, updated_at}` |
-| `POST /notes {text}` · `PATCH /notes/{id} {text?, done?}` | add (opens the panel unless it's a dot) · edit or check off |
-| `DELETE /notes/{id}` · `POST /notes/undo` | remove (kept as `last_removed`) · bring it back |
+| `POST /notes {text}` · `POST /notes/{id}/edit {text?, done?}` | add (opens the panel unless it's a dot) · edit or check off |
+| `POST /notes/{id}/remove` · `POST /notes/undo` | remove (kept as `last_removed`) · bring it back |
 | `GET /movie` · `GET /movie/library` | `MovieState {status: closed\|playing\|paused, movie?, position_s, volume, seek_rev}` · `MovieInfo[] {movie_id, title, year, duration_s, url, subtitles_url}` |
 | `GET /movie/files/<id>.mp4` · `<id>.en.srt` | the file, with byte ranges (seeking); subtitles |
 | `POST /movie/play {movie_id?, from_start?}` | opens the screen; resumes where you stopped (a movie stopped in its last 2 min starts over) |
 | `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s}` · `/volume {volume}` | close keeps your place |
 | `POST /movie/position {position_s, duration_s?, ended?}` | Unity's player reports where it is (every few s, on pause, at the end). No event back: Unity is the clock |
-| `GET /ui/widgets` · `POST /ui/widgets {timer?, notes?, movie?}` | `UiWidgets`, each `open\|minimized\|closed` (minimized = the dot). Closing the timer stops it, closing the movie closes it |
-| `/ws` events | `ui.widgets`, `timer.state`, `notes.updated`, `movie.state`; `pet.say` "Time's up! ..." when the timer rings (also spoken) |
-| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, volume?}`, `movie_status`. `note` is an id or a few words of the note |
+| `GET /ui/widgets` · `POST /ui/widgets {timer?, notes?, movie?}` | `UiWidgets`, each `open\|minimized\|closed` (minimized = the dot). Closing the timers stops them, closing the movie closes it |
+| `/ws` events | `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; `pet.say` "Time's up! ..." when a timer rings (also spoken) |
+| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, volume?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
 
-Unity, for the panels: count the timer down locally from `remaining_s` when `timer.state` arrives (the Quest's
+Unity, for the panels: count each timer down locally from `remaining_s` when `timers.updated` arrives (the Quest's
 clock isn't the laptop's); play the chime while `status` is `ringing`. Seek the VideoPlayer only when `seek_rev`
 changes, otherwise leave it alone. The `.srt` lines can carry ASS position tags like `{\an8}`: strip `{...}`.
 
@@ -334,11 +334,11 @@ No NVIDIA GPU: drop the two `-hwaccel` flags and the `-vf`, and use `-c:v libx26
 (slower). `<id>` is a file name without dots (`obsession`); a `*.part.mp4` still being written isn't listed. Optional
 `<id>.json`: `{"title": "Obsession", "year": 2025, "duration_s": 6519.8}`.
 
-**Mocks for Unity:** `python -m desk.make_mocks` writes `.data/mocks/desk/`: `Resources/Mocks/` (timer, notes, movie,
-movie/library, ui/widgets REST answers) and `desk/sequence.json` (a ForgeMockPlayer run: timer, notes in, notes to a
-dot, movie on, the timer rings and is stopped). Copy both into `unity/Assets/_Forge/Mocks/`.
+**Mocks for Unity:** `python -m desk.make_mocks` writes `.data/mocks/desk/`: `Resources/Mocks/` (timers, notes, movie,
+movie/library, ui/widgets REST answers) and `desk/sequence.json` (a ForgeMockPlayer run: a focus and a tea timer,
+notes in, notes to a dot, movie on, the tea timer rings and is stopped). Copy both into `unity/Assets/_Forge/Mocks/`.
 
-Map: `desk/timer.py` (`FocusTimer`, the spoken line), `notes.py` (`NotesStore`, `.data/desk/notes.json`), `movie.py`
+Map: `desk/timer.py` (`TimerBoard`, the spoken line), `notes.py` (`NotesStore`, `.data/desk/notes.json`), `movie.py`
 (`MovieService`: library, places per movie and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
 widgets, events, Bit's voice), `router.py`, `tools.py`, `make_mocks.py`. Tests: `pytest tests/test_desk.py`. Not saved:
-a running timer (a hub restart forgets it).
+running timers (a hub restart forgets them).

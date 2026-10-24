@@ -1,4 +1,4 @@
-"""Desk extras: focus timer, notes, movie screen, widgets, sticky replay, tools and REST (no hub, no Unity)."""
+"""Desk extras: focus timers, notes, movie screen, widgets, sticky replay, tools and REST (no hub, no Unity)."""
 from __future__ import annotations
 
 import asyncio
@@ -53,30 +53,65 @@ def make_desk(tmp_path: Path, movies: bool = True) -> tuple[DeskService, Recorde
     return DeskService(tmp_path, bus, speak), bus, spoken
 
 
-# ---------------------------------------------------------------------- timer
+# ---------------------------------------------------------------------- timers
+def ts(label: str, duration: float) -> TimerState:
+    return TimerState(timer_id="t1", label=label, status="ringing", duration_s=duration, remaining_s=0)
+
+
 def test_human_and_ring_line() -> None:
     assert human(3600) == "1 hour"
     assert human(5400) == "1 hour 30 minutes"
     assert human(25 * 60) == "25 minutes"
     assert human(45) == "45 seconds"
     assert human(1) == "1 second"
-    assert ring_line(TimerState(label="Focus", duration_s=3600)) == "Time's up! That's 1 hour of focus."
-    assert ring_line(TimerState(label="tea", duration_s=240)) == "Time's up! Your tea timer is done."
+    assert ring_line(ts("Focus", 3600)) == "Time's up! That's 1 hour of focus."
+    assert ring_line(ts("tea", 240)) == "Time's up! Your tea timer is done."
 
 
 def test_timer_runs_rings_and_stops(tmp_path: Path) -> None:
     desk, bus, spoken = make_desk(tmp_path)
 
     async def run() -> None:
-        s = await desk.timer.start(0.2)
+        s = await desk.timers.start(0.2)
         assert (s.status, s.label, s.duration_s) == ("running", "Focus", 0.2)
         assert desk.widgets.timer == "open"
         await asyncio.sleep(0.35)
-        assert desk.timer.state().status == "ringing"
-        assert bus.last("timer.state")["status"] == "ringing"
+        assert desk.timers.find("Focus").status == "ringing"
+        assert bus.last("timers.updated")["timers"][0]["status"] == "ringing"
         assert bus.last("pet.say")["text"].startswith("Time's up!") and spoken
-        s = await desk.timer.stop()
-        assert s.status == "idle" and desk.widgets.timer == "closed"
+        stopped = await desk.timers.stop(s.timer_id)
+        assert stopped.status == "ringing" and len(desk.timers) == 0
+        assert bus.last("timers.updated")["timers"] == [] and desk.widgets.timer == "closed"
+
+    asyncio.run(run())
+
+
+def test_several_named_timers_soonest_first(tmp_path: Path) -> None:
+    desk, bus, spoken = make_desk(tmp_path)
+
+    async def run() -> None:
+        focus = await desk.timers.start(3600)
+        tea = await desk.timers.start(0.2, "tea")
+        again = await desk.timers.start(600, "tea")
+        assert (focus.label, tea.label, again.label) == ("Focus", "tea", "tea 2")
+        assert [t.label for t in desk.timers.states()] == ["tea", "tea 2", "Focus"]  # by time left
+        await asyncio.sleep(0.35)
+        assert [t.status for t in desk.timers.states()] == ["ringing", "running", "running"]  # ringing first
+        assert spoken == ["Time's up! Your tea timer is done."]
+        assert [t.label for t in desk.timers.pick(None, "stop")] == ["tea"]  # "turn it off": the ringing one
+        with pytest.raises(LookupError, match="which one"):
+            desk.timers.pick(None, "pause")  # two running
+        with pytest.raises(LookupError, match="2 timers match"):
+            desk.timers.find("te")
+        assert desk.timers.find("tea 2").timer_id == again.timer_id
+        await desk.timers.stop("tea")
+        assert [t.label for t in desk.timers.pick("all", "stop")] == ["tea 2", "Focus"]
+        for _ in range(3):
+            await desk.timers.start(60)
+        with pytest.raises(ValueError, match="5 timers"):
+            await desk.timers.start(60)
+        await desk.timers.stop_all()
+        assert len(desk.timers) == 0 and desk.widgets.timer == "closed"
 
     asyncio.run(run())
 
@@ -85,20 +120,22 @@ def test_timer_pause_resume_add(tmp_path: Path) -> None:
     desk, bus, _ = make_desk(tmp_path)
 
     async def run() -> None:
-        with pytest.raises(ValueError):
-            await desk.timer.pause()  # nothing set
-        await desk.timer.start(60, "tea")
-        paused = await desk.timer.pause()
+        with pytest.raises(LookupError):
+            await desk.timers.pause("Focus")  # nothing set
+        t = await desk.timers.start(60, "tea")
+        paused = await desk.timers.pause("tea")
         assert paused.status == "paused" and 59 < paused.remaining_s <= 60
+        with pytest.raises(ValueError):
+            await desk.timers.pause("tea")
         await asyncio.sleep(0.05)
-        assert desk.timer.state().remaining_s == paused.remaining_s  # frozen
-        added = await desk.timer.add(120)
+        assert desk.timers.find("tea").remaining_s == paused.remaining_s  # frozen
+        added = await desk.timers.add(t.timer_id, 120)
         assert added.status == "paused" and added.remaining_s > 179 and added.duration_s == 180
-        less = await desk.timer.add(-1000)
+        less = await desk.timers.add("tea", -1000)
         assert less.remaining_s == 1.0  # never below a second
-        s = await desk.timer.resume()
+        s = await desk.timers.resume("tea")
         assert s.status == "running"
-        await desk.timer.stop()
+        await desk.timers.stop_all()
 
     asyncio.run(run())
 
@@ -107,31 +144,30 @@ def test_timer_snooze_after_ring_and_minimized_pops_open(tmp_path: Path) -> None
     desk, _, _ = make_desk(tmp_path)
 
     async def run() -> None:
-        await desk.timer.start(0.1)
+        await desk.timers.start(0.1)
         await desk.set_widgets(timer="minimized")
         await asyncio.sleep(0.25)
-        assert desk.timer.state().status == "ringing" and desk.widgets.timer == "open"
-        s = await desk.timer.add(300)
+        assert desk.timers.find("Focus").status == "ringing" and desk.widgets.timer == "open"
+        s = await desk.timers.add("Focus", 300)
         assert s.status == "running" and 299 < s.remaining_s <= 300
         with pytest.raises(ValueError):
-            await desk.timer.start(0)
-        await desk.set_widgets(timer="closed")  # closing the pill stops it
-        assert desk.timer.state().status == "idle"
+            await desk.timers.start(0)
+        await desk.set_widgets(timer="closed")  # closing the stack stops them
+        assert len(desk.timers) == 0
         with pytest.raises(ValueError):
             await desk.set_widgets(timer="open")  # nothing to show
 
     asyncio.run(run())
 
 
-def test_restarting_cancels_the_old_ring(tmp_path: Path) -> None:
+def test_stopping_cancels_the_ring(tmp_path: Path) -> None:
     desk, bus, spoken = make_desk(tmp_path)
 
     async def run() -> None:
-        await desk.timer.start(0.1)
-        await desk.timer.start(60)
+        t = await desk.timers.start(0.1)
+        await desk.timers.stop(t.timer_id)
         await asyncio.sleep(0.2)
-        assert desk.timer.state().status == "running" and not spoken
-        await desk.timer.stop()
+        assert not spoken and len(desk.timers) == 0
 
     asyncio.run(run())
 
@@ -266,16 +302,16 @@ def test_late_client_gets_fresh_state(tmp_path: Path) -> None:
     desk, bus, _ = make_desk(tmp_path)
 
     async def run() -> None:
-        await desk.timer.start(60)
+        await desk.timers.start(60)
         await asyncio.sleep(0.2)
         ws = FakeSocket()
         await bus.attach(ws)  # type: ignore[arg-type]
         by_type = {m["type"]: m["payload"] for m in ws.sent}
-        assert {"ui.widgets", "timer.state", "notes.updated", "movie.state"} <= set(by_type)
-        assert by_type["timer.state"]["remaining_s"] < 59.9  # computed now, not the start payload
+        assert {"ui.widgets", "timers.updated", "notes.updated", "movie.state"} <= set(by_type)
+        assert by_type["timers.updated"]["timers"][0]["remaining_s"] < 59.9  # computed now, not the start payload
         assert by_type["ui.widgets"]["timer"] == "open"
-        assert bus.latest("timer.")["timer.state"]["status"] == "running"
-        await desk.timer.stop()
+        assert bus.latest("timers.")["timers.updated"]["timers"][0]["status"] == "running"
+        await desk.timers.stop_all()
 
     asyncio.run(run())
 
@@ -286,11 +322,16 @@ def test_tools(tmp_path: Path) -> None:
 
     async def run() -> None:
         out = await dtools.call_tool("timer_start", {"minutes": 60}, desk)
-        assert out["status"] == "running" and out["length"] == "1 hour"
-        assert (await dtools.call_tool("timer_status", {}, desk))["left"] in ("1 hour", "59 minutes")
+        assert out["status"] == "running" and out["length"] == "1 hour" and out["name"] == "Focus"
+        await dtools.call_tool("timer_start", {"minutes": 4, "label": "tea"}, desk)
+        status = await dtools.call_tool("timer_status", {}, desk)
+        assert [t["name"] for t in status["timers"]] == ["tea", "Focus"]
         assert (await dtools.call_tool("timer_control", {"action": "add"}, desk))["error"] == "minutes is missing"
-        assert (await dtools.call_tool("timer_control", {"action": "stop"}, desk))["stopped"]
-        assert (await dtools.call_tool("timer_status", {}, desk))["status"] == "idle"
+        assert "which one" in (await dtools.call_tool("timer_control", {"action": "pause"}, desk))["error"]
+        assert (await dtools.call_tool("timer_control", {"action": "pause", "timer": "tea"}, desk))["status"] == "paused"
+        assert (await dtools.call_tool("timer_control", {"action": "stop", "timer": "tea"}, desk))["stopped"] == ["tea"]
+        assert (await dtools.call_tool("timer_control", {"action": "stop"}, desk))["stopped"] == ["Focus"]  # the only one
+        assert (await dtools.call_tool("timer_status", {}, desk))["timers"] == []
 
         out = await dtools.call_tool("notes_add", {"text": "ship the timer"}, desk)
         assert out["count"] == 1
@@ -326,26 +367,31 @@ def client(tmp_path: Path):
         yield c
 
 
-def test_rest_timer_and_widgets(client: TestClient) -> None:
-    assert client.get("/timer").json()["status"] == "idle"
-    assert client.post("/timer/start", json={}).status_code == 422
-    s = client.post("/timer/start", json={"minutes": 25, "label": "Focus"}).json()
-    assert s["status"] == "running" and s["duration_s"] == 1500
-    assert client.post("/timer/pause").json()["status"] == "paused"
-    assert client.post("/timer/pause").status_code == 422
-    assert client.post("/timer/add", json={"minutes": 5}).json()["duration_s"] == 1800
+def test_rest_timers_and_widgets(client: TestClient) -> None:
+    assert client.get("/timers").json() == {"timers": []}
+    assert client.post("/timers", json={}).status_code == 422
+    s = client.post("/timers", json={"minutes": 25, "label": "standup"}).json()
+    assert s["status"] == "running" and s["duration_s"] == 1500 and s["label"] == "standup"
+    tid = s["timer_id"]
+    assert client.post(f"/timers/{tid}/pause").json()["status"] == "paused"
+    assert client.post(f"/timers/{tid}/pause").status_code == 422
+    assert client.post(f"/timers/{tid}/add", json={"minutes": 5}).json()["duration_s"] == 1800
+    assert client.post("/timers/nope/stop").status_code == 404
+    client.post("/timers", json={"seconds": 90})
+    assert [t["label"] for t in client.get("/timers").json()["timers"]] == ["Focus", "standup"]
     assert client.post("/ui/widgets", json={"timer": "minimized"}).json()["timer"] == "minimized"
     assert client.post("/ui/widgets", json={"notes": "sideways"}).status_code == 422
-    assert client.post("/timer/stop").json()["status"] == "idle"
+    assert client.post(f"/timers/{tid}/stop").json()["label"] == "standup"
+    assert client.post("/timers/stop_all").json() == {"timers": []}
     assert client.get("/ui/widgets").json() == {"timer": "closed", "notes": "closed", "movie": "closed"}
 
 
 def test_rest_notes(client: TestClient) -> None:
     n = client.post("/notes", json={"text": "remember the chime"}).json()
-    assert client.patch(f"/notes/{n['id']}", json={"done": True}).json()["done"] is True
+    assert client.post(f"/notes/{n['id']}/edit", json={"done": True}).json()["done"] is True
     assert client.post("/notes", json={"text": ""}).status_code == 422
-    assert client.delete(f"/notes/{n['id']}").json()["notes"] == []
-    assert client.delete("/notes/nope").status_code == 404
+    assert client.post(f"/notes/{n['id']}/remove").json()["notes"] == []
+    assert client.post("/notes/nope/remove").status_code == 404
     assert client.post("/notes/undo").json()["notes"][0]["text"] == "remember the chime"
     assert client.get("/notes").json()["last_removed"] is None
 

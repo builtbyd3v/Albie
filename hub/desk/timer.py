@@ -1,8 +1,9 @@
-"""The focus timer: one at a time, owned by the hub.
+"""Focus timers: a few at a time, each with a name, owned by the hub.
 
-Bit starts it ("set a focus timer for an hour"); Unity shows the pill and counts down on its own from remaining_s;
-the hub rings it at the end (timer.state ringing, and Bit says so). Ringing lasts until it's stopped. Not saved to
-disk: a hub restart forgets a running timer.
+Bit starts one ("set a 25 minute timer for the standup"); Unity shows them as pills above the screens (minimized: one
+dot showing the one that ends soonest) and counts each down on its own from remaining_s; the hub rings each at its
+end (timers.updated with it ringing, and Bit says so). A timer rings until it's stopped. Not saved to disk: a hub
+restart forgets them.
 """
 from __future__ import annotations
 
@@ -11,11 +12,13 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 
-from events import TimerState
+from events import TimersUpdated, TimerState
 
 MAX_S = 10 * 3600
+MAX_TIMERS = 5
 
-Publish = Callable[[TimerState], Awaitable[None]]
+Publish = Callable[[TimersUpdated], Awaitable[None]]
+Ring = Callable[[TimerState], Awaitable[None]]
 
 
 def human(seconds: float) -> str:
@@ -33,99 +36,190 @@ def human(seconds: float) -> str:
 
 
 def ring_line(state: TimerState) -> str:
-    """What Bit says when it rings."""
+    """What Bit says when a timer rings."""
     if state.label.lower() == "focus":
         return f"Time's up! That's {human(state.duration_s)} of focus."
     return f"Time's up! Your {state.label} timer is done."
 
 
-class FocusTimer:
-    def __init__(self, publish: Publish, on_ring: Publish) -> None:
-        self._publish = publish
-        self._on_ring = on_ring
-        self._state = TimerState()
-        self._ends = 0.0  # time.monotonic() when it rings, while running
-        self._task: asyncio.Task[None] | None = None
+class _Timer:
+    def __init__(self, label: str, seconds: float) -> None:
+        self.state = TimerState(timer_id="t" + uuid.uuid4().hex[:6], label=label, status="running",
+                                duration_s=seconds, remaining_s=seconds)
+        self.ends = 0.0  # time.monotonic() when it rings, while running
+        self.task: asyncio.Task[None] | None = None
 
-    def state(self) -> TimerState:
-        s = self._state.model_copy()
-        if s.status == "running":
-            s.remaining_s = round(max(0.0, self._ends - time.monotonic()), 1)
+    def remaining(self) -> float:
+        if self.state.status == "running":
+            return max(0.0, self.ends - time.monotonic())
+        return self.state.remaining_s
+
+    def snapshot(self) -> TimerState:
+        s = self.state.model_copy()
+        s.remaining_s = round(self.remaining(), 1)
         return s
 
+    def disarm(self) -> None:
+        if self.task is not None:
+            self.task.cancel()
+            self.task = None
+
+
+class TimerBoard:
+    def __init__(self, publish: Publish, on_ring: Ring) -> None:
+        self._publish = publish
+        self._on_ring = on_ring
+        self._timers: list[_Timer] = []  # in the order they were set
+
+    # ------------------------------------------------------------------ reading
+    def states(self) -> list[TimerState]:
+        """Ringing first, then the rest by time left (running before paused at equal time)."""
+        order = {"ringing": 0, "running": 1, "paused": 2}
+        snaps = [t.snapshot() for t in self._timers]
+        return sorted(snaps, key=lambda s: (s.status != "ringing", s.remaining_s, order[s.status]))
+
+    def updated(self) -> TimersUpdated:
+        return TimersUpdated(timers=self.states())
+
+    def __len__(self) -> int:
+        return len(self._timers)
+
+    def find(self, ref: str) -> TimerState:
+        return self._find(ref).snapshot()
+
+    def pick(self, ref: str | None, action: str) -> list[TimerState]:
+        """The timers an action means. `ref`: an id, a name (or part of one) or "all". Without one: the only timer
+        it can apply to; stop means whichever are ringing ("turn it off"). Raises LookupError when it's unclear."""
+        if ref and ref.strip().lower() == "all":
+            return self.states()
+        if ref and ref.strip():
+            return [self._find(ref).snapshot()]
+        fits = {"pause": ("running",), "resume": ("paused",), "add": ("running", "paused", "ringing"),
+                "stop": ("ringing",)}.get(action, ("running", "paused", "ringing"))
+        hits = [t for t in self._timers if t.state.status in fits]
+        if action == "stop" and hits:
+            return [t.snapshot() for t in hits]
+        if action == "stop":
+            hits = list(self._timers)
+        if len(hits) == 1:
+            return [hits[0].snapshot()]
+        if not self._timers:
+            raise LookupError("no timer is set")
+        if not hits:
+            raise LookupError(f"no timer to {action}")
+        raise LookupError("which one? " + ", ".join(f"{t.state.label} ({human(t.remaining())} left)" for t in hits))
+
+    # ------------------------------------------------------------------ changing
     async def start(self, seconds: float, label: str = "") -> TimerState:
-        """A new timer; replaces the one running (or ringing)."""
         seconds = _check(seconds)
-        self._state = TimerState(timer_id=uuid.uuid4().hex[:8], label=label.strip() or "Focus", status="running",
-                                 duration_s=seconds, remaining_s=seconds)
-        self._arm(seconds)
-        return await self._changed()
+        if len(self._timers) >= MAX_TIMERS:
+            raise ValueError(f"{MAX_TIMERS} timers are running already; stop one first")
+        timer = _Timer(self._name(label), seconds)
+        self._timers.append(timer)
+        self._arm(timer, seconds)
+        await self._changed()
+        return timer.snapshot()
 
-    async def pause(self) -> TimerState:
-        if self._state.status != "running":
-            raise ValueError(f"the timer isn't running ({self._state.status})")
-        left = self.state().remaining_s
-        self._disarm()
-        self._state.status, self._state.remaining_s = "paused", left
-        return await self._changed()
+    async def pause(self, ref: str) -> TimerState:
+        timer = self._find(ref)
+        if timer.state.status != "running":
+            raise ValueError(f"the {timer.state.label} timer isn't running ({timer.state.status})")
+        left = timer.remaining()
+        timer.disarm()
+        timer.state.status, timer.state.remaining_s = "paused", round(left, 1)
+        await self._changed()
+        return timer.snapshot()
 
-    async def resume(self) -> TimerState:
-        if self._state.status != "paused":
-            raise ValueError(f"the timer isn't paused ({self._state.status})")
-        self._state.status = "running"
-        self._arm(self._state.remaining_s)
-        return await self._changed()
+    async def resume(self, ref: str) -> TimerState:
+        timer = self._find(ref)
+        if timer.state.status != "paused":
+            raise ValueError(f"the {timer.state.label} timer isn't paused ({timer.state.status})")
+        timer.state.status = "running"
+        self._arm(timer, timer.state.remaining_s)
+        await self._changed()
+        return timer.snapshot()
 
-    async def add(self, seconds: float) -> TimerState:
+    async def add(self, ref: str, seconds: float) -> TimerState:
         """More time; negative takes some off (never below 1 s). On a ringing timer it runs again for that long."""
-        status = self._state.status
-        if status == "idle":
-            raise ValueError("no timer is set")
-        if status == "ringing":
+        timer = self._find(ref)
+        if timer.state.status == "ringing":
             if seconds <= 0:
-                raise ValueError("the timer already rang; add a positive amount")
-            self._state.status = "running"
+                raise ValueError("that timer already rang; add a positive amount")
+            timer.state.status = "running"
             left = _check(seconds)
         else:
-            left = _check(max(1.0, self.state().remaining_s + seconds))
-        self._state.duration_s = round(max(left, self._state.duration_s + seconds), 1)
-        if self._state.status == "running":
-            self._arm(left)
+            left = _check(max(1.0, timer.remaining() + seconds))
+        timer.state.duration_s = round(max(left, timer.state.duration_s + seconds), 1)
+        if timer.state.status == "running":
+            self._arm(timer, left)
         else:
-            self._state.remaining_s = left
-        return await self._changed()
+            timer.state.remaining_s = left
+        await self._changed()
+        return timer.snapshot()
 
-    async def stop(self) -> TimerState:
-        """Cancel it, or turn off the ring. Stopping no timer is fine."""
-        self._disarm()
-        self._state = TimerState()
-        return await self._changed()
+    async def stop(self, ref: str) -> TimerState:
+        """Cancel it, or turn off its ring. It's gone from the list afterwards."""
+        timer = self._find(ref)
+        snap = timer.snapshot()
+        timer.disarm()
+        self._timers.remove(timer)
+        await self._changed()
+        return snap
+
+    async def stop_all(self) -> list[TimerState]:
+        snaps = [t.snapshot() for t in self._timers]
+        for t in self._timers:
+            t.disarm()
+        self._timers.clear()
+        await self._changed()
+        return snaps
 
     def close(self) -> None:
-        self._disarm()
+        for t in self._timers:
+            t.disarm()
 
-    def _arm(self, seconds: float) -> None:
-        self._disarm()
-        self._ends = time.monotonic() + seconds
-        self._task = asyncio.create_task(self._ring_later(self._state.timer_id, seconds))
+    # ------------------------------------------------------------------ internals
+    def _find(self, ref: str) -> _Timer:
+        ref = (ref or "").strip()
+        for t in self._timers:
+            if t.state.timer_id == ref:
+                return t
+        words = ref.lower()
+        exact = [t for t in self._timers if t.state.label.lower() == words]
+        hits = exact or [t for t in self._timers if words and words in t.state.label.lower()]
+        if len(hits) == 1:
+            return hits[0]
+        if not self._timers:
+            raise LookupError("no timer is set")
+        if not hits:
+            raise LookupError(f"no timer called {ref!r}; there's " + ", ".join(t.state.label for t in self._timers))
+        raise LookupError(f"{len(hits)} timers match {ref!r}: " + ", ".join(t.state.label for t in hits))
 
-    def _disarm(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None
+    def _name(self, label: str) -> str:
+        """The label as given ("Focus" if none), made unique: a second "tea" is "tea 2"."""
+        base = " ".join(label.split())[:40] or "Focus"
+        taken = {t.state.label.lower() for t in self._timers}
+        name, n = base, 2
+        while name.lower() in taken:
+            name, n = f"{base} {n}", n + 1
+        return name
 
-    async def _ring_later(self, timer_id: str, seconds: float) -> None:
+    def _arm(self, timer: _Timer, seconds: float) -> None:
+        timer.disarm()
+        timer.ends = time.monotonic() + seconds
+        timer.task = asyncio.create_task(self._ring_later(timer, seconds))
+
+    async def _ring_later(self, timer: _Timer, seconds: float) -> None:
         await asyncio.sleep(seconds)
-        if self._state.timer_id != timer_id or self._state.status != "running":
+        if timer not in self._timers or timer.state.status != "running":
             return
-        self._task = None
-        self._state.status, self._state.remaining_s = "ringing", 0.0
-        await self._on_ring(await self._changed())
+        timer.task = None
+        timer.state.status, timer.state.remaining_s = "ringing", 0.0
+        await self._changed()
+        await self._on_ring(timer.snapshot())
 
-    async def _changed(self) -> TimerState:
-        state = self.state()
-        await self._publish(state)
-        return state
+    async def _changed(self) -> None:
+        await self._publish(self.updated())
 
 
 def _check(seconds: float) -> float:

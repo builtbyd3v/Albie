@@ -1,7 +1,7 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
 Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event, the
-Slack notify.* events (PROJECT_CONTEXT 7 + 8.8) and the desk extras (ui.widgets, timer.state, notes.updated,
+Slack notify.* events (PROJECT_CONTEXT 7 + 8.8) and the desk extras (ui.widgets, timers.updated, notes.updated,
 movie.state). The ML and pet models from section 7 still belong to their owners; add them next to these.
 """
 from __future__ import annotations
@@ -278,19 +278,24 @@ WidgetState = Literal["open", "minimized", "closed"]
 
 class UiWidgets(BaseModel):
     """Which desk extras are showing. Always the whole map, so a client that connects later gets the layout."""
-    timer: WidgetState = "closed"
+    timer: WidgetState = "closed"     # the timers: minimized = one dot showing the one that ends soonest
     notes: WidgetState = "closed"     # minimized = the notes dot
     movie: WidgetState = "closed"
 
 
 class TimerState(BaseModel):
-    """The focus timer. Unity counts down from remaining_s when the event arrives (the Quest's clock isn't the
-    laptop's); the hub sends it again on every change and when it rings. Ringing lasts until it's stopped."""
-    timer_id: str = ""
-    label: str = ""                   # "Focus" unless the user named it
-    status: Literal["idle", "running", "paused", "ringing"] = "idle"
-    duration_s: float = 0.0           # the whole run, including time added
-    remaining_s: float = 0.0
+    """One focus timer. Unity counts down from remaining_s when the event arrives (the Quest's clock isn't the
+    laptop's); the hub sends the list again on every change and when one rings. Ringing lasts until it's stopped."""
+    timer_id: str
+    label: str                        # "Focus" unless the user named it; unique ("tea 2")
+    status: Literal["running", "paused", "ringing"]
+    duration_s: float                 # the whole run, including time added
+    remaining_s: float
+
+
+class TimersUpdated(BaseModel):
+    """Every timer: ringing first, then by time left. The first is the one the minimized dot shows. Empty = none."""
+    timers: list[TimerState] = []
 
 
 class Note(BaseModel):

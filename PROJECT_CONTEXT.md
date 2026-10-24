@@ -8,7 +8,7 @@
 ## 0. Status (update this as you go)
 
 **2026-10-24, Hudson (desk extras, branch `desk/timer-notes-movie`):**
-- **Done: hub side of the desk extras**, things Bit adds on top of any mode that stay open across mode switches: a **focus timer** ("Bit, set a focus timer for an hour": a pill above the screens, rings at the end until you turn it off), **notes** ("add that to my notes", "pull up my notes"; minimizes to a dot you can move), and a **movie screen** above the desk ("put the movie on"; resumes where you stopped). `hub/desk/`: REST `/timer`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timer.state`, `notes.updated`, `movie.state`, 11 Bit tools, mocks (`python -m desk.make_mocks`), tests. Proposed contract: hub/README "Desk (timer, notes, movie)".
+- **Done: hub side of the desk extras**, things Bit adds on top of any mode that stay open across mode switches: named **focus timers** ("Bit, set a focus timer for an hour", "and a 4 minute tea timer": pills above the screens, each rings at its end until you turn it off; minimized, one dot shows the soonest), **notes** ("add that to my notes", "pull up my notes"; minimizes to a dot you can move), and a **movie screen** above the desk ("put the movie on"; resumes where you stopped). `hub/desk/`: REST `/timers`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`, 11 Bit tools, mocks (`python -m desk.make_mocks`), tests. Proposed contract: hub/README "Desk (timers, notes, movie)".
 - **Movie:** files go in `hub/.data/media/` (gitignored; the Quest streams from the hub, nothing in the APK). Recipe for H.264 + English stereo in the README.
 - **Next: Unity** (mockups first): a pinned layer in `Workspace` for items outside the modes, the timer pill + chime, the notes panel + `PanelOrb` (tap to open, hold to move), the movie screen (VideoPlayer from `/movie/files/...`).
 
@@ -293,7 +293,7 @@ Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datast
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 
-Proposed desk additions (focus timer, notes, movie screen: `/timer`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timer.state`, `notes.updated`, `movie.state`, panel IDs `timer`, `notes`, `movie`): `hub/README.md` "Desk (timer, notes, movie)".
+Proposed desk additions (focus timers, notes, movie screen: `/timers`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`, panel IDs `timer`, `notes`, `movie`): `hub/README.md` "Desk (timers, notes, movie)".
 
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 

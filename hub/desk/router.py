@@ -1,4 +1,6 @@
-"""REST for the desk extras (proposed contract: README "Desk"): /timer, /notes, /movie, /ui/widgets.
+"""REST for the desk extras (proposed contract: README "Desk"): /timers, /notes, /movie, /ui/widgets.
+
+Everything that changes something is a POST, like the rest of the hub (ForgeNet sends GET and POST).
 
 Unity's buttons call these; Bit's tools go through the same DeskService, so both raise the same events.
 """
@@ -8,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from events import MovieInfo, MovieState, Note, NotesUpdated, TimerState, UiWidgets, WidgetState
+from events import MovieInfo, MovieState, Note, NotesUpdated, TimersUpdated, TimerState, UiWidgets, WidgetState
 
 from .service import DeskService
 
@@ -73,39 +75,46 @@ async def _run(coro):
         raise HTTPException(422, str(e)) from None
 
 
-# ---------------------------------------------------------------------- timer
-@router.get("/timer", response_model=TimerState)
-def timer_state(d: DeskService = Depends(desk)) -> TimerState:
-    return d.timer.state()
+# ---------------------------------------------------------------------- timers
+@router.get("/timers", response_model=TimersUpdated)
+def timers(d: DeskService = Depends(desk)) -> TimersUpdated:
+    return d.timers.updated()
 
 
-@router.post("/timer/start", response_model=TimerState)
+@router.post("/timers", response_model=TimerState)
 async def timer_start(req: TimerStart, d: DeskService = Depends(desk)) -> TimerState:
+    """A new timer (up to 5); `label` names it ("tea"), default Focus."""
     if req.seconds is None and req.minutes is None:
         raise HTTPException(422, "give minutes or seconds")
     seconds = req.seconds if req.seconds is not None else req.minutes * 60
-    return await _run(d.timer.start(seconds, req.label))
+    return await _run(d.timers.start(seconds, req.label))
 
 
-@router.post("/timer/pause", response_model=TimerState)
-async def timer_pause(d: DeskService = Depends(desk)) -> TimerState:
-    return await _run(d.timer.pause())
+@router.post("/timers/stop_all", response_model=TimersUpdated)
+async def timer_stop_all(d: DeskService = Depends(desk)) -> TimersUpdated:
+    await _run(d.timers.stop_all())
+    return d.timers.updated()
 
 
-@router.post("/timer/resume", response_model=TimerState)
-async def timer_resume(d: DeskService = Depends(desk)) -> TimerState:
-    return await _run(d.timer.resume())
+@router.post("/timers/{timer_id}/pause", response_model=TimerState)
+async def timer_pause(timer_id: str, d: DeskService = Depends(desk)) -> TimerState:
+    return await _run(d.timers.pause(timer_id))
 
 
-@router.post("/timer/add", response_model=TimerState)
-async def timer_add(req: TimerAdd, d: DeskService = Depends(desk)) -> TimerState:
-    return await _run(d.timer.add(req.minutes * 60))
+@router.post("/timers/{timer_id}/resume", response_model=TimerState)
+async def timer_resume(timer_id: str, d: DeskService = Depends(desk)) -> TimerState:
+    return await _run(d.timers.resume(timer_id))
 
 
-@router.post("/timer/stop", response_model=TimerState)
-async def timer_stop(d: DeskService = Depends(desk)) -> TimerState:
-    """Cancel it, or turn off the ring (the pill's Stop)."""
-    return await _run(d.timer.stop())
+@router.post("/timers/{timer_id}/add", response_model=TimerState)
+async def timer_add(timer_id: str, req: TimerAdd, d: DeskService = Depends(desk)) -> TimerState:
+    return await _run(d.timers.add(timer_id, req.minutes * 60))
+
+
+@router.post("/timers/{timer_id}/stop", response_model=TimerState)
+async def timer_stop(timer_id: str, d: DeskService = Depends(desk)) -> TimerState:
+    """Cancel it, or turn off its ring (the pill's Stop). Returns it as it was."""
+    return await _run(d.timers.stop(timer_id))
 
 
 # ---------------------------------------------------------------------- notes
@@ -119,21 +128,21 @@ async def notes_add(req: NoteIn, d: DeskService = Depends(desk)) -> Note:
     return await _run(d.add_note(req.text))
 
 
-@router.patch("/notes/{note_id}", response_model=Note)
+@router.post("/notes/undo", response_model=NotesUpdated)
+async def notes_undo(d: DeskService = Depends(desk)) -> NotesUpdated:
+    await _run(d.undo_note())
+    return d.notes.updated()
+
+
+@router.post("/notes/{note_id}/edit", response_model=Note)
 async def notes_edit(note_id: str, req: NotePatch, d: DeskService = Depends(desk)) -> Note:
     return await _run(d.edit_note(note_id, req.text, req.done))
 
 
-@router.delete("/notes/{note_id}", response_model=NotesUpdated)
+@router.post("/notes/{note_id}/remove", response_model=NotesUpdated)
 async def notes_remove(note_id: str, d: DeskService = Depends(desk)) -> NotesUpdated:
     """Removes it, kept for Undo."""
     await _run(d.remove_note(note_id))
-    return d.notes.updated()
-
-
-@router.post("/notes/undo", response_model=NotesUpdated)
-async def notes_undo(d: DeskService = Depends(desk)) -> NotesUpdated:
-    await _run(d.undo_note())
     return d.notes.updated()
 
 
@@ -207,5 +216,5 @@ def widgets(d: DeskService = Depends(desk)) -> UiWidgets:
 
 @router.post("/ui/widgets", response_model=UiWidgets)
 async def widgets_set(req: WidgetsIn, d: DeskService = Depends(desk)) -> UiWidgets:
-    """Minimize, expand, close. Closing the timer stops it; closing the movie closes it."""
+    """Minimize, expand, close. Closing the timers stops them; closing the movie closes it."""
     return await _run(d.set_widgets(req.timer, req.notes, req.movie))
