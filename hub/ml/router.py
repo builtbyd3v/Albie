@@ -99,7 +99,8 @@ def get_confusion(run_id: str, request: Request) -> Confusion:
 
 @router.get("/metrics/{run_id}")
 def get_metrics(run_id: str, request: Request) -> dict:
-    """Proposed: a run's curve history {run_id, total_epochs, metrics: [ml.metrics...], overfit} (ML_PLAN 7.4)."""
+    """Proposed: a run's live-graph history {run_id, total_epochs, metrics: [ml.metrics...], overfit,
+    class_acc: [ml.class_acc...], probe: last ml.probe} (ML_PLAN 7.4)."""
     return _call(_svc(request).metrics_history, run_id)
 
 

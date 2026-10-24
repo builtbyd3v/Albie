@@ -116,11 +116,43 @@ def test_log_with_model_sends_live_predictions_and_keeps_train_mode(tmp_path, ca
     forge.log(epoch=1, train_loss=1.0, val_loss=1.1, model=model)
     assert model.training
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert [e["type"] for e in events] == ["ml.run_state", "ml.metrics", "ml.epoch_preds"]
-    preds = events[-1]["payload"]
+    assert [e["type"] for e in events] == ["ml.run_state", "ml.metrics", "ml.epoch_preds", "ml.class_acc", "ml.probe"]
+    preds = events[2]["payload"]
     assert preds["run_id"] == run_id and preds["epoch"] == 1
     assert len(preds["pred_idx"]) == 12 and all(0 <= p < 10 for p in preds["pred_idx"])
     assert "model" not in events[1]["payload"].get("extra", {})
+
+
+def test_class_acc_and_probe_come_from_the_same_pass(tmp_path, capsys):
+    model = SmallCNN()
+    forge.watch(model, FakeVision(12, transform=NORMALIZED), classes=[str(i) for i in range(10)], run_dir=tmp_path)
+    forge.log(epoch=1, model=model)
+    forge.log(epoch=2, model=model)
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    by_type = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e["payload"])
+
+    preds = by_type["ml.epoch_preds"][0]["pred_idx"]
+    labels = [i % 10 for i in range(12)]
+    acc = by_type["ml.class_acc"][0]
+    assert acc["epoch"] == 1 and len(acc["per_class"]) == 10
+    hits0 = sum(p == 0 for p, y in zip(preds, labels) if y == 0)
+    assert acc["per_class"][0] == hits0 / 2  # class 0 has samples 0 and 10
+
+    first, second = by_type["ml.probe"]
+    assert [s["id"] for s in first["samples"]] == [s["id"] for s in second["samples"]]  # same strip every epoch
+    assert len(first["samples"]) == 12  # fewer samples than PROBE_SIZE: all of them
+    for s in first["samples"]:
+        assert len(s["probs"]) == 10 and abs(sum(s["probs"]) - 1) < 0.01
+        assert s["pred_idx"] == preds[int(s["id"].split("_")[-1])]
+
+
+def test_probe_spreads_over_classes():
+    labels = [0] * 30 + [1] * 30 + [2] * 2
+    picked = forge._pick_probe(labels, 4)
+    assert len(picked) == forge.PROBE_SIZE and picked == sorted(picked)
+    assert {labels[i] for i in picked} == {0, 1, 2} and {60, 61} <= set(picked)
 
 
 def test_live_predictions_cover_only_the_atlas_samples(tmp_path, capsys, monkeypatch):

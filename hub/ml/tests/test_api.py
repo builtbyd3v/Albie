@@ -124,6 +124,8 @@ def test_metrics_history_feeds_curves_after_training(client):
     epochs = [m["epoch"] for m in h["metrics"]]
     assert epochs == sorted(set(epochs)) and len(epochs) == h["total_epochs"] == 15
     assert h["overfit"] is not None
+    assert [a["epoch"] for a in h["class_acc"]] == epochs  # heatmap rows for a finished run
+    assert h["probe"]["epoch"] == 15 and len(h["probe"]["samples"]) == 16
     assert client.get("/ml/metrics/missing").status_code == 404
 
 

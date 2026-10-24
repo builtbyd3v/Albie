@@ -398,20 +398,26 @@ class MLService:
         return sorted(events, key=lambda e: e.get("t", 0.0))
 
     def metrics_history(self, run_id: str) -> dict:
-        """A run's ml.metrics ticks (last per epoch), total epochs and overfit alert, from events.jsonl,
-        so a panel opened after training still draws the curves."""
+        """A run's ml.metrics ticks and ml.class_acc rows (last per epoch), total epochs, overfit alert and
+        latest ml.probe, from events.jsonl, so panels opened after training still draw the live graphs."""
         by_epoch: dict[int, dict] = {}
-        total, overfit = 0, None
+        class_acc: dict[int, dict] = {}
+        total, overfit, probe = 0, None, None
         for e in self.replay_events(run_id):
             payload = e.get("payload") or {}
             if e.get("type") == "ml.metrics":
                 by_epoch[int(payload.get("epoch", 0))] = payload
+            elif e.get("type") == "ml.class_acc":
+                class_acc[int(payload.get("epoch", 0))] = payload
+            elif e.get("type") == "ml.probe":
+                probe = payload
             elif e.get("type") == "ml.run_state":
                 total = max(total, int(payload.get("total_epochs") or 0))
             elif e.get("type") == "ml.overfit_alert" and overfit is None:
                 overfit = payload
         metrics = [by_epoch[k] for k in sorted(by_epoch)]
-        return {"run_id": run_id, "total_epochs": total or len(metrics), "metrics": metrics, "overfit": overfit}
+        return {"run_id": run_id, "total_epochs": total or len(metrics), "metrics": metrics, "overfit": overfit,
+                "class_acc": [class_acc[k] for k in sorted(class_acc)], "probe": probe}
 
 
     # --- project setup (ML_PLAN 6, 7.4) -----------------------------------------------------------

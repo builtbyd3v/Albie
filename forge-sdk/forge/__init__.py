@@ -7,7 +7,8 @@
     forge.evaluate(model, val_loader)
 
 `model=model` on `log` adds the live visuals (ML_PLAN 8): one no_grad pass over the watched val samples
-per epoch, sent as ml.epoch_preds so the dot wall fills in while it trains. Leave it off for curves only.
+per epoch, sent as ml.epoch_preds (the dot wall fills in while it trains), ml.class_acc (per-class
+accuracy) and ml.probe (a fixed strip of samples and their prediction bars). Leave it off for curves only.
 
 Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `<run dir>/<run_id>/`:
 the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
@@ -28,6 +29,7 @@ from typing import Any, Callable, Sequence
 from forge import client, evaluation  # atlas/graph import torch: loaded when first needed
 
 OVERFIT_EPOCHS = 2
+PROBE_SIZE = 16
 
 
 @dataclass
@@ -44,6 +46,7 @@ class _Run:
     best_val_acc: float | None = None
     val_data: Any = None    # the dataset given to watch, for the live per-epoch predictions
     n_samples: int = 1000   # how many of them the atlas (and so the dot wall) holds
+    probe: list[int] | None = None  # sample indices of the probe strip, picked at the first live pass
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
@@ -153,7 +156,8 @@ def log(
 
     Any metric can be left out (None). Other numeric metrics (e.g. val_sharpe=1.2) go in `extra`, so a
     script without loss/accuracy still logs what it has, and no keyword ever raises into training.
-    With `model` (and a `watch` earlier in the run) it also sends ml.epoch_preds for the live dot wall.
+    With `model` (and a `watch` earlier in the run) it also sends the live graphs: ml.epoch_preds,
+    ml.class_acc and ml.probe.
     """
 
     def send() -> None:
@@ -171,21 +175,54 @@ def log(
         if metrics["train_loss"] is not None and metrics["val_loss"] is not None:
             _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
         if model is not None and run.val_data is not None:
-            _attempt("live predictions", lambda: _send_epoch_preds(run, model, metrics["epoch"]))
+            _attempt("live predictions", lambda: _send_live(run, model, metrics["epoch"]))
 
     _attempt("log", send)
 
 
-def _send_epoch_preds(run: _Run, model: Any, epoch: int) -> None:
-    """ml.epoch_preds {run_id, epoch, pred_idx}: the predicted class of each watched val sample, in
-    /ml/dataset order (ML_PLAN 7.5, live dot wall). Eval mode and no_grad, like evaluate."""
+def _send_live(run: _Run, model: Any, epoch: int) -> None:
+    """The live graphs (ML_PLAN 8), all from one eval-mode, no_grad pass over the watched val samples:
+    ml.epoch_preds {run_id, epoch, pred_idx} in /ml/dataset order (dot wall),
+    ml.class_acc {run_id, epoch, per_class} (class x epoch heatmap; null for a class with no samples),
+    ml.probe {run_id, epoch, samples: [{id, label_idx, pred_idx, probs}]} (the same PROBE_SIZE samples every epoch)."""
     from torch.utils.data import Subset
 
     data = run.val_data
     if len(data) > run.n_samples:
         data = Subset(data, range(run.n_samples))
-    _, _, probs = _predict_all(model, data)
-    run.emit("ml.epoch_preds", {"run_id": run.run_id, "epoch": epoch, "pred_idx": probs.argmax(axis=1).tolist()})
+    ids, labels, probs = _predict_all(model, data)
+    preds = probs.argmax(axis=1).tolist()
+    run.emit("ml.epoch_preds", {"run_id": run.run_id, "epoch": epoch, "pred_idx": preds})
+
+    n_classes = probs.shape[1]
+    hits, counts = [0] * n_classes, [0] * n_classes
+    for label, pred in zip(labels, preds):
+        if 0 <= label < n_classes:
+            counts[label] += 1
+            hits[label] += label == pred
+    per_class = [round(h / c, 4) if c else None for h, c in zip(hits, counts)]
+    run.emit("ml.class_acc", {"run_id": run.run_id, "epoch": epoch, "per_class": per_class})
+
+    if run.probe is None:
+        run.probe = _pick_probe(labels, n_classes)
+    samples = [{"id": ids[i], "label_idx": labels[i], "pred_idx": preds[i],
+                "probs": [round(float(p), 3) for p in probs[i]]} for i in run.probe]
+    run.emit("ml.probe", {"run_id": run.run_id, "epoch": epoch, "samples": samples})
+
+
+def _pick_probe(labels: Sequence[int], n_classes: int) -> list[int]:
+    """PROBE_SIZE sample indices spread over the classes: round-robin, first unused sample of each class
+    in dataset order. Fixed for the run, so the strip shows the same images changing epoch by epoch."""
+    by_class: list[list[int]] = [[] for _ in range(n_classes)]
+    for i, label in enumerate(labels):
+        if 0 <= label < n_classes:
+            by_class[label].append(i)
+    picked: list[int] = []
+    for rank in range(max((len(c) for c in by_class), default=0)):
+        for members in by_class:
+            if rank < len(members) and len(picked) < PROBE_SIZE:
+                picked.append(members[rank])
+    return sorted(picked)
 
 
 def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) -> None:
