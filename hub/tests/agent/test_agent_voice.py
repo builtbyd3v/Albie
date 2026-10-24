@@ -463,3 +463,34 @@ def test_fast_tool_runs_inline_and_returns_its_result(monkeypatch: pytest.Monkey
         await s.close()
 
     asyncio.run(run())
+
+
+def test_barge_in_stops_speech_unity_is_still_playing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Grok sends a 3 s answer in a burst and finishes (tts.end) while Unity is still playing it.
+    Talking 1 s later must still send tts.stop; talking after playback ended must not."""
+    clock = [100.0]
+    monkeypatch.setattr(voice_mod.time, "monotonic", lambda: clock[0])
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink, rate=24000)
+        for later, expect_stop in ((1.0, True), (5.0, False)):
+            await s.begin_turn()
+            await s.feed(b"\x00\x00" * 4000)
+            await s.commit_turn()
+            grok.push(type="response.created")
+            grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 24000 * 3))  # 3 s of speech
+            grok.push(type="response.done")
+            await _settle()
+            utt = next(v for k, v in reversed(sink.log) if k == "owner" and v.type == "tts.end").payload["utterance_id"]
+            clock[0] += later
+            n = len(sink.log)
+            await s.begin_turn()  # the user talks
+            stops = [v for k, v in sink.log[n:] if k == "owner" and v.type == "tts.stop"]
+            assert bool(stops) == expect_stop, f"{later} s after tts.end"
+            if stops:
+                assert stops[0].payload == {"pet_id": "bit", "utterance_id": utt, "reason": "barge_in"}
+            await s.cancel_turn()
+        await s.close()
+
+    asyncio.run(run())
