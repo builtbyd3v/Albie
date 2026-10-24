@@ -291,6 +291,16 @@ def test_llm_wrapper_explains_missing_credentials(monkeypatch):
         llm_mod.complete_json("sys", [], {"type": "object"})
 
 
+def test_llm_wrapper_explains_a_missing_anthropic_package(monkeypatch):
+    """A hub env without hub/ml/requirements.txt: setup stops with an install hint, not an ImportError."""
+    from ml.setup import llm
+
+    monkeypatch.setattr(llm, "_client", None)
+    monkeypatch.setitem(sys.modules, "anthropic", None)  # import anthropic -> ImportError
+    with pytest.raises(LLMError, match="pip install -r hub/ml/requirements.txt"):
+        llm.complete_json("system", [{"role": "user", "content": "hi"}], {"type": "object"})
+
+
 def test_a_patch_that_doesnt_parse_goes_back_to_the_llm(repo):
     broken = {"adapter_py": GOOD_ADAPTER, "patches": [{"path": "train.py", "content": "def main(:\n"}], "notes": ""}
     llm = FakeLLM([PROFILE], [broken, adapter_reply()])

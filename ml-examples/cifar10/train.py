@@ -8,6 +8,7 @@ Lines marked `# forge` are the patch the forge setup adds; the rest is a plain t
 from __future__ import annotations
 
 import argparse
+import json
 
 import torch
 import torch.nn.functional as F
@@ -17,6 +18,14 @@ from data import CLASSES, HERE, get_loaders
 from model import SmallCNN
 
 CHECKPOINT = HERE / "checkpoints" / "best.pt"
+BEST = CHECKPOINT.with_suffix(".json")  # val acc of best.pt, so a weaker run never replaces it
+
+
+def saved_best_acc() -> float:
+    try:
+        return float(json.loads(BEST.read_text())["val_acc"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0.0
 
 
 def run_epoch(model, loader, opt, device) -> tuple[float, float]:
@@ -56,20 +65,26 @@ def main() -> None:
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     forge.watch(model, val_loader.dataset, classes=CLASSES, epochs=args.epochs)  # forge
 
-    best_acc = 0.0
+    best_acc = run_best = 0.0
+    kept_acc = saved_best_acc()  # best.pt from earlier runs: only a better model replaces it
     for epoch in range(1, args.epochs + 1):
         train_loss, train_acc = run_epoch(model, train_loader, opt, device)
         val_loss, val_acc = run_epoch(model, val_loader, None, device)
         print(f"epoch {epoch}/{args.epochs}  train {train_loss:.3f} / {train_acc:.3f}  val {val_loss:.3f} / {val_acc:.3f}")
         forge.log(epoch=epoch, train_loss=train_loss, train_acc=train_acc, val_loss=val_loss,  # forge
                   val_acc=val_acc, lr=opt.param_groups[0]["lr"], model=model)  # forge
-        if val_acc > best_acc:
+        run_best = max(run_best, val_acc)
+        if val_acc > max(best_acc, kept_acc):
             best_acc = val_acc
             CHECKPOINT.parent.mkdir(exist_ok=True)
             torch.save(model.state_dict(), CHECKPOINT)
+            BEST.write_text(json.dumps({"val_acc": val_acc, "epoch": epoch, "epochs": args.epochs}))
 
     forge.evaluate(model, val_loader)  # forge
-    print(f"best val acc {best_acc:.3f}, saved to {CHECKPOINT}")
+    if best_acc:
+        print(f"best val acc {best_acc:.3f}, saved to {CHECKPOINT}")
+    else:
+        print(f"best val acc {run_best:.3f}; kept {CHECKPOINT} ({kept_acc:.3f} from an earlier run)")
 
 
 if __name__ == "__main__":
