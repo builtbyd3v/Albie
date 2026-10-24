@@ -19,6 +19,8 @@ EVENT_KEYS = {
     "ml.overfit_alert": {"run_id", "epoch", "reason"},
     "ml.graph_ready": set(),
     "ml.results_ready": {"run_id"},
+    "ml.class_acc": {"run_id", "epoch", "per_class"},
+    "ml.probe": {"run_id", "epoch", "samples"},
 }
 
 
@@ -76,3 +78,22 @@ def test_noisy_labels_are_confident_misses():
     for n in noise:
         s = samples[n["id"]]
         assert s["true_idx"] == n["noisy_idx"] and s["pred_idx"] == n["clean_idx"] and not s["correct"]
+
+
+def test_live_graph_mocks_tell_the_demo_story():
+    events = load("ml_events.json")
+    classes = load("ml_classes.json")
+    acc = [e["payload"] for e in events if e["type"] == "ml.class_acc"]
+    probe = [e["payload"] for e in events if e["type"] == "ml.probe"]
+    assert [a["epoch"] for a in acc] == [p["epoch"] for p in probe] == list(range(1, 16))
+    last = acc[-1]["per_class"]
+    assert len(last) == len(classes) and classes[last.index(min(last))] == "cat"  # cat learns slowest
+    assert all(late > early for early, late in zip(acc[0]["per_class"], last))
+
+    noisy = {n["id"] for n in load("ml_noise.json")["flipped"]}
+    ids = [s["id"] for s in probe[0]["samples"]]
+    assert len(ids) == 16 and all([s["id"] for s in p["samples"]] == ids for p in probe)
+    mislabeled = [s for s in probe[-1]["samples"] if s["id"] in noisy]
+    assert len(mislabeled) == 3 and all(s["pred_idx"] != s["label_idx"] and max(s["probs"]) > 0.8 for s in mislabeled)
+    for s in probe[-1]["samples"]:
+        assert abs(sum(s["probs"]) - 1) < 0.01 and s["probs"].index(max(s["probs"])) == s["pred_idx"]

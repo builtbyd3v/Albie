@@ -22,6 +22,7 @@ import numpy as np
 import torch
 import torchvision
 
+import forge
 from forge import atlas as forge_atlas
 from forge import evaluation
 from forge import graph as forge_graph
@@ -153,8 +154,40 @@ def make_predictions(clean_labels: list[int], noise: dict[int, int], rng: random
     return labels, np.array(probs)
 
 
-def make_events(final_val_acc: float, rng: random.Random) -> list[dict]:
-    """Replayable event stream: [{t, type, payload}], t in seconds from start."""
+def live_graphs(ids: list[str], labels: list[int], probs: np.ndarray, noise: dict[int, int]):
+    """Per-epoch ml.class_acc and ml.probe (ML_PLAN 8) that grow toward the final predictions.
+    Own RNG, so the rest of the mocks stay byte-identical. The probe strip is the SDK's pick with 3 of
+    the noisy-label samples swapped in: the model grows confident in the clean class against the label."""
+    rng = random.Random(SEED + 1)
+    n = len(CLASSES)
+    preds = probs.argmax(axis=1)
+    final = []
+    for c in range(n):
+        members = [i for i, y in enumerate(labels) if y == c]
+        final.append(sum(int(preds[i] == c) for i in members) / len(members))
+    speed = [0.12 + 0.3 * a for a in final]  # the weak classes (cat) learn late
+    probe = forge._pick_probe(labels, n)
+    probe = sorted(set(probe[:-3]) | set(sorted(noise)[:3]))
+
+    def at(epoch: int) -> list[tuple[str, dict]]:
+        per_class = [round(min(1.0, max(0.0, 0.1 + (a - 0.1) * (1 - math.exp(-k * epoch)) + rng.uniform(-0.02, 0.02))), 4)
+                     for a, k in zip(final, speed)]
+        w = 1 - math.exp(-0.25 * epoch)
+        samples = []
+        for i in probe:
+            mixed = [(1 - w) / n + w * float(p) + rng.uniform(0, 0.02) for p in probs[i]]
+            total = sum(mixed)
+            row = [round(p / total, 3) for p in mixed]
+            samples.append({"id": ids[i], "label_idx": labels[i], "pred_idx": row.index(max(row)), "probs": row})
+        return [("ml.class_acc", {"run_id": RUN_ID, "epoch": epoch, "per_class": per_class}),
+                ("ml.probe", {"run_id": RUN_ID, "epoch": epoch, "samples": samples})]
+
+    return at
+
+
+def make_events(final_val_acc: float, rng: random.Random, live=None) -> list[dict]:
+    """Replayable event stream: [{t, type, payload}], t in seconds from start.
+    `live(epoch)` adds that epoch's live-graph events after its metrics."""
     events = []
     t = 0.0
 
@@ -182,6 +215,8 @@ def make_events(final_val_acc: float, rng: random.Random) -> list[dict]:
                    "lr": lr}
         add("ml.run_state", {"run_id": RUN_ID, "status": "training", "epoch": e, "total_epochs": EPOCHS}, 1.5)
         add("ml.metrics", metrics, 0.05)
+        for event_type, payload in (live(e) if live else []):
+            add(event_type, payload, 0.02)
         # Same rule as the SDK: val loss up 2 epochs in a row while train loss down.
         if prev is not None:
             rises = rises + 1 if val_loss > prev["val_loss"] and train_loss < prev["train_loss"] else 0
@@ -232,7 +267,7 @@ def main() -> None:
     write_json("ml_noise.json", {"seed": NOISE_SEED, "rate": NOISE_RATE, "flipped": flipped})
 
     val_acc = summary["accuracy"]
-    events = make_events(val_acc, rng)
+    events = make_events(val_acc, rng, live_graphs(val.ids, labels, probs, noise))
     write_json("ml_events.json", events)
     metrics = [e["payload"] for e in events if e["type"] == "ml.metrics"]
     best = max(metrics, key=lambda m: m["val_acc"])
