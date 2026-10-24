@@ -216,13 +216,35 @@ async def _open_voice(s: Session, h: Hello) -> None:
     async def send_bytes(data: bytes) -> None:
         await bus.send_bytes(ws, data)
 
+    async def delegate(task: str, mode: str) -> str:
+        return await _run_delegate(s, task, mode)
+
     voice = make_voice(pet_id=s.pet_id, client_rate=h.audio_out_rate, send_event=send_event,
-                       send_bytes=send_bytes, emit=Emitter(s.pet_id), repo=_project_path(s))
+                       send_bytes=send_bytes, emit=Emitter(s.pet_id), repo=_project_path(s), delegate=delegate)
     if voice is None:
         return
     s.voice = voice
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))
     s.spawn(_voice_call(s, voice.start))
+
+
+async def _run_delegate(s: Session, task: str, mode: str) -> str:
+    """The voice model's delegate tool: one runner turn (same as agent.ask, so agent.cancel works); returns its answer."""
+    if s.turn and not s.turn.done():
+        if s.turn_mode == "code":
+            return "I'm still working on the last task. Give me a moment!"
+        await _cancel(s, announce=False)
+    try:
+        project = resolve_project(s.project_id)
+    except ProjectNotFound as exc:
+        return str(exc)
+    concrete = classify_mode(task, mode or project.default_mode)
+    s.control = TurnControl()
+    s.turn_mode = concrete
+    emit = Emitter(s.pet_id, redact=[str(project.path)])
+    coro = get_runner()(project, task, concrete, emit, pet_id=s.pet_id, control=s.control)
+    s.turn = asyncio.create_task(_guarded(coro, emit, s.pet_id))
+    return await s.turn
 
 
 async def _voice_call(s: Session, fn) -> None:

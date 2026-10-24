@@ -153,6 +153,13 @@ class AgentError(_Payload):
     message: str
 
 
+class AgentToolCall(_Payload):  # the voice model called a tool (debug caption / pet animation)
+    pet_id: str
+    call_id: str
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
 class VoiceReady(_Payload):  # hub -> owning socket after hello when VOICE_PROVIDER != none
     pet_id: str
     provider: str
@@ -190,6 +197,7 @@ HUB_MESSAGES: dict[str, type[_Payload]] = {
     "agent.task_progress": TaskProgress,
     "agent.task_complete": TaskComplete,
     "agent.error": AgentError,
+    "agent.tool_call": AgentToolCall,
 }
 
 # Sent to the voice session's own socket only (bus.send, not the Emitter), so no pet.state companion:
@@ -212,6 +220,7 @@ PET_STATE_FOR_EVENT: dict[str, PetMode] = {
     "agent.task_progress": "working",
     "agent.task_complete": "idle",
     "agent.error": "idle",
+    "agent.tool_call": "thinking",
 }
 
 
@@ -276,6 +285,10 @@ def task_complete(pet_id: str, task_id: str, summary: str, branch: str | None = 
 
 def error(pet_id: str, message: str) -> Event:
     return make("agent.error", AgentError(pet_id=pet_id, message=message))
+
+
+def tool_call(pet_id: str, call_id: str, name: str, args: dict[str, Any]) -> Event:
+    return make("agent.tool_call", AgentToolCall(pet_id=pet_id, call_id=call_id, name=name, args=args))
 
 
 def voice_ready(pet_id: str, provider: str, sample_rate: int) -> Event:

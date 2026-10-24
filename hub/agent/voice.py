@@ -5,7 +5,9 @@ VOICE_PROVIDER (env):
 * ``grok``  Grok Voice over raw websockets (``wss://api.x.ai/v1/realtime``), key ``XAI_API_KEY``.
 * ``fake``  canned reply from a bundled PCM file, no key, no network (Unity testing).
 
-Conversational path only (no tools / delegate yet). Push-to-talk is a manual turn:
+Grok handles conversation itself and has one tool, ``delegate``: anything about the repo, runs, CAD or a
+code change goes to the Claude runner (the "brain"), whose answer is then spoken verbatim with
+``force_message``. Push-to-talk is a manual turn:
 
     Unity stt.start     -> begin_turn()   (barge-in: cancel speech, clear the input buffer)
     Unity binary PCM16  -> feed()         (16 kHz mono, forwarded as input_audio_buffer.append)
@@ -18,6 +20,7 @@ Grok -> our events (docs/PET_AGENT_CONTRACT.md, Addendum B):
     response.output_audio.delta (base64)          -> tts.start (first chunk) + binary PCM16 frames
     response.output_audio_transcript.delta/.done  -> agent.partial_answer (cumulative) / agent.answer_done
     response.done                                 -> tts.end
+    response.function_call_arguments.done         -> agent.tool_call; delegate -> runner (see _on_function_call)
     error                                         -> agent.error
 
 Transcripts and agent.* go through the broadcast Emitter (other viewers stay in sync); tts.* and
@@ -45,6 +48,7 @@ log = logging.getLogger(__name__)
 
 SendEvent = Callable[[Event], Awaitable[Any]]
 SendBytes = Callable[[bytes], Awaitable[Any]]
+Delegate = Callable[[str, str], Awaitable[str]]  # (task, mode) -> spoken answer / summary
 
 INPUT_RATE = 16000
 SUPPORTED_RATES = {8000, 16000, 22050, 24000, 32000, 44100, 48000}
@@ -58,11 +62,34 @@ FAKE_ANSWER = "Hi! I'm Bit. I'm right here on your desk, ready to help."
 
 PERSONA = (
     "You are Bit, a small, cute and very competent alligator who lives on the user's desk in Forge, "
-    "a mixed-reality workspace for engineers. Speak in one to three short sentences, warm and a little "
-    "playful, never longer. No lists, no markdown, never read code aloud; say file and function names "
-    "plainly. If you don't know something about their project, say so briefly; you can't look things "
-    "up yet."
+    "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: bouncy, expressive "
+    "and playful, with the odd little 'ooh!' or 'hehe', but always helpful. Speak in one to three short "
+    "sentences, never longer. No lists, no markdown, never read code aloud; say file and function names "
+    "plainly."
 )
+DELEGATE_RULES = (
+    " You have one tool, delegate. Call it for anything about the user's code, repository, files, project, "
+    "training runs or CAD part, and for any request to write, fix or change code; never guess those details "
+    "yourself. Give it a self-contained task that includes what the user asked and any context from the "
+    "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
+    "ready. Answer everything else yourself."
+)
+DELEGATE_TOOL = {
+    "type": "function",
+    "name": "delegate",
+    "description": "Hand off anything needing real analysis of the user's repo, run results or CAD script, "
+                   "or any code change, to the engineering brain. Its answer is spoken to the user when ready.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "task": {"type": "string", "description": "self-contained instruction incl. context from the conversation"},
+            "mode": {"type": "string", "enum": ["qa", "code", "auto"],
+                     "description": "qa = answer a question, code = change code, auto = decide"},
+        },
+        "required": ["task"],
+    },
+}
+DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
 
 
 def provider() -> str:
@@ -143,7 +170,8 @@ class GrokVoiceSession(_Base):
     def __init__(self, *, pet_id: str, sample_rate: int, send_event: SendEvent, send_bytes: SendBytes,
                  emit: SendEvent, api_key: str | None = None, model: str | None = None,
                  voice: str | None = None, keyterms: list[str] | None = None,
-                 connect: Callable[[str, str], Awaitable[Any]] | None = None) -> None:
+                 connect: Callable[[str, str], Awaitable[Any]] | None = None,
+                 delegate: Delegate | None = None) -> None:
         super().__init__(pet_id=pet_id, sample_rate=sample_rate, send_event=send_event,
                          send_bytes=send_bytes, emit=emit)
         self._api_key = api_key if api_key is not None else os.getenv("XAI_API_KEY", "")
@@ -151,6 +179,13 @@ class GrokVoiceSession(_Base):
         self._voice = voice if voice is not None else os.getenv("GROK_VOICE", "")
         self._keyterms = (keyterms or [])[:100]
         self._connect = connect or _ws_connect
+        self._delegate = delegate
+        self._speed = os.getenv("GROK_VOICE_SPEED", "").strip()
+        self._pending_outputs: list[dict[str, Any]] = []  # function_call_output items sent after response.done
+        self._jobs: set[asyncio.Task[None]] = set()
+        self._suppress_transcript = False  # next response speaks a delegate answer the runner already captioned
+        self._response_suppressed = False
+        self._response_requested = False  # response.create sent, response.created not seen yet
         self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
@@ -186,6 +221,8 @@ class GrokVoiceSession(_Base):
                      self.sample_rate, (time.monotonic() - t0) * 1000)
 
     async def close(self) -> None:
+        for job in list(self._jobs):
+            job.cancel()
         for task in (self._watchdog, self._reader):
             if task is not None and not task.done():
                 task.cancel()
@@ -207,17 +244,25 @@ class GrokVoiceSession(_Base):
         transcription: dict[str, Any] = {"model": "grok-transcribe"}
         if self._keyterms:
             transcription["keyterms"] = self._keyterms
+        output: dict[str, Any] = {"format": {"type": "audio/pcm", "rate": self.sample_rate}}
+        if self._speed:
+            try:
+                output["speed"] = max(0.7, min(1.5, float(self._speed)))
+            except ValueError:
+                log.warning("GROK_VOICE_SPEED=%r is not a number", self._speed)
         session: dict[str, Any] = {
-            "instructions": PERSONA,
+            "instructions": PERSONA + (DELEGATE_RULES if self._delegate else ""),
             "turn_detection": None,  # push-to-talk: we commit the turn ourselves
             "reasoning": {"effort": "none"},
             "audio": {
                 "input": {"format": {"type": "audio/pcm", "rate": INPUT_RATE}, "transcription": transcription},
-                "output": {"format": {"type": "audio/pcm", "rate": self.sample_rate}},
+                "output": output,
             },
         }
         if self._voice:
             session["voice"] = self._voice
+        if self._delegate:
+            session["tools"] = [DELEGATE_TOOL]
         return {"type": "session.update", "session": session}
 
     # ------------------------------------------------------------ turn API (called by ws.py)
@@ -243,7 +288,7 @@ class GrokVoiceSession(_Base):
             await self._final("")
             return
         await self._send({"type": "input_audio_buffer.commit"})
-        await self._send({"type": "response.create"})
+        await self._request_response()
         await self._emit(ev.thinking(self.pet_id))
 
     async def cancel_turn(self) -> None:
@@ -318,17 +363,19 @@ class GrokVoiceSession(_Base):
             self._audio_started = False
             self._answer, self._answer_done = "", False
             self._forwarding = self._response_active = True
+            self._response_requested = False
+            self._response_suppressed, self._suppress_transcript = self._suppress_transcript, False
         elif t in ("response.output_audio.delta", "response.audio.delta"):
             delta = msg.get("delta")
             if delta:
                 await self._audio(base64.b64decode(delta))
         elif t in ("response.output_audio_transcript.delta", "response.audio_transcript.delta"):
-            if self._forwarding and msg.get("delta"):
+            if self._forwarding and msg.get("delta") and not self._response_suppressed:
                 await self._final()
                 self._answer += msg["delta"]
                 await self._emit(ev.partial_answer(self.pet_id, self._answer))
         elif t in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
-            if self._forwarding:
+            if self._forwarding and not self._response_suppressed:
                 await self._answer_finished(msg.get("transcript") or self._answer)
         elif t == "response.done":
             if self._forwarding:
@@ -338,10 +385,19 @@ class GrokVoiceSession(_Base):
                     await self._answer_finished(self._answer)
             self._forwarding = self._response_active = False
             self._audio_started = False
+            self._response_suppressed = False
+            if self._pending_outputs:  # tool results go back after the calling response, then ONE response.create
+                outputs, self._pending_outputs = self._pending_outputs, []
+                for item in outputs:
+                    await self._send(item)
+                await self._request_response()
+        elif t == "response.function_call_arguments.done":
+            await self._on_function_call(msg.get("name", ""), msg.get("call_id", ""), msg.get("arguments") or "{}")
         elif t == "error":
             err = msg.get("error") or {}
             message = err.get("message") if isinstance(err, dict) else str(err)
             log.warning("grok error: %s", msg)
+            self._response_requested = False
             if not self._final_sent:
                 await self._final("")
             await self._emit(ev.error(self.pet_id, f"Voice error: {message or 'unknown'}"))
@@ -349,6 +405,54 @@ class GrokVoiceSession(_Base):
             log.debug("grok %s", t)
         else:
             log.debug("grok: unhandled %s", t)
+
+    async def _request_response(self) -> None:
+        self._response_requested = True
+        await self._send({"type": "response.create"})
+
+    # ------------------------------------------------------------ tools
+    async def _on_function_call(self, name: str, call_id: str, arguments: str) -> None:
+        try:
+            args = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            args = {}
+        await self._emit(ev.tool_call(self.pet_id, call_id, name, args))
+        if name == "delegate" and self._delegate is not None and str(args.get("task", "")).strip():
+            mode = args.get("mode") if args.get("mode") in ("qa", "code", "auto") else "auto"
+            # Grok has no "pending" results: acknowledge now so it can say "on it", speak the answer later.
+            result = {"status": "started", "note": "The answer will be spoken to the user when it is ready."}
+            job = asyncio.create_task(self._run_delegate(str(args["task"]), mode))
+            self._jobs.add(job)
+            job.add_done_callback(self._jobs.discard)
+        else:
+            result = {"error": f"unknown tool {name!r}"}
+        self._pending_outputs.append({"type": "conversation.item.create", "item": {
+            "type": "function_call_output", "call_id": call_id, "output": json.dumps(result)}})
+
+    async def _run_delegate(self, task: str, mode: str) -> None:
+        assert self._delegate is not None
+        try:
+            answer = (await self._delegate(task, mode)).strip()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("delegate failed")
+            answer = "Oops, my brain hiccuped on that one. Can you ask again?"
+        if not answer:
+            return  # cancelled / superseded: nothing to say
+        await self.say(answer)
+
+    async def say(self, text: str) -> None:
+        """Speak text verbatim once Grok (and the user) are done talking; captions come from the runner."""
+        deadline = time.monotonic() + DRAIN_TIMEOUT_S
+        while (self._response_active or self._response_requested or self._pending_outputs or not self._final_sent) \
+                and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        await self.start()
+        self._suppress_transcript = True
+        await self._send({"type": "conversation.item.create", "item": {
+            "type": "force_message", "role": "assistant", "interruptible": True,
+            "content": [{"type": "output_text", "text": text}]}})
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
@@ -454,7 +558,7 @@ async def _ws_connect(url: str, api_key: str) -> Any:
 
 
 def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, send_bytes: SendBytes,
-               emit: SendEvent, repo: Path | None = None) -> VoiceSession | None:
+               emit: SendEvent, repo: Path | None = None, delegate: Delegate | None = None) -> VoiceSession | None:
     """The session for VOICE_PROVIDER, or None (``none``, or ``grok`` without XAI_API_KEY)."""
     p = provider()
     if p == "fake":
@@ -465,7 +569,7 @@ def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, s
             log.warning("VOICE_PROVIDER=grok but XAI_API_KEY is empty: voice off")
             return None
         return GrokVoiceSession(pet_id=pet_id, sample_rate=pick_out_rate(client_rate), send_event=send_event,
-                                send_bytes=send_bytes, emit=emit, keyterms=vocab_terms(repo))
+                                send_bytes=send_bytes, emit=emit, keyterms=vocab_terms(repo), delegate=delegate)
     if p != "none":
         log.warning("unknown VOICE_PROVIDER=%r: voice off", p)
     return None

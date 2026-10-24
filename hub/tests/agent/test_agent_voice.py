@@ -342,3 +342,96 @@ def test_stt_cancel_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch,
         ws.send_json({"type": "agent.ask", "payload": {"text": "error", "mode": "qa"}})
         after = _recv_until(ws, "agent.error")
     assert "tts.start" not in [t for t, _ in after]
+
+
+def test_delegate_round_trip() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        asked: list[tuple[str, str]] = []
+
+        async def delegate(task: str, mode: str) -> str:
+            asked.append((task, mode))
+            await asyncio.sleep(0)
+            return "The socket handler lives in hub/agent/ws.py."
+
+        s = GrokVoiceSession(pet_id="bit", sample_rate=48000, send_event=sink.owner, send_bytes=sink.audio,
+                             emit=sink.emit, api_key="k", connect=grok.connect, delegate=delegate)
+        await s.begin_turn()
+        sess = grok.sent[0]["session"]
+        assert sess["tools"][0]["name"] == "delegate" and "delegate" in sess["instructions"]
+        await s.feed(b"\x00\x00" * 4000)
+        await s.commit_turn()
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="where's the ws handler?")
+        grok.push(type="response.created")
+        grok.push(type="response.output_audio_transcript.delta", delta="On it!")
+        grok.push(type="response.function_call_arguments.done", name="delegate", call_id="c1",
+                  arguments=json.dumps({"task": "Where is the websocket handler?", "mode": "qa"}))
+        grok.push(type="response.done")
+        await _settle()
+
+        assert asked == [("Where is the websocket handler?", "qa")]
+        tool = next(v for k, v in sink.log if k == "emit" and v.type == "agent.tool_call")
+        assert tool.payload["name"] == "delegate" and tool.payload["call_id"] == "c1"
+        kinds = [(m["type"], (m.get("item") or {}).get("type")) for m in grok.sent]
+        i_out = kinds.index(("conversation.item.create", "function_call_output"))
+        assert kinds[i_out + 1] == ("response.create", None)  # the "on it" ack turn
+        assert json.loads(grok.sent[i_out]["item"]["output"])["status"] == "started"
+
+        # Grok speaks its ack; the answer waits until that response is done, then goes out verbatim.
+        grok.push(type="response.created")
+        await _settle()
+        assert ("conversation.item.create", "force_message") not in kinds
+        grok.push(type="response.done")
+        for _ in range(30):
+            await asyncio.sleep(0.02)
+            if any((m.get("item") or {}).get("type") == "force_message" for m in grok.sent):
+                break
+        forced = [m for m in grok.sent if (m.get("item") or {}).get("type") == "force_message"]
+        assert forced and forced[0]["item"]["content"][0]["text"] == "The socket handler lives in hub/agent/ws.py."
+
+        # The forced response's transcript is not re-captioned (the runner already sent answer_done); audio still plays.
+        n = len(sink.log)
+        grok.push(type="response.created")
+        grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 4))
+        grok.push(type="response.output_audio_transcript.delta", delta="The socket")
+        grok.push(type="response.output_audio_transcript.done", transcript="The socket handler...")
+        grok.push(type="response.done")
+        await _settle()
+        assert [x for x in sink.flat()[n:]] == ["owner:tts.start", "bytes:8", "owner:tts.end"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_unknown_tool_gets_error_output() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        grok.push(type="response.created")
+        grok.push(type="response.function_call_arguments.done", name="launch_rocket", call_id="x", arguments="{}")
+        grok.push(type="response.done")
+        await _settle()
+        out = [m for m in grok.sent if (m.get("item") or {}).get("type") == "function_call_output"]
+        assert out and "unknown tool" in json.loads(out[0]["item"]["output"])["error"]
+        assert "tools" not in grok.sent[0]["session"]  # no delegate wired -> no tools offered
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_delegate_over_ws_uses_the_runner(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ws wires delegate -> the (fake) Claude runner, which streams its usual agent.* events."""
+    import agent.ws as ws_mod
+
+    seen: dict[str, Any] = {}
+
+    def fake_make_voice(**kw: Any) -> Any:
+        seen.update(kw)
+        return None  # no voice session; we only want the delegate callable ws builds
+
+    monkeypatch.setattr(ws_mod, "make_voice", fake_make_voice)
+    with client.websocket_connect("/ws/agent") as ws:
+        ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
+        ws.send_json({"type": "agent.cancel", "payload": {}})  # round-trip so hello is processed
+        assert callable(seen.get("delegate"))
