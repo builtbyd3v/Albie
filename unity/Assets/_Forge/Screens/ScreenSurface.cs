@@ -69,7 +69,7 @@ public class ScreenSurface : MonoBehaviour
     void LateUpdate()
     {
         if (source == null || Time.unscaledTime < nextCopy) return;
-        nextCopy = Time.unscaledTime + 1f / copyRate;
+        nextCopy = Mathf.Max(nextCopy + 1f / copyRate, Time.unscaledTime); // fixed cadence: now + 1/rate skipped every other 30 fps frame at 72 Hz
         Graphics.Blit(source, mipped);
     }
 
