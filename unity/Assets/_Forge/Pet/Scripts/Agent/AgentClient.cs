@@ -14,7 +14,7 @@ namespace Forge.Pet
     /// </summary>
     public class AgentClient : MonoBehaviour, IPetEventSource
     {
-        // Hub → client types the pet cares about (docs/PET_AGENT_CONTRACT.md, incl. Addendum B).
+        // Hub → client types the pet cares about (docs/PET_AGENT_CONTRACT.md, incl. Addenda B and D).
         static readonly string[] EventTypes =
         {
             "pet.state", "pet.say",
@@ -22,6 +22,7 @@ namespace Forge.Pet
             "agent.thinking", "agent.partial_answer", "agent.answer_done",
             "agent.task_started", "agent.task_progress", "agent.task_complete", "agent.error", "agent.tool_call",
             "voice.ready", "tts.start", "tts.end", "tts.stop",
+            "crew.spawn", "crew.dismiss", "wake.listen",
         };
 
         public event Action<PetEvent> EventReceived;
