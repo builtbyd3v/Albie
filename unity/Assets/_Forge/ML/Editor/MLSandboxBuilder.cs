@@ -29,6 +29,7 @@ public static class MLSandboxBuilder
         Save(model,"Model3D");
         Save(Panel<ResultsWall>("ResultsWall", "ml-results", "Validation results", new Vector2(.65f,.45f)),"ResultsWall");
         Save(Panel<TrainingDash>("TrainingDash", "ml-training", "Training dashboard", new Vector2(.78f,.58f)),"TrainingDash");
+        Save(Panel<VizCard>("VizCard", "ml-viz-card", "Visualization", new Vector2(.78f,.42f)),"VizCard");
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var camera = new GameObject("Desktop camera").AddComponent<Camera>(); camera.tag = "MainCamera";
         camera.transform.position = new Vector3(0,1.5f,-1.8f); camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = new Color(.025f,.04f,.07f);
@@ -46,7 +47,7 @@ public static class MLSandboxBuilder
         Place("TrainingDash", new Vector3(.02f,1.95f,.15f), camera);
         EditorSceneManager.SaveScene(scene, "Assets/_Forge/ML/MLSandbox.unity");
         AssetDatabase.SaveAssets();
-        Debug.Log("[ML] Built four prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
+        Debug.Log("[ML] Built five prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
     }
     static void BuildMockReferences()
     {

@@ -28,6 +28,9 @@ settings are unchanged.
   overfit detection (two successive validation-loss increases as train loss falls),
   final confusion matrix and per-class accuracy. Click a matrix cell to filter
   ResultsWall by true/predicted pair. Replay restarts the training animation.
+- **VizCard:** reusable ForgePanel renderer with line, bar, heatmap, scatter,
+  table, image, and text modes. Configure its public fields, then call `Render()`
+  after changing data at runtime.
 
 ## Mock data and scope
 
@@ -69,6 +72,7 @@ Assign generated prefabs to Workspace's ML items:
 | `ml-model3d` | `Prefabs/Model3D.prefab` | Left |
 | `ml-results` | `Prefabs/ResultsWall.prefab` | Right |
 | `ml-training` | `Prefabs/TrainingDash.prefab` | Above |
+| `ml-viz-card` | `Prefabs/VizCard.prefab` | Any visualization slot |
 
 The stack and model ship inside ForgePanels with actual 3D meshes in front of
 the canvas, so their controls inherit ray/poke interaction. Set these Workspace
