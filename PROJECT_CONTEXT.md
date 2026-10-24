@@ -15,7 +15,8 @@
   - `ForgeVolume.prefab`: 3D container. `SetContent(go)` scales your model to fit `size` and stands it on the base; `turntable` spins it.
   - To plug a module in: make a prefab from these (a prefab variant is easiest), send it to Hudson, and it goes into that mode's item list on the `Workspace` object in Main (slot + prefab). Panel IDs come from section 7.
 - **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
-- **Next (Hudson):** `DesktopRig` (WASD + mouse fallback, press E to sit), then `ForgeNet` (WS/REST client), then grab/move for panels and volumes.
+- **Done: desktop mode.** Press Play with the simulator off (or tick **Forge > Desktop Mode (skip XR)**) and you get a first-person player instead of the VR rig: WASD walk, mouse look, click buttons under the crosshair, E to sit at the desk. The room is a JSON copy of the simulator's living room (`Core/Rooms/SimLivingRoom.json`) drawn as blocks, so the desk is in the same place. Same scene, same panels; build and test UI here, check the XR feel in the simulator. See 6.1.
+- **Next (Hudson):** `ForgeNet` (WS/REST client), then grab/move/resize for panels and volumes.
 - **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Unity CAD viewer (phase 2) not started. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
 - **ML plan written: `ML_PLAN.md`.** Open any ML repo: an LLM classifier reads the code and picks its type (image classifier, regression, ...), each type has a fixed list of visuals, and a second step writes the glue code into `.forge/`. ML A + ML B: start with its section 0 (pick and clean your repos); the image classification layout is its section 5.3. Open: which LLM and which live training graphs (the ML team decides), and how VS Code connects (ML_PLAN section 3, doesn't block ML work).
 
@@ -173,9 +174,15 @@ If the console shows red errors right after the first import, wait for importing
 
 **Simulator check (everyone):**
 1. `Window > Meta > Meta XR Simulator > Activate` (or the simulator toggle next to Play), then press Play in `Main.unity`.
-2. The simulator window opens. In its **Inputs** panel set left/right to keyboard + mouse. **Choose environment** picks a synthetic room; the default living room has one table.
-3. Pass: the console prints `[DeskLocator] Room ... loaded: N anchors, 1 table(s)` and `Desk at ...`, and the table is drawn blue in the simulator window. The Unity Game view stays black; passthrough only renders in the simulator window.
+2. The simulator window opens. Click **Choose environment** and pick the Living Room (without one, passthrough is black). Simulator keys: arrows look, WASD walk, R/F head up/down (F a few times = sitting), T trigger. Easiest clicking: Keyboard and mouse > **Point & click** on.
+3. Pass: the console prints `[DeskLocator] Room ... loaded: 27 anchors, 1 table(s)`. Walk to the table (about 1 m to your right) and the mode buttons appear on it. The Unity Game view stays black; passthrough only renders in the simulator window.
 4. Play-mode logs are also in `unity/Logs/Editor.log`.
+
+**Desktop mode (no simulator, quickest for building UI):**
+1. Simulator off (`Window > Meta > Meta XR Simulator > Deactivate`), or leave it on and tick **Forge > Desktop Mode (skip XR)**. Untick it to go back to the simulator.
+2. Press Play and click the Game view. WASD walk (Shift runs), mouse look, left-click presses the button under the crosshair. Esc frees the cursor (then click UI under the cursor, hold right mouse to look, click empty space to grab the mouse again).
+3. Walk to the table (about 1 m to your right), press **E** to sit, click a mode button. E again stands up.
+4. The room is the simulator's living room as blocks (floor, walls, wood desk, grey furniture). Walls and furniture block you; the chair doesn't.
 
 **Where things moved in SDK 207:** the Project Setup Tool is at `Edit > Project Settings > Meta XR` (no `Meta > Tools` menu). Building Blocks and the simulator are under `Window > Meta`.
 
@@ -256,7 +263,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 **Core ideas backlog (from the first simulator run, 2026-10-23):**
 - Move and resize panels: grab the title bar to move, corner handle to resize, bigger/smaller. Remember each mode's layout.
 - Layout style toggle: current arc around the eyes vs a flat wall (panels coplanar in a row, like a monitor array). Fix the overlaps some head positions cause in the arc (space slots by panel width).
-- Easier pressing: toggle controller models off (hands-first), and mouse clicking. Desktop mode gets mouse click via `DesktopRig`; in the simulator, turn on Keyboard and mouse > Point & click.
+- Easier pressing: toggle controller models off (hands-first). Mouse clicking: done in desktop mode; in the simulator, turn on Keyboard and mouse > Point & click.
 - Make it look like Meta built it: Interaction SDK ships Meta's Horizon OS "UI Set" (buttons, toggles, sliders, backplates) in `com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet`. Restyle `ForgePanel` and the dock with it.
 - Sitting: on the Quest you just sit (head height). In the simulator press F to lower the head. The simulator room (chair included) is a passthrough image, so it can't be moved; MRUK has no chair label.
 
