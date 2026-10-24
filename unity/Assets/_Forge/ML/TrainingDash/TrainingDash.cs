@@ -10,6 +10,7 @@ namespace Forge.ML
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
+        [Tooltip("Epochs for the Train button (POST /ml/train).")] public int trainEpochs = 10;
         TMP_Text status, warning;
         Image progress;
         MLCurve loss, accuracy;
@@ -28,7 +29,8 @@ namespace Forge.ML
             MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
             MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
             loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
-            warning = MLUI.Text(root, "", 8, 175, 630, 28, 14); warning.color = new Color(1,.6f,.25f);
+            warning = MLUI.Text(root, "", 8, 175, 530, 28, 14); warning.color = new Color(1,.6f,.25f);
+            MLUI.Button(root, "Train", 550, 172, 90, 28, () => session.Train(trainEpochs));
             MLUI.Button(root, "Replay", 650, 172, 90, 28, session.Restart);
             summary = MLUI.Rect("Evaluation", root, 8, 210, 740, 300);
             session.Changed += Refresh;
@@ -50,7 +52,7 @@ namespace Forge.ML
             int e = session.EpochIndex;
             status.text = e < 0 ? (session.Done ? $"DONE   run {session.RunId}" : session.HubData ? "Waiting for training..." : "Waiting for mock training...") :$"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
             progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
-            warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : "";
+            warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : session.Notice ?? "";
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
             if (session.Done && showLiveGraphs) showLiveGraphs = false;
             if (!session.Done || showLiveGraphs) { DrawLiveGraphs(); return; }
