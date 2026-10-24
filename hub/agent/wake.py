@@ -8,13 +8,12 @@ goes out only when a segment turns out to be a request for it:
     "Tester, run the hub tests"     -> crew.assign("tester", "run the hub tests") (hatches the tester if needed)
     "Hey Scout"                     -> wake.listen {pet_id: "scout"}: the next segment goes to the Scout, no name needed
     "...a bit later we can eat"     -> nobody: dropped (deleted from the voice conversation)
-    "open the ML panel" + facing    -> judged (agent/addressed.py): Albie answers only if it was said to him
-    "I don't know, bruh." + facing  -> dropped: talk to a person, not to Albie
+    "open the ML panel" + facing    -> Albie answers: looking at him counts as his name
+    "I don't know, bruh." + facing  -> dropped: agent/addressed.py word rules (talk to a person, fragments, filler)
 
-Unnamed turns are judged, never answered on facing alone: at a shared desk people face Albie while talking to each
-other. A turn is judged when the user faced Albie at speech onset (stt.start {facing: true}) or it is a gated turn
-(begin(gated=True): a look-to-talk / follow-up reply, stt.start {require_name: true}); any other unnamed turn is
-dropped without a judge call.
+An unnamed turn is answered only when the user faced Albie at speech onset (stt.start {facing: true}). A gated
+turn (begin(gated=True): Unity's follow-up window while looking elsewhere, stt.start {require_name: true}) and
+any other unnamed turn are dropped: every sentence says "Albie" unless you look at him (Dev, 2026-10-24).
 
 A name counts when it opens the sentence (after an optional "hey / ok / hi / yo"), or closes it after a comma
 ("thanks, Albie"), so "wait a bit" never wakes Albie. The lead's name is said "AL-bee"; at the start it may also
@@ -100,7 +99,7 @@ class WakeRouter:
         self._spawn = spawn  # fire-and-forget on the socket's task set
         self.target: str | None = None  # from stt.start {wake, pet_id}: addressed up front
         self.facing = False  # from stt.start {wake, facing}: user faced the lead at speech onset
-        self.gated = False  # a look-to-talk / follow-up reply (stt.start {require_name}): judged like facing
+        self.gated = False  # a look-to-talk / follow-up reply (stt.start {require_name}): needs the name
         # Was an unnamed sentence said to the lead? The voice session sets one with his last line as context.
         self.judge: Callable[[str, bool], Awaitable[bool]] = lambda text, gated: addressed.judge(text, gated=gated)
         self.judged: bool | None = None  # last final's verdict (None = no judge call), for the turn: log line
@@ -130,7 +129,6 @@ class WakeRouter:
         ask = pid is None and (facing or gated) and bool(text.strip())
         self.judged = None
         if ask:
-            # ponytail: awaited on the voice reader (up to addressed.JUDGE_TIMEOUT_S); nothing else is due for this turn
             self.judged = await self.judge(text, gated)
             if self.judged:
                 pid, rest = self.lead, text.strip()

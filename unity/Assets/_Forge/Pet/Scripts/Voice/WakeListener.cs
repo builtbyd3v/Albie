@@ -188,6 +188,8 @@ namespace Forge.Pet
         void BeginSegment()
         {
             bool facing = followUp != null && followUp.UserFacing;   // at speech onset: facing Bit = no name needed. ponytail: reuses GatorFollowUp's cone, no shared helper class
+            if (followUp != null)   // one line per segment: why facing missed (angle vs cone), read from quest-unity.log
+                Debug.Log($"[WakeListener] segment: facing={facing} angle={followUp.LastLookAngle:F0} limit={followUp.LastLookLimit:F0}");
             var start = new JObject { ["pet_id"] = _target ?? LeadPetId, ["wake"] = true, ["facing"] = facing, ["sample_rate"] = Rate, ["encoding"] = "pcm16" };
             _client.Send("stt.start", start);
             // Pre-roll, oldest first (it includes the chunks that crossed the threshold).

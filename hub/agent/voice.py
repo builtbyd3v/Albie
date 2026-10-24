@@ -30,10 +30,10 @@ the crew's gators live on that screen. None (the client never said) leaves them 
 
 Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
 and no response until ``wake_router`` has read the transcript; it answers only if a gator was named (or the user
-faced Albie and agent/addressed.py judged it was said to him), otherwise the committed item is deleted so room
+faced Albie and agent/addressed.py's word rules don't rule it out), otherwise the committed item is deleted so room
 chatter never reaches the conversation. A gated turn (``begin_turn(require_name=True)``: a look-to-talk / follow-up
-reply) takes the same route and is judged too; when dropped it still ends with an empty stt.final, since Unity's
-hands-free session waits for one.
+reply) takes the same route and needs the name; when dropped it still ends with an empty stt.final, since Unity's
+hands-free session waits for one. "Stop" on these turns stops Albie only with his name or while facing him.
 
 Transcripts and agent.* go through the broadcast Emitter (other viewers stay in sync); tts.* and
 audio go to the owning socket only. The reader is the only task that sends tts.*/audio, so the
@@ -140,7 +140,6 @@ STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "pl
                                                                 "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
-CONVERSATION_S = 15.0  # an unnamed wake turn this soon after Albie stopped talking is a reply to him (same as Unity's follow-up window)
 WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
 
 
@@ -261,8 +260,7 @@ class _Base:
 
     async def addressed(self, text: str, gated: bool = False) -> bool:
         """WakeRouter.judge: was this unnamed sentence said to Albie? His last line is the context."""
-        age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
-        return await addressed.judge(text, self.last_reply or None, age, gated=gated)
+        return await addressed.judge(text, self.last_reply or None, gated=gated)
 
     def _spoke(self, text: str) -> None:
         if text.strip():
@@ -313,7 +311,6 @@ class GrokVoiceSession(_Base):
         # Grok sends speech faster than real time, so Unity is often still playing after response.done.
         self._playing_utt: str | None = None
         self._play_until = 0.0  # monotonic time Unity's queued speech runs out
-        self._spoke_until = 0.0  # ...for the last reply, kept after a stop (CONVERSATION_S counts from here)
         self._answer = ""
         self._answer_done = False
         self._forwarding = False
@@ -395,7 +392,7 @@ class GrokVoiceSession(_Base):
     # ------------------------------------------------------------ turn API (called by ws.py)
     async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
-        gated = require_name and not wake and self.wake_router is not None  # judged on its transcript, like a wake turn
+        gated = require_name and not wake and self.wake_router is not None  # routed on its transcript, like a wake turn
         wake = wake or gated
         if not wake:  # room chatter must not cut Albie off; a named turn barges in once it's routed
             await self.stop_speech("barge_in")
@@ -407,11 +404,6 @@ class GrokVoiceSession(_Base):
         if gated:
             self._gated = True
             self.wake_router.begin(None, gated=True)
-        elif self._wake and (self._response_active or
-                             time.monotonic() - max(self.last_reply_t, self._spoke_until) < CONVERSATION_S):
-            # Live 18:39: "Onto the table to walk around." right after "Have it walk." reached us as a plain wake
-            # turn (WakeListener, not the follow-up window) and was dropped unjudged. Mid-conversation it is a reply.
-            self.wake_router.gated = True
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -462,7 +454,8 @@ class GrokVoiceSession(_Base):
         """A wake turn's transcript after its turn was superseded or timed out: route it now with its own flags."""
         text = text.strip()
         if is_stop(text):
-            await self.stop_speech("barge_in")
+            if has_name(text) or c.flags[1]:  # "Albie, stop", or "stop" while looking at him
+                await self.stop_speech("barge_in")
             respond = False
         elif text and self.wake_router is not None:
             respond = (await self.wake_router.final(text, c.flags)).respond
@@ -724,6 +717,10 @@ class GrokVoiceSession(_Base):
         wake = self._wake
         gated = self._gated or (wake and bool(self.wake_router.gated))  # read before the router resets it in final()
         facing = wake and bool(self.wake_router.facing)  # read before the router resets it in final()
+        if stop and wake and (named != "no" or facing):
+            # A wake / gated turn never barges in by itself (side talk must not cut Albie off): only "Albie, stop"
+            # or "stop" while looking at him does. A plain "stop" to a teammate leaves him talking.
+            await self.stop_speech("barge_in")
         await super()._final(text)
         answered = self._wake_answered if wake else bool(final)
         judged = self.wake_router.judged if wake else None
@@ -742,7 +739,6 @@ class GrokVoiceSession(_Base):
         await self._send_bytes(pcm)
         self._playing_utt = self._utt
         self._play_until = max(self._play_until, time.monotonic()) + len(pcm) / 2 / self.sample_rate
-        self._spoke_until = self._play_until
 
     async def _answer_finished(self, text: str) -> None:
         self._answer_done = True

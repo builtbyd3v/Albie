@@ -18,6 +18,4 @@ slack-sdk==3.45.0
 aiohttp==3.14.5
 # Optional speech-to-text (STT_PROVIDER=whisper):
 # faster-whisper>=1.0
-# Optional "said to Albie?" judge (agent/addressed.py; without it, word rules only):
-# anthropic
 certifi==2026.10.23  # CA bundle for the Slack client (python.org macOS builds ship none)

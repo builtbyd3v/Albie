@@ -26,7 +26,6 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from . import addressed
 from . import events as ev
 from . import speech
 from .bus import Emitter, bus
@@ -301,7 +300,6 @@ async def _open_voice(s: Session, h: Hello) -> None:
     judge = getattr(voice, "addressed", None)  # unnamed facing / follow-up turns: judged with Albie's last line
     if s.wake is not None and judge is not None:
         s.wake.judge = judge
-        addressed.warm()  # the SDK import + client, before the first judged turn (not on it)
     voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted

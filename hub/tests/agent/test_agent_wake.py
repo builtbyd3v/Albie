@@ -272,36 +272,49 @@ def test_grok_gated_reply_waits_for_the_judge_and_a_dropped_one_still_ends_the_t
     asyncio.run(run())
 
 
-def test_grok_unnamed_wake_turn_right_after_albie_spoke_counts_as_a_reply() -> None:
-    """Live 18:39: "Onto the table to walk around." came as a plain wake turn right after Albie answered "Have it
-    walk." and was dropped unjudged. Within CONVERSATION_S of his last line it is judged as a reply."""
+def test_grok_unnamed_turn_after_albie_spoke_still_needs_his_name() -> None:
+    """Dev's rule: no implicit follow-ups; side talk right after Albie answered ("It would be cool if...") is dropped."""
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
-        r = Recorder()
-        s.wake_router = r.router()
-        asked: list[tuple[str, bool]] = []
-
-        async def judge(text: str, gated: bool) -> bool:
-            asked.append((text, gated))
-            return gated
-
-        s.wake_router.judge = judge
-        T = "conversation.item.input_audio_transcription"
-
-        async def turn(text: str, item: str) -> None:
-            await s.begin_turn(wake=True)
-            await s.feed(b"\x00\x00" * 3200)
-            await s.commit_turn()
-            grok.push(type="input_audio_buffer.committed", item_id=item)
-            grok.push(type=f"{T}.completed", transcript=text)
-            await _settle()
-
-        await turn("Onto the table to walk around.", "item_1")  # Albie hasn't spoken: room chatter
-        assert asked == [] and "response.create" not in grok.types()
+        s.wake_router = Recorder().router()
         s._spoke("Okay, it's walking now.")
-        await turn("Onto the table to walk around.", "item_2")
-        assert asked == [("Onto the table to walk around.", True)] and grok.types()[-1] == "response.create"
+        T = "conversation.item.input_audio_transcription"
+        await s.begin_turn(wake=True)
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type=f"{T}.completed", transcript="It would be cool if you could control the screen.")
+        await _settle()
+        assert "response.create" not in grok.types()
+        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("said, stops", [("Albie, stop.", True), ("Stop.", False)])
+def test_stop_needs_his_name_on_a_hands_free_turn(said: str, stops: bool) -> None:
+    """A plain "stop" to a teammate must not cut Albie off; "Albie, stop" does."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        s.wake_router = Recorder().router()
+        stopped: list[str] = []
+
+        async def stop_speech(reason: str = "cancel") -> None:
+            stopped.append(reason)
+
+        s.stop_speech = stop_speech  # type: ignore[method-assign]
+        T = "conversation.item.input_audio_transcription"
+        await s.begin_turn(require_name=True)  # Unity's follow-up / cut-in while looking elsewhere
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type=f"{T}.completed", transcript=said)
+        await _settle()
+        assert (stopped == ["barge_in"]) is stops
+        assert "response.create" not in grok.types()
         await s.close()
 
     asyncio.run(run())
