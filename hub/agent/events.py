@@ -64,6 +64,7 @@ class SttStart(_Payload):
     pet_id: str | None = None
     sample_rate: int = 16000
     encoding: Literal["pcm16"] = "pcm16"
+    require_name: bool = False  # proposed: look-to-talk turn opened while the user wasn't facing Bit
 
 
 class SttStop(_Payload):

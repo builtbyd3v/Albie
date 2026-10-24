@@ -592,3 +592,43 @@ def test_stop_word_ends_the_turn_without_a_reply() -> None:
         await s.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("text,named", [
+    ("Bit, what's my static margin?", True), ("Hey Bit what is apogee", True), ("Okay Bit, explain fins.", True),
+    ("How stable is it, Bit?", True), ("... bid. How's my rocket?", True),
+    ("I'm a bit tired", False), ("What did you think of the talk?", False), ("", False),
+])
+def test_has_name(text: str, named: bool) -> None:
+    assert voice_mod.has_name(text) is named
+
+
+@pytest.mark.parametrize("said,answered", [("So what did you think of the demo?", False), ("Bit, what is apogee?", True)])
+def test_turn_that_needs_the_name(said: str, answered: bool) -> None:
+    """Look-to-talk: a turn opened while the user wasn't facing Bit only counts if they say his name.
+    Side conversation is dropped silently: no captions, no reply."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn(require_name=True)
+        await s.feed(b"\x10\x00" * 9600)
+        T = "conversation.item.input_audio_transcription"
+        grok.push(type=f"{T}.updated", transcript=said)
+        await _settle()
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type=f"{T}.completed", transcript=said)
+        grok.push(type="response.created")
+        grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 100))
+        grok.push(type="response.done")
+        await _settle()
+        finals = [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"]
+        partials = [v for k, v in sink.log if k == "emit" and v.type == "stt.partial"]
+        assert finals == ([said] if answered else [""])
+        assert bool(partials) is answered
+        assert ("owner:tts.start" in sink.flat()) is answered
+        await s.begin_turn()  # the next turn doesn't need the name
+        assert s._require_name is False
+        await s.close()
+
+    asyncio.run(run())
