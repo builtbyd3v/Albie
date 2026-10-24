@@ -283,12 +283,12 @@ MonoBehaviour:
     m_Name: XRSelect
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: d76d2f12-da6b-49a1-bf08-75c52ffeacbf
+    m_Id: 367c7f54-4965-40cb-b4d8-613dc5216e37
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings:
     - m_Name: 
-      m_Id: 08003c7a-caa1-45ad-b037-f5ad204b458a
+      m_Id: 7216fe9a-2ede-4543-9beb-ae3581c87689
       m_Path: <XRController>/{TriggerButton}
       m_Interactions: 
       m_Processors: 
@@ -342,6 +342,7 @@ MonoBehaviour:
   controller: {fileID: 1124947603312513688}
   expressions: {fileID: 5483496642845409791}
   caption: {fileID: 4915495619108957880}
+  pushToTalk: {fileID: 6902552125889962105}
   tts: {fileID: 0}
   playIntroOnStart: 1
   wanderAfterSpeech: 1
@@ -361,7 +362,7 @@ MonoBehaviour:
     m_Name: PushToTalk
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: b143c8cd-8514-40d2-b706-5329c60b27fa
+    m_Id: 625ce305-eda8-4d30-a40f-e16d3cc09623
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings: []
@@ -376,6 +377,7 @@ MonoBehaviour:
   endSilence: 0.9
   speechLevel: 0.03
   minSpeechSeconds: 0.25
+  finalTimeout: 6
 --- !u!114 &4940771685852338038
 MonoBehaviour:
   m_ObjectHideFlags: 0

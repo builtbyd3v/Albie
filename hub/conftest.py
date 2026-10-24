@@ -7,3 +7,5 @@ construct ScreenBridgeService themselves with a stand-in command (tests/test_scr
 import os
 
 os.environ.setdefault("SCREEN_BRIDGE", "0")
+# A developer's hub/.env may say VOICE_PROVIDER=grok; tests must not open a Grok session (load_env never overrides).
+os.environ.setdefault("VOICE_PROVIDER", "none")
