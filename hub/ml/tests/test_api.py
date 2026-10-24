@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from events import EventBus
 from ml import make_mocks
 from ml.models import (Atlas, Confusion, DatasetItem, Graph, RegressionResults, Results, RunInfo, SampleDetail,
-                       Summary)
+                       Summary, VizCard)
 from ml.router import router
 from ml.service import MLService
 
@@ -119,6 +119,14 @@ def test_replay_streams_the_recording_onto_ws(client, image_repo):
     assert any(e["type"] == "ml.overfit_alert" for e in got)
 
 
+def test_metrics_history_feeds_curves_after_training(client):
+    h = client.get("/ml/metrics/mock0001").json()
+    epochs = [m["epoch"] for m in h["metrics"]]
+    assert epochs == sorted(set(epochs)) and len(epochs) == h["total_epochs"] == 15
+    assert h["overfit"] is not None
+    assert client.get("/ml/metrics/missing").status_code == 404
+
+
 def test_regression_mock(tmp_path):
     make_mocks.regression(tmp_path / "reg")
     with TestClient(make_app(tmp_path / "reg")) as c:
@@ -128,6 +136,36 @@ def test_regression_mock(tmp_path):
         assert 0 < Summary(**c.get("/ml/summary/mockreg1").json()).r2 < 1
         assert c.get("/ml/classes").status_code == 404
         assert SampleDetail(**c.get("/ml/sample/row_0003").json()).meta["rooms"] >= 1
+
+
+def test_viz_cards_for_image_classification(client, image_repo):
+    cards = [VizCard(**c) for c in client.get("/ml/viz").json()]
+    by_id = {c.viz_id: c for c in cards}
+    assert by_id["per_class_accuracy"].kind == "bar" and len(by_id["per_class_accuracy"].series[0].y) == 10
+    heat = by_id["confusion_matrix"]
+    assert heat.kind == "heatmap" and len(heat.cells) == len(heat.x_labels) == 10
+    assert all(c.run_id == "mock0001" and c.panel == "ml-viz" for c in cards)
+    assert client.get("/ml/viz", params={"run_id": "mock0001"}).json() == client.get("/ml/viz").json()
+
+
+def test_viz_png_extras_become_image_cards(client, image_repo):
+    viz = image_repo / ".forge" / "runs" / "mock0001" / "viz"
+    viz.mkdir()
+    (viz / "class_balance.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    card = next(c for c in client.get("/ml/viz").json() if c["viz_id"] == "class_balance")
+    assert card["kind"] == "image" and card["png_url"] == "/ml/viz/mock0001/class_balance.png"
+    r = client.get(card["png_url"])
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert client.get("/ml/viz/mock0001/missing.png").status_code == 404
+    assert client.get("/ml/viz/..%2F..%2Fsecrets/x.png").status_code == 404
+
+
+def test_viz_cards_for_regression(tmp_path):
+    make_mocks.regression(tmp_path / "reg")
+    with TestClient(make_app(tmp_path / "reg")) as c:
+        by_id = {v.viz_id: v for v in (VizCard(**x) for x in c.get("/ml/viz").json())}
+    assert by_id["pred_vs_actual"].kind == "scatter" and by_id["pred_vs_actual"].points[0].id
+    assert by_id["residual_hist"].kind == "bar" and sum(by_id["residual_hist"].series[0].y) == len(by_id["pred_vs_actual"].points)
 
 
 def test_train_launches_the_repo_command_with_run_id_and_hub(tmp_path):

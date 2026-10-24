@@ -11,6 +11,7 @@ namespace Forge.ML
         public string id, thumb_url, name, path, split;
         public int label_idx, width, height, channels;
         public long file_size;
+        public bool removed;
     }
     [Serializable] public class MLGraph { public MLLayer[] layers; }
     [Serializable] public class MLResults { public MLSample[] samples; }

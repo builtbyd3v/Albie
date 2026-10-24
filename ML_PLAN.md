@@ -3,7 +3,9 @@
 > Companion to `PROJECT_CONTEXT.md` sections 8.3 and 8.4. Written for the two ML people (ML A: Python side, ML B: Unity side) and their coding agents.
 > Contract changes in section 7 are **proposals** until the team agrees (PROJECT_CONTEXT section 12).
 
-**Status 2026-10-23:** plan only, nothing built yet. Decided with Hudson:
+**Status 2026-10-24:** A1–A5, A8, B1–B6 built; L1 started with the live dot wall (`forge.log(..., model=model)` → `ml.epoch_preds`). Unity panels load the hub's data when Live, relabel/remove go through the hub, `/ml/viz` serves chart cards, the ML sandbox runs in the Meta XR Simulator. Open: teammate repos for A5's cold-open test, A6, A7, the `ml` router in `hub/main.py` (Person 5), ML prefabs in Main (Hudson), Bit's setup cards (Person 5), a Quest build.
+
+**Decided 2026-10-23** with Hudson:
 - A **classifier** (an LLM call) reads the repo's key files and says what type of project it is: image classifier, regression, and so on. Each type has a **fixed list of what to show** (section 5). A second step writes the glue code so those visuals work with this particular repo.
 - The setup only ever writes inside a `.forge/` folder in the repo. Changes to the user's training script are a **proposed patch the user approves**.
 - **Every training run is saved automatically** and can be replayed, so the demo never depends on training behaving live.

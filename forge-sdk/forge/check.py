@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 import traceback
@@ -17,9 +18,10 @@ from typing import Any, Callable
 import numpy as np
 
 from forge import adapter as forge_adapter
-from forge import graph
 
 TIME_LIMIT_S = 60
+# Sample ids end up in hub URLs and file names (/ml/sample/{id}, images/<id>.png): plain characters only.
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 CLASSIFICATION = ("image_classification", "text_classification")
 
 
@@ -71,6 +73,9 @@ def run_checks(repo: str | Path, n: int = 8) -> dict:
         assert 0 < len(ids) <= n, f"expected 1..{n} samples, got {len(ids)}"
         assert len(set(ids)) == len(ids), "sample ids are not unique"
         assert ids == [s.id for s in second], "sample ids differ between two calls"
+        bad = [i for i in ids if not SAFE_ID.match(str(i))]
+        assert not bad, (f"sample ids must match {SAFE_ID.pattern} (letters, digits, _ . -; used in URLs and "
+                         f"file names), got {bad[:3]}")
         return first
 
     batch = c.run("samples", samples)
@@ -101,6 +106,8 @@ def _not_none(value: Any, msg: str) -> Any:
 
 
 def _layers(model: Any, example: Any) -> list:
+    from forge import graph  # torch: only for repos with a layer graph
+
     sample = example[0] if getattr(example, "dim", lambda: 0)() > 0 else example
     layers = graph.describe(model, sample)["layers"]
     assert layers, "forward hooks saw no layers"

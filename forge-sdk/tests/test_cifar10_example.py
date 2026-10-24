@@ -74,3 +74,22 @@ def test_check_reports_a_broken_adapter_instead_of_raising(tmp_path):
     build = next(c for c in result["checks"] if c["name"] == "build_model")
     assert "model.py not found" in build["detail"]
     assert json.loads((tmp_path / ".forge" / "check.json").read_text())["ok"] is False
+
+
+def test_check_rejects_sample_ids_the_hub_cant_serve(tmp_path):
+    (tmp_path / ".forge").mkdir()
+    (tmp_path / ".forge" / "profile.json").write_text(json.dumps({"archetype": "regression"}))
+    (tmp_path / ".forge" / "adapter.py").write_text(
+        "import numpy as np\n"
+        "from forge.adapter import Adapter, Sample\n"
+        "class Rows(Adapter):\n"
+        "    archetype = 'regression'\n"
+        "    def build_model(self):\n"
+        "        return 1.0\n"
+        "    def samples(self, split='val', limit=1000):\n"
+        "        return [Sample(id=f'val:2018-03-0{i}:SPY', item=1.0, label=1.0, name='x') for i in range(3)]\n"
+        "    def predict(self, model, items):\n"
+        "        return np.array(items)\n")
+    result = run_checks(tmp_path)
+    samples = next(c for c in result["checks"] if c["name"] == "samples")
+    assert not samples["ok"] and "letters, digits" in samples["detail"]

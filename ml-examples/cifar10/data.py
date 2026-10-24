@@ -35,6 +35,7 @@ class LabeledSubset(Subset):
         super().__init__(dataset, indices)
         self.labels = labels
         self.ids = ids
+        self.names = [f"{i}.png" for i in ids]  # what the picked-image card shows as the file name
 
     def __getitem__(self, i: int):
         img, _ = self.dataset[self.indices[i]]

@@ -3,8 +3,11 @@
     import forge
     forge.watch(model, val_dataset, classes=CLASSES)
     for epoch ...:
-        forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=...)
+        forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=..., model=model)
     forge.evaluate(model, val_loader)
+
+`model=model` on `log` adds the live visuals (ML_PLAN 8): one no_grad pass over the watched val samples
+per epoch, sent as ml.epoch_preds so the dot wall fills in while it trains. Leave it off for curves only.
 
 Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `<run dir>/<run_id>/`:
 the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
@@ -22,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from forge import client
+from forge import client, evaluation  # atlas/graph import torch: loaded when first needed
 
 OVERFIT_EPOCHS = 2
 
@@ -39,6 +42,8 @@ class _Run:
     alerted: bool = False
     best_epoch: int | None = None
     best_val_acc: float | None = None
+    val_data: Any = None    # the dataset given to watch, for the live per-epoch predictions
+    n_samples: int = 1000   # how many of them the atlas (and so the dot wall) holds
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
@@ -57,8 +62,9 @@ def _run_root(run_dir: str | os.PathLike | None) -> Path:
 
 
 def _start_run(total_epochs: int = 0, run_dir: str | os.PathLike | None = None) -> _Run:
+    """FORGE_RUN_ID (set by the hub's POST /ml/train) names the first run, so the hub knows it up front."""
     global _run
-    run_id = uuid.uuid4().hex[:8]
+    run_id = os.environ.pop("FORGE_RUN_ID", None) or uuid.uuid4().hex[:8]
     path = _run_root(run_dir) / run_id
     path.mkdir(parents=True, exist_ok=True)
     _run = _Run(run_id, path, total_epochs)
@@ -89,6 +95,10 @@ def _num(x: Any) -> float:
     return float(x.item() if hasattr(x, "item") else x)
 
 
+def _opt(x: Any) -> float | None:
+    return None if x is None else _num(x)
+
+
 def watch(
     model: Any,
     val_dataset: Any,
@@ -103,12 +113,14 @@ def watch(
         return None
     run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
     run.classes = [str(c) for c in classes]
+    run.val_data = val_dataset
     _attempt("classes", lambda: run.write_json("classes.json", run.classes))
 
     def save_atlas() -> None:
         from forge import atlas
 
         image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
+        run.n_samples = len(items)
         image.save(run.dir / "atlas.png")
         run.write_json("atlas.json", atlas_meta)
         run.write_json("dataset.json", items)
@@ -127,29 +139,53 @@ def watch(
 
 
 def log(
-    epoch: int,
-    train_loss: float,
-    train_acc: float,
-    val_loss: float,
-    val_acc: float,
-    lr: float,
+    epoch: int = 0,
+    train_loss: float | None = None,
+    train_acc: float | None = None,
+    val_loss: float | None = None,
+    val_acc: float | None = None,
+    lr: float | None = None,
     step: int = 0,
+    model: Any = None,
+    **extra: float,
 ) -> None:
-    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting."""
+    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting.
+
+    Any metric can be left out (None). Other numeric metrics (e.g. val_sharpe=1.2) go in `extra`, so a
+    script without loss/accuracy still logs what it has, and no keyword ever raises into training.
+    With `model` (and a `watch` earlier in the run) it also sends ml.epoch_preds for the live dot wall.
+    """
 
     def send() -> None:
         run = _current()
-        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _num(train_loss),
-                   "train_acc": _num(train_acc), "val_loss": _num(val_loss), "val_acc": _num(val_acc),
-                   "lr": _num(lr)}
+        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _opt(train_loss),
+                   "train_acc": _opt(train_acc), "val_loss": _opt(val_loss), "val_acc": _opt(val_acc),
+                   "lr": _opt(lr)}
+        if extra:
+            metrics["extra"] = {k: _opt(v) for k, v in extra.items()}
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": metrics["epoch"],
                                   "total_epochs": run.total_epochs})
         run.emit("ml.metrics", metrics)
-        if run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc:
+        if metrics["val_acc"] is not None and (run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc):
             run.best_epoch, run.best_val_acc = metrics["epoch"], metrics["val_acc"]
-        _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+        if metrics["train_loss"] is not None and metrics["val_loss"] is not None:
+            _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+        if model is not None and run.val_data is not None:
+            _attempt("live predictions", lambda: _send_epoch_preds(run, model, metrics["epoch"]))
 
     _attempt("log", send)
+
+
+def _send_epoch_preds(run: _Run, model: Any, epoch: int) -> None:
+    """ml.epoch_preds {run_id, epoch, pred_idx}: the predicted class of each watched val sample, in
+    /ml/dataset order (ML_PLAN 7.5, live dot wall). Eval mode and no_grad, like evaluate."""
+    from torch.utils.data import Subset
+
+    data = run.val_data
+    if len(data) > run.n_samples:
+        data = Subset(data, range(run.n_samples))
+    _, _, probs = _predict_all(model, data)
+    run.emit("ml.epoch_preds", {"run_id": run.run_id, "epoch": epoch, "pred_idx": probs.argmax(axis=1).tolist()})
 
 
 def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) -> None:
@@ -179,8 +215,6 @@ def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) ->
     """
 
     def finish() -> None:
-        from forge import evaluation
-
         run = _current()
         total = run.total_epochs
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "evaluating", "epoch": total, "total_epochs": total})
@@ -209,6 +243,8 @@ def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:
     import torch
     from torch.utils.data import DataLoader
 
+    from forge import atlas
+
     if isinstance(val_data, DataLoader):
         dataset, batch_size, collate = val_data.dataset, val_data.batch_size or 256, val_data.collate_fn
     else:
@@ -230,9 +266,5 @@ def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:
                 labels.extend(int(v) for v in (y.tolist() if hasattr(y, "tolist") else y))
     finally:
         model.train(was_training)
-    ids = getattr(dataset, "ids", None)
-    if ids is None:
-        from forge import atlas
-
-        ids = [atlas.sample_id(i) for i in range(len(labels))]
+    ids = getattr(dataset, "ids", None) or [atlas.sample_id(i) for i in range(len(labels))]
     return list(ids), labels, np.concatenate(probs)

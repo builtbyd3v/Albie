@@ -1,0 +1,130 @@
+{
+  "active": "rocket",
+  "parts": [
+    {
+      "part": "rocket",
+      "title": "Model rocket",
+      "description": "Estes C6 model rocket: nose cone, body tube, motor mount, fins. Live Barrowman stability.",
+      "presets": [
+        {
+          "name": "Smaller fins",
+          "params": {
+            "fin_root": 42,
+            "fin_tip": 21,
+            "fin_span": 36,
+            "fin_sweep": 21
+          }
+        },
+        {
+          "name": "Four fins",
+          "params": {
+            "fin_count": 4
+          }
+        },
+        {
+          "name": "Longer body",
+          "params": {
+            "body_length": 360
+          }
+        },
+        {
+          "name": "Cone nose",
+          "params": {
+            "nose_shape": "cone"
+          }
+        }
+      ],
+      "features": [
+        "flight"
+      ],
+      "version": 1,
+      "active": true,
+      "glyph": "rocket"
+    },
+    {
+      "part": "quadcopter",
+      "title": "Quadcopter",
+      "description": "FPV drone: carbon plates and arms, motors, props, battery. The props have to clear each other.",
+      "presets": [
+        {
+          "name": "7-inch props",
+          "params": {
+            "prop_diameter": 7.0
+          }
+        },
+        {
+          "name": "Long range 7-inch",
+          "params": {
+            "prop_diameter": 7.0,
+            "arm_length": 160,
+            "motor_size": 32,
+            "battery_mah": 2200
+          }
+        },
+        {
+          "name": "Hexacopter",
+          "params": {
+            "arm_count": 6,
+            "arm_length": 150,
+            "plate_size": 90
+          }
+        },
+        {
+          "name": "3-inch micro",
+          "params": {
+            "prop_diameter": 3.0,
+            "arm_length": 65,
+            "motor_size": 16,
+            "plate_size": 45,
+            "battery_mah": 650
+          }
+        }
+      ],
+      "features": [],
+      "version": 5,
+      "active": false,
+      "glyph": "drone"
+    },
+    {
+      "part": "gearbox",
+      "title": "Gearbox",
+      "description": "Spur gear reducer: pinion, gear, shafts, bearings, split housing. Ratio = gear teeth / pinion teeth.",
+      "presets": [
+        {
+          "name": "High reduction",
+          "params": {
+            "pinion_teeth": 12,
+            "gear_teeth": 72
+          }
+        },
+        {
+          "name": "1:1 transfer",
+          "params": {
+            "pinion_teeth": 30,
+            "gear_teeth": 30
+          }
+        },
+        {
+          "name": "Heavy duty",
+          "params": {
+            "module": 2.5,
+            "face_width": 18,
+            "shaft_diameter": 12
+          }
+        },
+        {
+          "name": "Compact",
+          "params": {
+            "module": 1.0,
+            "face_width": 6,
+            "shaft_diameter": 5
+          }
+        }
+      ],
+      "features": [],
+      "version": 8,
+      "active": false,
+      "glyph": "gears"
+    }
+  ]
+}

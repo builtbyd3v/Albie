@@ -1,0 +1,472 @@
+{
+  "type": "cad.model_updated",
+  "payload": {
+    "version": 1,
+    "part": "rocket",
+    "title": "Model rocket",
+    "params": {
+      "body_length": 300.0,
+      "body_diameter": 40.0,
+      "nose_length": 90.0,
+      "nose_shape": "ogive",
+      "fin_count": 3,
+      "fin_root": 70.0,
+      "fin_tip": 35.0,
+      "fin_span": 60.0,
+      "fin_sweep": 35.0
+    },
+    "previous_version": null,
+    "changed_ids": [],
+    "removed_ids": [],
+    "source": "mock",
+    "analysis": {
+      "mass_g": 79.0,
+      "cg_gltf": [
+        0.0,
+        0.14384,
+        0.0
+      ],
+      "size_mm": [
+        121.4,
+        140.2,
+        390.0
+      ],
+      "part_count": 8,
+      "metrics": [
+        {
+          "id": "margin",
+          "label": "Static margin",
+          "value": 1.5652,
+          "unit": "cal",
+          "display": "1.57 cal",
+          "status": "ok",
+          "min": 0.0,
+          "max": 3.0,
+          "bands": [
+            {
+              "to": 1.0,
+              "status": "bad"
+            },
+            {
+              "to": 1.5,
+              "status": "warn"
+            },
+            {
+              "to": 2.5,
+              "status": "ok"
+            },
+            {
+              "to": 3.0,
+              "status": "warn"
+            }
+          ],
+          "note": "stable"
+        },
+        {
+          "id": "cg",
+          "label": "CG from tip",
+          "value": 246.1622,
+          "unit": "mm",
+          "display": "246 mm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "cp",
+          "label": "CP from tip",
+          "value": 308.7706,
+          "unit": "mm",
+          "display": "309 mm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "mass",
+          "label": "Mass",
+          "value": 78.9533,
+          "unit": "g",
+          "display": "79 g",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "size",
+          "label": "Size",
+          "value": 390.0,
+          "unit": "mm",
+          "display": "121 x 140 x 390 mm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "parts",
+          "label": "Parts",
+          "value": 8.0,
+          "unit": "",
+          "display": "8",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        }
+      ],
+      "length_mm": 390.0,
+      "diameter_mm": 40.0,
+      "cg_mm": 246.2,
+      "cp_mm": 308.8,
+      "margin_cal": 1.57,
+      "stable": true,
+      "stability": "stable",
+      "cna_per_rad": 15.21,
+      "motor": "Estes C6",
+      "markers_gltf": {
+        "cg": [
+          0.0,
+          0.14384,
+          0.0
+        ],
+        "cp": [
+          0.0,
+          0.08123,
+          0.0
+        ]
+      },
+      "breakdown": [
+        {
+          "id": "NOSE_CONE",
+          "mass_g": 12.22
+        },
+        {
+          "id": "BODY_TUBE",
+          "mass_g": 20.69
+        },
+        {
+          "id": "MOUNT_TUBE",
+          "mass_g": 1.57
+        },
+        {
+          "id": "CENTERING_RING_AFT",
+          "mass_g": 1.77
+        },
+        {
+          "id": "CENTERING_RING_FWD",
+          "mass_g": 1.77
+        },
+        {
+          "id": "FIN_1",
+          "mass_g": 1.61
+        },
+        {
+          "id": "FIN_2",
+          "mass_g": 1.61
+        },
+        {
+          "id": "FIN_3",
+          "mass_g": 1.61
+        },
+        {
+          "name": "Estes C6 (loaded)",
+          "mass_g": 24.1
+        },
+        {
+          "name": "recovery (parachute, shock cord, wadding)",
+          "mass_g": 12.0
+        }
+      ],
+      "assumptions": [
+        "Barrowman static CP: subsonic, zero angle of attack, body tube adds no lift.",
+        "CG at liftoff with a loaded motor (the least stable moment of a normal flight).",
+        "Masses from part geometry and the densities in the part script; glue and paint ignored."
+      ],
+      "markers": [
+        {
+          "id": "cg",
+          "label": "CG",
+          "kind": "cg",
+          "pos": [
+            0.0,
+            0.14384,
+            0.0
+          ]
+        },
+        {
+          "id": "cp",
+          "label": "CP",
+          "kind": "cp",
+          "pos": [
+            0.0,
+            0.08123,
+            0.0
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "length",
+          "label": "Length",
+          "value_mm": 390.0,
+          "from": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "to": [
+            0.0,
+            0.39,
+            0.0
+          ],
+          "offset_dir": [
+            0.5,
+            0.0,
+            0.86603
+          ],
+          "offset_mm": 40.0
+        },
+        {
+          "id": "diameter",
+          "label": "Body diameter",
+          "value_mm": 40.0,
+          "from": [
+            -0.02,
+            0.18,
+            0.0
+          ],
+          "to": [
+            0.02,
+            0.18,
+            0.0
+          ],
+          "offset_dir": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "offset_mm": 35.0
+        },
+        {
+          "id": "fin_span",
+          "label": "Fin span",
+          "value_mm": 60.0,
+          "from": [
+            0.02,
+            0.035,
+            0.0
+          ],
+          "to": [
+            0.08,
+            0.035,
+            0.0
+          ],
+          "offset_dir": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "offset_mm": 47.0
+        }
+      ],
+      "explode": {
+        "axis": "stack",
+        "parts": [
+          {
+            "id": "NOSE_CONE",
+            "dir": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "dist_mm": 97.5,
+            "order": 0
+          },
+          {
+            "id": "BODY_TUBE",
+            "dir": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "dist_mm": 0.0,
+            "order": 0
+          },
+          {
+            "id": "MOUNT_TUBE",
+            "dir": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "dist_mm": 122.8,
+            "order": 1
+          },
+          {
+            "id": "CENTERING_RING_AFT",
+            "dir": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "dist_mm": 150.7,
+            "order": 2
+          },
+          {
+            "id": "CENTERING_RING_FWD",
+            "dir": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "dist_mm": 92.9,
+            "order": 2
+          },
+          {
+            "id": "FIN_1",
+            "dir": [
+              0.88722,
+              -0.46135,
+              0.0
+            ],
+            "dist_mm": 50.7,
+            "order": 1
+          },
+          {
+            "id": "FIN_2",
+            "dir": [
+              -0.44361,
+              -0.46135,
+              -0.76835
+            ],
+            "dist_mm": 50.7,
+            "order": 1
+          },
+          {
+            "id": "FIN_3",
+            "dir": [
+              -0.44361,
+              -0.46135,
+              0.76835
+            ],
+            "dist_mm": 50.7,
+            "order": 1
+          }
+        ]
+      },
+      "mass_breakdown": [
+        {
+          "id": "NOSE_CONE",
+          "label": "Nose cone",
+          "mass_g": 12.2,
+          "share": 0.1548,
+          "part_ids": [
+            "NOSE_CONE"
+          ]
+        },
+        {
+          "id": "BODY_TUBE",
+          "label": "Body tube",
+          "mass_g": 20.7,
+          "share": 0.262,
+          "part_ids": [
+            "BODY_TUBE"
+          ]
+        },
+        {
+          "id": "MOTOR_MOUNT",
+          "label": "Motor mount",
+          "mass_g": 5.1,
+          "share": 0.0646,
+          "part_ids": [
+            "MOUNT_TUBE",
+            "CENTERING_RING_AFT",
+            "CENTERING_RING_FWD"
+          ]
+        },
+        {
+          "id": "FIN_SET",
+          "label": "Fin set",
+          "mass_g": 4.8,
+          "share": 0.0613,
+          "part_ids": [
+            "FIN_1",
+            "FIN_2",
+            "FIN_3"
+          ]
+        },
+        {
+          "id": "ESTES_C6_LOADED",
+          "label": "Estes C6 (loaded)",
+          "mass_g": 24.1,
+          "share": 0.3052,
+          "part_ids": []
+        },
+        {
+          "id": "RECOVERY_PARACHUTE_SHOCK_CORD_WADDING",
+          "label": "Recovery (parachute, shock cord, wadding)",
+          "mass_g": 12.0,
+          "share": 0.152,
+          "part_ids": []
+        }
+      ],
+      "demo": {
+        "kind": "launch",
+        "label": "Fly",
+        "note": "Launches on an Estes C6-5 and comes down on a 305 mm parachute.",
+        "source": "/cad/flight",
+        "axis": {
+          "origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "dir": [
+            0.0,
+            1.0,
+            0.0
+          ]
+        },
+        "values": {
+          "rail_m": 0.9,
+          "inclination_deg": 85.0,
+          "ejection_delay_s": 5.0,
+          "parachute_mm": 305.0
+        },
+        "spin_parts": [],
+        "readouts": [],
+        "assumptions": [],
+        "blocked": null,
+        "reveal_ids": []
+      },
+      "verdict": {
+        "status": "ok",
+        "headline": "Stable",
+        "sentence": "Flies straight. 1.57 cal margin; 1.5 to 2.5 is the sweet spot.",
+        "metric": "margin"
+      },
+      "constants": [
+        {
+          "label": "Motor",
+          "value": "Estes C6-5",
+          "note": "24.1 g loaded \u00b7 fixed in rocket.py"
+        },
+        {
+          "label": "Recovery",
+          "value": "12 in parachute",
+          "note": "12 g with shock cord and wadding"
+        }
+      ]
+    },
+    "label": "Defaults"
+  }
+}

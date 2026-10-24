@@ -7,9 +7,14 @@ import warnings
 from typing import Any
 
 import numpy as np
-import torch
 from PIL import Image
-from torch.utils.data import Dataset, Subset
+
+try:  # torch is optional: Keras / plain-list datasets work too
+    import torch
+    from torch.utils.data import Subset
+except ImportError:  # pragma: no cover - exercised in torch-free envs
+    torch = None
+    Subset = ()  # isinstance(x, ()) is always False
 
 MAX_TEXTURE = 2048  # Quest texture limit (CLAUDE.md)
 
@@ -18,7 +23,7 @@ def sample_id(i: int, split: str = "val") -> str:
     return f"{split}_{i:04d}"
 
 
-def _unwrap(dataset: Dataset, i: int) -> tuple[Dataset, int]:
+def _unwrap(dataset: Any, i: int) -> tuple[Any, int]:
     """Follow Subset chains down to the base dataset and its index."""
     while isinstance(dataset, Subset):
         i = dataset.indices[i]
@@ -26,7 +31,7 @@ def _unwrap(dataset: Dataset, i: int) -> tuple[Dataset, int]:
     return dataset, i
 
 
-def _raw_item(dataset: Dataset, i: int) -> tuple[Any, Any]:
+def _raw_item(dataset: Any, i: int) -> tuple[Any, Any]:
     """The item with the base dataset's `transform` (e.g. Normalize) switched off, so thumbnails keep
     their real colors. Read through the top-level dataset, so Subset wrappers that relabel still apply."""
     base, _ = _unwrap(dataset, i)
@@ -43,7 +48,7 @@ def _raw_item(dataset: Dataset, i: int) -> tuple[Any, Any]:
 def to_pil(img: Any) -> Image.Image:
     if isinstance(img, Image.Image):
         return img.convert("RGB")
-    arr = img.detach().cpu().numpy() if isinstance(img, torch.Tensor) else np.asarray(img)
+    arr = img.detach().cpu().numpy() if torch is not None and isinstance(img, torch.Tensor) else np.asarray(img)
     if arr.ndim == 3 and arr.shape[0] in (1, 3) and arr.shape[-1] not in (1, 3):
         arr = arr.transpose(1, 2, 0)  # CHW -> HWC
     if arr.ndim == 3 and arr.shape[-1] == 1:
@@ -58,10 +63,10 @@ def to_pil(img: Any) -> Image.Image:
 
 
 def _label(target: Any) -> int:
-    return int(target.item() if isinstance(target, torch.Tensor) else target)
+    return int(target.item() if hasattr(target, "item") else target)
 
 
-def build(dataset: Dataset, cell: int = 64, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
+def build(dataset: Any, cell: int = 64, split: str = "val") -> tuple[Image.Image, dict, list[dict]]:
     """Returns (atlas image, {cell, cols, index}, [{id, name, kind, label_idx}]).
 
     Ids come from `dataset.ids` when the dataset has them (stable across removals), else `val_0000`...

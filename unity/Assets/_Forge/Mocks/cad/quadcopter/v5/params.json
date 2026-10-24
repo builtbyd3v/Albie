@@ -1,0 +1,165 @@
+{
+  "part": "quadcopter",
+  "title": "Quadcopter",
+  "description": "FPV drone: carbon plates and arms, motors, props, battery. The props have to clear each other.",
+  "version": 5,
+  "params": [
+    {
+      "name": "arm_count",
+      "value": 4,
+      "min": 4,
+      "max": 8,
+      "unit": "",
+      "step": 2,
+      "options": null,
+      "label": "Arms",
+      "group": "Frame",
+      "help": "4 is a quad, 6 a hexacopter. Props spin in opposite pairs, so it's always even.",
+      "default": 4,
+      "parts": [
+        "ARM_1",
+        "ARM_2",
+        "ARM_3",
+        "ARM_4"
+      ],
+      "dimension": null
+    },
+    {
+      "name": "arm_length",
+      "value": 110.0,
+      "min": 60,
+      "max": 220,
+      "unit": "mm",
+      "step": 5,
+      "options": null,
+      "label": "Arm length",
+      "group": "Frame",
+      "help": "Centre to motor. Longer arms make room for bigger props.",
+      "default": 110.0,
+      "parts": [
+        "ARM_1",
+        "ARM_2",
+        "ARM_3",
+        "ARM_4"
+      ],
+      "dimension": "wheelbase"
+    },
+    {
+      "name": "prop_diameter",
+      "value": 5.0,
+      "min": 2,
+      "max": 10,
+      "unit": "in",
+      "step": 0.5,
+      "options": null,
+      "label": "Prop diameter",
+      "group": "Props",
+      "help": "Bigger props lift more, but they have to clear their neighbours.",
+      "default": 5.0,
+      "parts": [
+        "PROP_1",
+        "PROP_2",
+        "PROP_3",
+        "PROP_4"
+      ],
+      "dimension": "prop"
+    },
+    {
+      "name": "motor_size",
+      "value": 28.0,
+      "min": 14,
+      "max": 40,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Motor diameter",
+      "group": "Power",
+      "help": "Bigger motors push harder and weigh more.",
+      "default": 28.0,
+      "parts": [
+        "MOTOR_1",
+        "MOTOR_2",
+        "MOTOR_3",
+        "MOTOR_4"
+      ],
+      "dimension": null
+    },
+    {
+      "name": "plate_size",
+      "value": 70.0,
+      "min": 40,
+      "max": 140,
+      "unit": "mm",
+      "step": 5,
+      "options": null,
+      "label": "Plate size",
+      "group": "Frame",
+      "help": "The square carbon plates in the middle.",
+      "default": 70.0,
+      "parts": [
+        "BOTTOM_PLATE",
+        "TOP_PLATE"
+      ],
+      "dimension": null
+    },
+    {
+      "name": "battery_mah",
+      "value": 1300,
+      "min": 450,
+      "max": 3000,
+      "unit": "mAh",
+      "step": 50,
+      "options": null,
+      "label": "Battery",
+      "group": "Power",
+      "help": "Capacity: longer hover time, but a heavier drone.",
+      "default": 1300,
+      "parts": [
+        "BATTERY"
+      ],
+      "dimension": null
+    }
+  ],
+  "presets": [
+    {
+      "name": "7-inch props",
+      "params": {
+        "prop_diameter": 7.0
+      }
+    },
+    {
+      "name": "Long range 7-inch",
+      "params": {
+        "prop_diameter": 7.0,
+        "arm_length": 160,
+        "motor_size": 32,
+        "battery_mah": 2200
+      }
+    },
+    {
+      "name": "Hexacopter",
+      "params": {
+        "arm_count": 6,
+        "arm_length": 150,
+        "plate_size": 90
+      }
+    },
+    {
+      "name": "3-inch micro",
+      "params": {
+        "prop_diameter": 3.0,
+        "arm_length": 65,
+        "motor_size": 16,
+        "plate_size": 45,
+        "battery_mah": 650
+      }
+    }
+  ],
+  "features": [],
+  "groups": [
+    "Frame",
+    "Props",
+    "Power"
+  ],
+  "glyph": "drone"
+}

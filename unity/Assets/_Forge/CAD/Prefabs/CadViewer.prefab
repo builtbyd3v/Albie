@@ -10,7 +10,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 2373450314488642489, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
       propertyPath: m_text
-      value: Rocket
+      value: Design
       objectReference: {fileID: 0}
     - target: {fileID: 3408495683672727638, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
       propertyPath: m_Name
@@ -99,6 +99,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 3408495683672727638, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
       insertIndex: -1
       addedObject: {fileID: 7080548455948260615}
+    - targetCorrespondingSourceObject: {fileID: 3408495683672727638, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4224433564489742449}
   m_SourcePrefab: {fileID: 100100000, guid: cb2a901ed5a913f49a3fb4a169602d15, type: 3}
 --- !u!1 &4155851297497978344 stripped
 GameObject:
@@ -132,3 +135,28 @@ MonoBehaviour:
   explodeRadial: 1.5
   focusDim: 0.12
   showMarkers: 1
+  hoverColor: {r: 0.45, g: 0.85, b: 1, a: 1}
+  hoverWidth: 0.004
+  stageDistance: 0.6
+  stageDrop: 0.1
+  stageSize: {x: 0.6, y: 0.6, z: 0.36}
+  stageYaw: 30
+  stageTilt: 25
+  inspectSeconds: 0.6
+--- !u!114 &4224433564489742449
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4155851297497978344}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6eede01dc6e2b47448d2f32dfda709b3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CadTakeApart
+  snapDistance: 0.03
+  maxSnapWorld: 0.08
+  turnGain: 3
+  pushPerNotch: 0.04
+  homeSeconds: 0.35

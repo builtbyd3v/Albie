@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 MOCKS = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ml"
 sys.path.insert(0, str(ROOT / "hub"))
-from ml.models import Atlas, Confusion, DatasetItem, Graph, Results  # noqa: E402
+from ml.models import Atlas, Confusion, DatasetItem, Graph, Results, Summary  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not MOCKS.exists(), reason="run forge-sdk/tools/make_ml_mocks.py first")
 
@@ -34,6 +34,9 @@ def test_rest_mocks_match_contract():
     Graph(**load("ml_graph.json"))
     results = Results(**load("ml_results.json"))
     confusion = Confusion(**load("ml_confusion.json"))
+    summary = Summary(**load("ml_summary.json"))
+    assert min(summary.per_class, key=lambda c: c.accuracy).name == "cat"  # the pet's "why so bad at cats?"
+    assert summary.best_epoch is not None and summary.confident_mistakes
 
     ids = {d.id for d in dataset}
     assert ids == set(atlas.index) == {s.id for s in results.samples}

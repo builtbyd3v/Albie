@@ -1,0 +1,138 @@
+{
+  "part": "gearbox",
+  "title": "Gearbox",
+  "description": "Spur gear reducer: pinion, gear, shafts, bearings, split housing. Ratio = gear teeth / pinion teeth.",
+  "version": 8,
+  "params": [
+    {
+      "name": "pinion_teeth",
+      "value": 15,
+      "min": 8,
+      "max": 40,
+      "unit": "",
+      "step": 1,
+      "options": null,
+      "label": "Pinion teeth",
+      "group": "Gears",
+      "help": "Teeth on the small input gear. Under 14 they get undercut.",
+      "default": 15,
+      "parts": [
+        "PINION"
+      ],
+      "dimension": "centre_distance"
+    },
+    {
+      "name": "gear_teeth",
+      "value": 45,
+      "min": 16,
+      "max": 100,
+      "unit": "",
+      "step": 1,
+      "options": null,
+      "label": "Gear teeth",
+      "group": "Gears",
+      "help": "Teeth on the big output gear. Ratio = gear teeth / pinion teeth.",
+      "default": 45,
+      "parts": [
+        "GEAR"
+      ],
+      "dimension": "centre_distance"
+    },
+    {
+      "name": "module",
+      "value": 1.5,
+      "min": 0.75,
+      "max": 3.0,
+      "unit": "mm",
+      "step": 0.25,
+      "options": null,
+      "label": "Gear module",
+      "group": "Gears",
+      "help": "Tooth size: pitch diameter / teeth. Bigger teeth carry more load.",
+      "default": 1.5,
+      "parts": [
+        "PINION",
+        "GEAR"
+      ],
+      "dimension": "centre_distance"
+    },
+    {
+      "name": "face_width",
+      "value": 10.0,
+      "min": 4,
+      "max": 30,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Face width",
+      "group": "Gears",
+      "help": "How wide the gears are along their shafts.",
+      "default": 10.0,
+      "parts": [
+        "PINION",
+        "GEAR"
+      ],
+      "dimension": "depth"
+    },
+    {
+      "name": "shaft_diameter",
+      "value": 8.0,
+      "min": 4,
+      "max": 16,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Shaft diameter",
+      "group": "Shafts",
+      "help": "Thicker shafts are stiffer but leave less metal round the pinion's bore.",
+      "default": 8.0,
+      "parts": [
+        "INPUT_SHAFT",
+        "BEARING_IN_FRONT",
+        "BEARING_IN_BACK",
+        "OUTPUT_SHAFT",
+        "BEARING_OUT_FRONT",
+        "BEARING_OUT_BACK"
+      ],
+      "dimension": null
+    }
+  ],
+  "presets": [
+    {
+      "name": "High reduction",
+      "params": {
+        "pinion_teeth": 12,
+        "gear_teeth": 72
+      }
+    },
+    {
+      "name": "1:1 transfer",
+      "params": {
+        "pinion_teeth": 30,
+        "gear_teeth": 30
+      }
+    },
+    {
+      "name": "Heavy duty",
+      "params": {
+        "module": 2.5,
+        "face_width": 18,
+        "shaft_diameter": 12
+      }
+    },
+    {
+      "name": "Compact",
+      "params": {
+        "module": 1.0,
+        "face_width": 6,
+        "shaft_diameter": 5
+      }
+    }
+  ],
+  "features": [],
+  "groups": [
+    "Gears",
+    "Shafts"
+  ],
+  "glyph": "gears"
+}

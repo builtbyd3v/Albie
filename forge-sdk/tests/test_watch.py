@@ -54,7 +54,7 @@ def test_atlas_uses_raw_colors_through_subset_and_normalize():
     image, meta, items = atlas.build(Subset(base, range(10, 30)))
     assert base.transform is NORMALIZED  # restored
     assert meta["cols"] == 5 and meta["cell"] == [64, 64] and image.size == (5 * 64, 4 * 64)
-    assert items[0] == {"id": "val_0000", "label_idx": 0}  # base index 10 -> label 0
+    assert items[0] == {"id": "val_0000", "name": "val_0000", "kind": "image", "label_idx": 0}  # base 10 -> 0
     assert image.getpixel((0, 0)) == (10, 100, 200)  # un-normalized pixel from base index 10
     assert meta["index"]["val_0019"] == 19
 
@@ -105,3 +105,28 @@ def test_watch_writes_run_dir_and_emits_events(tmp_path, capsys):
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [e["type"] for e in events] == ["ml.run_state", "ml.graph_ready"]
     assert events[0]["payload"] == {"run_id": run_id, "status": "training", "epoch": 0, "total_epochs": 3}
+
+
+def test_log_with_model_sends_live_predictions_and_keeps_train_mode(tmp_path, capsys):
+    model = SmallCNN()
+    run_id = forge.watch(model, FakeVision(12, transform=NORMALIZED), classes=[str(i) for i in range(10)],
+                         epochs=2, run_dir=tmp_path)
+    capsys.readouterr()
+    model.train()
+    forge.log(epoch=1, train_loss=1.0, val_loss=1.1, model=model)
+    assert model.training
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [e["type"] for e in events] == ["ml.run_state", "ml.metrics", "ml.epoch_preds"]
+    preds = events[-1]["payload"]
+    assert preds["run_id"] == run_id and preds["epoch"] == 1
+    assert len(preds["pred_idx"]) == 12 and all(0 <= p < 10 for p in preds["pred_idx"])
+    assert "model" not in events[1]["payload"].get("extra", {})
+
+
+def test_live_predictions_cover_only_the_atlas_samples(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(atlas, "MAX_TEXTURE", 64 * 2)  # a 2x2 atlas: 4 cells
+    model = SmallCNN()
+    forge.watch(model, FakeVision(9, transform=NORMALIZED), classes=[str(i) for i in range(10)], run_dir=tmp_path)
+    forge.log(epoch=1, model=model)
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(next(e for e in events if e["type"] == "ml.epoch_preds")["payload"]["pred_idx"]) == 4

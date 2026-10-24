@@ -7,7 +7,8 @@ using UnityEngine.UI;
 
 namespace Forge.ML
 {
-    /// <summary>Renders a VizCard contract payload and can page through module-owned mock cards.</summary>
+    /// <summary>Renders a VizCard contract payload and pages through cards: the module-owned mocks, or the hub's
+    /// GET /ml/viz once ForgeNet is Live (refetched on ml.results_ready; ml.viz events add or replace one card).</summary>
     [RequireComponent(typeof(ForgePanel))]
     public sealed class VizCard : MonoBehaviour
     {
@@ -26,21 +27,76 @@ namespace Forge.ML
         public Texture image;
         public event Action<string> SampleSelected;
         RectTransform root;
-        JArray mockCards;
-        int mockIndex;
+        JArray cards;
+        int cardIndex;
+        IDisposable vizEvents;
+        Texture2D downloaded;
 
+        void OnEnable()
+        {
+            ForgeNet.StatusChanged += OnNetStatus;
+            ForgeEvents.OnMlResultsReady += OnResultsReady;
+            vizEvents = ForgeNet.On("ml.viz", OnVizEvent);
+        }
+        void OnDisable()
+        {
+            ForgeNet.StatusChanged -= OnNetStatus;
+            ForgeEvents.OnMlResultsReady -= OnResultsReady;
+            vizEvents?.Dispose(); vizEvents = null;
+        }
         void Start()
         {
             root = GetComponent<ForgePanel>().Content;
             var fixtures = Resources.Load<TextAsset>("MLVizCardMocks");
             if (fixtures != null)
             {
-                mockCards = JArray.Parse(fixtures.text);
-                if (mockCards.Count > 0) LoadJson(mockCards[0].ToString(Formatting.None));
+                cards = JArray.Parse(fixtures.text);
+                if (cards.Count > 0) LoadJson(cards[0].ToString(Formatting.None));
                 Render();
             }
             else Render();
+            if (ForgeNet.Status == ForgeNetStatus.Live) FetchCards(null);
         }
+        void OnNetStatus(ForgeNetStatus status) { if (status == ForgeNetStatus.Live && root != null) FetchCards(null); }
+        void OnResultsReady(global::MlResultsReady ready) { if (ready != null) FetchCards(ready.runId); }
+        void FetchCards(string runId)
+        {
+            ForgeNet.Get("/ml/viz" + (string.IsNullOrEmpty(runId) ? "" : "?run_id=" + Uri.EscapeDataString(runId)), text =>
+            {
+                var hub = JArray.Parse(text);
+                if (hub.Count == 0) return;  // nothing computed yet: keep what is shown
+                cards = hub; Show(0);
+            }, e => Debug.LogWarning("[ML] Chart cards unavailable: " + e));
+        }
+        void OnVizEvent(JToken card)
+        {
+            if (!(card is JObject obj) || root == null) return;
+            if (cards == null) cards = new JArray();
+            string id = Text(obj["viz_id"], null);
+            int index = -1;
+            for (int i = 0; i < cards.Count; i++) if (id != null && Text(cards[i]["viz_id"], null) == id) { index = i; break; }
+            if (index >= 0) cards[index] = obj; else { cards.Add(obj); index = cards.Count - 1; }
+            Show(index);
+        }
+        void Show(int index)
+        {
+            cardIndex = index;
+            LoadJson(cards[index].ToString(Formatting.None));
+            if (downloaded != null) { Destroy(downloaded); downloaded = null; }
+            image = null; Render();
+            if (kind == Kind.Image && !string.IsNullOrEmpty(pngUrl) && ForgeNet.Status == ForgeNetStatus.Live)
+            {
+                string url = pngUrl;
+                ForgeNet.GetBytes(url, bytes =>
+                {
+                    if (url != pngUrl) return;  // the user paged on meanwhile
+                    var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "Viz card " + url };
+                    if (!texture.LoadImage(bytes, true)) { Destroy(texture); return; }
+                    downloaded = texture; image = texture; Render();
+                }, e => Debug.LogWarning("[ML] Chart image unavailable: " + e));
+            }
+        }
+        void OnDestroy() { if (downloaded != null) Destroy(downloaded); }
 
         /// <summary>Reads the section 7.6 VizCard JSON shape.</summary>
         public void LoadJson(string json)
@@ -238,11 +294,7 @@ namespace Forge.ML
         }
         public void Cycle(int direction)
         {
-            if (mockCards != null && mockCards.Count > 0)
-            {
-                mockIndex = (mockIndex + direction + mockCards.Count) % mockCards.Count;
-                LoadJson(mockCards[mockIndex].ToString(Formatting.None)); Render(); return;
-            }
+            if (cards != null && cards.Count > 0) { Show((cardIndex + direction + cards.Count) % cards.Count); return; }
             int count = Enum.GetValues(typeof(Kind)).Length;
             kind = (Kind)(((int)kind + direction + count) % count); Render();
         }

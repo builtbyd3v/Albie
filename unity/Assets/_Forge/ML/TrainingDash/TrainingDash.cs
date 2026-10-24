@@ -19,23 +19,28 @@ namespace Forge.ML
             MLUI.Fill(root, 8, 29, 740, 6, new Color(.2f,.25f,.3f)); progress = MLUI.Fill(root, 8, 29, 0, 6, Color.cyan);
             MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
             MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
-            loss = MLUI.Rect("Loss curves", root, 8, 70, 330, 95).gameObject.AddComponent<MLCurve>(); loss.session = session; loss.raycastTarget = false;
-            accuracy = MLUI.Rect("Accuracy curves", root, 380, 70, 330, 95).gameObject.AddComponent<MLCurve>(); accuracy.session = session; accuracy.accuracy = true; accuracy.raycastTarget = false;
+            loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
             warning = MLUI.Text(root, "", 8, 175, 630, 28, 14); warning.color = new Color(1,.6f,.25f);
             MLUI.Button(root, "Replay", 650, 172, 90, 28, session.Restart);
             summary = MLUI.Rect("Evaluation", root, 8, 210, 740, 300);
             session.Changed += Refresh; Refresh();
         }
+        MLCurve Curve(string name, Transform root, float x, bool acc)
+        {
+            // The CanvasRenderer first: added at runtime, the Graphic doesn't always bring one and then draws nothing.
+            var go = MLUI.Rect(name, root, x, 70, 330, 95).gameObject; go.AddComponent<CanvasRenderer>();
+            var curve = go.AddComponent<MLCurve>(); curve.session = session; curve.accuracy = acc; curve.raycastTarget = false; return curve;
+        }
         void Refresh()
         {
             int e = session.EpochIndex;
-            status.text = e < 0 ? "Waiting for mock training…" : $"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
+            status.text = e < 0 ? (session.Done ? $"DONE   run {session.RunId}" : session.HubData ? "Waiting for training…" : "Waiting for mock training…") :$"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
             progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
             warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : "";
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
             if (!session.Done) return;
             int n = session.Data.classes.Length; var matrix = new int[n,n];
-            foreach (var s in session.Data.samples) if (!s.removed) matrix[s.true_idx,s.pred_idx]++;
+            foreach (var s in session.Data.samples) if (!s.removed && s.pred_idx >= 0) matrix[s.true_idx,s.pred_idx]++;
             int max = 1; foreach (int v in matrix) max = Mathf.Max(max,v);
             MLUI.Text(summary, "CONFUSION  rows: true / columns: predicted", 0, 0, 470, 25, 13);
             for (int r = 0; r < n; r++)

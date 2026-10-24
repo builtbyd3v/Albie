@@ -58,3 +58,9 @@ Each `forge.watch(...)` starts a run and writes to `<run_dir>/<run_id>/` (`run_d
 
 Thumbnails are taken from the dataset **before** its `transform`, so `Normalize` doesn't wreck the colors.
 Layers must be modules (`nn.ReLU()`, not `F.relu`) to show up in the graph.
+
+## Results and runners (A3)
+
+- `forge.evaluate(model, val_loader)` predicts every val sample (in dataset order, even from a shuffled loader) and writes `results.json`, `confusion.json` (rows = true, cols = predicted) and `summary.json` (accuracy, val loss, best epoch, per-class accuracy, top confused pairs, the 50 most confident mistakes) to the run folder, then sends `ml.results_ready`.
+- `python -m forge.run <graph|dataset|eval> --repo <path>`: the runners the hub calls through a repo's `.forge/adapter.py`. `graph` and `dataset` write to `<repo>/.forge/project/` (`dataset` also writes `samples.json`, the per-sample metadata for the picked-image card); `eval` writes a new `.forge/runs/eval-<id>/`. Regression repos get `{id, y_true, y_pred, residual}` results and R² / MAE / RMSE.
+- Every output validates against `hub/ml/models.py` (`tests/test_evaluate.py`). `summary.json` / `Summary` is a proposed addition to the contract.

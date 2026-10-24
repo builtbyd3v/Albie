@@ -13,6 +13,7 @@ namespace Forge.ML
         static readonly string[] ResourceNames = { "MLPanels/DataStack", "MLPanels/Model3D", "MLPanels/ResultsWall", "MLPanels/TrainingDash", "MLPanels/VizCard", "MLPanels/RegressionResults" };
         Workspace workspace;
         IDisposable subscription;
+        readonly Dictionary<string, GameObject> assigned = new Dictionary<string, GameObject>();  // prefabs from Main
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Install()
@@ -51,13 +52,19 @@ namespace Forge.ML
         {
             var mode = workspace.modes.Find(m => m.id == ModeId);
             if (mode == null) return;
-            var items = new List<WorkspaceItem> { new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main) };
+            // Main's builder already slots the ML prefabs (MainSceneBuilder.ModulePrefabs); keep those and
+            // anything that isn't ML (screen-main's VS Code prefab). Resources copies fill in what's missing.
+            if (requested == null && mode.items.TrueForAll(m => !m.id.StartsWith("ml-") || m.prefab != null)) return;
+            foreach (var item in mode.items)
+                if (item.prefab != null && !assigned.ContainsKey(item.id)) assigned[item.id] = item.prefab;
+            var items = mode.items.FindAll(m => !m.id.StartsWith("ml-"));
+            if (items.Count == 0) items.Add(new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main));
             string[] defaults = { "ml-datastack", "ml-model3d", "ml-results", "ml-training" };
             for (int i = 0; i < Supported.Length; i++)
             {
                 string id = Supported[i];
                 if (requested != null ? !requested.Contains(id) : Array.IndexOf(defaults, id) < 0) continue;
-                var prefab = Resources.Load<GameObject>(ResourceNames[i]);
+                if (!assigned.TryGetValue(id, out var prefab)) prefab = Resources.Load<GameObject>(ResourceNames[i]);
                 if (prefab == null) continue;
                 var slot = Slot(id);
                 var item = new WorkspaceItem(id, Title(id), slot) { prefab = prefab, kind = WorkspaceItemKind.Panel };

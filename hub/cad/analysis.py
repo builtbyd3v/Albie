@@ -1,24 +1,31 @@
-"""Mass properties and static stability (Barrowman 1966) for a built part."""
+"""Mass properties and generic metrics for any built part, plus the static stability helpers (Barrowman 1966)
+that rocket parts use in their analyze(). The analysis block's markers, dimensions, explode, mass breakdown and
+demo come from cad/scene.py."""
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from build123d import CenterOf, GeomType
 
-from cad.part_api import BuildResult, RocketSpec, ShellMass, SolidMass
+from cad.part_api import Analysis, BuildResult, Metric, RocketSpec, ShellMass, SolidMass
 
 # Static margin bands in calibers (NASA Student Launch: stable >= 1, 1.5 to 2.0 desirable).
 UNSTABLE_BELOW, MARGINAL_BELOW, OVERSTABLE_ABOVE = 1.0, 1.5, 2.5
+MARGIN_GAUGE_MAX = 3.0
+MARGIN_BANDS = ((UNSTABLE_BELOW, "bad"), (MARGINAL_BELOW, "warn"), (OVERSTABLE_ABOVE, "ok"), (MARGIN_GAUGE_MAX, "warn"))
+STABILITY_STATUS = {"unstable": "bad", "marginal": "warn", "stable": "ok", "overstable": "warn"}
 
 # Fin-to-fin interference for 5 to 8 fins replaces N/2 (Niskanen 2013, OpenRocket technical documentation).
 FIN_COUNT_FACTOR = {5: 2.37, 6: 2.74, 7: 2.99, 8: 3.24}
 
-ASSUMPTIONS = [
+STABILITY_ASSUMPTIONS = [
     "Barrowman static CP: subsonic, zero angle of attack, body tube adds no lift.",
     "CG at liftoff with a loaded motor (the least stable moment of a normal flight).",
     "Masses from part geometry and the densities in the part script; glue and paint ignored.",
 ]
+
+Masses = dict[str, tuple[float, tuple[float, float, float]]]
 
 
 def leaves(shape):
@@ -43,13 +50,33 @@ def part_mass(shape, model) -> tuple[float, tuple[float, float, float]] | None:
     return None
 
 
-def mass_properties(result: BuildResult) -> dict[str, tuple[float, tuple[float, float, float]]]:
+def mass_properties(result: BuildResult) -> Masses:
     out = {}
     for shape in leaves(result.assembly):
         props = part_mass(shape, result.masses.get(shape.label))
         if props is not None:
             out[shape.label] = props
     return out
+
+
+def center_of_mass(result: BuildResult, masses: Masses) -> tuple[float, tuple[float, float, float]]:
+    """(total grams, centre in part mm) of the parts plus the point masses (which sit on the Z axis)."""
+    items = list(masses.values()) + [(p.mass_g, (0.0, 0.0, p.z_mm)) for p in result.point_masses]
+    total = sum(m for m, _ in items)
+    if not total:
+        return 0.0, (0.0, 0.0, 0.0)
+    return total, tuple(sum(m * c[i] for m, c in items) / total for i in range(3))
+
+
+def to_gltf(point_mm: tuple[float, float, float]) -> list[float]:
+    """Part point in glTF scene space: metres, Y-up (the GLB root rotates the part's Z-up to Y-up)."""
+    x, y, z = point_mm
+    return [round(x / 1000, 5) + 0.0, round(z / 1000, 5) + 0.0, round(-y / 1000, 5) + 0.0]  # + 0.0: no -0.0
+
+
+def on_axis_gltf(z_mm: float) -> list[float]:
+    """Part point (0, 0, z) in glTF scene space."""
+    return to_gltf((0.0, 0.0, z_mm))
 
 
 def barrowman(spec: RocketSpec) -> tuple[float, float]:
@@ -76,38 +103,40 @@ def stability_label(margin: float) -> str:
     return "overstable" if margin > OVERSTABLE_ABOVE else "stable"
 
 
-def on_axis_gltf(z_mm: float) -> list[float]:
-    """Part point (0, 0, z) in glTF scene space: metres, Y-up (the GLB root rotates Z-up to Y-up)."""
-    return [0.0, round(z_mm / 1000, 5), 0.0]
+def generic_metrics(total_g: float, size_mm: list[float], part_count: int) -> list[Metric]:
+    """What every design shows: mass, overall size, number of parts."""
+    mass = f"{total_g:.0f} g" if total_g < 1000 else f"{total_g / 1000:.2f} kg"
+    return [Metric("mass", "Mass", total_g, "g", display=mass),
+            Metric("size", "Size", max(size_mm), "mm", display=" x ".join(f"{v:.0f}" for v in size_mm) + " mm"),
+            Metric("parts", "Parts", part_count)]
 
 
-def analyze(result: BuildResult, masses: dict[str, tuple[float, tuple[float, float, float]]]) -> dict[str, Any]:
-    items = [(m, c[2]) for m, c in masses.values()] + [(p.mass_g, p.z_mm) for p in result.point_masses]
-    total = sum(m for m, _ in items)
-    cg_z = sum(m * z for m, z in items) / total if total else 0.0
+def analyze(result: BuildResult, masses: Masses,
+            part_analyze: Callable[[BuildResult, Masses], list[Metric] | Analysis] | None = None, *,
+            features: Iterable[str] = ()) -> dict[str, Any]:
+    """The analysis block of cad.model_updated: generic fields and metrics, plus the part's own analyze(), plus
+    what Unity draws and says (markers, dimensions, explode, mass_breakdown, demo, verdict, constants).
+    `features`: the design's ("flight")."""
+    from cad.scene import extras  # cad.scene imports this module, so not at the top
+
+    total, cg = center_of_mass(result, masses)
+    size = result.assembly.bounding_box().size
+    size_mm = [round(size.X, 1), round(size.Y, 1), round(size.Z, 1)]
+    count = sum(1 for _ in leaves(result.assembly))
     out: dict[str, Any] = {
         "mass_g": round(total, 1),
-        "cg_gltf": on_axis_gltf(cg_z),
+        "cg_gltf": to_gltf(cg),
+        "size_mm": size_mm,
+        "part_count": count,
         "breakdown": [{"id": label.upper(), "mass_g": round(m, 2)} for label, (m, _) in masses.items()]
                      + [{"name": p.name, "mass_g": p.mass_g} for p in result.point_masses],
     }
-    spec = result.rocket
-    if spec is None:
-        return out
-    cp_from_tip, cna = barrowman(spec)
-    cg_from_tip = spec.length_mm - cg_z
-    margin = (cp_from_tip - cg_from_tip) / spec.diameter_mm
-    out.update({
-        "length_mm": round(spec.length_mm, 1),
-        "diameter_mm": round(spec.diameter_mm, 1),
-        "cg_mm": round(cg_from_tip, 1),
-        "cp_mm": round(cp_from_tip, 1),
-        "margin_cal": round(margin, 2),
-        "stable": margin >= UNSTABLE_BELOW,
-        "stability": stability_label(margin),
-        "cna_per_rad": round(cna, 2),
-        "motor": spec.motor,
-        "markers_gltf": {"cg": on_axis_gltf(cg_z), "cp": on_axis_gltf(spec.length_mm - cp_from_tip)},
-        "assumptions": ASSUMPTIONS,
-    })
+    own = part_analyze(result, masses) if part_analyze else []
+    plan = own if isinstance(own, Analysis) else Analysis()
+    if isinstance(own, Analysis):
+        out.update(own.extra)
+        own = own.metrics
+    ids = {m.id for m in own}
+    out["metrics"] = [m.schema() for m in [*own, *(g for g in generic_metrics(total, size_mm, count) if g.id not in ids)]]
+    out.update(extras(result, masses, plan, cg_mm=cg, total_g=total, metrics=out["metrics"], features=features))
     return out

@@ -22,3 +22,14 @@ pytest ml/tests
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
 **Mounting in `hub/main.py` (Person 5):** `from ml.router import router as ml_router` and `app.include_router(ml_router)`. It uses `app.state.bus`, which main.py already sets, and creates its service on first use.
+
+## Open any ML repo (A5, ML_PLAN 6)
+
+`POST /ml/project {path}` (or `python -m ml.open <path>`) runs: **pre-scan** (`prescan.py`, no LLM) → **classify** (one Claude call → `.forge/profile.json`; below 0.6 confidence it stops at `confirm_type` and waits for `POST /ml/project/type`) → **adapt** (Claude writes `.forge/adapter.py` + a patched training script, then `forge.check` runs in the repo's own Python; up to 3 rounds with the failures fed back) → **needs_approval** → `POST /ml/project/diff` (opens `code --diff`) and `POST /ml/project/patch {accept}` → **ready** + `ml.layout`. Each step is an `ml.project_state` event on `/ws`.
+
+- A repo whose existing `.forge/profile.json` + `adapter.py` pass `forge.check` goes straight to ready with **no LLM call** (hand-written `.forge/`, or set up before). `POST /ml/project/rescan` forces a fresh setup (a hand-written adapter is kept as `adapter.prev.py`).
+- **Guardrails:** the LLM only returns text (`setup/llm.py`, the one wrapper; structured outputs). The hub writes only inside `.forge/`; patch targets must be existing `.py` files in the repo. The patch is a proposal in `.forge/patch/` until Accept, which keeps `<file>.orig` and refuses if the file changed since. Setup never trains.
+- **Classifier:** TypeSafe **Jev** (`setup/jev.py`, `setup/classify_jev.py`, the idea from PR #2) whenever `TYPESAFE_API_KEY` is set: typed choices over the 4 types (confidence + probabilities: below 0.6 the top 2 become `candidates`), the training file, model class, data loader and regression target, all picked from candidates the hub extracts from the code; class names come from the code too. ~0.4 s, ~$0.001 per repo. Without the key, or with `FORGE_CLASSIFIER=claude`, Claude classifies.
+- **Adapter LLM:** Claude Opus 5.5 (`FORGE_LLM_MODEL` to override) via `anthropic` (`pip install -r ml/requirements.txt`): Jev can't write code. Needs `ANTHROPIC_API_KEY` in the hub's environment, never in git; without it, repos with a working `.forge/` still open, others stop after classifying with a clear error. Repo files are prompt-cached across the adapter rounds.
+- **Interpreter:** the repo's `.venv`/`venv`/`env`, else the active conda env, else the hub's own Python; stored as `profile.python`.
+- Tests (`ml/tests/test_setup.py`) use a fake LLM: no key, no cost.

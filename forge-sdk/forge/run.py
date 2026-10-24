@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from forge import adapter as forge_adapter
-from forge import client
+from forge import client, evaluation
 
 CLASSIFICATION = ("image_classification", "text_classification")
 KIND = {"image_classification": "image", "text_classification": "text", "regression": "row"}
@@ -68,11 +68,10 @@ class _SampleSet:
 def run_dataset(ad: forge_adapter.Adapter, out: Path, split: str = "val", limit: int = 1000) -> list[dict]:
     samples = ad.samples(split, limit=limit)
     kind = KIND.get(ad.archetype)
+    from forge import atlas  # images need PIL; rows and text don't, but sample ids are shared
     if kind is None:
         raise ValueError(f"no dataset view for archetype {ad.archetype!r}")
     if kind == "image":
-        from forge import atlas
-
         image, atlas_meta, items = atlas.build(_SampleSet(samples))
         out.mkdir(parents=True, exist_ok=True)
         image.save(out / "atlas.png")
@@ -108,14 +107,10 @@ def run_eval(ad: forge_adapter.Adapter, repo: Path, split: str = "val", limit: i
     run_id = f"eval-{uuid.uuid4().hex[:6]}"
     run_dir = repo / ".forge" / "runs" / run_id
     if ad.archetype in CLASSIFICATION:
-        from forge import evaluation
-
         results, confusion, summary = evaluation.classification(
             ids, [int(s.label) for s in samples], preds, ad.classes(), archetype=ad.archetype)
         _write(run_dir / "confusion.json", confusion)
     elif ad.archetype == "regression":
-        from forge import evaluation
-
         results, summary = evaluation.regression(ids, [float(s.label) for s in samples], preds)
     else:
         raise ValueError(f"no eval for archetype {ad.archetype!r}")

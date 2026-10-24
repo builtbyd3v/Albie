@@ -1,5 +1,6 @@
 using Forge.ML;
 using Oculus.Interaction;
+using Oculus.Interaction.OVR.Editor.QuickActions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -33,9 +34,31 @@ public static class MLSandboxBuilder
         Save(Panel<RegressionResults>("RegressionResults", "ml-regression-results", "Regression results", new Vector2(.78f,.42f)),"RegressionResults");
         CopyToResources("DataStack"); CopyToResources("Model3D"); CopyToResources("ResultsWall");
         CopyToResources("TrainingDash"); CopyToResources("VizCard"); CopyToResources("RegressionResults");
+        BuildScene();
+        AssetDatabase.SaveAssets();
+        Debug.Log("[ML] Built six prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
+    }
+    // The sandbox scene alone, from the saved prefabs.
+    public static void BuildScene()
+    {
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var camera = new GameObject("Desktop camera").AddComponent<Camera>(); camera.tag = "MainCamera";
         camera.transform.position = new Vector3(0,1.5f,-1.8f); camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = new Color(.025f,.04f,.07f);
+        // XR rig like Main's (passthrough, floor-level origin, Interaction SDK hands + controllers), used when an
+        // XR runtime is running. Standing 1.2 m back from the panels.
+        var rig = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.core/Prefabs/OVRCameraRig.prefab"));
+        rig.transform.position = new Vector3(0,0,-1.2f);
+        var manager = rig.GetComponent<OVRManager>();
+        manager.isInsightPassthroughEnabled = true;
+        manager.trackingOriginType = OVRManager.TrackingOrigin.FloorLevel;
+        rig.AddComponent<OVRPassthroughLayer>();
+        foreach (var cam in rig.GetComponentsInChildren<Camera>(true)) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = Color.clear; }
+        OVRQuickActionsAPI.AddOVRInteractionRig(generateAsEditableCopy: false);
+        var selector = new GameObject("Rig selector").AddComponent<MLSandboxRig>();
+        selector.xrRig = rig; selector.desktopCamera = camera;
+        // Invisible floor for the Interaction SDK locomotor (it disables walking without ground under it).
+        var floor = new GameObject("Floor").AddComponent<BoxCollider>();
+        floor.size = new Vector3(20,.1f,20); floor.center = new Vector3(0,-.05f,0);
         var events = new GameObject("EventSystem", typeof(EventSystem));
 #if ENABLE_INPUT_SYSTEM
         events.AddComponent<InputSystemUIInputModule>();
@@ -51,8 +74,6 @@ public static class MLSandboxBuilder
         Place("VizCard", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
         Place("RegressionResults", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
         EditorSceneManager.SaveScene(scene, "Assets/_Forge/ML/MLSandbox.unity");
-        AssetDatabase.SaveAssets();
-        Debug.Log("[ML] Built six prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
     }
     static void BuildMockReferences()
     {

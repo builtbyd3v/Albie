@@ -1,0 +1,622 @@
+{
+  "mass_g": 8117.4,
+  "cg_gltf": [
+    0.04187,
+    0.1095,
+    -3e-05
+  ],
+  "size_mm": [
+    249.0,
+    107.0,
+    219.0
+  ],
+  "part_count": 10,
+  "breakdown": [
+    {
+      "id": "HOUSING_BOTTOM",
+      "mass_g": 2040.77
+    },
+    {
+      "id": "HOUSING_TOP",
+      "mass_g": 2040.77
+    },
+    {
+      "id": "INPUT_SHAFT",
+      "mass_g": 68.36
+    },
+    {
+      "id": "PINION",
+      "mass_g": 85.83
+    },
+    {
+      "id": "BEARING_IN_FRONT",
+      "mass_g": 61.18
+    },
+    {
+      "id": "BEARING_IN_BACK",
+      "mass_g": 61.18
+    },
+    {
+      "id": "OUTPUT_SHAFT",
+      "mass_g": 72.8
+    },
+    {
+      "id": "GEAR",
+      "mass_g": 3564.17
+    },
+    {
+      "id": "BEARING_OUT_FRONT",
+      "mass_g": 61.18
+    },
+    {
+      "id": "BEARING_OUT_BACK",
+      "mass_g": 61.18
+    }
+  ],
+  "metrics": [
+    {
+      "id": "rim",
+      "label": "Pinion rim",
+      "value": 5.875,
+      "unit": "mm",
+      "display": "5.9 mm",
+      "status": "warn",
+      "min": 0.0,
+      "max": 20.0,
+      "bands": [
+        {
+          "to": 3.0,
+          "status": "bad"
+        },
+        {
+          "to": 6.25,
+          "status": "warn"
+        },
+        {
+          "to": 20.0,
+          "status": "ok"
+        }
+      ],
+      "note": "thin"
+    },
+    {
+      "id": "ratio",
+      "label": "Ratio",
+      "value": 6.0,
+      "unit": "",
+      "display": "6.00 : 1",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "speed",
+      "label": "Output speed",
+      "value": 500.0,
+      "unit": "rpm",
+      "display": "500 rpm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "torque",
+      "label": "Output torque",
+      "value": 2.94,
+      "unit": "N m",
+      "display": "2.94 N m",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "centre",
+      "label": "Centre distance",
+      "value": 105.0,
+      "unit": "mm",
+      "display": "105.0 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "pinion",
+      "label": "Pinion teeth",
+      "value": 12.0,
+      "unit": "",
+      "display": "12 (undercut)",
+      "status": "warn",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "mass",
+      "label": "Mass",
+      "value": 8117.4133,
+      "unit": "g",
+      "display": "8.12 kg",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "size",
+      "label": "Size",
+      "value": 249.0,
+      "unit": "mm",
+      "display": "249 x 107 x 219 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "parts",
+      "label": "Parts",
+      "value": 10.0,
+      "unit": "",
+      "display": "10",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    }
+  ],
+  "markers": [
+    {
+      "id": "cg",
+      "label": "CG",
+      "kind": "cg",
+      "pos": [
+        0.04187,
+        0.1095,
+        -3e-05
+      ]
+    },
+    {
+      "id": "input",
+      "label": "Input",
+      "kind": "input",
+      "pos": [
+        -0.0525,
+        0.1095,
+        0.051
+      ]
+    },
+    {
+      "id": "output",
+      "label": "Output",
+      "kind": "output",
+      "pos": [
+        0.0525,
+        0.1095,
+        -0.056
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "length",
+      "label": "Length",
+      "value_mm": 249.0,
+      "from": [
+        -0.087,
+        0.0,
+        0.026
+      ],
+      "to": [
+        0.162,
+        0.0,
+        0.026
+      ],
+      "offset_dir": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "offset_mm": 18.9
+    },
+    {
+      "id": "height",
+      "label": "Height",
+      "value_mm": 219.0,
+      "from": [
+        0.162,
+        0.0,
+        0.026
+      ],
+      "to": [
+        0.162,
+        0.219,
+        0.026
+      ],
+      "offset_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "offset_mm": 18.9
+    },
+    {
+      "id": "depth",
+      "label": "Depth over shafts",
+      "value_mm": 107.0,
+      "from": [
+        0.162,
+        0.0,
+        0.051
+      ],
+      "to": [
+        0.162,
+        0.0,
+        -0.056
+      ],
+      "offset_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "offset_mm": 18.9
+    },
+    {
+      "id": "centre_distance",
+      "label": "Centre distance",
+      "value_mm": 105.0,
+      "from": [
+        -0.0525,
+        0.219,
+        0.0
+      ],
+      "to": [
+        0.0525,
+        0.219,
+        0.0
+      ],
+      "offset_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "offset_mm": 8.0
+    }
+  ],
+  "explode": {
+    "axis": "shaft",
+    "parts": [
+      {
+        "id": "HOUSING_BOTTOM",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 0.0,
+        "order": 0
+      },
+      {
+        "id": "HOUSING_TOP",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 219.0,
+        "order": 0
+      },
+      {
+        "id": "INPUT_SHAFT",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 98.5,
+        "order": 1
+      },
+      {
+        "id": "PINION",
+        "dir": [
+          0.0,
+          0.95336,
+          0.30183
+        ],
+        "dist_mm": 103.4,
+        "order": 1
+      },
+      {
+        "id": "BEARING_IN_FRONT",
+        "dir": [
+          0.0,
+          0.84488,
+          0.53496
+        ],
+        "dist_mm": 116.6,
+        "order": 2
+      },
+      {
+        "id": "BEARING_IN_BACK",
+        "dir": [
+          0.0,
+          0.84488,
+          -0.53496
+        ],
+        "dist_mm": 116.6,
+        "order": 2
+      },
+      {
+        "id": "OUTPUT_SHAFT",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 98.5,
+        "order": 1
+      },
+      {
+        "id": "GEAR",
+        "dir": [
+          0.0,
+          0.95336,
+          -0.30183
+        ],
+        "dist_mm": 103.4,
+        "order": 1
+      },
+      {
+        "id": "BEARING_OUT_FRONT",
+        "dir": [
+          0.0,
+          0.84488,
+          0.53496
+        ],
+        "dist_mm": 116.6,
+        "order": 2
+      },
+      {
+        "id": "BEARING_OUT_BACK",
+        "dir": [
+          0.0,
+          0.84488,
+          -0.53496
+        ],
+        "dist_mm": 116.6,
+        "order": 2
+      }
+    ]
+  },
+  "mass_breakdown": [
+    {
+      "id": "HOUSING",
+      "label": "Housing",
+      "mass_g": 4081.5,
+      "share": 0.5028,
+      "part_ids": [
+        "HOUSING_BOTTOM",
+        "HOUSING_TOP"
+      ]
+    },
+    {
+      "id": "GEARS",
+      "label": "Gears",
+      "mass_g": 3650.0,
+      "share": 0.4497,
+      "part_ids": [
+        "PINION",
+        "GEAR"
+      ]
+    },
+    {
+      "id": "SHAFTS",
+      "label": "Shafts",
+      "mass_g": 141.2,
+      "share": 0.0174,
+      "part_ids": [
+        "INPUT_SHAFT",
+        "OUTPUT_SHAFT"
+      ]
+    },
+    {
+      "id": "BEARINGS",
+      "label": "Bearings",
+      "mass_g": 244.7,
+      "share": 0.0301,
+      "part_ids": [
+        "BEARING_IN_FRONT",
+        "BEARING_IN_BACK",
+        "BEARING_OUT_FRONT",
+        "BEARING_OUT_BACK"
+      ]
+    }
+  ],
+  "demo": {
+    "kind": "spin",
+    "label": "Run",
+    "note": "A 3000 rpm motor on the input turns the output 500 rpm the other way, with 2.94 N m.",
+    "source": null,
+    "axis": {
+      "origin": [
+        -0.0525,
+        0.1095,
+        0.0
+      ],
+      "dir": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "values": {
+      "ratio": 6.0,
+      "input_rpm": 3000.0,
+      "output_rpm": 500.0,
+      "input_torque_nm": 0.5,
+      "output_torque_nm": 2.94,
+      "efficiency": 0.98
+    },
+    "spin_parts": [
+      {
+        "id": "INPUT_SHAFT",
+        "origin": [
+          -0.0525,
+          0.1095,
+          0.0
+        ],
+        "dir": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rpm": 3000.0,
+        "spin": "ccw",
+        "rel_speed": 1.0,
+        "motor_id": null,
+        "radius_mm": 6.0
+      },
+      {
+        "id": "PINION",
+        "origin": [
+          -0.0525,
+          0.1095,
+          0.0
+        ],
+        "dir": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rpm": 3000.0,
+        "spin": "ccw",
+        "rel_speed": 1.0,
+        "motor_id": null,
+        "radius_mm": 15.0
+      },
+      {
+        "id": "GEAR",
+        "origin": [
+          0.0525,
+          0.1095,
+          0.0
+        ],
+        "dir": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rpm": -500.0,
+        "spin": "cw",
+        "rel_speed": -0.1667,
+        "motor_id": null,
+        "radius_mm": 90.0
+      },
+      {
+        "id": "OUTPUT_SHAFT",
+        "origin": [
+          0.0525,
+          0.1095,
+          0.0
+        ],
+        "dir": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rpm": -500.0,
+        "spin": "cw",
+        "rel_speed": -0.1667,
+        "motor_id": null,
+        "radius_mm": 6.0
+      }
+    ],
+    "readouts": [
+      {
+        "id": "ratio",
+        "label": "Ratio",
+        "value": 6.0,
+        "unit": "",
+        "display": "6.00 : 1",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      },
+      {
+        "id": "input",
+        "label": "Input speed",
+        "value": 3000.0,
+        "unit": "rpm",
+        "display": "3000 rpm",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      },
+      {
+        "id": "output",
+        "label": "Output speed",
+        "value": 500.0,
+        "unit": "rpm",
+        "display": "500 rpm",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      },
+      {
+        "id": "torque",
+        "label": "Output torque",
+        "value": 2.94,
+        "unit": "N m",
+        "display": "2.94 N m",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      }
+    ],
+    "assumptions": [
+      "Assumed input: a motor at 3000 rpm giving 0.5 N m.",
+      "One spur mesh at 98% efficiency; the output turns the opposite way."
+    ],
+    "blocked": null,
+    "reveal_ids": [
+      "HOUSING_TOP"
+    ]
+  },
+  "verdict": {
+    "status": "warn",
+    "headline": "Runs, with care",
+    "sentence": "6.00 : 1. A 12-tooth pinion gets undercut (14+ avoids it) and its rim is thin at 5.9 mm.",
+    "metric": "rim"
+  },
+  "constants": [
+    {
+      "label": "Input motor",
+      "value": "3,000 rpm \u00b7 0.50 N\u00b7m",
+      "note": "assumed \u00b7 fixed in gearbox.py"
+    },
+    {
+      "label": "Teeth",
+      "value": "20\u00b0 involute, full depth",
+      "note": "98% efficient per mesh"
+    }
+  ]
+}

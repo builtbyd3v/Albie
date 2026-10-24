@@ -8,6 +8,8 @@ Env: FORGE_ML_REPO (default ml-examples/cifar10). Point it at hub/.data/mocks/ml
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import json
 import os
 import re
@@ -18,6 +20,8 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any
+
+from .archetypes import ARCHETYPES, layout
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -52,6 +56,7 @@ class MLService:
         self.repo = Path(repo or os.environ.get("FORGE_ML_REPO") or DEFAULT_REPO).resolve()
         self.train_proc: subprocess.Popen | None = None
         self.train_run_id: str | None = None
+        self.project: dict[str, Any] = {"path": str(self.repo), "status": "idle"}
 
     # --- layout -------------------------------------------------------------------------------
     @property
@@ -234,6 +239,92 @@ class MLService:
                 detail.update(pred_idx=pred["pred_idx"], probs=pred["probs"])
         return detail
 
+    # --- chart cards (ML_PLAN 7.6): this archetype's viz_ids from the run files, plus runs/<id>/viz/*.png ---
+    def viz(self, run_id: str | None = None) -> list[dict]:
+        if run_id is None:
+            latest = self.latest_run("summary.json")
+            if latest is None:
+                return []
+            run_id = latest.name
+        run = self.run_dir(run_id)
+        summary = _read_json(run / "summary.json") if (run / "summary.json").exists() else {}
+        archetype = summary.get("archetype") or self.profile().get("archetype") or "generic"
+        wanted = list(ARCHETYPES.get(archetype, ARCHETYPES["generic"])["viz_ids"])
+        wanted += [v["viz_id"] for v in self.profile().get("extra_viz", []) if v.get("viz_id") not in wanted]
+        cards = []
+        for viz_id in wanted:
+            build = getattr(self, f"_viz_{viz_id}", None)
+            card = build(run, summary) if build else None
+            if card:
+                cards.append({"viz_id": viz_id, "run_id": run_id, "panel": "ml-viz", **card})
+        pngs = sorted((run / "viz").glob("*.png")) if (run / "viz").is_dir() else []
+        for png in pngs:
+            if SAFE_ID.match(png.stem) and png.stem not in {c["viz_id"] for c in cards}:
+                cards.append({"viz_id": png.stem, "run_id": run_id, "panel": "ml-viz", "kind": "image",
+                              "title": png.stem.replace("_", " ").capitalize(), "png_url": f"/ml/viz/{run_id}/{png.stem}.png",
+                              "alt": png.stem.replace("_", " ")})
+        return cards
+
+    def viz_png(self, run_id: str, viz_id: str) -> Path:
+        path = self.run_dir(run_id) / "viz" / f"{safe_id(viz_id, 'viz id')}.png"
+        if not path.exists():
+            raise NotFound(f"run {run_id} has no chart {viz_id!r}")
+        return path
+
+    def _viz_per_class_accuracy(self, run: Path, summary: dict) -> dict | None:
+        per_class = summary.get("per_class") or []
+        if not per_class:
+            return None
+        return {"title": "Accuracy per class", "subtitle": f"overall {summary.get('accuracy', 0):.1%}", "kind": "bar",
+                "x": [c["name"] for c in per_class], "series": [{"name": "accuracy", "y": [c["accuracy"] for c in per_class]}]}
+
+    def _viz_confusion_matrix(self, run: Path, summary: dict) -> dict | None:
+        if not (run / "confusion.json").exists():
+            return None
+        confusion = _read_json(run / "confusion.json")
+        return {"title": "Confusion matrix", "subtitle": "rows: true, columns: predicted", "kind": "heatmap",
+                "cells": confusion["matrix"], "x_labels": confusion["labels"], "y_labels": confusion["labels"]}
+
+    def _regression_samples(self, run: Path) -> list[dict]:
+        if not (run / "results.json").exists():
+            return []
+        return [s for s in _read_json(run / "results.json").get("samples", []) if "y_pred" in s]
+
+    def _viz_pred_vs_actual(self, run: Path, summary: dict) -> dict | None:
+        samples = self._regression_samples(run)[:1000]
+        if not samples:
+            return None
+        r2 = summary.get("r2")
+        return {"title": "Predicted vs actual", "subtitle": f"R² {r2:.3f}" if r2 is not None else None, "kind": "scatter",
+                "points": [{"x": s["y_true"], "y": s["y_pred"], "id": s["id"]} for s in samples],
+                "x_label": "actual", "y_label": "predicted"}
+
+    def _viz_residual_hist(self, run: Path, summary: dict) -> dict | None:
+        residuals = [s.get("residual", s["y_pred"] - s["y_true"]) for s in self._regression_samples(run)]
+        if not residuals:
+            return None
+        lo, hi, bins = min(residuals), max(residuals), 12
+        width = (hi - lo) / bins or 1.0
+        counts = [0] * bins
+        for r in residuals:
+            counts[min(bins - 1, int((r - lo) / width))] += 1
+        mae = summary.get("mae")
+        return {"title": "Residuals", "subtitle": f"MAE {mae:.3g}" if mae is not None else None, "kind": "bar",
+                "x": [f"{lo + (i + .5) * width:.3g}" for i in range(bins)], "series": [{"name": "count", "y": counts}]}
+
+    def _viz_feature_importance(self, run: Path, summary: dict) -> dict | None:
+        features = summary.get("feature_importance") or []  # [{name, value}] when the eval runner provides it
+        if not features:
+            return None
+        features = sorted(features, key=lambda f: abs(f["value"]), reverse=True)[:12]
+        return {"title": "Feature importance", "kind": "bar", "x": [f["name"] for f in features],
+                "series": [{"name": "importance", "y": [f["value"] for f in features]}]}
+
+    def _viz_final_metrics(self, run: Path, summary: dict) -> dict | None:
+        rows = [[k.replace("_", " "), round(v, 4) if isinstance(v, float) else v] for k, v in summary.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        return {"title": "Final metrics", "kind": "table", "columns": ["metric", "value"], "rows": rows} if rows else None
+
     # --- relabel / remove -> .forge/labels_override.json (applied by the repo's data code) -------
     def overrides(self) -> tuple[dict[str, int], set[str]]:
         if not self.overrides_path.exists():
@@ -305,3 +396,100 @@ class MLService:
             raise NotFound(f"run {run_id} has no events.jsonl")
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
         return sorted(events, key=lambda e: e.get("t", 0.0))
+
+    def metrics_history(self, run_id: str) -> dict:
+        """A run's ml.metrics ticks (last per epoch), total epochs and overfit alert, from events.jsonl,
+        so a panel opened after training still draws the curves."""
+        by_epoch: dict[int, dict] = {}
+        total, overfit = 0, None
+        for e in self.replay_events(run_id):
+            payload = e.get("payload") or {}
+            if e.get("type") == "ml.metrics":
+                by_epoch[int(payload.get("epoch", 0))] = payload
+            elif e.get("type") == "ml.run_state":
+                total = max(total, int(payload.get("total_epochs") or 0))
+            elif e.get("type") == "ml.overfit_alert" and overfit is None:
+                overfit = payload
+        metrics = [by_epoch[k] for k in sorted(by_epoch)]
+        return {"run_id": run_id, "total_epochs": total or len(metrics), "metrics": metrics, "overfit": overfit}
+
+
+    # --- project setup (ML_PLAN 6, 7.4) -----------------------------------------------------------
+    def open_project(self, path: str) -> Path:
+        repo = Path(path).expanduser().resolve()
+        if not repo.is_dir():
+            raise NotFound(f"no folder at {path!r}")
+        self.repo = repo
+        self.project = {"path": str(repo), "status": "scanning"}
+        return repo
+
+    def update_project(self, status: str, **fields: Any) -> tuple[dict, dict | None]:
+        """Record one setup step. Returns (ml.project_state payload, ml.layout payload or None)."""
+        profile = fields.pop("profile", None)
+        state: dict[str, Any] = {"path": str(self.repo), "status": status}
+        state.update({k: v for k, v in fields.items() if v is not None})
+        if profile is not None:
+            state["profile"] = profile.model_dump(by_alias=True)
+        elif self.project.get("profile") and status not in ("scanning", "classifying"):
+            state["profile"] = self.project["profile"]
+        new_layout = None
+        if status in ("ready", "failed"):
+            extra = [v["viz_id"] for v in state.get("profile", {}).get("extra_viz", [])]
+            new_layout = layout(state.get("archetype", "generic"), extra)
+            state["layout"] = new_layout
+        self.project = state
+        event = {k: state[k] for k in ("path", "status", "archetype", "candidates", "summary", "error") if k in state}
+        return event, new_layout
+
+    def _manifest(self) -> dict:
+        path = self.forge_dir / "patch" / "manifest.json"
+        return _read_json(path) if path.exists() else {}
+
+    def patch_files(self) -> list[dict]:
+        """The proposed patch as unified diffs, for GET /ml/project."""
+        out = []
+        for rel in self._manifest():
+            original, patched = self.repo / rel, self.forge_dir / "patch" / rel
+            def lines(path: Path) -> list[str]:  # a missing final newline would glue two diff lines
+                return [line if line.endswith("\n") else line + "\n" for line in path.read_text().splitlines(True)]
+
+            diff = difflib.unified_diff(lines(original), lines(patched), fromfile=f"a/{rel}", tofile=f"b/{rel}")
+            out.append({"path": rel, "diff": "".join(diff)})
+        return out
+
+    def project_state(self) -> dict:
+        state = dict(self.project)
+        if state.get("status") == "needs_approval":
+            state["patch"] = {"files": self.patch_files()}
+        return state
+
+    def open_diff(self) -> dict:
+        """Open the proposed patch in the laptop's real VS Code (`code --diff`), else return the diff text."""
+        files = list(self._manifest())
+        if not files:
+            raise NotFound("no proposed patch")
+        code = shutil.which("code")
+        if code is None:
+            return {"ok": True, "opened": False, "files": self.patch_files()}
+        for rel in files:
+            subprocess.Popen([code, "--diff", str(self.repo / rel), str(self.forge_dir / "patch" / rel)])
+        return {"ok": True, "opened": True}
+
+    def apply_patch(self, accept: bool) -> list[str]:
+        """The only way setup changes the user's code (ML_PLAN 6.6). Keeps <file>.orig in .forge/patch/ and
+        refuses if a file changed after the patch was written. accept=False is Skip: nothing is written."""
+        if self.project.get("status") != "needs_approval":
+            raise Conflict(f"nothing to approve (project is {self.project.get('status')})")
+        manifest = self._manifest()
+        applied = []
+        if accept:
+            for rel, info in manifest.items():
+                target = self.repo / rel
+                if hashlib.sha256(target.read_bytes()).hexdigest() != info["sha256"]:
+                    raise Conflict(f"{rel} changed after the patch was written; rescan the project")
+            for rel in manifest:
+                target, patched = self.repo / rel, self.forge_dir / "patch" / rel
+                shutil.copyfile(target, patched.with_name(patched.name + ".orig"))
+                shutil.copyfile(patched, target)
+                applied.append(rel)
+        return applied

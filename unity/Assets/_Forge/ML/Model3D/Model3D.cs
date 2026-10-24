@@ -15,9 +15,21 @@ namespace Forge.ML
         Color[] colors;
         TMPro.TMP_Text detail;
         int highlighted = -1;
+        MLLayer[] built;
         void Start()
         {
-            session = MLSession.Resolve(session); var root = GetComponent<ForgePanel>().Content;
+            session = MLSession.Resolve(session);
+            Build();
+            session.Metrics += OnMetrics; session.Reloaded += OnReloaded;
+        }
+        // The hub can send a different model (another repo, or graph_ready): rebuild only when the layers changed.
+        void OnReloaded() { if (session.Data.layers != built) { StopAllCoroutines(); Build(); } }
+        void Build()
+        {
+            var root = GetComponent<ForgePanel>().Content;
+            for (int i = root.childCount - 1; i >= 0; i--) Destroy(root.GetChild(i).gameObject);
+            if (materials != null) foreach (var old in materials) Destroy(old);
+            built = session.Data.layers; highlighted = -1;
             int count = session.Data.layers.Length; blocks = new Transform[count]; scales = new Vector3[count]; materials = new Material[count]; colors = new Color[count];
             float step = Mathf.Min(62, (root.rect.height - 30) / Mathf.Max(1, count));
             MLUI.Text(root, "Layer blocks · pulses follow metrics ticks", 8, 0, 450, 26, 14);
@@ -40,7 +52,6 @@ namespace Forge.ML
                 var image = hit.AddComponent<Image>(); image.color = new Color(0, 0, 0, .001f);
                 var input = hit.AddComponent<MLModelLayerInput>(); input.owner = this; input.layerIndex = i;
             }
-            session.Metrics += OnMetrics;
         }
         public void HighlightLayer(int index)
         {
@@ -76,6 +87,6 @@ namespace Forge.ML
                 blocks[i].localScale = scales[i]; materials[i].SetColor("_BaseColor",colors[i]);
             }
         }
-        void OnDestroy() { if(session != null) session.Metrics -= OnMetrics; if(materials != null) foreach(var material in materials) Destroy(material); }
+        void OnDestroy() { if(session != null) { session.Metrics -= OnMetrics; session.Reloaded -= OnReloaded; } if(materials != null) foreach(var material in materials) Destroy(material); }
     }
 }

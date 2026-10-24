@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 using Oculus.Interaction;
 using TMPro;
 using UnityEditor;
@@ -13,10 +14,12 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Forge > CAD > Build CAD Prefabs: (re)builds, all in Assets/_Forge/CAD (and the mock set in Mocks/cad):
-/// - Mocks/cad/CadMocks.asset from Mocks/cad/vN/ (refresh those with hub: python -m cad.make_mocks, then copy)
-/// - CadViewer.prefab: ForgeVolume variant + CadViewer (the rocket on the desk, slot cad-viewer)
-/// - CadParamsPanel.prefab: ForgePanel variant, UI under Content (slot cad-params)
-/// - CADSandbox.unity: both prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
+/// - Mocks/cad/CadMocks.asset from Mocks/cad/parts.json + Mocks/cad/&lt;part&gt;/vN/ (refresh those with
+///   hub: python -m cad.make_mocks, then copy; see the CAD README)
+/// - CadViewer.prefab: ForgeVolume variant + CadViewer (the open design on the desk, slot cad-viewer)
+/// - CadParamsPanel.prefab: ForgePanel variant + CadParamsPanel, which builds its UI at runtime (slot cad-params)
+/// - CadDrawingPanel.prefab: ForgePanel variant, the version's engineering drawing (slot cad-drawing)
+/// - CADSandbox.unity: the prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
 /// Builds in an additive scratch scene, so whatever scene is open is left alone. GUIDs are kept on rebuild.
 /// </summary>
 public static class CadPrefabBuilder
@@ -27,6 +30,7 @@ public static class CadPrefabBuilder
     const string MockDir = "Assets/_Forge/Mocks/cad";
     public const string ViewerPath = PrefabDir + "/CadViewer.prefab";
     public const string PanelPath = PrefabDir + "/CadParamsPanel.prefab";
+    public const string DrawingPath = PrefabDir + "/CadDrawingPanel.prefab";
     public const string SandboxPath = Root + "/CADSandbox.unity";
     const string MockSetPath = MockDir + "/CadMocks.asset";
 
@@ -51,7 +55,8 @@ public static class CadPrefabBuilder
         {
             var viewer = BuildViewer(mocks);
             var panel = BuildPanel(mocks);
-            FillSandbox(scene, viewer, panel, mocks);
+            var drawing = BuildDrawingPanel(mocks);
+            FillSandbox(scene, viewer, panel, drawing, mocks);
             EditorSceneManager.SaveScene(scene, SandboxPath);
         }
         finally
@@ -63,7 +68,8 @@ public static class CadPrefabBuilder
             }
         }
         AssetDatabase.SaveAssets();
-        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {SandboxPath} ({mocks.versions.Count} mock versions)");
+        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {DrawingPath}, {SandboxPath} (mocks: " +
+                  string.Join(", ", mocks.parts.Select(p => $"{p.part} x{p.versions.Count}")) + ")");
     }
 
     // Mocks
@@ -76,26 +82,37 @@ public static class CadPrefabBuilder
             set = ScriptableObject.CreateInstance<CadMockSet>();
             AssetDatabase.CreateAsset(set, MockSetPath);
         }
-        set.versions.Clear();
-        var folders = AssetDatabase.GetSubFolders(MockDir)
-            .Where(f => Path.GetFileName(f).StartsWith("v"))
-            .OrderBy(f => int.TryParse(Path.GetFileName(f).Substring(1), out int n) ? n : int.MaxValue);
-        foreach (var folder in folders)
-        {
-            set.versions.Add(new CadMockSet.Version
-            {
-                label = Path.GetFileName(folder),
-                glb = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model.glb.bytes"),
-                metadata = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/metadata.json"),
-                parameters = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/params.json"),
-                modelUpdated = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model_updated.json"),
-                flight = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/flight.json"),
-            });
-        }
+        set.parts.Clear();
+        set.partList = AssetDatabase.LoadAssetAtPath<TextAsset>(MockDir + "/parts.json");
         set.regenFailed = AssetDatabase.LoadAssetAtPath<TextAsset>(MockDir + "/regen_failed.json");
-        foreach (var v in set.versions)
-            if (v.glb == null || v.metadata == null || v.parameters == null || v.modelUpdated == null)
-                Debug.LogError($"[CadPrefabBuilder] Mock {v.label} is missing files in {MockDir}/{v.label}");
+        if (set.partList == null) { Debug.LogError($"[CadPrefabBuilder] {MockDir}/parts.json is missing"); return set; }
+        // Designs in parts.json order (its first one opens first), each with its vN folders in order.
+        foreach (var entry in JObject.Parse(set.partList.text)["parts"])
+        {
+            string part = (string)entry["part"], dir = $"{MockDir}/{part}";
+            if (!AssetDatabase.IsValidFolder(dir)) { Debug.LogError($"[CadPrefabBuilder] No mocks in {dir}"); continue; }
+            var mock = new CadMockSet.Part { part = part };
+            var folders = AssetDatabase.GetSubFolders(dir)
+                .Where(f => Path.GetFileName(f).StartsWith("v"))
+                .OrderBy(f => int.TryParse(Path.GetFileName(f).Substring(1), out int n) ? n : int.MaxValue);
+            foreach (var folder in folders)
+            {
+                var v = new CadMockSet.Version
+                {
+                    label = $"{part}/{Path.GetFileName(folder)}",
+                    glb = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model.glb.bytes"),
+                    metadata = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/metadata.json"),
+                    parameters = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/params.json"),
+                    modelUpdated = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model_updated.json"),
+                    flight = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/flight.json"),
+                    drawing = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/drawing.png.bytes"),
+                };
+                if (v.glb == null || v.metadata == null || v.parameters == null || v.modelUpdated == null)
+                    Debug.LogError($"[CadPrefabBuilder] Mock {v.label} is missing files in {folder}");
+                mock.versions.Add(v);
+            }
+            set.parts.Add(mock);
+        }
         EditorUtility.SetDirty(set);
         return set;
     }
@@ -108,7 +125,7 @@ public static class CadPrefabBuilder
         go.name = "CadViewer";
         var volume = go.GetComponent<ForgeVolume>();
         volume.volumeId = "cad-viewer";
-        volume.Title = "Rocket";
+        volume.Title = "Design";  // CadViewer puts the open design's title here
         volume.turntable = true;
         volume.turntableDegreesPerSecond = 12f;
         volume.SetSize(new Vector3(0.26f, 0.5f, 0.26f));
@@ -123,6 +140,7 @@ public static class CadPrefabBuilder
         });
         viewer.cgMaterial = GetMaterial("CadMarkerCG", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.25f, 0.6f, 1f)));
         viewer.cpMaterial = GetMaterial("CadMarkerCP", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.95f, 0.3f, 0.25f)));
+        go.AddComponent<CadTakeApart>();  // Inspect view: take parts off and put them back
         PrefabUtility.SaveAsPrefabAsset(go, ViewerPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(ViewerPath);
@@ -136,85 +154,60 @@ public static class CadPrefabBuilder
         go.name = "CadParamsPanel";
         var panel = go.GetComponent<ForgePanel>();
         panel.panelId = "cad-params";
-        panel.Title = "Rocket parameters";
-        panel.SizeMeters = new Vector2(0.48f, 0.8f);
+        panel.Title = "Design";
+        panel.SizeMeters = new Vector2(0.48f, 0.6f);  // taller pokes through the wall in desktop mode's corner desk
+        if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
+        var placeholder = panel.Content.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        // CadParamsPanel builds its UI at runtime under Content (CAD UX spec section 2: header, tabs, verdict, tabs'
+        // content, footer), so the prefab is the panel and the component.
+        var component = go.AddComponent<CadParamsPanel>();
+        component.mocks = mocks;
+        PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
+        Object.DestroyImmediate(go);
+        return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);
+    }
+
+    // Drawing panel
+
+    static GameObject BuildDrawingPanel(CadMockSet mocks)
+    {
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.PanelPath));
+        go.name = "CadDrawingPanel";
+        var panel = go.GetComponent<ForgePanel>();
+        panel.panelId = "cad-drawing";
+        panel.Title = "Drawing";
+        panel.SizeMeters = new Vector2(0.64f, 0.54f);  // an A3 sheet (1.41 : 1) under the title bar, plus a status line
         if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
         var content = panel.Content;
         var placeholder = content.Find("Placeholder");
         if (placeholder != null) placeholder.gameObject.SetActive(false);
 
-        var ui = NewRect("CadUI", content);
-        Stretch(ui, 0f, 0f, 0f, 0f);
-        var column = ui.gameObject.AddComponent<VerticalLayoutGroup>();
-        column.spacing = 8f;
-        column.childControlWidth = column.childControlHeight = true;
-        column.childForceExpandWidth = true;
-        column.childForceExpandHeight = false;
+        // The sheet keeps its shape inside the frame however the panel is resized.
+        var frame = NewRect("Frame", content);
+        Stretch(frame, 0f, 30f, 0f, 0f);
+        var sheet = new GameObject("Sheet", typeof(RectTransform), typeof(RawImage), typeof(AspectRatioFitter));
+        sheet.transform.SetParent(frame, false);
+        var fitter = sheet.GetComponent<AspectRatioFitter>();
+        fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+        fitter.aspectRatio = 2048f / 1448f;
 
-        // Header: "rocket v3" + stability chip
-        var headerRow = Row("Header", ui, 40f);
-        var header = NewText("Title", headerRow, "rocket", 24f, TextAlignmentOptions.MidlineLeft);
-        header.fontStyle = FontStyles.Bold;
-        Flexible(header.gameObject);
-        var chip = NewImage("Stability", headerRow, Rounded(), CadParamsPanel.Stable);
-        Fixed(chip.gameObject, 150f, 34f);
-        var chipText = NewText("Text", chip.transform, "STABLE", 18f, TextAlignmentOptions.Center);
-        chipText.fontStyle = FontStyles.Bold;
-        chipText.color = new Color(0.05f, 0.07f, 0.1f);
-        Stretch(chipText.rectTransform, 0f, 0f, 0f, 0f);
-
-        // Gauge: 0 to 3 calibers, bands at 1.0 / 1.5 / 2.5
-        var gauge = NewRect("Gauge", ui);
-        Fixed(gauge.gameObject, -1f, 22f);
-        float max = CadParamsPanel.GaugeMaxCal;
-        Band(gauge, 0f, 1f / max, CadParamsPanel.Unstable);
-        Band(gauge, 1f / max, 1.5f / max, CadParamsPanel.Marginal);
-        Band(gauge, 1.5f / max, 2.5f / max, CadParamsPanel.Stable);
-        Band(gauge, 2.5f / max, 1f, CadParamsPanel.Marginal);
-        var needle = NewImage("Needle", gauge, null, Color.white).rectTransform;
-        needle.anchorMin = needle.anchorMax = new Vector2(0.5f, 0.5f);
-        needle.sizeDelta = new Vector2(6f, 34f);
-        var gaugeLabel = NewText("GaugeLabel", ui, "Static margin", 19f, TextAlignmentOptions.MidlineLeft);
-        Fixed(gaugeLabel.gameObject, -1f, 26f);
-        var stats = NewText("Stats", ui, "", 16f, TextAlignmentOptions.MidlineLeft);
-        stats.color = Muted;
-        Fixed(stats.gameObject, -1f, 24f);
-
-        // Parameter rows (built at runtime from GET /cad/params)
-        var rows = NewRect("Rows", ui);
-        Flexible(rows.gameObject);
-        var rowLayout = rows.gameObject.AddComponent<VerticalLayoutGroup>();
-        rowLayout.spacing = 4f;
-        rowLayout.childControlWidth = rowLayout.childControlHeight = true;
-        rowLayout.childForceExpandWidth = true;
-        rowLayout.childForceExpandHeight = false;
-        var rowTemplate = BuildRowTemplate(rows);
-
-        // Buttons
-        var buttons = Row("Buttons", ui, 48f);
-        buttons.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var prev = NewButton("Prev", buttons, "<", 44f);
-        var undo = NewButton("Undo", buttons, "Undo", -1f);
-        var reset = NewButton("Reset", buttons, "Reset", -1f);
-        var explode = NewButton("Explode", buttons, "Explode", -1f);
-        var fly = NewButton("Fly", buttons, "Fly", -1f);
-        var next = NewButton("Next", buttons, ">", 44f);
-
-        var status = NewText("Status", ui, "", 15f, TextAlignmentOptions.TopLeft);
+        var status = NewText("Status", content, "", 16f, TextAlignmentOptions.MidlineLeft);
         status.color = Muted;
-        status.textWrappingMode = TextWrappingModes.Normal;
-        Fixed(status.gameObject, -1f, 40f);
+        var rt = status.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(0.5f, 0f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = new Vector2(0f, 26f);
 
-        var component = go.AddComponent<CadParamsPanel>();
+        var component = go.AddComponent<CadDrawingPanel>();
         component.mocks = mocks;
-        SetRefs(component, ("header", header), ("stabilityChip", chip), ("stabilityText", chipText),
-            ("gaugeNeedle", needle), ("gaugeLabel", gaugeLabel), ("stats", stats), ("rows", rows),
-            ("rowTemplate", rowTemplate), ("undoButton", undo), ("resetButton", reset), ("explodeButton", explode),
-            ("flyButton", fly), ("prevButton", prev), ("nextButton", next),
-            ("explodeLabel", explode.GetComponentInChildren<TMP_Text>()), ("status", status));
-        PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
+        SetRefs(component, ("sheet", sheet.GetComponent<RawImage>()), ("status", status));
+        PrefabUtility.SaveAsPrefabAsset(go, DrawingPath);
         Object.DestroyImmediate(go);
-        return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);
+        return AssetDatabase.LoadAssetAtPath<GameObject>(DrawingPath);
     }
 
     static CadParamRow BuildRowTemplate(RectTransform parent)
@@ -260,9 +253,121 @@ public static class CadPrefabBuilder
         return component;
     }
 
+    /// <summary>"Static margin 1.57 cal" + a STABLE chip, then the banded bar with its needle.</summary>
+    static CadMetricGauge BuildGaugeTemplate(RectTransform parent)
+    {
+        var gauge = NewRect("GaugeTemplate", parent);
+        var layout = gauge.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.spacing = 4f;
+        layout.childControlWidth = layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        var line = Row("Line", gauge, 28f);
+        line.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
+        var label = NewText("Label", line, "Metric", 19f, TextAlignmentOptions.MidlineLeft);
+        Flexible(label.gameObject);
+        var chip = NewImage("Chip", line, Rounded(), CadMetricGauge.Ok);
+        Fixed(chip.gameObject, 130f, 28f);
+        var chipText = NewText("Text", chip.transform, "OK", 16f, TextAlignmentOptions.Center);
+        chipText.fontStyle = FontStyles.Bold;
+        chipText.color = new Color(0.05f, 0.07f, 0.1f);
+        Stretch(chipText.rectTransform, 0f, 0f, 0f, 0f);
+
+        var bar = NewRect("Bar", gauge);
+        Fixed(bar.gameObject, -1f, 16f);
+        var needle = NewImage("Needle", bar, null, Color.white).rectTransform;
+        needle.anchorMin = needle.anchorMax = new Vector2(0.5f, 0.5f);
+        needle.sizeDelta = new Vector2(6f, 26f);
+
+        var component = gauge.gameObject.AddComponent<CadMetricGauge>();
+        SetRefs(component, ("label", label), ("chip", chip), ("chipText", chipText), ("bar", bar), ("needle", needle));
+        gauge.gameObject.SetActive(false);
+        return component;
+    }
+
+    /// <summary>A vertical ScrollRect taking the panel's spare height; rows go in <paramref name="rows"/>.
+    /// Drag the rows' background or the scrollbar (desktop mode sends no wheel events to uGUI).</summary>
+    static ScrollRect BuildScroll(RectTransform parent, out RectTransform rows)
+    {
+        var area = NewImage("Scroll", parent, null, new Color(1f, 1f, 1f, 0f));  // invisible, catches drags between rows
+        Flexible(area.gameObject);
+        area.GetComponent<LayoutElement>().minHeight = 84f;  // two rows stay visible on a panel resized small
+        var scroll = area.gameObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 30f;
+
+        var viewport = NewRect("Viewport", area.transform);
+        Stretch(viewport, 0f, 0f, 16f, 0f);
+        viewport.gameObject.AddComponent<RectMask2D>();
+        rows = NewRect("Rows", viewport);
+        rows.anchorMin = new Vector2(0f, 1f);
+        rows.anchorMax = Vector2.one;
+        rows.pivot = new Vector2(0.5f, 1f);
+        rows.sizeDelta = Vector2.zero;
+        var rowLayout = rows.gameObject.AddComponent<VerticalLayoutGroup>();
+        rowLayout.spacing = 4f;
+        rowLayout.childControlWidth = rowLayout.childControlHeight = true;
+        rowLayout.childForceExpandWidth = true;
+        rowLayout.childForceExpandHeight = false;
+        rows.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        var scrollbar = DefaultControls.CreateScrollbar(UiResources()).GetComponent<Scrollbar>();
+        scrollbar.name = "Scrollbar";
+        var bar = (RectTransform)scrollbar.transform;
+        bar.SetParent(area.transform, false);
+        bar.anchorMin = new Vector2(1f, 0f);
+        bar.anchorMax = Vector2.one;
+        bar.pivot = new Vector2(1f, 0.5f);
+        bar.sizeDelta = new Vector2(10f, 0f);
+        bar.anchoredPosition = Vector2.zero;
+        scrollbar.direction = Scrollbar.Direction.BottomToTop;
+        scrollbar.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.08f);
+        scrollbar.handleRect.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.45f);
+
+        scroll.viewport = viewport;
+        scroll.content = rows;
+        scroll.verticalScrollbar = scrollbar;
+        scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
+        return scroll;
+    }
+
+    /// <summary>The Designs menu: a list over the panel under the header, one button per design.</summary>
+    static RectTransform BuildPicker(RectTransform parent, out Button entry)
+    {
+        var picker = NewImage("Picker", parent, Rounded(), new Color(0.17f, 0.19f, 0.25f, 1f)).rectTransform;
+        picker.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        picker.anchorMin = new Vector2(0f, 1f);
+        picker.anchorMax = Vector2.one;
+        picker.pivot = new Vector2(0.5f, 1f);
+        picker.anchoredPosition = new Vector2(0f, -46f);
+        picker.sizeDelta = Vector2.zero;
+        var layout = picker.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(8, 8, 8, 8);
+        layout.spacing = 6f;
+        layout.childControlWidth = layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+        picker.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        entry = NewButton("DesignTemplate", picker, "Design", -1f);
+        Fixed(entry.gameObject, -1f, 58f);
+        entry.GetComponent<Image>().color = new Color(0.25f, 0.28f, 0.36f, 1f);
+        var text = entry.GetComponentInChildren<TMP_Text>();
+        text.fontStyle = FontStyles.Normal;
+        text.alignment = TextAlignmentOptions.MidlineLeft;
+        text.textWrappingMode = TextWrappingModes.Normal;
+        text.overflowMode = TextOverflowModes.Ellipsis;
+        Stretch(text.rectTransform, 12f, 4f, 12f, 4f);
+        entry.gameObject.SetActive(false);
+        picker.gameObject.SetActive(false);
+        return picker;
+    }
+
     // Sandbox
 
-    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, CadMockSet mocks)
+    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, GameObject drawingPrefab, CadMockSet mocks)
     {
         var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener)).GetComponent<Camera>();
         camera.tag = "MainCamera";
@@ -292,6 +397,9 @@ public static class CadPrefabBuilder
         // doesn't record that override on a prefab instance, so set the serialized value directly.
         ((RectTransform)panel.transform).anchoredPosition3D = new Vector3(0.36f, 1.12f, 0.32f);
         panel.transform.rotation = Quaternion.Euler(0f, 20f, 0f);
+        var drawing = (GameObject)PrefabUtility.InstantiatePrefab(drawingPrefab, scene);
+        ((RectTransform)drawing.transform).anchoredPosition3D = new Vector3(-0.45f, 1.1f, 0.42f);
+        drawing.transform.rotation = Quaternion.Euler(0f, -18f, 0f);
 
         // Mouse UI. ForgePanel's ray/poke canvas asserts a PointableCanvasModule exists (as in Main), but adding one
         // in the Editor turns on its exclusive mode (Reset), which disables every other input module at Start.
@@ -333,14 +441,6 @@ public static class CadPrefabBuilder
         return row;
     }
 
-    static void Band(RectTransform gauge, float from, float to, Color color)
-    {
-        var band = NewImage("Band", gauge, null, color).rectTransform;
-        band.anchorMin = new Vector2(from, 0f);
-        band.anchorMax = new Vector2(to, 1f);
-        band.offsetMin = band.offsetMax = Vector2.zero;
-    }
-
     static Button NewButton(string name, Transform parent, string text, float width)
     {
         var image = NewImage(name, parent, Rounded(), ButtonColor);
@@ -363,6 +463,7 @@ public static class CadPrefabBuilder
         var e = go.GetComponent<LayoutElement>() ?? go.AddComponent<LayoutElement>();
         if (width > 0f) e.preferredWidth = e.minWidth = width;
         e.preferredHeight = e.minHeight = height;
+        e.flexibleHeight = 0f;  // or a flexible child (a title) makes the whole row soak up spare height
     }
 
     static void Flexible(GameObject go, float height = -1f)

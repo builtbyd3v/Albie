@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-So far only the **CAD** module exists (see `../CAD_PLAN.md`). `main.py` and `events.py` are a minimal skeleton for Person 5 to grow.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)) and **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -20,35 +20,269 @@ Never `pip install cadquery` into this env: its OCP build breaks build123d's imp
 uvicorn main:app --host 0.0.0.0 --port 8000     # no --reload (it restarts the CAD worker)
 ```
 
-- `GET /health` once the first rocket is built (a few seconds on startup).
-- Open `cad/parts/rocket.py` in VS Code: **saving it regenerates the rocket** and pushes `cad.model_updated`. A broken save keeps the last good model and emits `cad.regen_failed` with the error line.
+- `GET /health` once the first design is built (a few seconds on startup).
+- Open `cad/parts/rocket.py` in VS Code: **saving the open design's script regenerates it** and pushes `cad.model_updated`. A broken save keeps the last good model and emits `cad.regen_failed` with the error line.
 - Try it: `curl -X POST localhost:8000/cad/params -H "Content-Type: application/json" -d "{\"fin_count\": 4}"`
-- Data (versions, GLBs) lives in `hub/.data/` (gitignored). Delete `.data/cad` to start fresh. Env: `FORGE_DATA_DIR`, `FORGE_CAD_SCRIPT`.
+- Data (versions, GLBs) lives in `hub/.data/` (gitignored). Delete `.data/cad` to start fresh. Env: `FORGE_DATA_DIR`, `FORGE_CAD_SCRIPT` (the design opened the first time; after that the hub reopens the last one).
+
+## Designs (the CAD library)
+
+Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is its id. Today: `rocket` (the hero),
+`quadcopter`, `gearbox`. Each keeps its own history (undo stays inside it); version numbers are unique across them.
+
+- `GET /cad/parts` lists them; `POST /cad/part {"part": "gearbox"}` opens one; `POST /cad/preset {"name": "Hexacopter"}`
+  applies a named preset to the open one. Everything else (`/cad/params`, undo, ...) acts on the open design.
+- **Add a design:** copy `cad/parts/_template.py` to `cad/parts/<name>.py`. It shows up in `GET /cad/parts` (and the
+  Designs menu in Unity) straight away; open it and save to regenerate. A part script defines `PARAMS` and
+  `build(params) -> BuildResult`, optionally `TITLE`, `DESCRIPTION`, `PRESETS`, `analyze(result, masses)` (metrics:
+  give `min`/`max` for a gauge) and `simulate_flight` (the Fly button). Mass, size and part count come free.
+- **Optional extras for the CAD UI** (all in part millimetres, Z up; see `_template.py`): `GLYPH = "rocket"` (the
+  Designs menu icon: rocket | drone | gears | box). `Param(..., group="Fins", help="one short line", parts=("fin_*",),
+  dimension="fin_span")` puts the parameter in a panel section (default "General"), says which parts it shapes and
+  which dimension callout it changes (defaults: parts named like it, a dimension with its name); `step` is worked out
+  from the range if you give none. `analyze()` can return `Analysis(metrics=..., markers=[Marker(...)],
+  dimensions=[Dimension(...)], explode=Explode(axis, [ExplodeMove(part, direction, mm, order)]), demo=Demo(kind, label,
+  spinners=[Spinner(..., radius_mm=)], blocked=, reveal=[...]), mass_groups={"Gears": ["pinion", "gear"]},
+  verdict=Verdict(status, headline, sentence, metric), constants=[Constant(label, value, note)])`. Leave any out and
+  `cad/scene.py` makes a generic one: the CG marker, overall width/depth/height, parts spread out from the centre, mass
+  by top-level assembly, a demo of "launch" with `simulate_flight` (else none), a verdict from the worst metric, no
+  constants. They land in the analysis block (`cad.model_updated`) in the GLB's frame: CAD_PLAN section 5, round 4.
+- Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
+  `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
+- `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
+  views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
 
 ## Test
 
 ```powershell
-pytest            # about 1 min: geometry, RocketPy cross-check, export validity, API, watcher, timeouts
+pytest            # a few minutes: geometry, RocketPy cross-check, every design + preset, library API, watcher, timeouts
 ```
 
 ## Mocks for Unity (hub off)
 
 ```powershell
-python -m cad.make_mocks       # -> hub/.data/mocks/cad/v1..v4 + regen_failed.json
+python -m cad.make_mocks       # -> hub/.data/mocks/cad/parts.json, <part>/vN/, regen_failed.json
 ```
 
-Copy that folder to `unity/Assets/_Forge/Mocks/cad/`. The four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60.
+Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty.
 
 ## CAD module map
 
 | File | What |
 |---|---|
-| `cad/parts/rocket.py` | The part: `PARAMS` + `build(params)`. The file on the main screen. |
-| `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `FinSet`, `RocketSpec`, `BuildResult`). |
+| `cad/parts/rocket.py` | The rocket: `PARAMS`, `build(params)`, presets, `analyze` (Barrowman stability). The file on the main screen. |
+| `cad/parts/quadcopter.py`, `gearbox.py` | Two more designs (prop clearance / thrust-to-weight; ratio / pinion rim, own involute gears). |
+| `cad/parts/_template.py` | Copy me: a new file is a new design. |
+| `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `Metric`, `BuildResult`, rocket specs). |
 | `cad/export.py` | GLB + cad-vision schema 1.0 metadata, validated with cad-vision's loader rules. |
-| `cad/analysis.py` | Mass, CG, Barrowman CP, static margin, markers for Unity. |
-| `cad/flight.py` | RocketPy launch-to-apogee sim on an Estes C6 (`cad/data/estes_c6.eng`). |
+| `cad/analysis.py` | Mass, CG, generic metrics (mass, size, parts), and the Barrowman helpers rockets use. |
+| `cad/scene.py` | What Unity draws on the model: markers, dimensions, explode vectors, mass breakdown, demo (part's or generic), in the GLB's frame. |
+| `cad/flight.py` | RocketPy launch-to-apogee sim on an Estes C6 (`cad/data/estes_c6.eng`), then parachute descent to landing; fixed-rate samples + events. |
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
-| `cad/service.py` | Version tree on disk, one regen at a time, events, undo/reset, file watcher. |
+| `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
 | `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+
+## Agent module (pet)
+
+Adrian's module: the gator pet answers questions about a repo and runs coding tasks through the
+**Claude Agent SDK** (`claude-agent-sdk`). Protocol: [`docs/PET_AGENT_CONTRACT.md`](../docs/PET_AGENT_CONTRACT.md).
+
+- REST: `POST /agent/text` (typed fallback, returns the final answer), `GET /agent/projects`.
+- WebSocket: **`/ws/agent`** (not `/ws`). `/ws` belongs to the `EventBus` in `events.py`; the agent has its
+  own broadcast bus (`agent/bus.py`). Folding the agent onto `/ws` is Person 5's call (the agent handler
+  already ignores unknown message types, so sharing a socket would work).
+- `/health` adds `fake_agent`, `stt` and `agent_sockets`.
+- `agent/` imports no CAD code, so it runs and tests without build123d/rocketpy.
+
+```
+agent/
+  app.py      create_agent_app(): standalone app (/agent, /ws/agent, /health); health_fields(); load_env()
+  __main__.py python -m agent (runs create_agent_app with uvicorn)
+  events.py   pydantic models for every agent WS message + builders + PET_STATE_FOR_EVENT
+  bus.py      broadcast to all /ws/agent sockets + per-turn Emitter (pet.state companions, path redaction)
+  ws.py       /ws/agent session: hello, agent.ask, agent.cancel, stt.start/stop, binary audio
+  router.py   POST /agent/text, GET /agent/projects
+  runner.py   real turns via ClaudeSDKClient (qa = read-only, code = edits on a pet/* branch)
+  fake.py     FAKE_AGENT=1 scripted turns (same signature)
+  turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
+  stt.py      SpeechToText: NoneSTT, WhisperSTT (faster-whisper, optional)
+  voice.py    VOICE_PROVIDER=grok|fake: one speech-to-speech session per socket (stt.* in, tts.* + PCM out)
+  assets/     fake_voice_24k.pcm (regenerate: scripts/make_fake_voice.py)
+  tts.py      TextToSpeech protocol + NullTTS stub
+config/projects.yaml   project_id -> repo path (paths never leave the server)
+tests/agent/           pytest, fake mode, never imports main.py
+scripts/ws_smoke.py    prints the event stream from a running hub
+.env.example           copy to hub/.env (main.py and python -m agent both load it)
+```
+
+### Install
+
+The deps are in `requirements.txt` / `requirements-dev.txt` (above). Agent only, without CAD (macOS/Linux):
+
+```bash
+cd hub
+python3.11 -m venv .venv
+.venv/bin/pip install fastapi "uvicorn[standard]" pydantic claude-agent-sdk pyyaml python-dotenv pytest httpx websockets
+cp .env.example .env
+# optional voice input: .venv/bin/pip install faster-whisper   then STT_PROVIDER=whisper
+```
+
+The SDK ships its own Claude Code CLI binary; no separate install.
+
+### Run
+
+```bash
+FAKE_AGENT=1 .venv/bin/python -m agent              # agent alone, no API key, no model calls (port 8000)
+FAKE_AGENT=1 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000   # full hub: CAD + agent
+curl localhost:8000/health
+```
+
+Fake turns: thinking, 3 cumulative partials, answer_done. A code ask gives task_started, 3 progress
+events, task_complete (branch `pet/fake-123`). The text `error` gives agent.error. `FAKE_AGENT_DELAY`
+(seconds, default 0.6) sets the pacing.
+
+Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
+`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`medium`).
+
+- **qa**: tools `Read, Grep, Glob` only, `permission_mode="dontAsk"`, `cwd` = repo, short spoken persona.
+- **code**: the hub checks out `pet/<slug>-<id>` first (skipped, and said so, if not a git repo), then runs
+  with `Read, Grep, Glob, Edit, Write, Bash`. `git push/checkout/switch/reset`, `rm -rf`, `sudo` are denied.
+  Changes are left **uncommitted** on that branch for review.
+- **auto**: imperative verb first (fix/add/change/make/refactor/...) → code, else qa. No `mode` → the project's `default_mode`.
+- Start the hub from a normal terminal, **not inside a Claude Code session** (inherited `CLAUDECODE` /
+  `ANTHROPIC_BASE_URL` make the SDK's CLI subprocess hang). No `--reload` in real mode either.
+
+### Voice (Grok speech-to-speech)
+
+`VOICE_PROVIDER=grok` + `XAI_API_KEY` gives each Unity socket its own Grok Voice session
+(`grok-voice-3.0`, raw websockets). Unity keeps sending what it already sends; the hub answers with speech:
+
+- `hello { audio_out_rate? }` -> `voice.ready { provider, sample_rate }` (owner socket only); the Grok socket is pre-warmed
+- `stt.start` -> barge-in (stop speech) + new turn; binary PCM16 16 kHz -> Grok; `stt.stop` -> commit + `response.create`
+- user transcript -> `stt.partial` / `stt.final { voice: true }` (Unity must not `agent.ask` it; the hub also ignores an echo)
+- speech -> `tts.start { utterance_id, sample_rate, encoding: "pcm16" }` -> binary frames -> `tts.end` (or `tts.stop` on barge-in)
+- spoken text -> `agent.partial_answer` / `agent.answer_done`, so captions work unchanged
+- `tts.stop` from the client stops the current reply
+
+Conversational only for now (no tools, no `delegate`). `VOICE_PROVIDER=fake` speaks a canned reply from
+`agent/assets/fake_voice_24k.pcm` with no key, for Unity testing:
+
+```bash
+VOICE_PROVIDER=fake FAKE_AGENT=1 .venv/bin/python -m agent
+```
+
+### Say a gator's name (wake turns)
+
+Unity's `WakeListener` keeps the mic on and sends each speech segment as `stt.start {wake: true}`. `agent/wake.py`
+only answers segments that name a gator ("Hey Bit, ...", "Tester, run the tests"); a name on its own
+("Hey Scout") comes back as `wake.listen` and that gator takes the next sentence. Anything else is dropped
+without a caption (and deleted from the Grok conversation). In voice mode every segment is transcribed by xAI.
+
+### Crew (extra gators, one per agent type)
+
+The user hatches helper gators in Unity (the egg on the desk, the N key, or "Bit, hatch a tester"). Each one is
+its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.py` `TYPES`): Scout, Builder, Fixer,
+Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Bit leads: Grok and Bit's Claude runner get four
+lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
+`crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
+default `<repo>-crew/`) on `pet/<agent>/<task>` and is committed there, so nobody switches the main checkout's
+branch. When one finishes, Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
+Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
+that member's turn without touching Bit's.
+
+### Test
+
+```bash
+FAKE_AGENT=1 .venv/bin/python -m pytest tests/agent -q    # fake mode, a few seconds, no CAD deps
+```
+
+(Plain `pytest` still runs only `cad/tests`, per `pytest.ini`.)
+
+### Smoke test against a running hub
+
+```bash
+.venv/bin/python scripts/ws_smoke.py "where is the websocket handler?" --mode qa
+.venv/bin/python scripts/ws_smoke.py "add a docstring to agent/tts.py" --mode code
+.venv/bin/python scripts/ws_smoke.py "hi" --url ws://10.0.0.5:8000/ws/agent
+```
+
+### How Unity connects
+
+`unity/Assets/StreamingAssets/pet_config.json` → `hubUrl`, with `eventSource: "hub"` (commit it as `"mock"`):
+
+| Where Unity runs | hubUrl |
+|---|---|
+| Editor / desktop on the same laptop | `ws://127.0.0.1:8000/ws/agent` |
+| Quest on the same Wi-Fi | `ws://<laptop LAN IP>:8000/ws/agent` (macOS: `ipconfig getifaddr en0`); bind `0.0.0.0`, allow it through the firewall |
+| Quest over USB | `adb reverse tcp:8000 tcp:8000`, keep `ws://127.0.0.1:8000/ws/agent` |
+
+The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` plus binary PCM16 frames
+(mono, 16 kHz, ~100 ms chunks). Every event goes to every `/ws/agent` socket; filter by `pet_id`.
+The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
+pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
+
+## Messaging (Slack)
+
+Bit reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
+`hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
+`hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so there is no public
+URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
+
+Setup with the Slack CLI (https://docs.slack.dev/tools/slack-cli), from `hub/`:
+
+```bash
+slack login                      # once per machine, into the team workspace
+slack install -E local           # creates "Bit (local)" from manifest.json and installs it (bot + user scopes)
+slack run                        # start hook (scripts/slack_cli_start.py) writes SLACK_BOT_TOKEN + SLACK_APP_TOKEN to hub/.env, then exits
+slack app settings               # OAuth & Permissions > "User OAuth Token" (xoxp-...) -> SLACK_USER_TOKEN in hub/.env (the CLI never hands it out)
+```
+
+Changed scopes or events? Edit `manifest.json`, run `slack run` again (it syncs the manifest and reinstalls), and
+re-copy the user token if user scopes changed. Another checkout of the repo: `slack app link -E local` (app id from
+`slack app list`); `.slack/apps.dev.json` is gitignored on purpose, it is per-checkout. Manual fallback:
+api.slack.com/apps with the same manifest.
+
+`hub/.env` after setup:
+
+```
+SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`: the app's identity
+SLACK_APP_TOKEN=xapp-...        # written by `slack run`: Socket Mode
+SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Bit sees only invited channels and posts as "Bit"
+SLACK_USER_ID=U...              # optional, derived from the user token; only needed without it
+SLACK_DEFAULT_CHANNEL=#forge-team
+```
+
+Bot + app tokens empty = messaging disabled (one warning at startup, `/messages/latest` and `/drafts*` answer 503,
+`/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, open_draft}`.
+
+Live check without Unity:
+
+```bash
+.venv/bin/python scripts/slack_smoke.py                              # listen: print every inbox message
+.venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hi"   # write a draft, post nothing (notify.draft)
+.venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hi"   # dev shortcut: draft + send with no confirmation
+.venv/bin/python scripts/slack_smoke.py --digest                     # what Bit would say on sit-down
+```
+
+**Sending is always two steps.** `messages_send` (tool) or `POST /messages/drafts` writes a `Draft` and emits
+`notify.draft`; Unity shows it as a Send / Cancel card. Only `POST /messages/drafts/{id}/send` (the button) or the
+`messages_confirm` tool ("send it") posts it, with your token, then `notify.sent`. One open draft at a time: a new
+one supersedes it (`notify.draft_cancelled`, reason `superseded`); unsent drafts expire after 120 s (`expired`);
+Cancel gives `cancelled`. The card closes on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed.
+
+| | |
+|---|---|
+| `GET /messages/latest?n=5` | newest inbox messages (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me) |
+| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id or `#name`, omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
+| `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
+| `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks all seen. |
+| `/ws` events | `notify.message` (each inbox message), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only), `messages_confirm {send, draft_id?}` |
+
+Map: `messaging/settings.py` (env), `store.py` (last 50 messages + `last_seen_ts` in `.data/messages/state.json`),
+`slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, name
+caches, drafts, digest), `router.py`, `tools.py`. Inbox rules: your own messages, Bit's posts and other bots are
+ignored; a post delivered twice (bot + user subscription, or `app_mention` + `message`) is recorded once; a DM or
+group DM is `is_dm` and counts as a mention.

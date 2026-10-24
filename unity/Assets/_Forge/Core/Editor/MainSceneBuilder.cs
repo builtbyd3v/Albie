@@ -26,6 +26,11 @@ public static class MainSceneBuilder
     {
         ("cad-viewer", "Assets/_Forge/CAD/Prefabs/CadViewer.prefab"),
         ("cad-params", "Assets/_Forge/CAD/Prefabs/CadParamsPanel.prefab"),
+        ("screen-main", "Assets/_Forge/Screens/ScreenForgePanel.prefab"),
+        ("ml-datastack", "Assets/_Forge/ML/Prefabs/DataStack.prefab"),
+        ("ml-model3d", "Assets/_Forge/ML/Prefabs/Model3D.prefab"),
+        ("ml-results", "Assets/_Forge/ML/Prefabs/ResultsWall.prefab"),
+        ("ml-training", "Assets/_Forge/ML/Prefabs/TrainingDash.prefab"),
     };
 
     [MenuItem("Forge/Build Main Scene")]

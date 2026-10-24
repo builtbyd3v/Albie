@@ -22,6 +22,9 @@ namespace Forge.ML
         const float DotColumnSpacing = 9.4f;
         const float DotRowSpacing = 8.9f;
         readonly Matrix4x4[] dotMatrices = new Matrix4x4[MaxSamples];
+        // Dot poses in the wall's local space; the world matrices are rebuilt every frame, since the Workspace
+        // unfolds, moves and resizes the panel after the dots are laid out.
+        readonly Matrix4x4[] dotLocal = new Matrix4x4[MaxSamples];
         readonly Vector4[] dotUvs = new Vector4[MaxSamples];
         readonly Vector4[] dotColors = new Vector4[MaxSamples];
         readonly int[] visibleSamples = new int[MaxSamples];
@@ -72,8 +75,9 @@ namespace Forge.ML
             dotProperties = new MaterialPropertyBlock();
             var temp = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad = temp.GetComponent<MeshFilter>().sharedMesh; Destroy(temp);
-            session.SamplesChanged += Refresh; session.PairSelected += FilterPair; Refresh();
+            session.SamplesChanged += Refresh; session.PairSelected += FilterPair; session.Reloaded += OnReloaded; Refresh();
         }
+        void OnReloaded() { dotMaterial.mainTexture = session.Atlas; if (selected >= session.Data.samples.Length) selected = -1; }
 
         public void FilterPair(int trueClass, int predictedClass)
         {
@@ -116,7 +120,7 @@ namespace Forge.ML
             for (int i = 0; i < session.Data.samples.Length && dotCount < MaxSamples; i++)
             {
                 var s = session.Data.samples[i];
-                if (s.removed || ((wrongDots || gallery) && s.correct) || (classFilter >= 0 && s.true_idx != classFilter) ||
+                if (s.removed || ((wrongDots || gallery) && (s.correct || s.pred_idx < 0)) || (classFilter >= 0 && s.true_idx != classFilter) ||
                     (truth >= 0 && (s.true_idx != truth || s.pred_idx != predicted))) continue;
                 visibleSamples[dotCount++] = i;
             }
@@ -131,9 +135,10 @@ namespace Forge.ML
                 int i = visibleSamples[visual]; var s = session.Data.samples[i];
                 int column = visual % DotColumns, row = visual / DotColumns;
                 var p = new Vector3(content.rect.xMin + 8 + column * DotColumnSpacing, content.rect.yMax - 8 - row * DotRowSpacing, -4);
-                dotMatrices[visual] = content.localToWorldMatrix * Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotSize, DotSize, 1));
+                dotLocal[visual] = Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotSize, DotSize, 1));
                 Rect uv = session.UV(i); dotUvs[visual] = new Vector4(uv.x, uv.y, uv.width, uv.height);
-                dotColors[visual] = s.correct ? new Color(.45f, 1f, .58f) : new Color(1f, .32f, .35f);
+                // Grey until a run has predicted it.
+                dotColors[visual] = s.pred_idx < 0 ? new Color(.55f, .58f, .62f) : s.correct ? new Color(.45f, 1f, .58f) : new Color(1f, .32f, .35f);
             }
             if (dotCount == 0) MLUI.Text(dynamicContent, "No matching samples", 8, 10, 280, 30);
         }
@@ -173,7 +178,7 @@ namespace Forge.ML
         {
             int count = 0;
             foreach (var sample in session.Data.samples)
-                if (!sample.removed && !sample.correct && (classFilter < 0 || sample.true_idx == classFilter)) count++;
+                if (!sample.removed && !sample.correct && sample.pred_idx >= 0 && (classFilter < 0 || sample.true_idx == classFilter)) count++;
             return count;
         }
 
@@ -286,6 +291,8 @@ namespace Forge.ML
             if (gallery || classPicker || dotCount == 0 || dotMaterial == null || !SystemInfo.supportsInstancing) return;
             // Unity may keep scene objects alive when Enter Play Mode skips a domain reload.
             if (dotProperties == null) dotProperties = new MaterialPropertyBlock();
+            var toWorld = content.localToWorldMatrix;
+            for (int i = 0; i < dotCount; i++) dotMatrices[i] = toWorld * dotLocal[i];
             dotProperties.SetVectorArray("_UVRect", dotUvs);
             dotProperties.SetVectorArray("_Color", dotColors);
             Graphics.DrawMeshInstanced(quad, 0, dotMaterial, dotMatrices, dotCount, dotProperties, ShadowCastingMode.Off, false, gameObject.layer);
