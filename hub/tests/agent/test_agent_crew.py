@@ -212,8 +212,8 @@ def test_crew_runners_get_only_their_kit_and_vscode_tools(tmp_path: Path, monkey
     builder = forge(runner._options(_project(tmp_path), "code", "builder", TYPES["builder"]))
     assert builder == reviewer
     designer = forge(runner._options(_project(tmp_path), "qa", "designer", TYPES["designer"]))
-    assert {"cad_get_params", "cad_set_params"} <= designer and not {n for n in designer if n.startswith("messages_")}
-    assert designer - {"cad_get_params", "cad_set_params"} == reviewer
+    assert {"cad_get_params", "cad_set_params"} <= designer and all(n.startswith(("vscode_", "cad_")) for n in designer)
+    assert {n for n in designer if not n.startswith("cad_")} == reviewer  # other suites may register more cad_* tools
     bit = forge(runner._options(_project(tmp_path), "qa", "bit"))
     assert {"cad_set_params", "messages_send", "spawn_agent", "assign_task", "vscode_highlight"} <= bit
     assert runner.crew_forge_allow(TYPES["tester"]) == ("vscode_",) and runner.crew_forge_allow(TYPES["designer"]) == ("vscode_", "cad_")
