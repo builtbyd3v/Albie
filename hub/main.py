@@ -1,13 +1,13 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process). The ML router
-is still to come.
+Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process), ML (training
+runs, datasets and results for the ML desk; `ml/router.py`).
 `/ws` is the one socket: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
-SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py).
+SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py), FORGE_ML_REPO (default ml-examples/cifar10).
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
 from messaging.router import router as messaging_router
+from ml.router import router as ml_router
 from screens import ScreenBridgeService
 from screens import router as screens_router
 from vscode.router import router as vscode_router
@@ -78,6 +79,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(vscode_router)
     app.include_router(messaging_router)
     app.include_router(screens_router)
+    app.include_router(ml_router)  # its MLService is created on first use, on app.state.ml
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
