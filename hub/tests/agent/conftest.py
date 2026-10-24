@@ -4,7 +4,27 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
+
+
+def agent_only_app() -> FastAPI:
+    """The agent's part of main.py's app, without CAD / Slack / screens: /agent, /health and the /ws session."""
+    from agent import handle_socket, router
+    from agent.app import health_fields
+
+    app = FastAPI(title="Forge hub (agent only, tests)")
+    app.include_router(router)
+
+    @app.websocket("/ws")
+    async def ws(websocket: WebSocket) -> None:
+        await handle_socket(websocket)
+
+    @app.get("/health")
+    def health() -> dict[str, object]:
+        return {"ok": True, **health_fields()}
+
+    return app
 
 
 @pytest.fixture()
@@ -25,10 +45,6 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     from agent.config import load_projects
 
     load_projects.cache_clear()
-    from agent.app import create_agent_app
-
-    app = create_agent_app()
-
-    with TestClient(app) as c:
+    with TestClient(agent_only_app()) as c:
         yield c
     load_projects.cache_clear()

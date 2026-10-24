@@ -7,7 +7,7 @@ to Grok and Bit's runner, not to crew runners; crew runners also pass an ``allow
 (``pet.state`` working + target_panel). Errors come back as ``{"error": ...}`` so the model can explain.
 
 VS Code tools are always registered. CAD tools need the hub's CadService, so main.py calls
-``register_cad`` at startup; the standalone agent app (``python -m agent``) has no CAD.
+``register_cad`` at startup, and the messaging tools once the Slack service exists.
 """
 
 from __future__ import annotations

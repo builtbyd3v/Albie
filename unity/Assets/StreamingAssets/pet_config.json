@@ -1,5 +1,5 @@
 {
-  "hubUrl": "ws://127.0.0.1:8000/ws/agent",
+  "hubUrl": "ws://127.0.0.1:8000/ws",
   "petId": "bit",
   "projectId": "gatorhack",
   "eventSource": "mock"

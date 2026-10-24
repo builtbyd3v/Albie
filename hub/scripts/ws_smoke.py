@@ -1,6 +1,6 @@
 """Manual smoke test against a running hub.
 
-    python scripts/ws_smoke.py "where is the websocket handler?" [--mode qa|code|auto] [--url ws://127.0.0.1:8000/ws/agent]
+    python scripts/ws_smoke.py "where is the websocket handler?" [--mode qa|code|auto] [--url ws://127.0.0.1:8000/ws]
 
 Prints every event until answer_done / task_complete / error. Needs the `websockets`
 dev dependency (pip install -r requirements-dev.txt).
@@ -21,7 +21,7 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("text")
     ap.add_argument("--mode", default="auto", choices=["qa", "code", "auto"])
-    ap.add_argument("--url", default="ws://127.0.0.1:8000/ws/agent")
+    ap.add_argument("--url", default="ws://127.0.0.1:8000/ws")
     ap.add_argument("--pet", default="bit")
     ap.add_argument("--project", default="gatorhack")
     a = ap.parse_args()

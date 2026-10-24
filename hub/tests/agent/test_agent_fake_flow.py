@@ -1,4 +1,4 @@
-"""End-to-end fake-mode flows over the real /ws/agent handler."""
+"""End-to-end fake-mode flows over the real /ws session handler."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _hello(ws: Any) -> None:
 
 
 def test_qa_flow(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"pet_id": "bit", "project_id": "demo",
                                                         "text": "where is the ws handler?", "mode": "qa"}})
@@ -45,7 +45,7 @@ def test_qa_flow(client: TestClient) -> None:
 
 
 def test_code_flow(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"text": "fix the greeting", "mode": "code"}})
         evts = _collect(ws, {"agent.task_complete", "agent.error"})
@@ -63,7 +63,7 @@ def test_code_flow(client: TestClient) -> None:
 
 
 def test_auto_mode_picks_code_for_imperatives(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"text": "Please rename greet to hello", "mode": "auto"}})
         evts = _collect(ws, {"agent.task_complete", "agent.answer_done", "agent.error"})
@@ -71,7 +71,7 @@ def test_auto_mode_picks_code_for_imperatives(client: TestClient) -> None:
 
 
 def test_error_flow(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"text": "error", "mode": "qa"}})
         evts = _collect(ws, {"agent.error", "agent.answer_done"})
@@ -81,7 +81,7 @@ def test_error_flow(client: TestClient) -> None:
 
 def test_cancel(client: TestClient, monkeypatch) -> None:
     monkeypatch.setenv("FAKE_AGENT_DELAY", "0.5")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"text": "explain everything", "mode": "qa"}})
         assert _collect(ws, {"agent.thinking"})[-1][0] == "agent.thinking"
@@ -91,7 +91,7 @@ def test_cancel(client: TestClient, monkeypatch) -> None:
 
 
 def test_stt_none_provider(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit", "sample_rate": 16000, "encoding": "pcm16"}})
         ws.send_bytes(b"\x00\x00" * 1600)
@@ -101,7 +101,7 @@ def test_stt_none_provider(client: TestClient) -> None:
 
 
 def test_bad_frame_and_unknown_project(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_text("not json")
         assert _collect(ws, {"agent.error"})[-1][0] == "agent.error"
         ws.send_json({"type": "agent.ask", "payload": {"text": "hi", "project_id": "nope"}})
@@ -123,7 +123,7 @@ def test_client_handlers_extend_the_socket(client: TestClient, monkeypatch: pyte
         got.append((session.pet_id, payload))
 
     monkeypatch.setitem(ws_mod.client_handlers, "messages.focus", handler)
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "messages.focus", "payload": {"channel": "C1", "ts": "1.0"}})
         ws.send_json({"type": "messages.focus", "payload": {"ts": "1.0"}})  # invalid -> agent.error, socket survives
@@ -132,10 +132,14 @@ def test_client_handlers_extend_the_socket(client: TestClient, monkeypatch: pyte
     assert err["message"] == "Bad messages.focus message."
 
 
-def test_post_agent_text(client: TestClient) -> None:
-    r = client.post("/agent/text", json={"pet_id": "bit", "text": "what does hello.py do?"})
-    assert r.status_code == 200
-    assert "hub/agent/ws.py" in r.json()["reply"]
+def test_typed_question_goes_over_the_socket(client: TestClient) -> None:
+    """There is no REST text endpoint any more: a typed question is agent.ask on /ws like a spoken one."""
+    assert client.post("/agent/text", json={"pet_id": "bit", "text": "what does hello.py do?"}).status_code == 404
+    with client.websocket_connect("/ws") as ws:
+        _hello(ws)
+        ws.send_json({"type": "agent.ask", "payload": {"pet_id": "bit", "text": "what does hello.py do?"}})
+        done = _collect(ws, {"agent.answer_done", "agent.error"})[-1]
+    assert done[0] == "agent.answer_done" and "hub/agent/ws.py" in done[1]["text"]
 
 
 def test_projects_and_health_hide_paths(client: TestClient) -> None:

@@ -117,7 +117,7 @@ def test_spawn_without_headset_is_an_error(monkeypatch: pytest.MonkeyPatch) -> N
 
 # ------------------------------------------------------------------ over the socket (FAKE_AGENT)
 def test_crew_members_work_in_parallel_with_bit(client: TestClient) -> None:
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "crew.roster", "payload": {"members": [
             {"pet_id": "tester", "agent_type": "tester"}, {"pet_id": "scout", "agent_type": "scout"}]}})
@@ -137,7 +137,7 @@ def test_crew_members_work_in_parallel_with_bit(client: TestClient) -> None:
 
 def test_ask_to_unknown_pet_is_bits(client: TestClient) -> None:
     """A pet_id that isn't on the crew keeps the old behaviour (the socket's turn)."""
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "agent.ask", "payload": {"pet_id": "ghost", "text": "where is greet?", "mode": "qa"}})
         evts = _collect(ws, "ghost", "agent.answer_done")
@@ -151,7 +151,7 @@ def test_finished_work_reaches_listeners(client: TestClient) -> None:
         heard.append((member.pet_id, result))
 
     crew.add_listener(listener)
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "crew.roster", "payload": {"members": [{"pet_id": "scout", "agent_type": "scout"}]}})
         ws.send_json({"type": "agent.ask", "payload": {"pet_id": "scout", "text": "where is greet?"}})
@@ -163,7 +163,7 @@ def test_finished_work_reaches_listeners(client: TestClient) -> None:
 
 def test_busy_member_refuses_a_second_task(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAKE_AGENT_DELAY", "0.3")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "crew.roster", "payload": {"members": [{"pet_id": "fixer", "agent_type": "fixer"}]}})
         ws.send_json({"type": "agent.ask", "payload": {"pet_id": "fixer", "text": "fix the greeting"}})
@@ -239,7 +239,7 @@ def test_create_task_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_sending_a_crew_gator_home_never_cancels_bit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Unity's Dismiss: agent.cancel {pet_id: crew} then a roster without it. Bit's own turn keeps going."""
     monkeypatch.setenv("FAKE_AGENT_DELAY", "0.15")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "crew.roster", "payload": {"members": [{"pet_id": "fixer", "agent_type": "fixer"}]}})
         ws.send_json({"type": "agent.ask", "payload": {"pet_id": "fixer", "text": "fix the greeting"}})

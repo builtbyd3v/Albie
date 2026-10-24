@@ -221,7 +221,6 @@ GET  /cad/params                      -> { part, params: [{ name, value, min, ma
 POST /cad/params  { name: value, ...} -> { version }
 GET  /cad/model.glb?v={version}
 
-POST /agent/text  { pet_id, text }    -> { reply }        (typed fallback)
 GET  /messages/latest?n=5            -> [SlackMessage]   SlackMessage = { channel, channel_name, is_dm, user, user_name, text, ts, thread_ts?, mentions_me }
 POST /messages/drafts { channel?, text, thread_ts? } -> Draft   (Bit WRITES the reply; nothing is posted. Same as the messages_send tool)
 POST /messages/drafts/{id}/send      -> { ts }   (the card's Send button, or "yes, send it" through messages_confirm; posts under the USER's own name)

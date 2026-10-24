@@ -103,7 +103,7 @@ def test_mode_over_ws_notes_the_voice_once_per_change(client: TestClient, monkey
 
     stub = StubVoice()
     monkeypatch.setattr(ws_mod, "make_voice", lambda **kw: stub)
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "workspace.mode", "payload": {"pet_id": "bit", "mode": "cad"}})  # before voice opens
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         assert ws.receive_json()["type"] == "voice.ready"

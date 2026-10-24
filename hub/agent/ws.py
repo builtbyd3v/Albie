@@ -1,10 +1,6 @@
-"""/ws/agent session handler for the pet agent.
+"""Pet agent session on the hub's shared /ws socket (main.py accepts it, attaches the EventBus, then calls us).
 
-Mount it from any FastAPI app:
-
-    @app.websocket("/ws/agent")
-    async def ws_endpoint(ws: WebSocket) -> None:
-        await agent.ws.handle_socket(ws)
+    await handle_socket(ws, accept=False)
 
 Per socket: hello -> (pet_id, project_id); agent.ask -> background turn streaming
 events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.stop
