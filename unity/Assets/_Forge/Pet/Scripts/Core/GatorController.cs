@@ -112,6 +112,7 @@ namespace Forge.Pet
         {
             stateEnterTime = Time.time;
             tripActive = approachingUser = introGreeted = false;
+            evacuating = false;                 // a state change cancels a keep-out run (re-checked within 0.5 s)
             needRepath = true;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
 
@@ -161,6 +162,7 @@ namespace Forge.Pet
             if (hopping) { UpdateHop(); UpdateMotion(); return; }   // state logic resumes after landing
             if (UpdateAntics()) { UpdateMotion(); return; }        // roll / fall / stun (GatorController.Antics.cs)
             AutoDetectSurface();
+            if (UpdateKeepOut()) { UpdateMotion(); return; }   // running out of the desk keep-out (GatorController.KeepOut.cs)
             switch (State)
             {
                 case GatorState.Intro: UpdateIntro(); break;

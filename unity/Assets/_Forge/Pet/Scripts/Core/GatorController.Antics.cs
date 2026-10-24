@@ -283,7 +283,9 @@ namespace Forge.Pet
 
         void EndRollOnSurface()
         {
-            WarpOntoMesh(0.4f);                       // the roll may end in the edge inset / a hole: snap back
+            // Ended inside the desk keep-out: stay put (agent off) and scoot out in FinishAntics instead of teleporting.
+            bool inKeepOut = rollSurface != null && rollSurface == GatorNavSurface.Desk && rollSurface.IsInsideHole(transform.position, out _);
+            if (!inKeepOut) WarpOntoMesh(0.4f);       // the roll may end in the edge inset / a hole: snap back
             antic = Antic.Recovering;
             anticUntil = Time.time + dizzySeconds;
         }
@@ -291,6 +293,8 @@ namespace Forge.Pet
         void FinishAntics()
         {
             antic = Antic.None;
+            // Roll stayed on the desk but ended in the keep-out: get out first; the state is re-entered on arrival.
+            if (!rollFell && EvacuateKeepOutAfterRoll()) { SetMood(Mood.Neutral); return; }
             if (State != GatorState.Intro) EnterState(State);   // re-apply the state's mood / facing / movement
             else SetMood(Mood.Neutral);
             // "Hop back up": only after a fall, and not while Following (contract: follow = floor).

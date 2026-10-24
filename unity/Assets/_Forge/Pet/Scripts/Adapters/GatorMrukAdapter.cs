@@ -29,6 +29,20 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Shrink the desk walkable rectangle by this much (m) on every side.")]
         float deskInset = 0.03f;
 
+        [Header("Desk keep-out (laptop / mode buttons)")]
+        [SerializeField, Tooltip("Carve an unwalkable box at the desk edge nearest the user (where the laptop and DeskDock buttons sit).")]
+        bool keepOutEnabled = true;
+        [SerializeField, Tooltip("Keep-out size along the near edge (m). Shrunk on narrow desks to keep minSideStrip free.")]
+        float keepOutWidth = 0.6f;
+        [SerializeField, Tooltip("Keep-out depth from the near edge into the desk (m).")]
+        float keepOutDepth = 0.45f;
+        [SerializeField, Tooltip("Walkable strip (m) always left free on each side of (and behind) the keep-out.")]
+        float minSideStrip = 0.2f;
+        [SerializeField, Tooltip("Margin (m) added around the DeskDock buttons when they are unioned into the keep-out.")]
+        float dockMargin = 0.08f;
+        [SerializeField, Tooltip("Seconds between checks whether the DeskDock moved / showed / hid (re-bakes the desk hole when it did).")]
+        float dockPollSeconds = 1f;
+
         // Planes/meshes that are never floor obstacles.
         const MRUKAnchor.SceneLabels NotFurniture =
             MRUKAnchor.SceneLabels.FLOOR | MRUKAnchor.SceneLabels.CEILING | MRUKAnchor.SceneLabels.WALL_FACE |
@@ -40,6 +54,15 @@ namespace Forge.Pet
         Coroutine hopRoutine;
         DeskLocator hookedLocator;
         bool hookedMruk;
+
+        // Keep-out state: viewer position captured at desk build time; dock footprint last baked into the hole.
+        readonly List<Bounds> deskHoles = new List<Bounds>(1);
+        readonly Vector3[] dockCorners = new Vector3[4];
+        Vector3 keepOutViewer;
+        bool hasKeepOutViewer, dockBaked;
+        Bounds dockBakedBounds;
+        GameObject dockGo;
+        float nextDockPoll;
 
         void Awake()
         {
@@ -71,7 +94,26 @@ namespace Forge.Pet
             if (hookedMruk && MRUK.Instance != null) MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
         }
 
+        // Re-bake the desk hole when Hudson's DeskDock appears, moves (user went round the desk) or hides. Throttled.
+        void Update()
+        {
+            if (!keepOutEnabled || deskNav == null || !deskNav.IsBuilt || Time.time < nextDockPoll) return;
+            nextDockPoll = Time.time + Mathf.Max(0.2f, dockPollSeconds);
+            bool has = TryGetDockBounds(out Bounds b);
+            bool changed = has != dockBaked || (has && (Vector3.Distance(b.center, dockBakedBounds.center) > 0.02f
+                                                       || Vector3.Distance(b.size, dockBakedBounds.size) > 0.02f));
+            if (changed) RebuildKeepOut();
+        }
+
         // ---------------------------------------------------------------- public API
+
+        /// <summary>Recompute the desk keep-out (same viewer as at build time, current DeskDock footprint) and re-bake the desk.</summary>
+        public void RebuildKeepOut()
+        {
+            if (deskNav == null || !deskNav.IsBuilt) return;
+            ComputeDeskHoles(deskNav.TopCenter, deskNav.Rotation, deskNav.Size);
+            deskNav.Rebuild(deskHoles);
+        }
 
         /// <summary>Wire from DeskLocator.deskFound. Builds desk + floor surfaces, then (optionally) hops.</summary>
         public void OnDeskFound(MRUKAnchor desk)
@@ -114,8 +156,13 @@ namespace Forge.Pet
 
             size -= Vector2.one * (2f * deskInset);
             Vector3 top = t.TransformPoint(localTop);
+            Quaternion yaw = YawOf(t);
+            Transform head = PetUser.Head;
+            hasKeepOutViewer = head != null;
+            if (hasKeepOutViewer) keepOutViewer = head.position;
+            ComputeDeskHoles(top, yaw, size);
             EnsureSurface(ref deskNav, "DeskNav");
-            deskNav.BuildBox(top, YawOf(t), size);
+            deskNav.BuildBox(top, yaw, size, deskHoles);
             if (!deskNav.IsBuilt) return;
             GatorNavSurface.Desk = deskNav;
             Debug.Log("[GatorMrukAdapter] Desk surface " + size.x.ToString("F2") + " x " + size.y.ToString("F2") + " m at " + top, this);
@@ -174,6 +221,62 @@ namespace Forge.Pet
             if (hopDelay > 0f) yield return new WaitForSeconds(hopDelay);
             hopRoutine = null;
             if (controller != null) controller.HopToUserDesk();
+        }
+
+        // ---------------------------------------------------------------- keep-out
+
+        // deskHoles = [] or [keep-out box at the edge nearest the user (build-time head), unioned with the DeskDock].
+        void ComputeDeskHoles(Vector3 top, Quaternion yaw, Vector2 size)
+        {
+            deskHoles.Clear();
+            dockBaked = TryGetDockBounds(out dockBakedBounds);
+            if (!keepOutEnabled) return;
+            if (!hasKeepOutViewer)
+            {
+                Debug.LogWarning("[GatorMrukAdapter] No user head when the desk was built; keep-out skipped.", this);
+                return;
+            }
+            // A visible dock is unioned in only if it lies on this desk top.
+            Vector3 dl = Quaternion.Inverse(yaw) * (dockBakedBounds.center - top);
+            bool useDock = dockBaked && Mathf.Abs(dl.y) < 0.3f
+                           && Mathf.Abs(dl.x) < size.x * 0.5f + 0.1f && Mathf.Abs(dl.z) < size.y * 0.5f + 0.1f;
+            if (!GatorNavSurface.ComputeEdgeKeepOut(top, yaw, size, keepOutViewer, keepOutWidth, keepOutDepth, minSideStrip,
+                    dockBakedBounds, useDock, out Bounds hole, out bool shrunk))
+            {
+                Debug.LogWarning("[GatorMrukAdapter] Desk too small for a keep-out zone (" + size.x.ToString("F2") + " x " + size.y.ToString("F2") + " m).", this);
+                return;
+            }
+            deskHoles.Add(hole);
+            Debug.Log("[GatorMrukAdapter] Desk keep-out " + hole.size.x.ToString("F2") + " x " + hole.size.z.ToString("F2")
+                      + " m at " + hole.center + (useDock ? " (incl. DeskDock)" : "")
+                      + (shrunk ? " — shrunk to keep " + minSideStrip.ToString("F2") + " m strips free" : ""), this);
+        }
+
+        // World AABB of Hudson's DeskDock (canvas rect, + dockMargin) while it is shown. Found by type, else by name.
+        bool TryGetDockBounds(out Bounds b)
+        {
+            b = default;
+            if (dockGo == null)
+            {
+                DeskDock dock = FindAnyObjectByType<DeskDock>(FindObjectsInactive.Include);
+                dockGo = dock != null ? dock.gameObject : GameObject.Find("DeskDock");
+                if (dockGo == null) return false;
+            }
+            if (!dockGo.activeInHierarchy) return false;
+            if (dockGo.transform is RectTransform rt)
+            {
+                rt.GetWorldCorners(dockCorners);
+                b = new Bounds(dockCorners[0], Vector3.zero);
+                for (int i = 1; i < 4; i++) b.Encapsulate(dockCorners[i]);
+            }
+            else
+            {
+                Renderer r = dockGo.GetComponentInChildren<Renderer>();
+                if (r == null) return false;
+                b = r.bounds;
+            }
+            b.Expand(2f * dockMargin);
+            return true;
         }
 
         // ---------------------------------------------------------------- helpers
