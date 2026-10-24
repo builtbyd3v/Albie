@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Test viewer for stream.py. Open the file directly, or add ?host=<laptop-ip> from another device. -->
+<meta charset="utf-8">
+<title>Screen stream test</title>
+<body style="margin:0;background:#111;color:#ccc;font:13px monospace">
+<div id="stats">connecting...</div>
+<img id="screen" style="width:100%">
+<script>
+  const host = new URLSearchParams(location.search).get("host") || "localhost";
+  const ws = new WebSocket(`ws://${host}:8765`);
+  const img = document.getElementById("screen");
+  const stats = document.getElementById("stats");
+  let frames = 0, bytes = 0;
+
+  ws.onmessage = ({ data }) => {
+    frames++;
+    bytes += data.size;
+    URL.revokeObjectURL(img.src);
+    img.src = URL.createObjectURL(data);
+  };
+  ws.onclose = () => (stats.textContent = "disconnected");
+
+  setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    stats.textContent = `${frames} fps, ${Math.round(bytes / 1024)} KB/s`;
+    frames = bytes = 0;
+  }, 1000);
+</script>
