@@ -210,8 +210,10 @@ its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.p
 Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Bit leads: Grok and Bit's Claude runner get four
 lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
 `crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
-default `<repo>-crew/`) on `pet/<agent>/<task>` and is committed there, so nobody switches the main checkout's
-branch. When one finishes, Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
+default `<repo>-crew/`) on `pet/<agent>/<task>`, started from the main checkout's current state (uncommitted edits
+included), so nobody switches the main checkout's branch. When one finishes, its changes are applied to the main
+checkout as uncommitted edits (what VS Code shows) and the worktree is removed; if they conflict, the worktree and
+branch are kept and named in the summary. Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
 that member's turn without touching Bit's.
 

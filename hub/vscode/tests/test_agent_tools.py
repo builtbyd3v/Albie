@@ -1,7 +1,7 @@
 import asyncio
 
 from vscode import tools
-from vscode.tests.fake_extension import fake_extension  # noqa: F401 - pytest fixture
+from vscode.tests.fake_extension import fake_extension, project_root  # noqa: F401 - pytest fixtures
 
 SAMPLE_ARGS = {
     "vscode_get_context": {},
@@ -25,10 +25,10 @@ def test_every_tool_has_a_schema_and_a_handler(fake_extension):
             assert "error" not in call(t["name"], SAMPLE_ARGS[t["name"]]), t["name"]
 
 
-def test_highlight_args_reach_the_extension(fake_extension):
+def test_highlight_args_reach_the_extension(fake_extension, project_root):
     assert call("vscode_highlight", {"path": "train.py", "start": 40, "end": 52, "note": "lr too high"}) == {"ok": True}
-    assert fake_extension[-1] == ("POST", "/highlight",
-                                  {"path": "train.py", "start": 40, "end": 52, "note": "lr too high", "ms": 4000})
+    assert fake_extension[-1] == ("POST", "/highlight", {"path": str(project_root / "train.py"), "start": 40,
+                                                          "end": 52, "note": "lr too high", "ms": 4000})
 
 
 def test_errors_come_back_to_the_model_instead_of_raising(fake_extension):
