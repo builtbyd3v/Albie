@@ -54,7 +54,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Albie, ...\"). Buttons and the whistle always work.")]
         bool lookToTalk = true;
         [SerializeField, Tooltip("Max angle (degrees) between where the user looks and the gator.")]
-        float lookAngle = 25f;
+        float lookAngle = 40f;   // 25 never fired on the Quest (live 18:3x: facing=False every turn); facing only triggers the hub's judge now
 
         ITextToSpeech _tts;
         ITalkLevel _talk;
@@ -132,8 +132,16 @@ namespace Forge.Pet
             GatorState s = controller.State;
             if (pushToTalk.SessionActive || s == GatorState.Thinking || s == GatorState.Working || s == GatorState.Error) { StopMonitor(); return; }
             if (lookToTalk && StartMonitor()) { _attending = true; _attendUntil = Time.time + listenSeconds; }
-            else if (pushToTalk.CanListenHandsFree && pushToTalk.BeginHandsFree(listenSeconds)) _following = true;
+            else if (pushToTalk.CanListenHandsFree && GateNextTurn() && pushToTalk.BeginHandsFree(listenSeconds)) _following = true;
             else if (wanderAwayWhenDone) controller.WanderAway();
+        }
+
+        // The no-monitor fallback (mic busy, other STT) is a follow-up too: gated like CheckSpeech's turns. Live 18:31 it
+        // went out ungated and "He's not into that, bro." was answered.
+        bool GateNextTurn()
+        {
+            if (pushToTalk.Provider is HubSpeechToText hub) hub.RequireName = true;
+            return true;
         }
 
         bool StartMonitor()
@@ -177,7 +185,7 @@ namespace Forge.Pet
             bool cutIn = _speaking, reply = _attending;
             _monitor = null;
             _attending = false;
-            hub.RequireName = reply || !facing;       // a reply is judged by the hub (said to Albie?); looking elsewhere needs "Albie"
+            hub.RequireName = true;                   // gated: the hub answers if it names Albie or reads as said to him (hub/agent/addressed.py)
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
             if (pushToTalk.BeginHandsFree())
             {

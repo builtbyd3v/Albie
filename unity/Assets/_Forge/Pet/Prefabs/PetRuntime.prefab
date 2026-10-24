@@ -5531,7 +5531,7 @@ MonoBehaviour:
   minLevel: 0.02
   noiseRatio: 3
   startSeconds: 0.2
-  endSilence: 0.7
+  endSilence: 1
   prerollSeconds: 0.5
   minSpeech: 0.35
   maxSegment: 12
@@ -5585,7 +5585,7 @@ MonoBehaviour:
   loudLevel: 0.1
   loudSeconds: 0.15
   lookToTalk: 1
-  lookAngle: 25
+  lookAngle: 40
 --- !u!114 &6704805732026713637 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 1237875458703887617, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}

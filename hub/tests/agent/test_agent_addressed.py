@@ -26,18 +26,39 @@ def test_rules_leave_the_rest_to_judgment(text: str) -> None:
     assert addressed.rules(text) is None
 
 
-@pytest.mark.parametrize("text, last, said_to_albie", [
-    ("So, what do you want me to look at?", None, True),
-    ("Want to you to open the email", None, True),
-    ("Oh, how?", None, True),
-    ("Yes please", "Want me to open it?", True),       # a short reply to his question
-    ("Yes please", "I opened it.", False),               # nothing was asked
-    ("No, it's the speech detect, it's like bugging out right now. It's not working.", "Want me to look?", False),
-    ("It's definitely not picking up 48.", None, False),
-    ("I wanna throw you in a fire pit.", None, False),
+@pytest.mark.parametrize("text, said_to_albie", [
+    ("So, what do you want me to look at?", True),
+    ("Want to you to open the email", True),
+    ("Oh, how?", True),
+    ("Can we get a reset button on CAD?", True),
+    ("No, it's the speech detect, it's like bugging out right now. It's not working.", False),
+    ("It's definitely not picking up 48.", False),
+    ("I wanna throw you in a fire pit.", False),
 ])
-def test_guess(text: str, last: str | None, said_to_albie: bool) -> None:
-    assert addressed.guess(text, last) is said_to_albie
+def test_guess(text: str, said_to_albie: bool) -> None:
+    assert addressed.guess(text) is said_to_albie
+
+
+@pytest.mark.parametrize("text, last, said_to_albie", [
+    ("Yeah.", "Want me to open it?", True),    # the answer to his question
+    ("Yeah.", "Here are some fun facts.", False),  # live 18:31:35: filler answered
+    ("Damn.", None, False),                     # live 18:33:41
+    ("Whoa.", None, False),                     # live 18:42:38
+    ("He's not into that, bro.", None, False),  # live 18:31:05
+    ("Why is this funny to me, bro? I feel like a", None, False),  # live 18:33:33
+])
+def test_rules_with_albies_last_line(text: str, last: str | None, said_to_albie: bool) -> None:
+    assert addressed.rules(text, last) is said_to_albie
+
+
+@pytest.mark.parametrize("text", ["Okay yeah, just list like 20.", "Yeah, go ahead with another.",
+                                  "You're low-key a little funny guy, aren't you?"])
+def test_a_follow_up_reply_is_for_albie_without_a_model_call(text: str) -> None:
+    """Live 18:34: real follow-ups to "give me a hundred random fun facts" were dropped after a judge timeout."""
+    async def never(*_: object) -> bool:
+        raise AssertionError("gated replies must not wait for the model")
+
+    assert asyncio.run(addressed.judge(text, "Here are some fun facts.", 2.0, gated=True, ask=never)) is True
 
 
 def test_judge_skips_the_model_for_clear_cases() -> None:

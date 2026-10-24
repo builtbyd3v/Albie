@@ -5,11 +5,14 @@ answered teammates talking to each other ("Hey, listen to me, dude.", "I don't k
 is judged on its transcript first (agent/wake.py WakeRouter.final):
 
 1. ``rules``: clear cases with no model call. Empty, mid-sentence fragments ("...it wasn't supposed to show
-   like the no messages thing or") and talk to a person ("dude", "bruh", "guys") are never for Albie.
-2. Claude (``ADDRESSED_MODEL``, default Haiku) reads Albie's last line and the sentence and says yes or no,
-   within JUDGE_TIMEOUT_S. Optional: needs the ``anthropic`` package and ANTHROPIC_API_KEY.
-3. ``guess`` when there is no model, it fails or it is too slow: a short reply to a question Albie just asked,
-   or a sentence that opens like a request ("can you...", "open...", "what...").
+   like the no messages thing or") and talk to a person ("dude", "bruh", "guys") are never for Albie; filler
+   alone ("Yeah.", "Damn.") only counts as the answer to a question Albie just asked.
+2. A gated turn (a reply in Albie's follow-up window) that passes the rules is for him: it came right after he
+   spoke. No model call: Unity drops a hands-free turn with no stt.final within 6 s, so this path stays fast.
+3. A facing turn (wake turn, user looked at Albie) is the doubtful one: Claude (``ADDRESSED_MODEL``, default
+   Haiku) reads Albie's last line and the sentence and says yes or no within JUDGE_TIMEOUT_S. Optional: needs
+   the ``anthropic`` package and ANTHROPIC_API_KEY; ``warm()`` loads it before the first turn.
+4. ``guess`` when there is no model, it fails or it is too slow: a sentence that opens like a request.
 
 ADDRESSED_JUDGE=rules skips the model (rules + guess only).
 """
@@ -26,12 +29,13 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-JUDGE_TIMEOUT_S = 1.5
-SHORT_REPLY_WORDS = 4  # "yes please", "the left one": a reply to Albie's question needs no request shape
-_WORD = re.compile(r"[A-Za-z']+")
+JUDGE_TIMEOUT_S = 2.5  # warm Haiku answers in ~0.7 s from the venue Wi-Fi; a cold connection took ~1.5-3 s
+_WORD = re.compile(r"[A-Za-z0-9']+")  # digits too: "list like 20" ends on 20, not on a dangling "like"
 PEOPLE = {"dude", "bruh", "bro", "guys", "man", "mate", "buddy", "fam"}  # said to a person, not the gator
 DANGLING = {"or", "and", "so", "but", "like", "because", "um", "uh", "the", "a", "to", "if", "i"}  # cut off mid-sentence
 FILLER = {"oh", "so", "um", "uh", "okay", "ok", "hey", "well", "alright", "and"}
+NOISE = FILLER | {"yeah", "yes", "yep", "no", "nope", "damn", "wow", "lol", "hmm", "huh", "right", "sure", "cool",
+                  "nice", "mhm", "ah", "oops", "what", "whoa", "woah", "dang", "haha", "omg"}  # alone: nothing to answer
 REQUEST_START = {
     "can", "could", "would", "will", "please", "open", "close", "show", "tell", "what", "what's", "how", "why",
     "where", "when", "who", "which", "is", "are", "does", "go", "run", "stop", "make", "change", "set", "give",
@@ -52,7 +56,7 @@ def _words(text: str) -> list[str]:
     return [w.lower() for w in _WORD.findall(text)]
 
 
-def rules(text: str) -> bool | None:
+def rules(text: str, last_reply: str | None = None) -> bool | None:
     """False for what is never for Albie; None when it takes judgment."""
     words = _words(text)
     if not words:
@@ -61,15 +65,14 @@ def rules(text: str) -> bool | None:
         return False  # a fragment of something longer
     if words[0] in PEOPLE or words[-1] in PEOPLE:
         return False
+    if set(words) <= NOISE:
+        return bool(last_reply and last_reply.rstrip().endswith("?"))  # "Yeah." answers "Want me to open it?"
     return None
 
 
-def guess(text: str, last_reply: str | None) -> bool:
-    """No model: a short answer to Albie's question, or a sentence that opens like a request."""
-    words = _words(text)
-    if last_reply and last_reply.rstrip().endswith("?") and len(words) <= SHORT_REPLY_WORDS:
-        return True
-    first = next((w for w in words if w not in FILLER), "")
+def guess(text: str) -> bool:
+    """No model: a sentence that opens like a request ("can you...", "open...", "what...")."""
+    first = next((w for w in _words(text) if w not in FILLER), "")
     return first in REQUEST_START
 
 
@@ -79,6 +82,15 @@ def prompt(text: str, last_reply: str | None, age_s: float | None) -> str:
 
 
 _client: Any = None
+
+
+def warm() -> None:
+    """Load the SDK and make the client now, so the first judged turn doesn't pay for it (~2 s)."""
+    global _client
+    if _client is None and default_ask() is not None:
+        import anthropic
+
+        _client = anthropic.AsyncAnthropic(timeout=JUDGE_TIMEOUT_S, max_retries=0)
 
 
 async def ask_claude(text: str, last_reply: str | None, age_s: float | None) -> bool:
@@ -108,17 +120,19 @@ def default_ask() -> Ask | None:
     return ask_claude if importlib.util.find_spec("anthropic") else None
 
 
-async def judge(text: str, last_reply: str | None = None, age_s: float | None = None, *,
+async def judge(text: str, last_reply: str | None = None, age_s: float | None = None, *, gated: bool = False,
                 ask: Ask | None = None) -> bool:
-    """True if the sentence was said to Albie."""
-    clear = rules(text)
+    """True if the sentence was said to Albie. gated: a reply in his follow-up window (no model call)."""
+    clear = rules(text, last_reply)
     if clear is not None:
         return clear
+    if gated:
+        return True
     ask = ask or default_ask()
     if ask is None:
-        return guess(text, last_reply)
+        return guess(text)
     try:
         return await asyncio.wait_for(ask(text, last_reply, age_s), JUDGE_TIMEOUT_S)
     except Exception as exc:  # noqa: BLE001 - timeout, network, refusal: fall back to the word rules
         log.info("addressed: judge failed (%s), guessing", type(exc).__name__)
-        return guess(text, last_reply)
+        return guess(text)

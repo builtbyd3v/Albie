@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from . import addressed
 from . import events as ev
 from . import speech
 from .bus import Emitter, bus
@@ -300,6 +301,7 @@ async def _open_voice(s: Session, h: Hello) -> None:
     judge = getattr(voice, "addressed", None)  # unnamed facing / follow-up turns: judged with Albie's last line
     if s.wake is not None and judge is not None:
         s.wake.judge = judge
+        addressed.warm()  # the SDK import + client, before the first judged turn (not on it)
     voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
@@ -342,6 +344,11 @@ async def _voice_call(s: Session, fn) -> None:
     try:
         await fn()
     except Exception as exc:
+        if isinstance(exc, (OSError, asyncio.TimeoutError)) or type(exc).__module__.startswith("websockets"):
+            # A network blip (Grok unreachable for a moment): keep voice, its next turn reconnects. Switching it
+            # off left the socket on the stt.py fallback, which hears nothing (STT_PROVIDER=none), until a rehello.
+            log.warning("voice call failed (%s): keeping voice, the next turn reconnects", exc)
+            return
         log.exception("voice session failed")
         if s.voice is voice and voice is not None:
             s.voice = None

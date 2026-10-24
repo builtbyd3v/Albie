@@ -102,7 +102,7 @@ class WakeRouter:
         self.facing = False  # from stt.start {wake, facing}: user faced the lead at speech onset
         self.gated = False  # a look-to-talk / follow-up reply (stt.start {require_name}): judged like facing
         # Was an unnamed sentence said to the lead? The voice session sets one with his last line as context.
-        self.judge: Callable[[str], Awaitable[bool]] = addressed.judge
+        self.judge: Callable[[str, bool], Awaitable[bool]] = lambda text, gated: addressed.judge(text, gated=gated)
         self.judged: bool | None = None  # last final's verdict (None = no judge call), for the turn: log line
 
     def begin(self, target: str | None, facing: bool = False, gated: bool = False) -> None:
@@ -122,11 +122,12 @@ class WakeRouter:
 
     async def final(self, text: str) -> Decision:
         pid, rest = self._who(text)
-        ask = pid is None and (self.facing or self.gated) and bool(text.strip())
+        gated = self.gated
+        ask = pid is None and (self.facing or gated) and bool(text.strip())
         self.target, self.facing, self.gated, self.judged = None, False, False, None
         if ask:
             # ponytail: awaited on the voice reader (up to addressed.JUDGE_TIMEOUT_S); nothing else is due for this turn
-            self.judged = await self.judge(text)
+            self.judged = await self.judge(text, gated)
             if self.judged:
                 pid, rest = self.lead, text.strip()
         if pid is None:

@@ -138,6 +138,7 @@ STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "pl
                                                                 "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
+CONVERSATION_S = 15.0  # an unnamed wake turn this soon after Albie stopped talking is a reply to him (same as Unity's follow-up window)
 WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
 
 
@@ -244,10 +245,10 @@ class _Base:
     async def _wake_decided(self, respond: bool) -> None:
         """Wake turn routed: answer it (respond) or forget it."""
 
-    async def addressed(self, text: str) -> bool:
+    async def addressed(self, text: str, gated: bool = False) -> bool:
         """WakeRouter.judge: was this unnamed sentence said to Albie? His last line is the context."""
         age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
-        return await addressed.judge(text, self.last_reply or None, age)
+        return await addressed.judge(text, self.last_reply or None, age, gated=gated)
 
     def _spoke(self, text: str) -> None:
         if text.strip():
@@ -295,6 +296,7 @@ class GrokVoiceSession(_Base):
         # Grok sends speech faster than real time, so Unity is often still playing after response.done.
         self._playing_utt: str | None = None
         self._play_until = 0.0  # monotonic time Unity's queued speech runs out
+        self._spoke_until = 0.0  # ...for the last reply, kept after a stop (CONVERSATION_S counts from here)
         self._answer = ""
         self._answer_done = False
         self._forwarding = False
@@ -386,6 +388,11 @@ class GrokVoiceSession(_Base):
         if gated:
             self._gated = True
             self.wake_router.begin(None, gated=True)
+        elif self._wake and (self._response_active or
+                             time.monotonic() - max(self.last_reply_t, self._spoke_until) < CONVERSATION_S):
+            # Live 18:39: "Onto the table to walk around." right after "Have it walk." reached us as a plain wake
+            # turn (WakeListener, not the follow-up window) and was dropped unjudged. Mid-conversation it is a reply.
+            self.wake_router.gated = True
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -461,8 +468,15 @@ class GrokVoiceSession(_Base):
         if ws is None:
             return
         self._last_activity = time.monotonic()
-        async with self._send_lock:
-            await ws.send(json.dumps(obj))
+        try:
+            async with self._send_lock:
+                await ws.send(json.dumps(obj))
+        except Exception as exc:  # noqa: BLE001 - the socket died under us (Wi-Fi blip): reconnect on the next turn
+            # Live 18:19: one failed send used to switch voice off for the socket (ws.py _voice_call) until the
+            # headset reconnected, and every turn after that came back empty from the stt.py fallback.
+            log.warning("grok send failed (%s): dropping the socket, the next turn reconnects", exc)
+            if self._ws is ws:
+                await self._drop_socket()
 
     async def _read_loop(self, ws: Any) -> None:
         try:
@@ -651,7 +665,8 @@ class GrokVoiceSession(_Base):
         if drop:
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
-        wake, gated = self._wake, self._gated
+        wake = self._wake
+        gated = self._gated or (wake and bool(self.wake_router.gated))  # read before the router resets it in final()
         facing = wake and bool(self.wake_router.facing)  # read before the router resets it in final()
         await super()._final(text)
         answered = self._wake_answered if wake else bool(final)
@@ -671,6 +686,7 @@ class GrokVoiceSession(_Base):
         await self._send_bytes(pcm)
         self._playing_utt = self._utt
         self._play_until = max(self._play_until, time.monotonic()) + len(pcm) / 2 / self.sample_rate
+        self._spoke_until = self._play_until
 
     async def _answer_finished(self, text: str) -> None:
         self._answer_done = True

@@ -110,7 +110,7 @@ def _facing_final(text: str, facing: bool, said_to_albie: bool = True, gated: bo
     router.begin(None, facing=facing, gated=gated)
     r.asked: list[str] = []  # type: ignore[attr-defined]
 
-    async def judge(t: str) -> bool:
+    async def judge(t: str, _gated: bool) -> bool:
         r.asked.append(t)  # type: ignore[attr-defined]
         return said_to_albie
 
@@ -180,7 +180,7 @@ def test_router_facing_is_per_turn() -> None:
     router = r.router()
     router.begin(None, facing=True)
 
-    async def yes(_: str) -> bool:
+    async def yes(_: str, __: bool) -> bool:
         return True
 
     router.judge = yes
@@ -239,7 +239,8 @@ def test_grok_gated_reply_waits_for_the_judge_and_a_dropped_one_still_ends_the_t
         s.wake_router = r.router()
         heard: list[tuple[str, str | None]] = []
 
-        async def judge(text: str) -> bool:
+        async def judge(text: str, gated: bool) -> bool:
+            assert gated
             heard.append((text, s.last_reply or None))
             return text.startswith("Yes")
 
@@ -266,6 +267,41 @@ def test_grok_gated_reply_waits_for_the_judge_and_a_dropped_one_still_ends_the_t
         await _settle()
         assert grok.types()[-1] == "response.create"
         assert heard == [("I don't know.", "Want me to open the ML panel?"), ("Yes please.", "Want me to open the ML panel?")]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_grok_unnamed_wake_turn_right_after_albie_spoke_counts_as_a_reply() -> None:
+    """Live 18:39: "Onto the table to walk around." came as a plain wake turn right after Albie answered "Have it
+    walk." and was dropped unjudged. Within CONVERSATION_S of his last line it is judged as a reply."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        r = Recorder()
+        s.wake_router = r.router()
+        asked: list[tuple[str, bool]] = []
+
+        async def judge(text: str, gated: bool) -> bool:
+            asked.append((text, gated))
+            return gated
+
+        s.wake_router.judge = judge
+        T = "conversation.item.input_audio_transcription"
+
+        async def turn(text: str, item: str) -> None:
+            await s.begin_turn(wake=True)
+            await s.feed(b"\x00\x00" * 3200)
+            await s.commit_turn()
+            grok.push(type="input_audio_buffer.committed", item_id=item)
+            grok.push(type=f"{T}.completed", transcript=text)
+            await _settle()
+
+        await turn("Onto the table to walk around.", "item_1")  # Albie hasn't spoken: room chatter
+        assert asked == [] and "response.create" not in grok.types()
+        s._spoke("Okay, it's walking now.")
+        await turn("Onto the table to walk around.", "item_2")
+        assert asked == [("Onto the table to walk around.", True)] and grok.types()[-1] == "response.create"
         await s.close()
 
     asyncio.run(run())
