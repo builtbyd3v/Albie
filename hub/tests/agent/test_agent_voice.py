@@ -632,3 +632,30 @@ def test_turn_that_needs_the_name(said: str, answered: bool) -> None:
         await s.close()
 
     asyncio.run(run())
+
+
+def test_name_heard_only_in_an_interim_transcript_counts() -> None:
+    """Captured live: 'Bit, what's a fin for?' came in as 'Sit', then was re-transcribed without it."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn(require_name=True)
+        await s.feed(b"\x10\x00" * 9600)
+        T = "conversation.item.input_audio_transcription"
+        grok.push(type=f"{T}.updated", transcript="Sit")
+        grok.push(type=f"{T}.completed", transcript="Sit")
+        grok.push(type=f"{T}.updated", transcript="What's a fin for?")
+        await _settle()
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type=f"{T}.completed", transcript="What's a fin for?")
+        await _settle()
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == ["What's a fin for?"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text,named", [("Sit", True), ("Sit down, please.", True), ("Please sit down.", False), ("Bet you can't", True)])
+def test_first_word_near_misses(text: str, named: bool) -> None:
+    assert voice_mod.has_name(text) is named

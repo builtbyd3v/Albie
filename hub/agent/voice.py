@@ -154,6 +154,7 @@ class _Base:
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._turn_seq = 0
         self._require_name = False  # look-to-talk: user wasn't facing Bit, so only a turn naming him counts
+        self._named = False  # an interim transcript of this turn named him (the final can drop a leading "Bit")
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -168,6 +169,7 @@ class _Base:
 
     def _open_turn(self) -> None:
         self._turn_seq += 1
+        self._named = False
         self._partial = ""
         self._final_sent = False
         self._committed = False
@@ -177,7 +179,8 @@ class _Base:
         if self._final_sent or not text or text == self._partial:
             return
         self._partial = text
-        if self._require_name and not has_name(text):
+        self._named = self._named or has_name(text)
+        if self._require_name and not self._named:
             return  # maybe side conversation: no captions until he's named
         await self._emit(ev.stt_partial(self.pet_id, text))
 
@@ -530,7 +533,7 @@ class GrokVoiceSession(_Base):
 
     async def _final(self, text: str | None = None) -> None:
         final = (text if text is not None else self._partial).strip()
-        if not self._final_sent and (is_stop(final) or (self._require_name and not has_name(final))):
+        if not self._final_sent and (is_stop(final) or (self._require_name and not (self._named or has_name(final)))):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         await super()._final(text)
@@ -665,11 +668,16 @@ def is_stop(text: str) -> bool:
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
 
 
+NAME_WORDS = {"bit", "bid"}
+# How grok-transcribe mishears a leading "Bit," (live: "Sit"). Only as the first word: accepts a rare "Sit down".
+FIRST_WORD_NAMES = NAME_WORDS | {"sit", "pit", "bet"}
+
+
 def has_name(text: str) -> bool:
-    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?" ("bid" is how grok-transcribe often hears it).
-    Only the first two words or the last one, so "I'm a bit tired" doesn't count."""
+    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?". Only the first two words or the last one,
+    so "I'm a bit tired" doesn't count."""
     words = re.findall(r"[a-z]+", text.lower())
-    return any(w in ("bit", "bid") for w in words[:2] + words[-1:]) if words else False
+    return bool(words) and (words[0] in FIRST_WORD_NAMES or any(w in NAME_WORDS for w in words[1:2] + words[-1:]))
 
 
 def keyterms_for(repo: Path | None) -> list[str]:
