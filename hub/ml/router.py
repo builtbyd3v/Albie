@@ -193,7 +193,7 @@ def _start_tail(state, tail: logtail.LogTail, proc=None) -> None:
                 events += tail.finish()
             for event_type, payload in events:
                 await state.bus.publish(event_type, payload)
-            if ended or tail.stopped:
+            if ended or (tail.stopped and proc is None):  # an SDK run still gets closed when its process exits
                 return
             await asyncio.sleep(logtail.POLL_S)
 

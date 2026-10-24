@@ -132,6 +132,37 @@ def test_tail_stands_down_when_the_sdk_owns_the_run(tmp_path):
     assert tail.poll() == [] and tail.stopped
 
 
+def sdk_run(runs: Path, run_id: str, events: list[dict]) -> None:
+    (runs / run_id).mkdir(parents=True)
+    (runs / run_id / "run.json").write_text(json.dumps({"run_id": run_id}))
+    (runs / run_id / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def test_an_sdk_run_without_evaluate_is_closed_when_its_process_exits(tmp_path):
+    """forge.log without forge.evaluate (e.g. a backtest) never sends done; the tail closes it once."""
+    runs = tmp_path / ".forge" / "runs"
+    sdk_run(runs, "bt000001", [
+        {"t": 0, "type": "ml.run_state", "payload": {"run_id": "bt000001", "status": "training", "epoch": 0, "total_epochs": 0}},
+        {"t": 1, "type": "ml.metrics", "payload": {"run_id": "bt000001", "epoch": 1, "extra": {"val_sharpe": 1.2}}},
+    ])
+    tail = LogTail(tmp_path, runs, "bt000001", since=0)
+    assert tail.poll() == [] and tail.stopped
+    assert tail.finish() == [("ml.run_state", {"run_id": "bt000001", "status": "done", "epoch": 1, "total_epochs": 1})]
+    assert tail.finish() == []
+    assert MLService(tmp_path).metrics_history("bt000001")["metrics"][0]["extra"]["val_sharpe"] == 1.2
+
+
+def test_an_sdk_run_that_finished_itself_is_left_alone(tmp_path):
+    runs = tmp_path / ".forge" / "runs"
+    sdk_run(runs, "cnn00001", [
+        {"t": 0, "type": "ml.metrics", "payload": {"run_id": "cnn00001", "epoch": 3}},
+        {"t": 1, "type": "ml.run_state", "payload": {"run_id": "cnn00001", "status": "done", "epoch": 3, "total_epochs": 3}},
+    ])
+    tail = LogTail(tmp_path, runs, "cnn00001", since=0)
+    tail.poll()
+    assert tail.finish() == []
+
+
 def test_follow_mode_starts_a_new_run_for_each_new_log(tmp_path):
     repo, runs = tmp_path / "repo", tmp_path / "repo" / ".forge" / "runs"
     tail = LogTail(repo, runs)
@@ -166,7 +197,7 @@ def test_train_without_forge_streams_curves_from_its_own_logs(tmp_path, monkeypa
     repo = tmp_path / "repo"
     (repo / ".forge").mkdir(parents=True)
     (repo / ".forge" / "profile.json").write_text(json.dumps(
-        {"archetype": "generic", "python": sys.executable, "train_cmd": "python train.py"}))
+        {"archetype": "generic", "python": sys.executable, "train_cmd": "python train.py --epochs 10"}))
     (repo / "train.py").write_text(TRAIN_WITHOUT_FORGE)
     with TestClient(make_app(repo)) as client, client.websocket_connect("/ws") as ws:
         run_id = client.post("/ml/train", json={"epochs": 3}).json()["run_id"]

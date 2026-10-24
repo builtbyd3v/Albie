@@ -204,6 +204,19 @@ def test_train_launches_the_repo_command_with_run_id_and_hub(tmp_path):
     assert ran == {"argv": ["--epochs", "3"], "run_id": run_id, "hub": "http://127.0.0.1:8765"}
 
 
+def test_train_leaves_a_command_without_epochs_unchanged(tmp_path):
+    """A script that reads its own argv (here: an optional CSV path) must not get --epochs appended."""
+    repo = tmp_path / "repo"
+    (repo / ".forge").mkdir(parents=True)
+    (repo / ".forge" / "profile.json").write_text(json.dumps(
+        {"archetype": "regression", "python": sys.executable, "train_cmd": "python backtest.py"}))
+    (repo / "backtest.py").write_text("import json, sys\njson.dump(sys.argv[1:], open('ran.json', 'w'))\n")
+    svc = MLService(repo)
+    svc.start_training(5, "http://127.0.0.1:8765/")
+    svc.train_proc.wait(timeout=30)
+    assert json.loads((repo / "ran.json").read_text()) == []
+
+
 REGRESSION_ADAPTER = '''
 import numpy as np
 from forge.adapter import Adapter, Sample

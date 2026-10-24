@@ -407,10 +407,10 @@ class MLService:
         argv = shlex.split(cmd)
         if argv[0] in ("python", "python3"):
             argv[0] = self.python()
-        if "--epochs" in argv:
+        # Only a command that already takes --epochs gets the requested count; appending it to one that
+        # doesn't would break scripts that read their own argv (e.g. a CSV path as the first argument).
+        if "--epochs" in argv[:-1]:
             argv[argv.index("--epochs") + 1] = str(epochs)
-        else:
-            argv += ["--epochs", str(epochs)]
         run_id = uuid.uuid4().hex[:8]
         env = {k: v for k, v in os.environ.items() if k not in ("FORGE_OFFLINE", "FORGE_RUN_DIR")}
         env.update(FORGE_HUB=hub_url.rstrip("/"), FORGE_RUN_ID=run_id,

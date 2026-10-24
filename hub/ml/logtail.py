@@ -375,12 +375,44 @@ class LogTail:
 
     def finish(self) -> list[tuple[str, dict]]:
         """The run ended (process exited, or the source went quiet): one final run_state done."""
-        if self.done or self.stopped or self.run_id is None or self.sent == 0:
+        if self.stopped:
+            return self._close_sdk_run()
+        if self.done or self.run_id is None or self.sent == 0:
             return []
         self.done = True
         epochs = self.total_epochs or self.sent
         events = [("ml.run_state", {"run_id": self.run_id, "status": "done", "epoch": self.sent, "total_epochs": epochs})]
         self._record(events)
+        return events
+
+    def _close_sdk_run(self) -> list[tuple[str, dict]]:
+        """A script that calls forge.log but never forge.evaluate leaves its run open (no 'done'), and the
+        panels would say TRAINING forever. When its process exits, close it with the last epoch it logged."""
+        if self.done or self.run_id is None:
+            return []
+        self.done = True
+        path = self.runs_dir / self.run_id / "events.jsonl"
+        epoch, total = 0, self.total_epochs
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            return []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            payload = event.get("payload") or {}
+            if event.get("type") == "ml.run_state":
+                if payload.get("status") == "done":
+                    return []
+                epoch, total = int(payload.get("epoch") or epoch), int(payload.get("total_epochs") or total)
+            elif event.get("type") == "ml.metrics":
+                epoch = max(epoch, int(payload.get("epoch") or 0))
+        events = [("ml.run_state", {"run_id": self.run_id, "status": "done", "epoch": epoch, "total_epochs": total or epoch})]
+        with open(path, "a") as f:
+            for event_type, payload in events:
+                f.write(json.dumps({"t": round(time.monotonic() - self.t0, 3), "type": event_type, "payload": payload}) + "\n")
         return events
 
     def _idle(self) -> list[tuple[str, dict]]:
