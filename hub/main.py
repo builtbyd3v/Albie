@@ -23,6 +23,7 @@ from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
 from events import EventBus
+from vscode.router import router as vscode_router
 
 HUB_DIR = Path(__file__).resolve().parent
 
@@ -51,6 +52,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(cad_router)
     app.include_router(agent_router)
+    app.include_router(vscode_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
