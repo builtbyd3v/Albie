@@ -1,0 +1,413 @@
+[
+ {
+  "t": 0.0,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 0,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 0.2,
+  "type": "ml.graph_ready",
+  "payload": {}
+ },
+ {
+  "t": 1.7,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 1,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 1.75,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 1,
+   "step": 391,
+   "train_loss": 1.8734,
+   "train_acc": 0.4888,
+   "val_loss": 1.6367,
+   "val_acc": 0.5044,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 3.25,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 2,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 3.3,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 2,
+   "step": 782,
+   "train_loss": 1.6182,
+   "train_acc": 0.5778,
+   "val_loss": 1.4574,
+   "val_acc": 0.6012,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 4.8,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 3,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 4.85,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 3,
+   "step": 1173,
+   "train_loss": 1.3836,
+   "train_acc": 0.6507,
+   "val_loss": 1.2856,
+   "val_acc": 0.6661,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 6.35,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 4,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 6.4,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 4,
+   "step": 1564,
+   "train_loss": 1.1892,
+   "train_acc": 0.7104,
+   "val_loss": 1.1591,
+   "val_acc": 0.7096,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 7.9,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 5,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 7.95,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 5,
+   "step": 1955,
+   "train_loss": 1.0249,
+   "train_acc": 0.7593,
+   "val_loss": 1.0618,
+   "val_acc": 0.7387,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 9.45,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 6,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 9.5,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 6,
+   "step": 2346,
+   "train_loss": 0.892,
+   "train_acc": 0.7993,
+   "val_loss": 0.9712,
+   "val_acc": 0.7583,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 11.0,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 7,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 11.05,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 7,
+   "step": 2737,
+   "train_loss": 0.7797,
+   "train_acc": 0.832,
+   "val_loss": 0.9116,
+   "val_acc": 0.7714,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 12.55,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 8,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 12.6,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 8,
+   "step": 3128,
+   "train_loss": 0.7036,
+   "train_acc": 0.8589,
+   "val_loss": 0.8754,
+   "val_acc": 0.7801,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 14.1,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 9,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 14.15,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 9,
+   "step": 3519,
+   "train_loss": 0.5997,
+   "train_acc": 0.8808,
+   "val_loss": 0.8661,
+   "val_acc": 0.786,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 15.65,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 10,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 15.7,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 10,
+   "step": 3910,
+   "train_loss": 0.5538,
+   "train_acc": 0.8988,
+   "val_loss": 0.9031,
+   "val_acc": 0.788,
+   "lr": 0.001
+  }
+ },
+ {
+  "t": 17.2,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 11,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 17.25,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 11,
+   "step": 4301,
+   "train_loss": 0.4663,
+   "train_acc": 0.9135,
+   "val_loss": 0.977,
+   "val_acc": 0.778,
+   "lr": 0.0005
+  }
+ },
+ {
+  "t": 17.3,
+  "type": "ml.overfit_alert",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 11,
+   "reason": "val loss rose 2 epochs in a row while train loss fell"
+  }
+ },
+ {
+  "t": 18.8,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 12,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 18.85,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 12,
+   "step": 4692,
+   "train_loss": 0.4047,
+   "train_acc": 0.9256,
+   "val_loss": 1.0606,
+   "val_acc": 0.768,
+   "lr": 0.0005
+  }
+ },
+ {
+  "t": 20.35,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 13,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 20.4,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 13,
+   "step": 5083,
+   "train_loss": 0.3659,
+   "train_acc": 0.9354,
+   "val_loss": 1.1804,
+   "val_acc": 0.758,
+   "lr": 0.0005
+  }
+ },
+ {
+  "t": 21.9,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 14,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 21.95,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 14,
+   "step": 5474,
+   "train_loss": 0.3248,
+   "train_acc": 0.9435,
+   "val_loss": 1.3072,
+   "val_acc": 0.748,
+   "lr": 0.0005
+  }
+ },
+ {
+  "t": 23.45,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "training",
+   "epoch": 15,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 23.5,
+  "type": "ml.metrics",
+  "payload": {
+   "run_id": "mock0001",
+   "epoch": 15,
+   "step": 5865,
+   "train_loss": 0.325,
+   "train_acc": 0.9501,
+   "val_loss": 1.4687,
+   "val_acc": 0.738,
+   "lr": 0.0005
+  }
+ },
+ {
+  "t": 24.0,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "evaluating",
+   "epoch": 15,
+   "total_epochs": 15
+  }
+ },
+ {
+  "t": 25.0,
+  "type": "ml.results_ready",
+  "payload": {
+   "run_id": "mock0001"
+  }
+ },
+ {
+  "t": 25.05,
+  "type": "ml.run_state",
+  "payload": {
+   "run_id": "mock0001",
+   "status": "done",
+   "epoch": 15,
+   "total_epochs": 15
+  }
+ }
+]

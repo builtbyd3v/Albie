@@ -1,0 +1,156 @@
+{
+ "seed": 7,
+ "rate": 0.03,
+ "flipped": [
+  {
+   "id": "val_0038",
+   "clean_idx": 9,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0049",
+   "clean_idx": 6,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0059",
+   "clean_idx": 6,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0060",
+   "clean_idx": 7,
+   "noisy_idx": 5
+  },
+  {
+   "id": "val_0071",
+   "clean_idx": 6,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0074",
+   "clean_idx": 0,
+   "noisy_idx": 2
+  },
+  {
+   "id": "val_0088",
+   "clean_idx": 8,
+   "noisy_idx": 2
+  },
+  {
+   "id": "val_0092",
+   "clean_idx": 8,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0096",
+   "clean_idx": 6,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0126",
+   "clean_idx": 8,
+   "noisy_idx": 2
+  },
+  {
+   "id": "val_0154",
+   "clean_idx": 0,
+   "noisy_idx": 8
+  },
+  {
+   "id": "val_0219",
+   "clean_idx": 2,
+   "noisy_idx": 4
+  },
+  {
+   "id": "val_0228",
+   "clean_idx": 7,
+   "noisy_idx": 5
+  },
+  {
+   "id": "val_0246",
+   "clean_idx": 1,
+   "noisy_idx": 2
+  },
+  {
+   "id": "val_0331",
+   "clean_idx": 9,
+   "noisy_idx": 2
+  },
+  {
+   "id": "val_0374",
+   "clean_idx": 2,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0404",
+   "clean_idx": 8,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0428",
+   "clean_idx": 0,
+   "noisy_idx": 8
+  },
+  {
+   "id": "val_0434",
+   "clean_idx": 3,
+   "noisy_idx": 5
+  },
+  {
+   "id": "val_0444",
+   "clean_idx": 5,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0519",
+   "clean_idx": 8,
+   "noisy_idx": 1
+  },
+  {
+   "id": "val_0548",
+   "clean_idx": 2,
+   "noisy_idx": 4
+  },
+  {
+   "id": "val_0564",
+   "clean_idx": 2,
+   "noisy_idx": 6
+  },
+  {
+   "id": "val_0579",
+   "clean_idx": 5,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0596",
+   "clean_idx": 7,
+   "noisy_idx": 8
+  },
+  {
+   "id": "val_0666",
+   "clean_idx": 9,
+   "noisy_idx": 1
+  },
+  {
+   "id": "val_0840",
+   "clean_idx": 7,
+   "noisy_idx": 3
+  },
+  {
+   "id": "val_0846",
+   "clean_idx": 2,
+   "noisy_idx": 0
+  },
+  {
+   "id": "val_0931",
+   "clean_idx": 2,
+   "noisy_idx": 6
+  },
+  {
+   "id": "val_0970",
+   "clean_idx": 9,
+   "noisy_idx": 1
+  }
+ ]
+}

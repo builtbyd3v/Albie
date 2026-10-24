@@ -1,0 +1,170 @@
+{
+ "layers": [
+  {
+   "name": "net.0",
+   "type": "conv",
+   "in_shape": [
+    3,
+    32,
+    32
+   ],
+   "out_shape": [
+    32,
+    32,
+    32
+   ],
+   "params": 896
+  },
+  {
+   "name": "net.1",
+   "type": "norm",
+   "in_shape": [
+    32,
+    32,
+    32
+   ],
+   "out_shape": [
+    32,
+    32,
+    32
+   ],
+   "params": 64
+  },
+  {
+   "name": "net.2",
+   "type": "activation",
+   "in_shape": [
+    32,
+    32,
+    32
+   ],
+   "out_shape": [
+    32,
+    32,
+    32
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.3",
+   "type": "pool",
+   "in_shape": [
+    32,
+    32,
+    32
+   ],
+   "out_shape": [
+    32,
+    16,
+    16
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.4",
+   "type": "conv",
+   "in_shape": [
+    32,
+    16,
+    16
+   ],
+   "out_shape": [
+    64,
+    16,
+    16
+   ],
+   "params": 18496
+  },
+  {
+   "name": "net.5",
+   "type": "norm",
+   "in_shape": [
+    64,
+    16,
+    16
+   ],
+   "out_shape": [
+    64,
+    16,
+    16
+   ],
+   "params": 128
+  },
+  {
+   "name": "net.6",
+   "type": "activation",
+   "in_shape": [
+    64,
+    16,
+    16
+   ],
+   "out_shape": [
+    64,
+    16,
+    16
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.7",
+   "type": "pool",
+   "in_shape": [
+    64,
+    16,
+    16
+   ],
+   "out_shape": [
+    64,
+    8,
+    8
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.8",
+   "type": "reshape",
+   "in_shape": [
+    64,
+    8,
+    8
+   ],
+   "out_shape": [
+    4096
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.9",
+   "type": "linear",
+   "in_shape": [
+    4096
+   ],
+   "out_shape": [
+    128
+   ],
+   "params": 524416
+  },
+  {
+   "name": "net.10",
+   "type": "activation",
+   "in_shape": [
+    128
+   ],
+   "out_shape": [
+    128
+   ],
+   "params": 0
+  },
+  {
+   "name": "net.11",
+   "type": "linear",
+   "in_shape": [
+    128
+   ],
+   "out_shape": [
+    10
+   ],
+   "params": 1290
+  }
+ ]
+}
