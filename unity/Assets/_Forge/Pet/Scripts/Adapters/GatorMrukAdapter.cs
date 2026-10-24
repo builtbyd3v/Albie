@@ -102,7 +102,21 @@ namespace Forge.Pet
             bool has = TryGetDockBounds(out Bounds b);
             bool changed = has != dockBaked || (has && (Vector3.Distance(b.center, dockBakedBounds.center) > 0.02f
                                                        || Vector3.Distance(b.size, dockBakedBounds.size) > 0.02f));
-            if (changed) RebuildKeepOut();
+            // No dock showing (user up and about): the keep-out follows the desk edge nearest the user *now*.
+            // Re-bake only when the resulting box actually moves (walking around the desk), not every poll.
+            if (!changed && !has)
+            {
+                Transform head = PetUser.Head;
+                if (head != null)
+                {
+                    keepOutViewer = head.position;
+                    hasKeepOutViewer = true;
+                    if (GatorNavSurface.ComputeEdgeKeepOut(deskNav.TopCenter, deskNav.Rotation, deskNav.Size, keepOutViewer,
+                            keepOutWidth, keepOutDepth, minSideStrip, default, false, out Bounds candidate, out _))
+                        changed = deskHoles.Count == 0 || Vector3.Distance(candidate.center, deskHoles[0].center) > 0.05f;
+                }
+            }
+            if (changed) RebuildKeepOut();   // the controller's keep-out check then scurries the gator out if it is inside
         }
 
         // ---------------------------------------------------------------- public API
