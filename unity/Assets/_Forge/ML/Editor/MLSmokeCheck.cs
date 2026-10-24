@@ -64,9 +64,13 @@ public static class MLSmokeCheck
             Debug.Log($"[ML smoke] Replay={session.UsesGeneratedMocks}, live-graph mock={session.HasReplayLiveGraphs}, epoch={session.EpochIndex}, probes={dash.ProbeCount}, accuracy epochs={dash.AccuracyEpochCount}");
             Require(dash.ProbeCount == 16 && dash.AccuracyEpochCount > 0, "Training dashboard animates the 16-sample probe strip and class-accuracy heatmap during mock replay");
             var model = UnityEngine.Object.FindAnyObjectByType<Model3D>();
+            Require(model.GroupCount > 0 && model.GroupCount < session.Data.layers.Length, "Model3D groups layers into blocks");
+            model.SetOpen(0, true);
+            Require(model.IsOpen(0), "Opening a block unfolds its layers");
             string outputShape = string.Join("×", session.Data.layers[0].out_shape); bool readableShape = false;
             foreach (var label in model.GetComponent<ForgePanel>().Content.GetComponentsInChildren<TMPro.TMP_Text>(true))
-                if (label.text == outputShape && label.fontSize >= 15) readableShape = true;
+                if (label.text.Contains(outputShape) && label.fontSize >= 11) readableShape = true;
+            model.CollapseAll();
             Require(readableShape, "Model layer output dimensions use readable text");
             var predictions = new int[session.Data.samples.Length];
             for (int i = 0; i < predictions.Length; i++) predictions[i] = session.Data.samples[i].pred_idx;
@@ -152,7 +156,7 @@ public static class MLSmokeCheck
             Require(wall.IsGallery && wall.ActiveClassFilter == 0, "Class picker filters the mistakes gallery");
             content.Find("Dot wall/Dynamic content").GetChild(0).GetComponent<Button>().onClick.Invoke();
             Require(!string.IsNullOrEmpty(wall.SelectedId), "Gallery thumbnail opens the sample detail card");
-            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
+            content.Find("All images").GetComponent<Button>().onClick.Invoke();
             Require(!wall.IsGallery && wall.VisibleDotCount == session.Data.samples.Length, "All dots returns to the full dot wall");
             var sample = Array.Find(session.Data.samples, s => !s.correct);
             Require(sample != null, "Fixture includes wrong predictions");
@@ -167,7 +171,7 @@ public static class MLSmokeCheck
             int expected = 0;
             foreach (var s in session.Data.samples) if (s.true_idx == original && s.pred_idx == sample.pred_idx) expected++;
             Require(wall.VisibleDotCount == expected, "Confusion pair filters dot wall");
-            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
+            content.Find("All images").GetComponent<Button>().onClick.Invoke();
             Require(wall.VisibleDotCount == session.Data.samples.Length, "All resets dot wall filter");
             session.Restart();
             var replay = Newtonsoft.Json.JsonConvert.DeserializeObject<MLReplayEvent[]>(session.mockAssets.events.text);

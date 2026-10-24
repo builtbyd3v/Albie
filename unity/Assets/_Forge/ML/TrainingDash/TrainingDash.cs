@@ -6,31 +6,56 @@ using UnityEngine.UI;
 
 namespace Forge.ML
 {
+    /// <summary>
+    /// Training at a glance: epoch, losses, accuracy and learning rate as big numbers, loss and accuracy curves,
+    /// an overfit banner, then live per-class accuracy and the probe strip while it trains, and the confusion matrix
+    /// (click a cell to filter the results wall) with per-class accuracy when it's done.
+    /// </summary>
     [RequireComponent(typeof(ForgePanel))]
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
-        TMP_Text status, warning;
-        Image progress;
+        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 128, BannerY = 200, SectionY = 236, SummaryY = 258;
+        TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, warning, sectionTitle, lossMax;
+        ForgeSurface progress, statusChip, banner;
+        ForgePill toggle;
         MLCurve loss, accuracy;
-        RectTransform summary;
+        RectTransform root, summary;
+        float width;
         readonly List<float[]> classHistory = new List<float[]>();
         readonly List<MLProbeSample> probes = new List<MLProbeSample>();
-        bool showLiveGraphs = true;
+        bool showLiveGraphs = true, wasDone;
         int firstHistoryEpoch = 1;
         public int AccuracyEpochCount => classHistory.Count;
         public int ProbeCount => probes.Count;
         void Start()
         {
-            session = MLSession.Resolve(session); var root = GetComponent<ForgePanel>().Content;
-            status = MLUI.Text(root, "", 8, 0, 750, 25);
-            MLUI.Fill(root, 8, 29, 740, 6, new Color(.2f,.25f,.3f)); progress = MLUI.Fill(root, 8, 29, 0, 6, Color.cyan);
-            MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
-            MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
-            loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
-            warning = MLUI.Text(root, "", 8, 175, 630, 28, 14); warning.color = new Color(1,.6f,.25f);
-            MLUI.Button(root, "Replay", 650, 172, 90, 28, session.Restart);
-            summary = MLUI.Rect("Evaluation", root, 8, 210, 740, 300);
+            session = MLSession.Resolve(session); root = GetComponent<ForgePanel>().Content; width = root.rect.width;
+            epochValue = MLUI.Stat(root, "Epoch", "—", 2, Kpi, 120, MLUI.TextColor);
+            trainLossValue = MLUI.Stat(root, "Train loss", "—", 130, Kpi, 110, MLUI.Train);
+            valLossValue = MLUI.Stat(root, "Val loss", "—", 248, Kpi, 110, MLUI.Val);
+            valAccValue = MLUI.Stat(root, "Val accuracy", "—", 366, Kpi, 120, MLUI.Good);
+            lrValue = MLUI.Stat(root, "Learning rate", "—", 494, Kpi, 110, MLUI.TextColor);
+            statusChip = MLUI.Surface(root, width - 194, 4, 88, 22, new Color(1, 1, 1, 0.08f), 11);
+            statusText = MLUI.Caps(root, "", width - 194, 8, 88, 14, 9); statusText.alignment = TextAlignmentOptions.Top;
+            MLUI.Button(root, "Replay", width - 98, 1, 98, 28, session.Restart);
+            MLUI.Surface(root, 0, ProgressY, width, 4, new Color(1, 1, 1, 0.07f), 2);
+            progress = MLUI.Surface(root, 0, ProgressY, 0, 4, MLUI.Accent, 2); progress.Glow = 0.5f;
+
+            float chart = (width - 12) * 0.5f;
+            loss = Chart("Loss", 0, chart, false);
+            accuracy = Chart("Accuracy", chart + 12, chart, true);
+            lossMax = MLUI.Text(root, "", 12, ChartY + 24, 40, 12, 8.5f); lossMax.color = MLUI.Faint;
+            var top = MLUI.Text(root, "100%", chart + 24, ChartY + 24, 40, 12, 8.5f); top.color = MLUI.Faint;
+
+            banner = MLUI.Surface(root, 0, BannerY, width, 28, new Color(MLUI.Warn.r, MLUI.Warn.g, MLUI.Warn.b, 0.12f), 10, 0.5f);
+            MLUI.Dot(banner.transform, 12, 10, 8, MLUI.Warn);
+            MLUI.Caps(banner.transform, "Overfitting", 28, 8, 110, 14, 9.5f).color = MLUI.Warn;
+            warning = MLUI.Text(banner.transform, "", 132, 6, width - 150, 16, 11); warning.color = MLUI.TextColor;
+
+            sectionTitle = MLUI.Caps(root, "", 2, SectionY + 6, 560, 14, 9.5f);
+            toggle = MLUI.Pill(root, "Results", width - 110, SectionY, 110, 24, () => { showLiveGraphs = !showLiveGraphs; Refresh(); });
+            summary = MLUI.Rect("Evaluation", root, 0, SummaryY, width, root.rect.height - SummaryY);
             session.Changed += Refresh;
             session.Reloaded += OnSessionReloaded;
             session.Metrics += OnMetrics;
@@ -39,60 +64,113 @@ namespace Forge.ML
             if (session.UsesGeneratedMocks && !session.HubData && !session.HasReplayLiveGraphs) BuildMockProbes();
             Refresh();
         }
-        MLCurve Curve(string name, Transform root, float x, bool acc)
+        MLCurve Chart(string title, float x, float w, bool acc)
         {
+            MLUI.Well(root, x, ChartY, w, ChartHeight);
+            MLUI.Caps(root, title, x + 12, ChartY + 9, 100);
+            float key = x + w - 112;
+            MLUI.Dot(root, key, ChartY + 12, 7, MLUI.Train); MLUI.Text(root, "Train", key + 10, ChartY + 8, 40, 14, 9.5f).color = MLUI.Sub;
+            MLUI.Dot(root, key + 54, ChartY + 12, 7, MLUI.Val); MLUI.Text(root, "Val", key + 64, ChartY + 8, 40, 14, 9.5f).color = MLUI.Sub;
             // The CanvasRenderer first: added at runtime, the Graphic doesn't always bring one and then draws nothing.
-            var go = MLUI.Rect(name, root, x, 70, 330, 95).gameObject; go.AddComponent<CanvasRenderer>();
+            var go = MLUI.Rect(title + " curves", root, x + 12, ChartY + 36, w - 24, ChartHeight - 46).gameObject; go.AddComponent<CanvasRenderer>();
             var curve = go.AddComponent<MLCurve>(); curve.session = session; curve.accuracy = acc; curve.raycastTarget = false; return curve;
         }
         void Refresh()
         {
             int e = session.EpochIndex;
-            status.text = e < 0 ? (session.Done ? $"DONE   run {session.RunId}" : session.HubData ? "Waiting for training…" : "Waiting for mock training…") :$"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
-            progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
-            warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : "";
+            var m = e >= 0 && e < session.Data.metrics.Length ? session.Data.metrics[e] : null;
+            epochValue.text = m == null ? "—" : $"{e + 1}<size=60%><color=#FFFFFF80> / {session.TotalEpochs}</color></size>";
+            trainLossValue.text = m == null ? "—" : m.train_loss.ToString("0.000");
+            valLossValue.text = m == null ? "—" : m.val_loss.ToString("0.000");
+            valAccValue.text = m == null ? "—" : m.val_acc.ToString("0.0%");
+            lrValue.text = m == null ? "—" : m.lr.ToString("G3");
+            string state = session.Done ? "Done" : e >= 0 ? "Training" : "Waiting";
+            Color stateColor = session.Done ? MLUI.Good : e >= 0 ? MLUI.Accent : MLUI.Faint;
+            statusText.text = state.ToUpperInvariant(); statusText.color = Color.Lerp(stateColor, Color.white, 0.2f);
+            statusChip.color = new Color(stateColor.r, stateColor.g, stateColor.b, 0.16f);
+            progress.rectTransform.sizeDelta = new Vector2(width * (e + 1) / Mathf.Max(1, session.TotalEpochs), 4);
+            progress.color = session.Done ? MLUI.Good : MLUI.Accent;
+            banner.gameObject.SetActive(session.Overfit);
+            warning.text = string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason;
+            float max = 1; for (int i = 0; i <= e && i < session.Data.metrics.Length; i++) max = Mathf.Max(max, session.Data.metrics[i].train_loss, session.Data.metrics[i].val_loss);
+            lossMax.text = max.ToString("0.0");
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
-            if (session.Done && showLiveGraphs) showLiveGraphs = false;
-            if (!session.Done || showLiveGraphs) { DrawLiveGraphs(); return; }
-            MLUI.Button(summary, "Live graphs", 636, 0, 100, 22, () => { showLiveGraphs = true; Refresh(); });
-            DrawEvaluation();
+            // Switch to the results once, when the run finishes; the toggle can still go back to the live graphs.
+            if (session.Done && !wasDone) showLiveGraphs = false;
+            wasDone = session.Done;
+            bool live = !session.Done || showLiveGraphs;
+            toggle.gameObject.SetActive(session.Done);
+            toggle.GetComponentInChildren<TMP_Text>().text = live ? "Results" : "Live graphs";
+            if (live) DrawLiveGraphs(); else DrawEvaluation();
         }
         void DrawEvaluation()
         {
+            sectionTitle.text = "CONFUSION MATRIX  ·  ROWS TRUE, COLUMNS PREDICTED  ·  CLICK A CELL TO FILTER RESULTS";
             int n = session.Data.classes.Length; var matrix = new int[n,n];
             foreach (var s in session.Data.samples) if (!s.removed && s.pred_idx >= 0) matrix[s.true_idx,s.pred_idx]++;
-            int max = 1; foreach (int v in matrix) max = Mathf.Max(max,v);
-            MLUI.Text(summary, "CONFUSION  rows: true / columns: predicted", 0, 0, 470, 25, 13);
+            int max = 1; for (int r = 0; r < n; r++) for (int c = 0; c < n; c++) if (r != c) max = Mathf.Max(max, matrix[r,c]);
+            int diagonal = 1; for (int r = 0; r < n; r++) diagonal = Mathf.Max(diagonal, matrix[r,r]);
+            float height = summary.rect.height, labels = 70, header = 16;
+            float cell = Mathf.Min(24f, (height - header - 4) / n), matrixWidth = labels + n * cell + 16;
+            MLUI.Well(summary, 0, 0, matrixWidth, height);
             for (int r = 0; r < n; r++)
             {
-                MLUI.Text(summary, session.Data.classes[r], 0, 30+r*23, 88, 23, 11);
-                MLUI.Text(summary, r.ToString(), 90+r*25, 12, 24, 18, 10);
-                int count = 0;
+                var name = MLUI.Text(summary, session.Data.classes[r], 10, header + r * cell + cell * 0.5f - 7, labels - 14, 14, 9.5f);
+                name.color = MLUI.Sub; name.alignment = TextAlignmentOptions.TopRight; name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
+                var index = MLUI.Text(summary, r.ToString(), labels + r * cell, 3, cell, 12, 8.5f); index.color = MLUI.Faint; index.alignment = TextAlignmentOptions.Top;
                 for (int c = 0; c < n; c++)
                 {
-                    int rr = r, cc = c; count += matrix[r,c];
-                    var b = MLUI.Button(summary, matrix[r,c].ToString(), 90+c*25, 30+r*23, 23, 21, () => session.SelectPair(rr,cc));
-                    b.image.color = Color.Lerp(new Color(.12f,.17f,.24f), r == c ? new Color(.1f,.65f,.4f) : new Color(.85f,.25f,.2f), matrix[r,c]/(float)max);
+                    int rr = r, cc = c, v = matrix[r,c];
+                    Color hue = r == c ? MLUI.Good : MLUI.Bad;
+                    float t = v == 0 ? 0 : Mathf.Sqrt(v / (float)(r == c ? diagonal : max));
+                    var shade = Color.Lerp(new Color(1, 1, 1, 0.04f), new Color(hue.r, hue.g, hue.b, 0.85f), t);
+                    var square = MLUI.Surface(summary, labels + c * cell + 1, header + r * cell + 1, cell - 2, cell - 2, shade, 4);
+                    square.raycastTarget = true;
+                    var b = square.gameObject.AddComponent<Button>(); b.targetGraphic = square; b.onClick.AddListener(() => session.SelectPair(rr,cc));
+                    var colors = b.colors; colors.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1); colors.fadeDuration = 0.06f; b.colors = colors;
+                    if (v > 0)
+                    {
+                        var count = MLUI.Text(square.transform, v.ToString(), 0, (cell - 2) * 0.5f - 6, cell - 2, 12, 8.5f);
+                        count.alignment = TextAlignmentOptions.Top; count.color = t > 0.55f ? new Color(0.05f, 0.06f, 0.08f) : MLUI.Sub;
+                    }
                 }
-                MLUI.Text(summary, $"{r}: {session.Data.classes[r]}  {(count == 0 ? "—" : (matrix[r,r]/(float)count).ToString("P0"))}", 370, 30+r*23, 330, 23, 13);
+            }
+            // Per-class accuracy beside it.
+            float x = matrixWidth + 12, w = width - x, row = Mathf.Min(22f, (height - 24) / n);
+            MLUI.Well(summary, x, 0, w, height);
+            MLUI.Caps(summary, "Per-class accuracy", x + 14, 9, 200);
+            for (int r = 0; r < n; r++)
+            {
+                int total = 0; for (int c = 0; c < n; c++) total += matrix[r,c];
+                float value = total == 0 ? -1 : matrix[r,r] / (float)total, y = 28 + r * row;
+                var name = MLUI.Text(summary, session.Data.classes[r], x + 14, y + row * 0.5f - 7, 80, 14, 10);
+                name.textWrappingMode = TextWrappingModes.NoWrap; name.overflowMode = TextOverflowModes.Ellipsis;
+                float barX = x + 100, barWidth = w - 100 - 60;
+                MLUI.Surface(summary, barX, y + row * 0.5f - 3, barWidth, 6, new Color(1, 1, 1, 0.07f), 3);
+                if (value > 0) MLUI.Surface(summary, barX, y + row * 0.5f - 3, Mathf.Max(6, barWidth * value), 6, HeatColor(value), 3);
+                var pct = MLUI.Text(summary, value < 0 ? "—" : value.ToString("P0"), x + w - 54, y + row * 0.5f - 7, 40, 14, 10);
+                pct.alignment = TextAlignmentOptions.TopRight; pct.color = MLUI.Sub;
             }
         }
         void DrawLiveGraphs()
         {
-            MLUI.Text(summary, session.HubData ? "PER-CLASS ACCURACY · LIVE" : "PER-CLASS ACCURACY · DEMO REPLAY", 0, 0, 520, 20, 12);
-            MLUI.Button(summary, "Results", 636, 0, 100, 22, () => { showLiveGraphs = false; Refresh(); });
+            sectionTitle.text = session.HubData ? "PER-CLASS ACCURACY  ·  LIVE" : "PER-CLASS ACCURACY  ·  DEMO REPLAY";
             int classes = session.Data.classes.Length;
             int columns = classHistory.Count;
-            const float labelWidth = 82, top = 24, rowHeight = 12;
-            float cellWidth = (summary.rect.width - labelWidth - 4) / Mathf.Max(1, columns);
+            float heatHeight = Mathf.Min(150f, summary.rect.height - 100f);
+            const float labelWidth = 82;
+            float top = 10, rowHeight = (heatHeight - top - 18) / Mathf.Max(1, classes);
+            MLUI.Well(summary, 0, 0, width, heatHeight);
+            float cellWidth = Mathf.Min(40f, (width - labelWidth - 14) / Mathf.Max(1, columns));
             for (int c = 0; c < classes; c++)
             {
-                MLUI.Text(summary, ShortName(session.Data.classes[c]), 0, top + c * rowHeight, labelWidth - 4, rowHeight, 9);
+                var name = MLUI.Text(summary, ShortName(session.Data.classes[c]), 10, top + c * rowHeight + rowHeight * 0.5f - 6, labelWidth - 16, 12, 8.5f);
+                name.color = MLUI.Sub; name.alignment = TextAlignmentOptions.TopRight;
                 for (int e = 0; e < columns; e++)
                 {
                     float value = classHistory[e].Length > c ? classHistory[e][c] : -1;
-                    var fill = MLUI.Fill(summary, labelWidth + e * cellWidth, top + c * rowHeight,
-                        Mathf.Max(2, cellWidth - 2), rowHeight - 1, HeatColor(value));
+                    var fill = MLUI.Surface(summary, labelWidth + e * cellWidth, top + c * rowHeight,
+                        Mathf.Max(2, cellWidth - 2), rowHeight - 2, HeatColor(value), 2);
                     fill.gameObject.name = $"Accuracy epoch {firstHistoryEpoch + e} class {c}";
                 }
             }
@@ -100,33 +178,39 @@ namespace Forge.ML
             {
                 int epoch = firstHistoryEpoch + e;
                 if (e == columns - 1 || epoch % 5 == 0)
-                    MLUI.Text(summary, epoch.ToString(), labelWidth + e * cellWidth, top + classes * rowHeight,
-                        Mathf.Max(16, cellWidth), 11, 8);
+                {
+                    var label = MLUI.Text(summary, epoch.ToString(), labelWidth + e * cellWidth, top + classes * rowHeight + 2, Mathf.Max(16, cellWidth), 11, 8);
+                    label.color = MLUI.Faint;
+                }
             }
+            if (columns == 0) { var wait = MLUI.Text(summary, "Waiting for the first epoch", labelWidth, heatHeight * 0.5f - 8, 300, 16, 11); wait.color = MLUI.Faint; }
 
-            const float probeTitleY = 160, imageY = 184, captionY = 224, barY = 243;
-            MLUI.Text(summary, "PROBE STRIP · 16 FIXED VALIDATION SAMPLES", 0, probeTitleY, 530, 20, 12);
-            if (probes.Count == 0) MLUI.Text(summary, "Waiting for ml.probe", 0, imageY, 220, 40, 11);
-            float slotWidth = summary.rect.width / 16f;
+            float probeY = heatHeight + 8, probeHeight = summary.rect.height - probeY;
+            MLUI.Well(summary, 0, probeY, width, probeHeight);
+            MLUI.Caps(summary, "Probe strip  ·  16 fixed validation images", 12, probeY + 8, 400);
+            if (probes.Count == 0) { var wait = MLUI.Text(summary, "Waiting for ml.probe", 12, probeY + 30, 220, 16, 11); wait.color = MLUI.Faint; }
+            float slotWidth = (width - 16) / 16f, imageY = probeY + 26, photo = Mathf.Min(34f, slotWidth - 8);
             for (int i = 0; i < Mathf.Min(16, probes.Count); i++)
             {
                 var probe = probes[i];
                 int sampleIndex = FindSampleIndex(probe.id);
                 if (sampleIndex < 0) continue;
                 var sample = session.Data.samples[sampleIndex];
-                var image = MLUI.Rect("Probe " + probe.id, summary, i * slotWidth + 3, imageY, 34, 34)
+                float x = 8 + i * slotWidth;
+                int predicted = probe.pred_idx;
+                bool right = predicted == sample.true_idx;
+                Color tone = predicted < 0 ? MLUI.Faint : right ? MLUI.Good : MLUI.Bad;
+                MLUI.Surface(summary, x + (slotWidth - photo) * 0.5f - 2, imageY - 2, photo + 4, photo + 4, new Color(tone.r, tone.g, tone.b, 0.35f), 5);
+                var image = MLUI.Rect("Probe " + probe.id, summary, x + (slotWidth - photo) * 0.5f, imageY, photo, photo)
                     .gameObject.AddComponent<RawImage>();
                 image.texture = session.Atlas; image.uvRect = session.UV(sampleIndex); image.raycastTarget = false;
-                int predicted = probe.pred_idx;
                 string caption = predicted >= 0 && predicted < session.Data.classes.Length
-                    ? $"{ShortName(session.Data.classes[sample.true_idx])}→{ShortName(session.Data.classes[predicted])}" : ShortName(session.Data.classes[sample.true_idx]);
-                var text = MLUI.Text(summary, caption, i * slotWidth, captionY, slotWidth - 2, 16, 8);
-                text.color = predicted == sample.true_idx ? new Color(.45f, 1f, .68f) : new Color(1f, .55f, .36f);
-                MLUI.Fill(summary, i * slotWidth + 3, barY, slotWidth - 7, 5, new Color(.14f, .2f, .28f));
-                float confidence = Confidence(probe);
-                MLUI.Fill(summary, i * slotWidth + 3, barY, (slotWidth - 7) * confidence, 5,
-                    predicted == sample.true_idx ? new Color(.25f, .85f, .52f) : new Color(1f, .43f, .25f));
-                MLUI.Text(summary, confidence.ToString("P0"), i * slotWidth, barY + 7, slotWidth - 2, 12, 8);
+                    ? (right ? ShortName(session.Data.classes[predicted]) : "→ " + ShortName(session.Data.classes[predicted])) : ShortName(session.Data.classes[sample.true_idx]);
+                var text = MLUI.Text(summary, caption, x, imageY + photo + 4, slotWidth, 12, 8);
+                text.color = tone; text.alignment = TextAlignmentOptions.Top; text.textWrappingMode = TextWrappingModes.NoWrap;
+                float confidence = Confidence(probe), barWidth = slotWidth - 12;
+                MLUI.Surface(summary, x + 6, imageY + photo + 18, barWidth, 3, new Color(1, 1, 1, 0.08f), 1.5f);
+                MLUI.Surface(summary, x + 6, imageY + photo + 18, Mathf.Max(3, barWidth * confidence), 3, tone, 1.5f);
             }
         }
         void OnMetrics(MLMetrics tick)
@@ -225,10 +309,12 @@ namespace Forge.ML
             float max = 0; foreach (float value in probe.probs) max = Mathf.Max(max, value);
             return Mathf.Clamp01(max);
         }
+        // Red through amber to green, so the middle doesn't go muddy; unavailable is a faint empty cell.
         static Color HeatColor(float value)
         {
-            if (value < 0) return new Color(.12f, .16f, .22f);
-            return Color.Lerp(new Color(.84f, .24f, .2f), new Color(.15f, .78f, .42f), Mathf.Clamp01(value));
+            if (value < 0) return new Color(1, 1, 1, 0.04f);
+            value = Mathf.Clamp01(value);
+            return value < 0.5f ? Color.Lerp(MLUI.Bad, MLUI.Warn, value * 2f) : Color.Lerp(MLUI.Warn, MLUI.Good, value * 2f - 1f);
         }
         void OnDestroy()
         {

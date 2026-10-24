@@ -37,16 +37,17 @@ namespace Forge.ML
             material.enableInstancing = true; material.mainTexture = session.Atlas;
             properties = new MaterialPropertyBlock();
             var temp = GameObject.CreatePrimitive(PrimitiveType.Quad); quad = temp.GetComponent<MeshFilter>().sharedMesh; Destroy(temp);
-            MLUI.Text(root, "Scroll / swipe / hover + thumbstick", 8, 4, 400, 28, 14);
-            cursor = MLUI.Text(root, "", 8, 34, 400, 30);
+            MLUI.Caps(root, "Scroll, swipe or thumbstick to scrub  ·  click a card to pick it", 4, 8, 420, 14, 9.5f);
+            cursor = MLUI.Text(root, "", 4, 26, 420, 26, 15); cursor.textWrappingMode = TMPro.TextWrappingModes.NoWrap;
             MLUI.Button(root, "Previous", 8, 290, 90, 30, () => Scrub(-1));
             MLUI.Button(root, "Inspect", 105, 290, 90, 30, Select);
             MLUI.Button(root, "Next", 202, 290, 90, 30, () => Scrub(1));
             preview = MLUI.Rect("Picked image metadata", root, 300, 42, 285, 300);
-            MLUI.Fill(preview, 0, 0, 285, 300, MLUI.Ink);
-            image = MLUI.Photo(preview, session, 0, 8, 8, 150, 150);
-            label = MLUI.Text(preview, "", 8, 165, 265, 24, 15);
-            metadata = MLUI.Text(preview, "", 8, 192, 265, 88, 12);
+            MLUI.Surface(preview, 0, 0, 285, 300, new Color(0.11f, 0.12f, 0.15f, 0.97f), 16, 0.35f);
+            MLUI.Caps(preview, "Picked image", 14, 12, 200);
+            image = MLUI.Photo(preview, session, 0, 14, 30, 128, 128);
+            label = MLUI.Text(preview, "", 154, 30, 120, 40, 14); label.fontStyle = TMPro.FontStyles.Bold;
+            metadata = MLUI.Text(preview, "", 14, 168, 262, 96, 10.5f); metadata.color = MLUI.Sub; metadata.lineSpacing = 8;
             MLUI.Button(preview, "Put back  (X / B)", 8, 270, 145, 26, PutBack); preview.gameObject.SetActive(false);
             session.SamplesChanged += Refresh; session.Reloaded += OnReloaded; Refresh();
         }
@@ -63,7 +64,7 @@ namespace Forge.ML
         {
             if (cursor == null) return;
             var sample = session.Data.samples[focus];
-            cursor.text = $"{focus+1}/{session.Data.samples.Length}   {sample.id}   {(sample.removed ? "removed" : session.Data.classes[sample.label_idx])}";
+            cursor.text = $"<b>{focus+1:N0}</b><color=#FFFFFF60> / {session.Data.samples.Length:N0}</color>   <color=#FFFFFFA0>{sample.id}</color>   <b>{(sample.removed ? "removed" : session.Data.classes[sample.label_idx])}</b>";
             if (selected >= 0 && selected < session.Data.samples.Length)
             {
                 var picked = session.Data.samples[selected];
