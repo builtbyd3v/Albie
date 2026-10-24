@@ -165,8 +165,16 @@ public static class ForgePrefabBuilder
         Stretch(label.rectTransform, 0f, 0f, 0f, 0f);
         knob.gameObject.SetActive(false);
 
+        // Hub connection light in the plate's top-right corner (outside the row's layout).
+        var dot = NewImage("HubStatus", root.transform, Knob(), Color.grey);
+        dot.type = Image.Type.Simple;
+        dot.raycastTarget = false;
+        dot.rectTransform.anchorMin = dot.rectTransform.anchorMax = new Vector2(1f, 1f);
+        dot.rectTransform.sizeDelta = new Vector2(20f, 20f);
+        dot.rectTransform.anchoredPosition = new Vector2(-14f, -14f);
+
         var dock = root.AddComponent<DeskDock>();
-        SetRefs(dock, ("row", row), ("buttonTemplate", button), ("group", group));
+        SetRefs(dock, ("row", row), ("buttonTemplate", button), ("group", group), ("statusDot", dot));
         AddCanvasInteraction(root);
         Save(root, DockPath);
     }

@@ -57,6 +57,9 @@ public static class MainSceneBuilder
         // UI events from Interaction SDK rays/pokes
         new GameObject("EventSystem", typeof(EventSystem), typeof(PointableCanvasModule));
 
+        // Hub connection (live, or mocks when the hub isn't running)
+        new GameObject("ForgeNet", typeof(ForgeNet));
+
         var root = new GameObject("Workspace");
         var locator = root.AddComponent<DeskLocator>();
         locator.head = head;

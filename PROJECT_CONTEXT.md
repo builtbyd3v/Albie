@@ -16,7 +16,8 @@
   - To plug a module in: make a prefab from these (a prefab variant is easiest), send it to Hudson, and it goes into that mode's item list on the `Workspace` object in Main (slot + prefab). Panel IDs come from section 7.
 - **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
 - **Done: desktop mode.** Press Play with the simulator off (or tick **Forge > Desktop Mode (skip XR)**) and you get a first-person player instead of the VR rig: WASD walk, mouse look, click buttons under the crosshair, E to sit at the desk. The room is a JSON copy of the simulator's living room (`Core/Rooms/SimLivingRoom.json`) drawn as blocks, so the desk is in the same place. Same scene, same panels; build and test UI here, check the XR feel in the simulator. See 6.1.
-- **Next (Hudson):** `ForgeNet` (WS/REST client), then grab/move/resize for panels and volumes.
+- **Done: `ForgeNet` (hub connection).** In `Main` (and created automatically in any sandbox that uses it). Subscribe with `ForgeEvents.OnCadModelUpdated += ...` (one static event per section 7 type, classes in `Core/Net/ForgeEvents.cs`) or `ForgeNet.On("any.type", ...)`; call REST with `ForgeNet.Get/GetBytes/Post`, or `ForgeNet.Url(path)` for glTFast. Pass `replayLast: true` to `On` to get the latest event right away (panels spawn after the hub sent the current state). No hub running: after 3 s it switches to mock mode, REST reads `Resources/Mocks/<path>.json` (or `ForgeNet.MockRest`), and a `ForgeMockPlayer` in your sandbox plays a JSON list of events. The desk dock's corner light shows green live / amber mock / grey connecting. Hub address: `hubUrl` on the ForgeNet object (Quest: the laptop's LAN IP).
+- **Next (Hudson):** grab/move/resize for panels and volumes.
 - **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Unity CAD viewer (phase 2) not started. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
 - **ML plan written: `ML_PLAN.md`.** Open any ML repo: an LLM classifier reads the code and picks its type (image classifier, regression, ...), each type has a fixed list of visuals, and a second step writes the glue code into `.forge/`. ML A + ML B: start with its section 0 (pick and clean your repos); the image classification layout is its section 5.3. Open: which LLM and which live training graphs (the ML team decides), and how VS Code connects (ML_PLAN section 3, doesn't block ML work).
 
@@ -85,7 +86,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
 - **Unity 6.6, editor `6000.6.7f1`. Everyone on this exact version.** (Matches Hudson's working Meta XR test project.)
 - Meta XR All-in-One SDK `com.meta.xr.sdk.all` **207.0.1** (Core, Interaction SDK, MR Utility Kit), OpenXR plugin `com.unity.xr.openxr` **1.18.0** with the Meta XR feature group enabled, Input System **1.20.1**, URP **17.6.0**
 - Meta XR Simulator **v207.1**, installed separately (Windows: `C:\Program Files\MetaXRSimulator\v207.1`; Apple Silicon Mac is officially experimental, expect some fiddling). See 6.1 for setup.
-- `com.unity.webrtc` (screen streaming), `glTFast` (runtime GLB loading for CAD), `NativeWebSocket` (WS client that works on Android), `com.unity.nuget.newtonsoft-json`
+- `com.unity.webrtc` (screen streaming), `glTFast` (runtime GLB loading for CAD), WebSocket: .NET `ClientWebSocket` (built in, works on Windows and Quest; no NativeWebSocket package needed), `com.unity.nuget.newtonsoft-json`
 - TextMeshPro, DOTween (free) for animation, XCharts for charts
 - Render pipeline: URP, Android target for Quest, Vulkan
 
@@ -256,7 +257,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - Room scene with desk (desktop and simulator). On Quest: passthrough on, virtual room off, MRUK finds nearest `TABLE`.
 - Sit flow: near desk + `E` (desktop) or approach table (XR) -> `Workspace.Unfold()` staggered DOTween in of keyboard glow, trackpad glow, main screen, side panels in an arc anchored to the desk's near edge.
 - `ForgePanel` prefab: world-space canvas + frame + title + grab handle. Interactable by mouse (desktop) and by ray/poke (Interaction SDK `PointableCanvas`). Every module's UI lives inside a ForgePanel.
-- `ForgeNet`: WS client (NativeWebSocket) + REST helper + mock mode toggle that replays `Mocks/*.json`.
+- `ForgeNet`: WS client (`ClientWebSocket`) + REST helper + mock mode (falls back automatically when no hub answers; `ForgeMockPlayer` replays event lists).
 - Mode switch: ML mode / CAD mode.
 - Performance: Quest at 72 fps. GPU instancing for repeated meshes, 2048 max textures, no allocations in `Update`.
 
@@ -370,7 +371,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 - Ship features as prefabs. No scene-only setup that someone else has to recreate.
 - UI goes inside `ForgePanel` and must work with mouse (DesktopRig) and Interaction SDK ray/poke.
 - Quest performance: no allocations or LINQ in `Update`, instancing for repeated meshes, textures 2048 max.
-- Unity networking: NativeWebSocket for WS, `UnityWebRequest` for REST, Newtonsoft for JSON. Marshal WS callbacks to the main thread.
+- Unity networking: go through `ForgeNet` (it uses `ClientWebSocket` for WS, `UnityWebRequest` for REST, Newtonsoft for JSON, and raises events on the main thread). Don't open your own sockets.
 - Python: FastAPI routers per module, type hints, pydantic models mirroring `events.py`.
 - Never send a real message or take an irreversible action from the pet without a user confirmation step.
 - Small commits, pull often, never break `main`.
