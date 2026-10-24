@@ -9,6 +9,7 @@
 // -executeMethod:  Forge.Pet.Editor.GatorSetup.FixMaterial | BuildAnimator | BuildPrefab |
 //                  BuildSandboxScene | BuildXRSandboxScene | BuildAll
 //                  (batch + quit: Forge.Pet.Editor.GatorSetupCli.BuildAllAndQuit)
+//                  BuildAll ends with PetRuntimeSetup.Build(): Prefabs/PetRuntime.prefab, the one prefab Main instantiates.
 //
 // Scenes:
 //   PetSandbox.unity    desktop only (DesktopRig, primitives); runtime NavMesh via GatorSandboxNav.
@@ -184,6 +185,7 @@ namespace Forge.Pet.Editor
             ok &= Run("BuildPrefab", () => summary.AppendLine("  prefab   : " + BuildPrefabInternal()));
             ok &= Run("BuildSandboxScene", () => summary.AppendLine("  scene    : " + BuildSandboxSceneInternal()));
             ok &= Run("BuildXRSandboxScene", () => summary.AppendLine("  xr scene : " + BuildXRSandboxSceneInternal()));
+            ok &= Run("BuildPetRuntime", () => summary.AppendLine("  runtime  : " + PetRuntimeSetup.Build()));
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             LastBuildSucceeded = ok;
