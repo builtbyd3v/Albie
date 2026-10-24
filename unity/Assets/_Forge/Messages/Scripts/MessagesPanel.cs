@@ -10,8 +10,9 @@ using UnityEngine;
 /// Shows the newest <see cref="MaxCards"/> messages as <see cref="MessageCard"/>s and folds the rest into a
 /// "+N more" footer. Fed by the hub's notify.* events (PROJECT_CONTEXT 7 / 8.8): notify.digest replaces the list,
 /// notify.message pushes one card in at the top, notify.sent flashes the footer. When it opens live it reads
-/// GET /messages/latest. Clicking a card asks Bit to reply: Bit writes a draft, <see cref="DraftPresenter"/> shows it
-/// as a Send / Cancel <see cref="DraftCard"/> under this panel, and nothing is posted until you confirm.
+/// GET /messages/latest. Clicking a card sends messages.focus: Bit speaks the message, asks whether to answer and drafts
+/// your reply; <see cref="DraftPresenter"/> shows it as a Send / Cancel <see cref="DraftCard"/> under this panel, and
+/// nothing is posted until you confirm.
 /// <see cref="floating"/> copies are spawned by <see cref="DigestTrigger"/> when the digest arrives with MSG mode
 /// closed; they don't count as an open panel. Live hub only, no mocks.
 /// </summary>
@@ -147,19 +148,19 @@ public class MessagesPanel : MonoBehaviour
 
     // ---- panel -> hub ---------------------------------------------------------------------------------------
 
-    /// <summary>"Reply with Bit": one agent turn with the message as context. Bit asks what to say, then the hub's
-    /// messages_send tool writes a draft (notify.draft -> DraftCard); it is posted in-thread only when the user hits
-    /// Send on the card or says so (messages_confirm).</summary>
+    const string FocusType = "messages.focus";
+    const string LeadPetId = "bit";
+
+    /// <summary>"Reply with Bit": messages.focus {pet_id, ts, channel} on the socket. The hub reads the message aloud through
+    /// the voice session, asks "want me to answer?", and seeds the reply thread, so the next thing you say becomes the
+    /// draft (notify.draft -> DraftCard); nothing is posted until you hit Send on the card or say so (messages_confirm).
+    /// No typed text goes through agent.ask any more.</summary>
     void ReplyWithBit(MessageCard card)
     {
         var m = card.Message;
-        if (m == null) return;
-        string where = MessageCard.IsDm(m) ? "by DM" : $"in #{m.channelName}";
-        string prompt = $"Reply to {m.userName} {where} (Slack ts {m.ts}). They said: \"{m.text}\". Ask me what to answer, then draft it in that thread; I'll confirm on the card.";
-
-        var bridge = FindAnyObjectByType<Forge.Pet.GatorAgentBridge>();
-        if (bridge != null) bridge.Ask(prompt, "qa");  // tracks the turn so the gator animates and cancels cleanly
-        else ForgeNet.Send("agent.ask", new JObject { ["pet_id"] = "bit", ["project_id"] = "gatorhack", ["text"] = prompt, ["mode"] = "qa" });
+        if (m == null || string.IsNullOrEmpty(m.ts)) return;
+        bool sent = ForgeNet.Send(FocusType, new JObject { ["pet_id"] = LeadPetId, ["ts"] = m.ts, ["channel"] = m.channel ?? "" });
+        if (!sent) Debug.LogWarning($"[MessagesPanel] Hub not live; {FocusType} for ts {m.ts} dropped.");
     }
 
     // ---- view -----------------------------------------------------------------------------------------------

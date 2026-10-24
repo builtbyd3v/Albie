@@ -7,14 +7,16 @@ Live hub only. There is no mock mode: run the hub with the Slack tokens in `hub/
 
 ## What it does
 
-- **Arrival digest.** `DigestTrigger` watches `DeskPresence`. When you sit down it POSTs `/messages/digest` once; the hub
-  answers with `notify.digest` and a `pet.say` line ("You have 3 new messages, 1 mentions you."), which Bit speaks.
+- **Arrival digest.** The pet's `ArrivalDirector` (in `PetRuntime.prefab`) POSTs `/messages/digest` once per sit, after Bit
+  has hopped onto the desk (`DigestTrigger.RequestDigest()`); the hub answers with `notify.digest` and a `pet.say` line
+  ("You have 3 new messages, 1 mentions you."), which Bit speaks.
   If MSG mode is closed, a floating copy of the panel pops up front-right of the desk, beside Bit, and folds after 20 s
   (or when you open MSG mode, or leave the desk).
 - **Cards.** `MessagesPanel` shows the newest 4 messages as `MessageCard`s, older ones as "+N more" in the footer.
   Card = sender initial bubble, name + `#channel` (or `DM`), first line of text, relative time; mentions get an orange strip.
   Translucent at rest (frame alpha 0.8, text opaque). Hover lifts the card 1 cm, makes it opaque and expands it to the full
-  text. Click or poke = **Reply with Bit**: one agent turn with the message as context; Bit asks what to say and drafts it.
+  text. Click or poke = **Reply with Bit**: sends `messages.focus {pet_id, ts, channel}`; the hub reads the message aloud,
+  asks "want me to answer?" and seeds the reply thread, so what you say next becomes the draft (hub PR A).
 - **Confirm card (sending).** Nothing leaves without you. You dictate, Bit phrases it, the hub emits `notify.draft`, and
   `DraftPresenter` pops a `DraftCard`: recipient (`#channel` or `DM to Hudson`), what it answers, the exact text, **Send**
   and **Cancel**. Send -> `POST /messages/drafts/{id}/send` (posted under *your* Slack name); Cancel -> `POST /messages/drafts/{id}/cancel`.
@@ -30,7 +32,8 @@ Live hub only. There is no mock mode: run the hub with the Slack tokens in `hub/
 |---|---|
 | `Scripts/MessagesPanel.cs` | Panel logic: digest / message / sent events, `GET /messages/latest` on open, 4-card cap, reply. |
 | `Scripts/MessageCard.cs` | One message: binding, relative time, hover lift/expand, click. |
-| `Scripts/DigestTrigger.cs` | Sit-down digest request + floating panel. Self-installs into any scene with a `DeskPresence`. Also the shared `SpawnAtDesk` / `PopIn` / `FoldOut` helpers. |
+| `Scripts/DigestTrigger.cs` | `RequestDigest()` (the POST, called by the pet's ArrivalDirector) + the floating panel on `notify.digest`. Self-installs into any scene with a `DeskPresence`. Also the shared `SpawnAtDesk` / `PopIn` / `FoldOut` helpers. |
+| `Scripts/MessagesDeskZone.cs` | Marker `SpawnAtDesk` puts on floating holders + the desk-frame `Footprint` the pet carves out of the desk NavMesh while cards float (Bit never stands under the stack). |
 | `Scripts/DraftCard.cs` | The Send / Cancel card: binding, the two POSTs, closes on `notify.sent` / `notify.draft_cancelled`. |
 | `Scripts/DraftPresenter.cs` | Shows one `DraftCard` per `notify.draft`, docked under the open panel or floating at the desk. Self-installs like `DigestTrigger`. |
 | `Editor/MessagesPrefabBuilder.cs` | **Forge > Messages > Build Prefabs** builds the two prefabs below. |
@@ -53,10 +56,10 @@ to `MainSceneBuilder.ModulePrefabs`). The panel's `ForgePanel` is the prefab roo
 
 1. `hub/`: tokens in `.env` (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_USER_TOKEN`), `uvicorn main:app --host 0.0.0.0 --port 8000`.
 2. Unity: **Forge > Messages > Build Prefabs** once (and after script changes to the UI layout). Play `Main`.
-3. From your phone, DM the bot or post in `#forge-team`, then walk to the desk and sit (desktop: `E`). Bit says the digest
-   line and the floating cards appear. Press **MSG** on the desk dock for the full panel.
-4. Hover a card (crosshair or hand ray): it lifts and shows the whole message. Click it: Bit asks what to reply, drafts it,
-   and the Send / Cancel card appears under the panel. Press **Send** (or tell Bit "send it"): the message lands in Slack
+3. From your phone, DM the bot or post in `#forge-team`, then walk to the desk and sit (desktop: `E`). Bit hops onto the
+   desk, says the digest line and the floating cards appear (he keeps clear of them). Press **MSG** on the desk dock for the full panel.
+4. Hover a card (crosshair or hand ray): it lifts and shows the whole message. Click it: Bit reads it out and asks whether
+   to answer; tell him what to say and the Send / Cancel card appears under the panel. Press **Send** (or tell Bit "send it"): the message lands in Slack
    under your name and the card says "Sent" and folds away. Cancel, or a new draft, closes it too.
 5. While seated, send another message: it slides in at the top as `notify.message`.
 

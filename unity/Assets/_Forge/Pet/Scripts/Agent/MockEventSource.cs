@@ -7,6 +7,9 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>
+    /// SANDBOX ONLY (PetSandbox / PetSandboxXR; GatorSetup adds it to the scene instance, never to the prefab, so Main
+    /// has no mock mode). While it sits enabled on the gator, GatorAgentBridge uses it whatever pet_config.json says
+    /// (overrideConfig); untick the component to test the live hub path from a sandbox scene.
     /// Offline event source: no network. Send("agent.ask") plays a scripted reply (editable in the
     /// inspector, pre-filled in Reset). Asks containing fix/add/change/make (or mode "code") also play
     /// the task sequence. "{ask}" in a payloadJson is replaced with the asked text. pet_id is injected
@@ -31,6 +34,11 @@ namespace Forge.Pet
         List<ScriptedEvent> taskSequence = new List<ScriptedEvent>();
         [SerializeField, Tooltip("Lower-case words that switch an 'auto' ask into code mode.")]
         string[] codeKeywords = { "fix", "add", "change", "make" };
+        [SerializeField, Tooltip("Sandbox: use this mock even when pet_config.json says \"hub\". Untick (or disable the component) to test the live hub from the sandbox.")]
+        bool overrideConfig = true;
+
+        /// <summary>The bridge should use this mock regardless of pet_config.json (enabled + overrideConfig).</summary>
+        public bool OverridesConfig => overrideConfig && enabled;
 
         public event Action<PetEvent> EventReceived;
         public bool IsConnected { get; private set; }

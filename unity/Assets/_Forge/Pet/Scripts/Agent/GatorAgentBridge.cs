@@ -6,8 +6,9 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>
-    /// Glue between the event source (MockEventSource or AgentClient, picked by pet_config.json)
-    /// and the gator body. Implements the event → GatorState table of docs/PET_AGENT_CONTRACT.md.
+    /// Glue between the event source and the gator body. The source is the live hub (AgentClient on ForgeNet) unless a
+    /// MockEventSource sits on this gator, which only the sandbox scene builders add; Main has no mock mode.
+    /// Implements the event → GatorState table of docs/PET_AGENT_CONTRACT.md.
     /// Only events for this gator's pet_id are handled (several gators share one socket, see GatorCrew); a crew
     /// gator uses Bit's source (UseSharedSource) instead of opening its own.
     /// </summary>
@@ -95,22 +96,26 @@ namespace Forge.Pet
         void OnConfigLoaded(PetConfig cfg)
         {
             Config = cfg ?? new PetConfig();
-            EventSourceIsHub = Config.IsHub;
-            Debug.Log("[GatorAgentBridge] " + Config);
-
             var hub = GetComponent<AgentClient>();
             var mock = GetComponent<MockEventSource>();
-            if (EventSourceIsHub)
+            // Mocks exist in the sandbox scenes only (the builder adds the component there); the runtime prefab never has
+            // one, so Main always talks to the hub even if pet_config.json says "mock".
+            bool useMock = mock != null && mock.enabled && (mock.OverridesConfig || !Config.IsHub);
+            if (!Config.IsHub && !useMock)
+                Debug.LogWarning("[GatorAgentBridge] pet_config.json asks for eventSource \"mock\" but this gator has no enabled MockEventSource (sandbox only); using the hub.", this);
+            EventSourceIsHub = !useMock;
+            Debug.Log("[GatorAgentBridge] " + Config + (useMock ? " -> MockEventSource (sandbox)" : " -> hub via ForgeNet"));
+
+            if (useMock)
             {
-                if (hub == null) hub = gameObject.AddComponent<AgentClient>();
-                if (mock != null) mock.Disconnect();
-                Source = hub;
+                if (hub != null) { hub.Disconnect(); hub.enabled = false; }
+                Source = mock;
             }
             else
             {
-                if (mock == null) mock = gameObject.AddComponent<MockEventSource>();
-                if (hub != null) { hub.Disconnect(); hub.enabled = false; }
-                Source = mock;
+                if (hub == null) hub = gameObject.AddComponent<AgentClient>();
+                if (mock != null) { mock.Disconnect(); mock.enabled = false; }
+                Source = hub;
             }
 
             var hubStt = GetComponent<HubSpeechToText>();
@@ -203,7 +208,7 @@ namespace Forge.Pet
                     break;
 
                 case "pet.state":
-                    HandlePetState(e.GetString("mode"));
+                    HandlePetState(e.GetString("mode"), e.GetString("target_panel", null));
                     break;
 
                 // Voice mode: the hub streams speech (StreamedPcmTextToSpeech plays it and raises SpeechStarted/Ended).
@@ -243,15 +248,16 @@ namespace Forge.Pet
             }
         }
 
-        void HandlePetState(string mode)
+        // target_panel ("screen-main", "cad-viewer", "messages"): Thinking / Working walk to that panel (GatorController).
+        void HandlePetState(string mode, string targetPanel)
         {
             switch (mode)
             {
                 case "follow": SetStateIfChanged(GatorState.Following); break;
                 case "idle": SetStateIfChanged(GatorState.Wandering); break;
                 case "listening": SetStateIfChanged(GatorState.Listening); break;
-                case "thinking": SetStateIfChanged(GatorState.Thinking); ApplyMood(Mood.Squint); break;
-                case "working": SetStateIfChanged(GatorState.Working); break;
+                case "thinking": SetBusyState(GatorState.Thinking, targetPanel); ApplyMood(Mood.Squint); break;
+                case "working": SetBusyState(GatorState.Working, targetPanel); break;
                 case "speaking": SetStateIfChanged(GatorState.Answering); break;
                 default:
                     if (_unknownLogged.Add("pet.state:" + mode)) Debug.Log("[GatorAgentBridge] Unknown pet.state mode '" + mode + "'.");
@@ -274,6 +280,13 @@ namespace Forge.Pet
         void SetStateIfChanged(GatorState s)
         {
             if (controller != null && controller.State != s) controller.SetState(s);
+        }
+
+        void SetBusyState(GatorState s, string targetPanel)
+        {
+            if (controller == null) return;
+            if (!string.IsNullOrEmpty(targetPanel)) controller.SetState(s, targetPanel);   // re-targets even in the same state
+            else if (controller.State != s) controller.SetState(s);
         }
 
         void ApplyMood(Mood m)

@@ -3,11 +3,11 @@ using System.Collections;
 using UnityEngine;
 
 /// <summary>
-/// The arrival digest (PROJECT_CONTEXT 8.8). When <see cref="DeskPresence"/> goes Seated it POSTs /messages/digest
-/// once per sit; the hub answers with notify.digest and a pet.say line, which Bit speaks. If the digest has messages
-/// and MSG mode is closed (no <see cref="MessagesPanel"/> open), a floating copy of the panel appears beside Bit at
-/// the front-right of the desk and folds away after <see cref="floatingSeconds"/>, when a real panel opens, or when
-/// the user leaves the desk.
+/// The arrival digest's cards (PROJECT_CONTEXT 8.8). The POST /messages/digest itself is <see cref="RequestDigest"/>,
+/// called by the pet's ArrivalDirector once per sit, after Bit has landed on the desk; the hub answers with
+/// notify.digest and a pet.say line, which Bit speaks. If the digest has messages and MSG mode is closed (no
+/// <see cref="MessagesPanel"/> open), a floating copy of the panel appears beside Bit at the front-right of the desk
+/// and folds away after <see cref="floatingSeconds"/>, when a real panel opens, or when the user leaves the desk.
 /// Installs itself: on scene load it adds one to any scene that has a DeskPresence (so Main needs no edit); dropping
 /// the component into a scene by hand also works and stops the auto-install.
 /// The static helpers (<see cref="SpawnAtDesk"/>, <see cref="PopIn"/>, <see cref="FoldOut"/>) are shared with
@@ -25,7 +25,6 @@ public class DigestTrigger : MonoBehaviour
     public Vector3 floatingOffset = new Vector3(0.35f, 0.25f, 0.10f);
 
     DeskPresence presence;
-    bool sentThisSit;
     GameObject floatingPanel;
     Coroutine fold;
 
@@ -46,42 +45,31 @@ public class DigestTrigger : MonoBehaviour
             return;
         }
         presence.stateChanged.AddListener(OnDeskState);
-        ForgeNet.StatusChanged += OnNetStatus;
         ForgeEvents.OnNotifyDigest += OnDigest;
         MessagesPanel.ActiveChanged += OnPanelsChanged;
-        OnDeskState(presence.State);
     }
 
     void OnDestroy()
     {
         if (presence != null) presence.stateChanged.RemoveListener(OnDeskState);
-        ForgeNet.StatusChanged -= OnNetStatus;
         ForgeEvents.OnNotifyDigest -= OnDigest;
         MessagesPanel.ActiveChanged -= OnPanelsChanged;
     }
 
     void OnDeskState(DeskState state)
     {
-        if (state == DeskState.Away)
-        {
-            sentThisSit = false;
-            Fold();
-            return;
-        }
-        if (state == DeskState.Seated) RequestDigest();
+        if (state == DeskState.Away) Fold();
     }
 
-    // Sat down before the socket was up: ask as soon as it is.
-    void OnNetStatus(ForgeNetStatus status)
+    /// <summary>
+    /// POST /messages/digest: the hub answers on /ws with notify.digest (+ a pet.say line Bit speaks) and marks everything
+    /// seen. Called by the pet's ArrivalDirector once per sit; no-op (false) unless the hub is live.
+    /// </summary>
+    public static bool RequestDigest()
     {
-        if (status == ForgeNetStatus.Live && presence.State == DeskState.Seated) RequestDigest();
-    }
-
-    void RequestDigest()
-    {
-        if (sentThisSit || ForgeNet.Status != ForgeNetStatus.Live) return;
-        sentThisSit = true;
-        ForgeNet.Post(DigestPath, null);  // the answer comes back as notify.digest (+ pet.say) on /ws
+        if (ForgeNet.Status != ForgeNetStatus.Live) return false;
+        ForgeNet.Post(DigestPath, null);
+        return true;
     }
 
     void OnDigest(NotifyDigest d)
@@ -136,13 +124,15 @@ public class DigestTrigger : MonoBehaviour
     /// Instantiate <paramref name="prefab"/> beside Bit: a holder parented to the desk frame at <paramref name="offset"/>
     /// (m: right of the front edge midpoint, up, into the desk), turned to face the user. <paramref name="configure"/>
     /// runs on the instance while the holder is still inactive, so components can be set up before their OnEnable.
-    /// Returns the (active) holder; destroy it to remove the whole thing.
+    /// Returns the (active) holder; destroy it to remove the whole thing. The holder carries a <see cref="MessagesDeskZone"/>
+    /// so the pet keeps its gators out from under the floating cards.
     /// </summary>
     public static GameObject SpawnAtDesk(DeskPresence presence, GameObject prefab, Vector3 offset, string holderName,
         Action<GameObject> configure = null)
     {
         var holder = new GameObject(holderName);
         holder.SetActive(false);
+        holder.AddComponent<MessagesDeskZone>();
         holder.transform.SetParent(presence.Frame, false);
         holder.transform.localPosition = offset;
         var go = Instantiate(prefab, holder.transform);

@@ -9,6 +9,7 @@
 // -executeMethod:  Forge.Pet.Editor.GatorSetup.FixMaterial | BuildAnimator | BuildPrefab |
 //                  BuildSandboxScene | BuildXRSandboxScene | BuildAll
 //                  (batch + quit: Forge.Pet.Editor.GatorSetupCli.BuildAllAndQuit)
+//                  BuildAll ends with PetRuntimeSetup.Build(): Prefabs/PetRuntime.prefab, the one prefab Main instantiates.
 //
 // Scenes:
 //   PetSandbox.unity    desktop only (DesktopRig, primitives); runtime NavMesh via GatorSandboxNav.
@@ -66,6 +67,9 @@ namespace Forge.Pet.Editor
         const string QuirkyDir = "Assets/_Forge/Pet/ThirdParty/Quirky Series";
         const string PackDir = QuirkyDir + "/Ultimate Pack Vol.1/Mega Pack Vol.4/River Vol.2";
         const string SrcPrefabPath = PackDir + "/Prefabs/Alligator.prefab";
+        /// PR 26 (pet/gator-anims): the pack's LOD0 with an opening mouth and a "jaw" bone (Rig/root/body/head/jaw),
+        /// LOD0 only, no LODGroup. Preferred as the model source when it exists; the pack prefab is the fallback.
+        const string CustomModelPath = PetRoot + "/Models/Gator_Model.fbx";
         const string SrcMaterialPath = PackDir + "/Materials/M_Alligator.mat";
         const string SrcAnimFbxPath = PackDir + "/Animations/Alligator_Animations.fbx";
         const string UrpShaderGraphPath = QuirkyDir + "/_Shader/URP (Unity 2019.3.0f3 and above)/SoftSurfaceGraph.shadergraph";
@@ -124,6 +128,8 @@ namespace Forge.Pet.Editor
 
         // Runtime component types, resolved by full name so a missing/renamed class logs a warning
         // instead of breaking compilation of this editor script (other agents write them in parallel).
+        // Live hub only: the mic STT (HubSpeechToText) and the ForgeNet socket (AgentClient). The typed text box and
+        // the scripted MockEventSource are sandbox-only (SandboxOnlyComponents, added to the sandbox scene instances).
         static readonly string[] PrefabRuntimeComponents =
         {
             "Forge.Pet.GatorController",
@@ -132,10 +138,17 @@ namespace Forge.Pet.Editor
             "Forge.Pet.GatorCaption",
             "Forge.Pet.GatorAgentBridge",
             "Forge.Pet.PushToTalk",
-            "Forge.Pet.TypedSpeechToText",
-            "Forge.Pet.MockEventSource",
+            "Forge.Pet.HubSpeechToText",
             "Forge.Pet.AgentClient",
             MrukAdapterType, // self-sufficient: falls back to MRUK's scene-loaded callback when no DeskLocator is wired
+        };
+
+        // Added to the gator INSTANCE in PetSandbox / PetSandboxXR only (never on the prefab, never in Main):
+        // the keyboard text box behind Space and the in-Unity scripted agent (GatorAgentBridge prefers it when present).
+        static readonly string[] SandboxOnlyComponents =
+        {
+            "Forge.Pet.TypedSpeechToText",
+            "Forge.Pet.MockEventSource",
         };
 
         const string ControllerType = "Forge.Pet.GatorController";
@@ -172,6 +185,7 @@ namespace Forge.Pet.Editor
             ok &= Run("BuildPrefab", () => summary.AppendLine("  prefab   : " + BuildPrefabInternal()));
             ok &= Run("BuildSandboxScene", () => summary.AppendLine("  scene    : " + BuildSandboxSceneInternal()));
             ok &= Run("BuildXRSandboxScene", () => summary.AppendLine("  xr scene : " + BuildXRSandboxSceneInternal()));
+            ok &= Run("BuildPetRuntime", () => summary.AppendLine("  runtime  : " + PetRuntimeSetup.Build()));
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             LastBuildSucceeded = ok;
@@ -481,8 +495,17 @@ namespace Forge.Pet.Editor
             // Mocks first so MockEventSource can be wired to the TextAsset.
             TextAsset introFlow = WriteIntroFlow();
 
-            GameObject srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SrcPrefabPath);
-            if (srcPrefab == null) throw new FileNotFoundException("Source prefab not found", SrcPrefabPath);
+            // Model source: the mouth-enabled Gator_Model.fbx when PR 26 is merged, else the untouched pack prefab.
+            string modelPath = CustomModelPath;
+            GameObject srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
+            bool customModel = srcPrefab != null;
+            if (!customModel)
+            {
+                modelPath = SrcPrefabPath;
+                srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
+                Debug.Log("[GatorSetup] " + CustomModelPath + " not found (PR 26 not merged?): building from the pack prefab; the mouth won't move.");
+            }
+            if (srcPrefab == null) throw new FileNotFoundException("Source model not found", modelPath);
             Material gatorMat = AssetDatabase.LoadAssetAtPath<Material>(GatorMaterialPath);
             if (gatorMat == null) { FixMaterialInternal(); gatorMat = AssetDatabase.LoadAssetAtPath<Material>(GatorMaterialPath); }
             var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(ControllerPath);
@@ -504,18 +527,22 @@ namespace Forge.Pet.Editor
                 model.transform.localRotation = Quaternion.identity;
                 model.transform.localScale = Vector3.one;
 
+                // Skin material -> M_Gator_URP. The custom model may carry extra slots (mouth cavity, tongue): keep those.
                 foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
                 {
                     Material[] mats = r.sharedMaterials;
                     if (mats.Length == 0) mats = new Material[1];
-                    for (int i = 0; i < mats.Length; i++) mats[i] = gatorMat;
+                    for (int i = 0; i < mats.Length; i++)
+                        if (!customModel || mats[i] == null || mats[i].name.IndexOf("Alligator", StringComparison.OrdinalIgnoreCase) >= 0 || mats[i].name.IndexOf("Gator", StringComparison.OrdinalIgnoreCase) >= 0)
+                            mats[i] = gatorMat;
                     r.sharedMaterials = mats;
                 }
 
-                // Animator lives on the model root ("GatorAssistant/Model"); Generic rig, no Avatar.
+                // Animator lives on the model root ("GatorAssistant/Model"); Generic rig, no Avatar. A bare FBX imported
+                // without one gets an Animator added here.
                 Animator animator = model.GetComponent<Animator>();
                 if (animator == null) animator = model.GetComponentInChildren<Animator>(true);
-                if (animator == null) throw new Exception("No Animator found on " + SrcPrefabPath);
+                if (animator == null) animator = model.AddComponent<Animator>();
                 animator.runtimeAnimatorController = controller;
                 animator.applyRootMotion = false;
                 animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
@@ -525,7 +552,7 @@ namespace Forge.Pet.Editor
 
                 // The pack's LOD thresholds (95/70/35/5 % of screen height) assume a 1.6 m gator. A 12 cm desk pet
                 // covers ~2 % of the screen from 3 m away, which culls every LOD -> invisible. Use desk-pet thresholds
-                // and effectively never cull (LOD3 is the far/tiny fallback).
+                // and effectively never cull (LOD3 is the far/tiny fallback). Gator_Model.fbx has no LODGroup (LOD0 only).
                 LODGroup lodGroup = model.GetComponentInChildren<LODGroup>(true);
                 if (lodGroup != null)
                 {
@@ -613,7 +640,8 @@ namespace Forge.Pet.Editor
                 GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out bool success);
                 if (!success || saved == null) throw new Exception("PrefabUtility.SaveAsPrefabAsset failed for " + PrefabPath);
 
-                msg = $"{PrefabPath} (native {nb.size.x:F3}×{nb.size.y:F3}×{nb.size.z:F3} m -> scale {scale:F3} -> " +
+                bool hasJaw = FindChildByName(model.transform, "jaw") != null;
+                msg = $"{PrefabPath} (model {modelPath}{(hasJaw ? ", jaw bone" : ", no jaw bone")}; native {nb.size.x:F3}×{nb.size.y:F3}×{nb.size.z:F3} m -> scale {scale:F3} -> " +
                       $"{width:F3} w × {height:F3} h × {length:F3} l m; agent r {agent.radius:F3}; components: {string.Join(", ", added)})";
             }
             finally
@@ -622,6 +650,17 @@ namespace Forge.Pet.Editor
             }
             Debug.Log("[GatorSetup] BuildPrefab: " + msg);
             return msg;
+        }
+
+        static Transform FindChildByName(Transform root, string childName)
+        {
+            if (root.name == childName) return root;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform hit = FindChildByName(root.GetChild(i), childName);
+                if (hit != null) return hit;
+            }
+            return null;
         }
 
         static bool TryGetRendererBounds(GameObject go, out Bounds bounds)
@@ -714,10 +753,11 @@ namespace Forge.Pet.Editor
             // Desk 1.2 × 0.75 × 0.75 m, top at y = 0.75. Kept out of `obstacles`: GatorSandboxNav adds it as a hole itself.
             GameObject desk = AddProp(env, PrimitiveType.Cube, "Desk", new Vector3(0f, 0f, 2f), new Vector3(1.2f, 0.75f, 0.75f), deskMat);
 
-            // ---- Gator ----
+            // ---- Gator (+ sandbox-only typed STT and mock agent) ----
             var gator = (GameObject)PrefabUtility.InstantiatePrefab(gatorPrefab, scene);
             gator.name = "GatorAssistant";
             gator.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            AddSandboxOnlyComponents(gator);
 
             // ---- Navigation: two GatorNavSurfaces built at runtime by GatorSandboxNav ----
             var navGo = new GameObject("Navigation");
@@ -852,11 +892,12 @@ namespace Forge.Pet.Editor
             locator.head = rig.transform.Find("TrackingSpace/CenterEyeAnchor");
             if (locator.head == null) Debug.LogWarning("[GatorSetup] TrackingSpace/CenterEyeAnchor not found on OVRCameraRig; DeskLocator falls back to Camera.main.");
 
-            // ---- Gator ----
+            // ---- Gator (+ sandbox-only typed STT and mock agent) ----
             var gator = (GameObject)PrefabUtility.InstantiatePrefab(gatorPrefab, scene);
             gator.name = "GatorAssistant";
             gator.transform.SetPositionAndRotation(new Vector3(0f, 0f, 1f), Quaternion.identity);
             PrefabUtility.RecordPrefabInstancePropertyModifications(gator.transform);
+            AddSandboxOnlyComponents(gator);
 
             // ---- DeskLocator.deskFound (UnityEvent<MRUKAnchor>) -> GatorMrukAdapter.OnDeskFound ----
             string wiring = WireDeskFound(locator, gator);
@@ -937,6 +978,13 @@ namespace Forge.Pet.Editor
         // ====================================================================================
         // Scene helpers
         // ====================================================================================
+
+        /// Sandbox scenes only: the typed text box (Space) and the scripted MockEventSource go on the scene instance of
+        /// the gator, never on the prefab, so Main (PetRuntime.prefab) can only ever talk to the live hub.
+        static void AddSandboxOnlyComponents(GameObject gatorInstance)
+        {
+            foreach (string typeName in SandboxOnlyComponents) AddComponentByName(gatorInstance, typeName);
+        }
 
         static GameObject LoadOrBuildGatorPrefab()
         {

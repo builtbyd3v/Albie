@@ -52,15 +52,27 @@ namespace Forge.Pet
         Transform root;          // the object we position/billboard and show/hide
         SpriteRenderer background;
         float hideAt = -1f;
-        bool built;
+        bool built, muted;
+
+        /// <summary>Muted: SetText shows nothing (crew gators while the code mode is closed). Bit is never muted.</summary>
+        public bool Muted
+        {
+            get => muted;
+            set
+            {
+                if (muted == value) return;
+                muted = value;
+                if (muted) Clear();
+            }
+        }
 
         void Awake() => EnsureBuilt();
 
-        /// <summary>Show text. partial = dimmed italic, never auto-hides (keeps being updated).</summary>
+        /// <summary>Show text. partial = dimmed italic, never auto-hides (keeps being updated). Ignored while Muted.</summary>
         public void SetText(string value, bool partial)
         {
             EnsureBuilt();
-            if (string.IsNullOrEmpty(value)) { Clear(); return; }
+            if (string.IsNullOrEmpty(value) || muted) { Clear(); return; }
 
             root.gameObject.SetActive(true);
             text.text = value;
