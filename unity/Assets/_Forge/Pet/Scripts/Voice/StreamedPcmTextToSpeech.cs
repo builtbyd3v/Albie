@@ -27,10 +27,12 @@ namespace Forge.Pet
     [DisallowMultipleComponent]
     public class StreamedPcmTextToSpeech : MonoBehaviour, ITextToSpeech, ITalkLevel
     {
+        const float MinRingSeconds = 120f;   // ~23 MB of floats at 48 kHz
+
         [SerializeField, Tooltip("Hub socket. Auto-found in parents / scene if empty (the bridge adds it at runtime).")]
         AgentClient client;
         [SerializeField, Tooltip("Ring buffer length (s). The hub can stream faster than real time, so keep a whole reply.")]
-        float ringSeconds = 30f;
+        float ringSeconds = 120f;
         [SerializeField, Tooltip("Audio buffered before playback starts (s): absorbs network jitter and the pitch-up drain.")]
         float prebufferSeconds = 0.2f;
         [SerializeField, Range(0.75f, 1.6f), Tooltip("Cartoon pitch: >1 = higher (and faster). Pair with GROK_VOICE_SPEED ≈ 1/pitch.")]
@@ -84,7 +86,9 @@ namespace Forge.Pet
         void Awake()
         {
             _outRate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
-            _cap = Mathf.Max(_outRate, Mathf.RoundToInt(_outRate * Mathf.Max(1f, ringSeconds)));
+            // Grok sends a whole answer in a burst (a 40 s answer in ~4 s), so the ring must hold the longest answer.
+            // Floor of MinRingSeconds also covers scenes that serialized the old 30 s default.
+            _cap = Mathf.Max(_outRate, Mathf.RoundToInt(_outRate * Mathf.Max(MinRingSeconds, ringSeconds)));
             _ring = new float[_cap];
             _prebuffer = Mathf.Max(1, Mathf.RoundToInt(_outRate * Mathf.Max(0f, prebufferSeconds)));
 
