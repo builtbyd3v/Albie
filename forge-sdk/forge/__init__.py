@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from forge import atlas, client, graph
+from forge import client
 
 OVERFIT_EPOCHS = 2
 
@@ -33,9 +33,12 @@ class _Run:
     dir: Path
     total_epochs: int = 0
     t0: float = field(default_factory=time.monotonic)
+    classes: list[str] = field(default_factory=list)
     prev: tuple[float, float] | None = None  # (train_loss, val_loss) of the last log
     rises: int = 0
     alerted: bool = False
+    best_epoch: int | None = None
+    best_val_acc: float | None = None
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
@@ -54,9 +57,8 @@ def _run_root(run_dir: str | os.PathLike | None) -> Path:
 
 
 def _start_run(total_epochs: int = 0, run_dir: str | os.PathLike | None = None) -> _Run:
-    """FORGE_RUN_ID (set by the hub's POST /ml/train) names the first run, so the hub knows it up front."""
     global _run
-    run_id = os.environ.pop("FORGE_RUN_ID", None) or uuid.uuid4().hex[:8]
+    run_id = uuid.uuid4().hex[:8]
     path = _run_root(run_dir) / run_id
     path.mkdir(parents=True, exist_ok=True)
     _run = _Run(run_id, path, total_epochs)
@@ -100,9 +102,12 @@ def watch(
     if run is None:
         return None
     run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
-    _attempt("classes", lambda: run.write_json("classes.json", [str(c) for c in classes]))
+    run.classes = [str(c) for c in classes]
+    _attempt("classes", lambda: run.write_json("classes.json", run.classes))
 
     def save_atlas() -> None:
+        from forge import atlas
+
         image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
         image.save(run.dir / "atlas.png")
         run.write_json("atlas.json", atlas_meta)
@@ -111,6 +116,8 @@ def watch(
     _attempt("dataset atlas", save_atlas)
 
     def save_graph() -> None:
+        from forge import graph
+
         example, _ = val_dataset[0]
         run.write_json("graph.json", graph.describe(model, example))
         run.emit("ml.graph_ready", {})
@@ -138,6 +145,8 @@ def log(
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": metrics["epoch"],
                                   "total_epochs": run.total_epochs})
         run.emit("ml.metrics", metrics)
+        if run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc:
+            run.best_epoch, run.best_val_acc = metrics["epoch"], metrics["val_acc"]
         _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
 
     _attempt("log", send)
@@ -161,17 +170,69 @@ def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) ->
                                       "reason": f"val loss rose {run.rises} epochs in a row while train loss fell"})
 
 
-def evaluate(model: Any, val_loader: Any) -> None:
-    """Send per-sample predictions and the confusion matrix, then end the run."""
+def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) -> None:
+    """Predict every val sample, write results.json / confusion.json / summary.json, then end the run.
+
+    `val_data` is the val DataLoader or Dataset. It is re-read in a fixed order (a shuffled loader is
+    fine), so results line up with the sample ids from `watch`. Eval mode and no_grad; the model's
+    training mode is restored afterwards.
+    """
 
     def finish() -> None:
+        from forge import evaluation
+
         run = _current()
         total = run.total_epochs
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "evaluating", "epoch": total, "total_epochs": total})
-        # TODO (A3): run model over val_loader -> results.json + confusion.json
+        ids, labels, probs = _predict_all(model, val_data)
+        names = [str(c) for c in classes] if classes else run.classes or [str(k) for k in range(probs.shape[1])]
+        results, confusion, summary = evaluation.classification(ids, labels, probs, names)
+        summary.update(best_epoch=run.best_epoch, best_val_acc=run.best_val_acc,
+                       val_loss=run.prev[1] if run.prev else None)
+        run.write_json("results.json", results)
+        run.write_json("confusion.json", confusion)
+        run.write_json("summary.json", summary)
         run.emit("ml.results_ready", {"run_id": run.run_id})
-        run.emit("ml.run_state", {"run_id": run.run_id, "status": "done", "epoch": total, "total_epochs": total})
 
     _attempt("evaluate", finish)
+    run = _run
+    if run is not None:
+        total = run.total_epochs
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "done", "epoch": total, "total_epochs": total})
     _end_run()
     client.poster.flush()
+
+
+def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:
+    """(ids, labels, [N, C] softmax probabilities) over the whole dataset, in dataset order."""
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+
+    if isinstance(val_data, DataLoader):
+        dataset, batch_size, collate = val_data.dataset, val_data.batch_size or 256, val_data.collate_fn
+    else:
+        dataset, batch_size, collate = val_data, 256, None
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=collate)
+    param = next(model.parameters(), None)
+    device = param.device if param is not None else torch.device("cpu")
+
+    was_training = model.training
+    model.eval()
+    labels, probs = [], []
+    try:
+        with torch.no_grad():
+            for batch in loader:
+                x, y = batch[0], batch[1]
+                out = model(x.to(device))
+                out = out[0] if isinstance(out, (tuple, list)) else out
+                probs.append(torch.softmax(out.float(), dim=1).cpu().numpy())
+                labels.extend(int(v) for v in (y.tolist() if hasattr(y, "tolist") else y))
+    finally:
+        model.train(was_training)
+    ids = getattr(dataset, "ids", None)
+    if ids is None:
+        from forge import atlas
+
+        ids = [atlas.sample_id(i) for i in range(len(labels))]
+    return list(ids), labels, np.concatenate(probs)

@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
 from events import EventBus
+from ml.router import router as ml_router
 
 HUB_DIR = Path(__file__).resolve().parent
 
@@ -46,6 +47,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app = FastAPI(title="Forge hub", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(cad_router)
+    app.include_router(ml_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
