@@ -527,8 +527,9 @@ public class Workspace : MonoBehaviour
             {
                 new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main),
                 new WorkspaceItem("ml-training", "Training", WorkspaceSlot.Above),
-                new WorkspaceItem("ml-dataset", "Dataset", WorkspaceSlot.FarLeft, WorkspaceItemKind.Volume),
-                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left, WorkspaceItemKind.Volume),
+                // Panels, like the ML prefabs (ML/Resources/MLPanels, all ForgePanel variants); ids per section 7.
+                new WorkspaceItem("ml-datastack", "Dataset", WorkspaceSlot.FarLeft),
+                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left),
                 new WorkspaceItem("ml-results", "Results", WorkspaceSlot.Right),
             },
         },
@@ -543,15 +544,11 @@ public class Workspace : MonoBehaviour
                 new WorkspaceItem("cad-timeline", "Versions", WorkspaceSlot.Left),
             },
         },
+        // The landing mode: just the editor. The pet opens it after the sit-down digest.
         new WorkspaceMode
         {
-            id = "screens", label = "SCR", color = ForgeTheme.Screens,
-            items =
-            {
-                new WorkspaceItem("screen-main", "Screen 1", WorkspaceSlot.Main),
-                new WorkspaceItem("screen-left", "Screen 2", WorkspaceSlot.Left),
-                new WorkspaceItem("screen-right", "Screen 3", WorkspaceSlot.Right),
-            },
+            id = "code", label = "CODE", color = ForgeTheme.Code,
+            items = { new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main) },
         },
         new WorkspaceMode
         {
