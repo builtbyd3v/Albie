@@ -199,6 +199,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6b02f17689afe4729b83f6a0ff834d80, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorController
+  idlePauseChance: 0.65
+  idlePauseSeconds: {x: 3, y: 9}
+  sitChance: 0.4
+  layChance: 0.3
+  sleepyChance: 0.5
+  pokesToRoll: 3
+  pokeWindowSeconds: 4
+  rollDistance: 0.35
+  rollSeconds: 0.45
+  dizzySeconds: 1.2
+  fallGravity: 9.81
+  stunSeconds: 2.5
+  reviveHopDelay: 0.5
   walkSpeed: 0.15993224
   runSpeed: 0.4797967
   angularSpeed: 240
@@ -265,12 +278,12 @@ MonoBehaviour:
     m_Name: XRSelect
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: 82ef825e-9cda-4364-8920-081fd089382d
+    m_Id: 2551cd88-fa02-4007-8840-4828ea88b45c
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings:
     - m_Name: 
-      m_Id: 10812f1f-1b51-4694-9f10-a511a74d413b
+      m_Id: 93df9087-1965-400e-898e-b2235e8949c4
       m_Path: <XRController>/{TriggerButton}
       m_Interactions: 
       m_Processors: 
@@ -340,7 +353,7 @@ MonoBehaviour:
     m_Name: PushToTalk
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: 759a93df-0f13-4c09-9002-7e9164b44ad4
+    m_Id: ee66a928-6fe2-4fc3-99ae-fa3ff3c1f5aa
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings: []

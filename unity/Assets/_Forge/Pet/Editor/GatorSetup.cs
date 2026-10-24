@@ -296,6 +296,10 @@ namespace Forge.Pet.Editor
             ctrl.AddParameter("IdleIndex", AnimatorControllerParameterType.Int);
             foreach (string t in OneShotTriggers) ctrl.AddParameter(t, AnimatorControllerParameterType.Trigger);
             ctrl.AddParameter("Sit", AnimatorControllerParameterType.Trigger);
+            ctrl.AddParameter("Lay", AnimatorControllerParameterType.Trigger);
+            ctrl.AddParameter("Roll", AnimatorControllerParameterType.Trigger);
+            ctrl.AddParameter("Death", AnimatorControllerParameterType.Trigger);
+            ctrl.AddParameter("Revive", AnimatorControllerParameterType.Trigger);   // stand up from Sit / Lay / Death
 
             AnimatorStateMachine sm = ctrl.layers[0].stateMachine;
             sm.entryPosition = new Vector3(0, 0, 0);
@@ -342,16 +346,46 @@ namespace Forge.Pet.Editor
                 ReturnToLocomotion(s, locomotion);
             }
 
-            // ---- Sit: loops until Speed > 0.1 (or any other trigger fires an AnyState transition) ----
-            AnimatorState sit = sm.AddState("Sit", new Vector3(300, 450, 0));
-            sit.motion = Clip(clips, "Sit");
-            AnyStateTrigger(sm, sit, "Sit");
-            AnimatorStateTransition sitExit = sit.AddTransition(locomotion);
-            sitExit.hasExitTime = false;
-            sitExit.exitTime = 0f;
-            sitExit.hasFixedDuration = true;
-            sitExit.duration = ReturnDuration;
-            sitExit.AddCondition(AnimatorConditionMode.Greater, 0.1f, "Speed");
+            // ---- Roll: one-shot like Jump (AnyState on "Roll", back to Locomotion at exit time 0.95) ----
+            AnimatorState roll = sm.AddState("Roll", new Vector3(300 + 220 * OneShotTriggers.Length, 300, 0));
+            roll.motion = Clip(clips, "Roll");
+            AnyStateTrigger(sm, roll, "Roll");
+            ReturnToLocomotion(roll, locomotion);
+
+            // ---- Sit / Lay: loop until Speed > 0.1 or "Revive". Every other trigger (Jump, Bounce, Clicked, Spin,
+            //      Fear, Sit/Lay, Roll, Death) leaves them through its AnyState transition (AnyState applies to all
+            //      states; canTransitionToSelf = false only blocks re-entering the same state). ----
+            string[] poses = { "Sit", "Lay" };
+            for (int i = 0; i < poses.Length; i++)
+            {
+                AnimatorState pose = sm.AddState(poses[i], new Vector3(300 + 250 * i, 450, 0));
+                pose.motion = HoldPoseClip(clips, poses[i]);   // non-looping copy: a pose, not a 0.42 s bounce
+                AnyStateTrigger(sm, pose, poses[i]);
+                AnimatorStateTransition walkOff = pose.AddTransition(locomotion);
+                walkOff.hasExitTime = false;
+                walkOff.exitTime = 0f;
+                walkOff.hasFixedDuration = true;
+                walkOff.duration = ReturnDuration;
+                walkOff.AddCondition(AnimatorConditionMode.Greater, 0.1f, "Speed");
+                AnimatorStateTransition standUp = pose.AddTransition(locomotion);
+                standUp.hasExitTime = false;
+                standUp.exitTime = 0f;
+                standUp.hasFixedDuration = true;
+                standUp.duration = ReturnDuration;
+                standUp.AddCondition(AnimatorConditionMode.If, 0f, "Revive");
+            }
+
+            // ---- Death: AnyState on "Death" (0.1 s); the clip doesn't loop and holds its last frame (on its back).
+            //      No exit-time return: only "Revive" leaves it (0.25 s). ----
+            AnimatorState death = sm.AddState("Death", new Vector3(800, 450, 0));
+            death.motion = HoldPoseClip(clips, "Death");   // belt and braces: holds the flopped-over last frame
+            AnyStateTrigger(sm, death, "Death");
+            AnimatorStateTransition revive = death.AddTransition(locomotion);
+            revive.hasExitTime = false;
+            revive.exitTime = 0f;
+            revive.hasFixedDuration = true;
+            revive.duration = 0.25f;
+            revive.AddCondition(AnimatorConditionMode.If, 0f, "Revive");
 
             EditorUtility.SetDirty(ctrl);
             AssetDatabase.SaveAssets();
@@ -377,6 +411,33 @@ namespace Forge.Pet.Editor
             if (clips.TryGetValue(name, out AnimationClip c)) return c;
             Debug.LogWarning($"[GatorSetup] Clip '{name}' not found in {SrcAnimFbxPath}; state will have no motion.");
             return null;
+        }
+
+        /// The pack imports every clip with Loop Time on, so Sit / Lay / Death would replay their 0.42 s motion
+        /// forever (a visible bounce). We don't edit the pack's import settings; instead keep a non-looping copy
+        /// of the clip in Animation/<name>_Hold.anim (regenerated on every build, GUID kept) that settles on its
+        /// last frame = the held pose.
+        static AnimationClip HoldPoseClip(Dictionary<string, AnimationClip> clips, string name)
+        {
+            AnimationClip src = Clip(clips, name);
+            if (src == null) return null;
+            string path = AnimationDir + "/" + name + "_Hold.anim";
+            AnimationClip copy = Object.Instantiate(src);
+            copy.name = name + "_Hold";
+            AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(copy);
+            settings.loopTime = false;
+            settings.loopBlend = false;
+            AnimationUtility.SetAnimationClipSettings(copy, settings);
+            AnimationClip existing = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            if (existing != null)
+            {
+                EditorUtility.CopySerialized(copy, existing);   // keep the GUID so the controller's reference survives
+                Object.DestroyImmediate(copy);
+                EditorUtility.SetDirty(existing);
+                return existing;
+            }
+            AssetDatabase.CreateAsset(copy, path);
+            return copy;
         }
 
         static void AnyStateTrigger(AnimatorStateMachine sm, AnimatorState target, string trigger)

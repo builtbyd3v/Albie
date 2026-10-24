@@ -48,7 +48,8 @@ namespace Forge.Pet
         /// <summary>Jump + parabolic arc to landing (agent disabled while airborne), then Warp + SetWanderArea(target).</summary>
         public void HopTo(GatorNavSurface target, Vector3 landing, Action onLanded = null)
         {
-            if (hopping || agent == null) return;
+            if (hopping || agent == null || AnticsBusy) return;
+            StandUp(false);                     // Jump leaves Sit/Lay by itself
             if (target != null && target.IsBuilt)
             {
                 // Snap the landing onto the target's NavMesh (small radius so we don't pick another surface).
@@ -83,6 +84,7 @@ namespace Forge.Pet
             if (desk == null || !desk.IsBuilt) { Debug.LogWarning("[GatorController] HopToUserDesk: no desk surface built.", this); return; }
             Transform head = PetUser.Head;
             Vector3 landing = head != null ? desk.ClosestPoint(head.position, deskEdgeInset) : desk.TopCenter;
+            landing = KeepOutSafePoint(desk, landing);     // never land on the laptop / DeskDock keep-out
 
             if (CurrentSurface == desk && OnMesh)
             {
@@ -170,7 +172,8 @@ namespace Forge.Pet
             {
                 Vector3 l = new Vector3((UnityEngine.Random.value - 0.5f) * size.x, 0f, (UnityEngine.Random.value - 0.5f) * size.y);
                 Vector3 p = s.TopCenter + s.Rotation * l;
-                if (NavMesh.SamplePosition(p, out NavMeshHit hit, 0.3f, f) && FlatDistance(hit.position) > minTrip)
+                if (NavMesh.SamplePosition(p, out NavMeshHit hit, 0.3f, f) && FlatDistance(hit.position) > minTrip
+                    && !s.IsInsideHole(hit.position, out _))      // the snap radius can land on a hole's edge
                 {
                     point = hit.position;
                     return true;
@@ -193,9 +196,9 @@ namespace Forge.Pet
             return s.TopCenter + s.Rotation * (l * k);
         }
 
-        // Where "in front of the user" is: desk edge nearest the head on the desk, else frontDistance ahead.
+        // Where "in front of the user" is: desk edge nearest the head on the desk (beside the keep-out), else frontDistance ahead.
         Vector3 UserGoal(Transform head) =>
-            OnDesk ? CurrentSurface.ClosestPoint(head.position, deskEdgeInset)
+            OnDesk ? KeepOutSafePoint(CurrentSurface, CurrentSurface.ClosestPoint(head.position, deskEdgeInset))
                    : Ground(head.position) + FlatForward(head) * frontDistance;
 
         // Adopt the registered surface under the gator if nobody called SetWanderArea (throttled, no allocations).

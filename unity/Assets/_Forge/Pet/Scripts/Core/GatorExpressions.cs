@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>Facial mood presets built from the gator's eye/tear blendshapes.</summary>
-    public enum Mood { Neutral, Happy, Attentive, Squint, Sad, Excited, Dizzy }
+    public enum Mood { Neutral, Happy, Attentive, Squint, Sad, Excited, Dizzy, Sleepy }
 
     /// <summary>
     /// Drives blendshapes on every SkinnedMeshRenderer under this root (all LODs) with smooth fades,
@@ -37,6 +37,7 @@ namespace Forge.Pet
         static readonly ShapeWeight[] SadPreset = { new ShapeWeight("eyes.sad", 1f), new ShapeWeight("teardrop-1.L", 0.35f), new ShapeWeight("teardrop-1.R", 0.35f) };
         static readonly ShapeWeight[] ExcitedPreset = { new ShapeWeight("eyes.excited-2", 1f) };
         static readonly ShapeWeight[] DizzyPreset = { new ShapeWeight("eyes.spin-1", 1f) };
+        static readonly ShapeWeight[] SleepyPreset = { new ShapeWeight("eyes.sleep", 1f) };
         static readonly ShapeWeight[] NeutralPreset = new ShapeWeight[0];
 
         public bool AutoBlink { get => autoBlink; set { autoBlink = value; ScheduleBlink(); } }
@@ -149,6 +150,7 @@ namespace Forge.Pet
                 case Mood.Sad: return SadPreset;
                 case Mood.Excited: return ExcitedPreset;
                 case Mood.Dizzy: return DizzyPreset;
+                case Mood.Sleepy: return SleepyPreset;
                 default: return NeutralPreset;
             }
         }
