@@ -299,7 +299,7 @@ namespace Forge.ML
         }
         void OnDestroy()
         {
-            if (session != null) { session.SamplesChanged -= Refresh; session.PairSelected -= FilterPair; }
+            if (session != null) { session.SamplesChanged -= Refresh; session.PairSelected -= FilterPair; session.Reloaded -= OnReloaded; }
             if (dotMaterial != null) Destroy(dotMaterial);
         }
     }

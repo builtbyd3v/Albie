@@ -142,6 +142,6 @@ namespace Forge.ML
 #endif
         }
         void LateUpdate() => UpdateReturnInput();
-        void OnDestroy() { if (session != null) session.SamplesChanged -= Refresh; if (material != null) Destroy(material); }
+        void OnDestroy() { if (session != null) { session.SamplesChanged -= Refresh; session.Reloaded -= OnReloaded; } if (material != null) Destroy(material); }
     }
 }

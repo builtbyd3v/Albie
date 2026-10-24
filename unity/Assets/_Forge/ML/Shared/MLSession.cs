@@ -422,11 +422,26 @@ namespace Forge.ML
             atlasMetadata = meta; atlasCells = cells; timeline = null; HubData = true;
             if (results != null) { Done = true; RunStatus = "done"; }
             Debug.Log($"[ML] Loaded {samples.Length} samples from the hub" + (runId != null ? $", results of run {runId}" : ", no results yet"));
-            Reloaded?.Invoke();
+            Raise(Reloaded);
             if (history?.class_acc != null)
-                foreach (var classAccuracy in history.class_acc) ApplyClassAccuracy(classAccuracy);
-            if (history?.probe != null) ProbeUpdated?.Invoke(history.probe);
-            SamplesChanged?.Invoke(); Changed?.Invoke();
+                foreach (var classAccuracy in history.class_acc)
+                    try { ApplyClassAccuracy(classAccuracy); } catch (Exception e) { Debug.LogException(e); }
+            if (history?.probe != null) Raise(ProbeUpdated, history.probe);
+            Raise(SamplesChanged); Raise(Changed);
+        }
+        // A hub load must reach every panel even if one handler throws. ponytail: GetInvocationList allocates, so
+        // only for this one-off load, not the per-frame events.
+        static void Raise(Action handlers)
+        {
+            if (handlers == null) return;
+            foreach (Action handler in handlers.GetInvocationList())
+                try { handler(); } catch (Exception e) { Debug.LogException(e); }
+        }
+        static void Raise<T>(Action<T> handlers, T value)
+        {
+            if (handlers == null) return;
+            foreach (Action<T> handler in handlers.GetInvocationList())
+                try { handler(value); } catch (Exception e) { Debug.LogException(e); }
         }
         void OnLiveMetrics(global::MlMetrics tick)
         {
