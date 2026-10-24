@@ -1,10 +1,12 @@
 """Live check of Bit's Slack connection, no hub needed. Run from hub/ with the tokens in hub/.env:
 
-    .venv/bin/python scripts/slack_smoke.py                       # connect, print every message Bit sees (Ctrl-C to stop)
-    .venv/bin/python scripts/slack_smoke.py --send "#forge-team" "hello from Bit"
-    .venv/bin/python scripts/slack_smoke.py --digest              # what Bit would say on sit-down right now
+    .venv/bin/python scripts/slack_smoke.py                        # --listen: print every message in the inbox (Ctrl-C to stop)
+    .venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hello"   # write a draft only (notify.draft), post nothing
+    .venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hello"   # DEV SHORTCUT: draft + send at once, no confirmation
+    .venv/bin/python scripts/slack_smoke.py --digest               # what Bit would say on sit-down right now
 
-Then DM the bot or post in a channel it was invited to and watch the notify.message lines appear.
+With SLACK_USER_TOKEN set, messages post under your name and the inbox is yours; without it Bit posts as itself and
+only sees channels it was invited to. The real product path is draft -> Send button / "send it"; --send skips that.
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ from messaging import MessageStore, SlackService, SlackSettings  # noqa: E402
 class PrintBus:
     async def publish(self, type_: str, payload: Any) -> None:
         body = payload.model_dump() if hasattr(payload, "model_dump") else payload
-        print(f"{type_:16} {body}", flush=True)
+        print(f"{type_:22} {body}", flush=True)
 
 
 async def speak(pet_id: str, text: str) -> bool:
@@ -37,8 +39,11 @@ async def speak(pet_id: str, text: str) -> bool:
 
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--send", nargs=2, metavar=("CHANNEL", "TEXT"), help="post TEXT to CHANNEL (#name or id) and exit")
-    ap.add_argument("--digest", action="store_true", help="print the sit-down digest and exit")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--listen", action="store_true", help="print every inbox message as it arrives (default)")
+    mode.add_argument("--draft", nargs=2, metavar=("CHANNEL", "TEXT"), help="create a draft for CHANNEL (#name or id); posts nothing")
+    mode.add_argument("--send", nargs=2, metavar=("CHANNEL", "TEXT"), help="dev shortcut: draft TEXT and send it immediately")
+    mode.add_argument("--digest", action="store_true", help="print the sit-down digest and exit")
     ap.add_argument("--data", default=str(HUB / ".data" / "messages"), help="where last_seen_ts lives")
     args = ap.parse_args()
 
@@ -59,16 +64,22 @@ async def main() -> int:
         if not svc.connected:
             print("not connected after 20 s; check the tokens and the log above")
             return 1
-        print(f"connected as bot {svc.bot_user_id}; user id for mentions: {settings.user_id or '(SLACK_USER_ID unset)'}")
-        if args.send:
-            ts = await svc.send(args.send[0], args.send[1])
-            print(f"posted, ts={ts}")
+        who = f"YOU ({svc.user_name}, {svc.user_id})" if svc.as_user else "Bit (no SLACK_USER_TOKEN in hub/.env)"
+        print(f"connected; bot {svc.bot_user_id}; posting as {who}; mentions of {svc.user_id or '(unknown user id)'}")
+        if args.draft or args.send:
+            channel, text = args.draft or args.send
+            draft = await svc.create_draft(text, channel)
+            if args.draft:
+                print(f"draft {draft.draft_id} open for #{draft.channel_name}; nothing posted (expires in {svc.draft_expiry_s:.0f}s)")
+                return 0
+            _, ts = await svc.send_draft(draft.draft_id)
+            print(f"posted as {'you' if svc.as_user else 'Bit'}, ts={ts}")
             return 0
         if args.digest:
             d = await svc.digest()
             print(d.model_dump())
             return 0
-        print("listening; DM the bot or post in a channel it is in. Ctrl-C to stop.")
+        print("listening; message yourself from another account, or DM Bit. Ctrl-C to stop.")
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         pass
