@@ -1,0 +1,104 @@
+{
+  "part": "quadcopter",
+  "title": "Quadcopter",
+  "description": "FPV drone: carbon plates and arms, motors, props, battery. The props have to clear each other.",
+  "version": 5,
+  "params": [
+    {
+      "name": "arm_count",
+      "value": 4,
+      "min": 4,
+      "max": 8,
+      "unit": "",
+      "step": 2,
+      "options": null,
+      "label": "Arms"
+    },
+    {
+      "name": "arm_length",
+      "value": 110.0,
+      "min": 60,
+      "max": 220,
+      "unit": "mm",
+      "step": 5,
+      "options": null,
+      "label": "Arm length"
+    },
+    {
+      "name": "prop_diameter",
+      "value": 5.0,
+      "min": 2,
+      "max": 10,
+      "unit": "in",
+      "step": 0.5,
+      "options": null,
+      "label": "Prop diameter"
+    },
+    {
+      "name": "motor_size",
+      "value": 28.0,
+      "min": 14,
+      "max": 40,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Motor diameter"
+    },
+    {
+      "name": "plate_size",
+      "value": 70.0,
+      "min": 40,
+      "max": 140,
+      "unit": "mm",
+      "step": 5,
+      "options": null,
+      "label": "Plate size"
+    },
+    {
+      "name": "battery_mah",
+      "value": 1300,
+      "min": 450,
+      "max": 3000,
+      "unit": "mAh",
+      "step": 50,
+      "options": null,
+      "label": "Battery"
+    }
+  ],
+  "presets": [
+    {
+      "name": "7-inch props",
+      "params": {
+        "prop_diameter": 7.0
+      }
+    },
+    {
+      "name": "Long range 7-inch",
+      "params": {
+        "prop_diameter": 7.0,
+        "arm_length": 160,
+        "motor_size": 32,
+        "battery_mah": 2200
+      }
+    },
+    {
+      "name": "Hexacopter",
+      "params": {
+        "arm_count": 6,
+        "arm_length": 150,
+        "plate_size": 90
+      }
+    },
+    {
+      "name": "3-inch micro",
+      "params": {
+        "prop_diameter": 3.0,
+        "arm_length": 65,
+        "motor_size": 16,
+        "plate_size": 45,
+        "battery_mah": 650
+      }
+    }
+  ],
+  "features": []
+}

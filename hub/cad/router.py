@@ -1,5 +1,6 @@
 """CAD REST endpoints (PROJECT_CONTEXT section 7, plus the CAD_PLAN section 5 proposals).
 
+Everything acts on the open design (`POST /cad/part` switches it; `GET /cad/parts` lists the library).
 Omit `v` to get the current version (not cached); pass `v` for an immutable, cacheable file.
 """
 from __future__ import annotations
@@ -8,12 +9,21 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from cad.part_api import ParamError
 from cad.service import CadService, RegenError, VersionRecord
 from events import CadView
 
 router = APIRouter(prefix="/cad", tags=["cad"])
+
+
+class OpenPart(BaseModel):
+    part: str
+
+
+class ApplyPreset(BaseModel):
+    name: str
 
 
 def service(request: Request) -> CadService:
@@ -39,19 +49,54 @@ def regen_error(e: RegenError) -> HTTPException:
 
 
 def summary(r: VersionRecord) -> dict[str, Any]:
-    return {"version": r.version, "clamped": r.clamped, "analysis": r.analysis}
+    return {"part": r.part, "version": r.version, "clamped": r.clamped, "analysis": r.analysis}
+
+
+def preset_list(presets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """PRESETS as an ordered list (JSON clients find a list easier than an object keyed by name)."""
+    return [{"name": name, "params": params} for name, params in presets.items()]
+
+
+@router.get("/parts")
+def parts(cad: CadService = Depends(service)):
+    """The design library: every part script in hub/cad/parts, and which one is open."""
+    return {"active": cad.active,
+            "parts": [{**info, "presets": preset_list(info["presets"])} for info in cad.part_infos()]}
+
+
+@router.post("/part")
+async def open_part(body: OpenPart, cad: CadService = Depends(service)):
+    try:
+        return summary(await cad.open_part(body.part))
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from None
+    except RegenError as e:
+        raise regen_error(e) from None
 
 
 @router.get("/params")
-def get_params(cad: CadService = Depends(service)):
-    r = cad.current
-    return {"part": r.part, "version": r.version, "params": r.param_schema}
+def get_params(v: int | None = None, cad: CadService = Depends(service)):
+    r = record(cad, v)
+    return {"part": r.part, "title": r.title, "description": r.description, "version": r.version,
+            "params": r.param_schema, "presets": preset_list(r.presets), "features": r.features}
 
 
 @router.post("/params")
 async def post_params(changes: dict[str, Any] = Body(...), cad: CadService = Depends(service)):
     try:
         return summary(await cad.set_params(changes))
+    except ParamError as e:
+        raise HTTPException(422, str(e)) from None
+    except RegenError as e:
+        raise regen_error(e) from None
+
+
+@router.post("/preset")
+async def apply_preset(body: ApplyPreset, cad: CadService = Depends(service)):
+    try:
+        return summary(await cad.apply_preset(body.name))
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from None
     except ParamError as e:
         raise HTTPException(422, str(e)) from None
     except RegenError as e:
@@ -103,7 +148,7 @@ async def model_stl(v: int | None = None, cad: CadService = Depends(service)):
 
 @router.get("/flight")
 async def flight(v: int | None = None, cad: CadService = Depends(service)):
-    """Simulated launch to apogee on an Estes C6: apogee, speeds, and a trajectory for the room arc."""
+    """Simulated launch to apogee on an Estes C6 (rocket designs): apogee, speeds, and a trajectory for the room arc."""
     r = record(cad, v)
     try:
         return {"version": r.version, **await cad.flight(r.version)}
@@ -115,7 +160,8 @@ async def flight(v: int | None = None, cad: CadService = Depends(service)):
 
 @router.get("/versions")
 def versions(cad: CadService = Depends(service)):
-    return [{"version": r.version, "parent": r.parent, "source": r.source, "created_at": r.created_at,
+    """The open design's versions."""
+    return [{"version": r.version, "part": r.part, "parent": r.parent, "source": r.source, "created_at": r.created_at,
              "head": r.version == cad.head, "params": r.params,
              "margin_cal": r.analysis.get("margin_cal"), "stability": r.analysis.get("stability")}
             for r in cad.versions()]
