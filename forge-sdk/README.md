@@ -27,6 +27,26 @@ cd hub && uvicorn ml.dev_server:app --port 8000     # /ml routes + the real /ws 
 - `forge.log` sends `ml.run_state` + `ml.metrics` and fires `ml.overfit_alert` when val loss rises 2 epochs in a row while train loss falls (once; re-arms if val loss improves).
 - Replay a run: `python -m forge.replay <run dir> --speed 4 [--max-gap 2] [--print]` (or `forge replay ...`).
 
+## Extra charts (A7)
+
+The classifier can pick up to 3 charts that matter for one particular project (`profile.extra_viz`). Setup
+writes them to `<repo>/.forge/extra_viz.py`; `forge.evaluate` runs the file after evaluation, in the repo's
+own Python, before `ml.results_ready`:
+
+```python
+def viz_class_balance(ctx):          # named viz_<viz_id>, one per profile entry
+    fig, ax = plt.subplots()         # a figure is saved as runs/<id>/viz/class_balance.png
+    ax.bar(ctx.classes, counts)
+    return fig
+
+def viz_residual_hist(ctx):
+    return {"kind": "bar", "title": "Residuals", "x": [...], "series": [{"name": "n", "y": [...]}]}
+```                                   # a dict is a VizCard (ML_PLAN 7.6) in runs/<id>/viz.json
+
+`ctx` carries `model`, `adapter`, `classes`, `samples`, `ids`, `labels`, `probs`, `results`, `summary`,
+`run_dir` and `predicted()`. Only the profile's ids run; a broken file or chart is one warning line, never
+a failed run. `python -m forge.check <repo>` checks the file imports and has every picked function.
+
 ## ML mocks for Unity (`unity/Assets/_Forge/Mocks/ml/`)
 
 Regenerate with `python forge-sdk/tools/make_ml_mocks.py` (deterministic, stable GUIDs). Validated by `tests/test_mocks.py`.
@@ -55,6 +75,8 @@ Each `forge.watch(...)` starts a run and writes to `<run_dir>/<run_id>/` (`run_d
 | `dataset.json` | `GET /ml/dataset` (hub adds `thumb_url`) |
 | `classes.json` | `GET /ml/classes` |
 | `run.json` | run id, total epochs, sample count |
+| `viz/<viz_id>.png` | `GET /ml/viz` image cards (extra charts, ML_PLAN A7) |
+| `viz.json` | `GET /ml/viz` dict cards (extra charts, ML_PLAN A7) |
 
 Thumbnails are taken from the dataset **before** its `transform`, so `Normalize` doesn't wreck the colors.
 Layers must be modules (`nn.ReLU()`, not `F.relu`) to show up in the graph.

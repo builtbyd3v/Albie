@@ -162,6 +162,23 @@ def test_viz_png_extras_become_image_cards(client, image_repo):
     assert client.get("/ml/viz/..%2F..%2Fsecrets/x.png").status_code == 404
 
 
+def test_viz_dict_extras_merge_into_the_cards(client, image_repo):
+    """A7: `.forge/extra_viz.py` dicts land in the run's viz.json and are served, validated, next to built-ins."""
+    run = image_repo / ".forge" / "runs" / "mock0001"
+    (run / "viz.json").write_text(json.dumps([
+        {"viz_id": "class_balance", "title": "Class balance", "kind": "bar", "x": ["cat", "dog"],
+         "series": [{"name": "n", "y": [7, 3]}]},
+        {"viz_id": "per_class_accuracy", "title": "Duplicate", "kind": "text", "text": "ignored"},
+        {"viz_id": "ghost", "title": "No file", "kind": "image", "png_url": "/ml/viz/mock0001/ghost.png"},
+        {"viz_id": "bad", "title": "no kind"},
+    ]))
+    by_id = {c["viz_id"]: c for c in client.get("/ml/viz").json()}
+    assert by_id["class_balance"]["kind"] == "bar" and by_id["class_balance"]["panel"] == "ml-viz"
+    assert by_id["class_balance"]["run_id"] == "mock0001"
+    assert by_id["per_class_accuracy"]["title"] != "Duplicate"  # the built-in card wins, no duplicates
+    assert "ghost" not in by_id and "bad" not in by_id  # no file behind the image / invalid card
+
+
 def test_viz_cards_for_regression(tmp_path):
     make_mocks.regression(tmp_path / "reg")
     with TestClient(make_app(tmp_path / "reg")) as c:

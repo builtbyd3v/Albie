@@ -60,6 +60,9 @@
 **2026-10-24, Adrian (Main wiring, branch `feat/main-wiring`):**
 - **Done: Main slots every module.** `Forge > Build Main Scene` now puts the pet in the room (`Pet/Prefabs/PetRuntime.prefab`), the Messages panel in MSG mode (`Messages/Resources/MessagesPanel.prefab`) and the ML panels in ML mode (`ML/Resources/MLPanels/*`, all ForgePanel variants, so `ml-datastack` and `ml-model3d` are panels now, not volumes), next to the CAD and Screens prefabs; a missing prefab is a warning and a placeholder. The SCR mode became **CODE** (just the `screen-main` VS Code panel): the landing mode the pet opens after the sit-down digest. For modules: `Workspace.Current`, `Workspace.TryGetItemTransform(itemId, out t)` (an open panel or volume by item id).
 
+**2026-10-24, ML (A7, branch `satyabrata_dev_main`):**
+- **Done: A7, project-specific extra charts.** The classifier's `profile.extra_viz` picks up to 3 charts for *that* repo. Setup now also asks the adapter LLM for `.forge/extra_viz.py` (`viz_<viz_id>(ctx)`); `forge.check` fails the round if the file doesn't import or a picked function is missing. `forge.evaluate` runs the file after evaluation and before `ml.results_ready`: a matplotlib figure becomes `runs/<id>/viz/<id>.png`, a dict becomes a VizCard in `runs/<id>/viz.json`. `GET /ml/viz` merges both with the built-in cards (dicts validated against `models.VizCard`). CIFAR-10 has a hand-written `.forge/extra_viz.py` (accuracy on the flipped labels, confidence split) as the worked example, so the feature demos without an LLM key.
+
 ---
 
 ## 1. The pitch

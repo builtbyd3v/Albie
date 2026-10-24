@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .archetypes import ARCHETYPES, layout
+from .models import VizCard
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -263,6 +264,36 @@ class MLService:
                 cards.append({"viz_id": png.stem, "run_id": run_id, "panel": "ml-viz", "kind": "image",
                               "title": png.stem.replace("_", " ").capitalize(), "png_url": f"/ml/viz/{run_id}/{png.stem}.png",
                               "alt": png.stem.replace("_", " ")})
+        cards += self._extra_cards(run, run_id, {c["viz_id"] for c in cards})
+        return cards
+
+    def _extra_cards(self, run: Path, run_id: str, seen: set[str]) -> list[dict]:
+        """Charts from `.forge/extra_viz.py` (ML_PLAN A7), written to the run's viz.json. Figures are already
+        picked up as PNG cards above; here only dict VizCards are merged, validated against models.VizCard."""
+        path = run / "viz.json"
+        if not path.exists():
+            return []
+        try:
+            raw = _read_json(path)
+        except (OSError, ValueError):
+            return []
+        cards = []
+        for item in raw if isinstance(raw, list) else []:
+            try:
+                card = VizCard.model_validate(item).model_dump(exclude_none=True)
+                card["run_id"] = run_id
+                card["panel"] = card.get("panel") or "ml-viz"
+                if card["kind"] == "image":
+                    png = run / "viz" / f"{safe_id(card['viz_id'], 'viz id')}.png"
+                    if not png.exists():
+                        continue  # an image card with no file behind it would draw empty
+                    card["png_url"] = f"/ml/viz/{run_id}/{card['viz_id']}.png"
+            except Exception:  # noqa: BLE001 - one bad extra card never breaks /ml/viz
+                continue
+            if card["viz_id"] in seen:
+                continue
+            seen.add(card["viz_id"])
+            cards.append(card)
         return cards
 
     def viz_png(self, run_id: str, viz_id: str) -> Path:

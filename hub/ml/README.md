@@ -17,6 +17,7 @@ pytest ml/tests
 | `GET /ml/files/atlas.png`, `/ml/image/{id}` | full-size image if the dataset runner saved one, else the atlas cell |
 | `GET /ml/sample/{id}` | detail card: metadata + latest prediction |
 | `GET /ml/runs`, `/ml/results/{run}`, `/ml/confusion/{run}`, `/ml/summary/{run}` | results reflect relabel/remove (`relabeled`, `removed`, recomputed `correct`) |
+| `GET /ml/viz?run_id=` | chart cards: the archetype's built-ins plus `.forge/extra_viz.py` output (PNG or VizCard, A7) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running. A script without forge calls still gets live curves (log tail, below) |
 | `POST /ml/samples/{id}/relabel {label_idx}`, `/remove` | write `.forge/labels_override.json`, broadcast `ml.sample_updated` |
 | `POST /ml/ingest {run_id, events}` | forge SDK → `/ws`, `ml.*` only |
@@ -25,6 +26,8 @@ pytest ml/tests
 **Mounted in `hub/main.py`:** `app.include_router(ml_router)`; it uses `app.state.bus` and creates its service on first use (`app.state.ml`).
 
 **Log tail (A6, `logtail.py`):** for a training script that doesn't call forge (the user picked Skip). While `POST /ml/train`'s process runs, the hub reads the repo's own logs every 2 s and sends them as `ml.run_state` / `ml.metrics` / `ml.overfit_alert`, then `done` when it exits; after Skip it keeps following, and each new log file is a new run. Reads HF `trainer_state.json`, Lightning `metrics.csv` and TensorBoard `events.out.tfevents.*` (own decoder, no tensorboard package). Tailed runs are saved to `.forge/runs/<id>/events.jsonl` (`run.json` has `source: logtail`), so replay and `/ml/metrics` work. If the forge SDK writes the run's `run.json`, the tail stands down.
+
+**Extra charts (A7, `forge/viz.py`):** the classifier picks up to 3 project-specific charts in `profile.extra_viz`; setup asks the adapter LLM for `.forge/extra_viz.py` with one `viz_<viz_id>(ctx)` function per pick (`ctx`: model, adapter, classes, samples, ids, labels, probs, results, summary), and `forge.check` fails the round if one is missing or the file doesn't import. `forge.evaluate` runs them after evaluation and before `ml.results_ready`: a returned matplotlib figure becomes `runs/<id>/viz/<id>.png`, a returned dict becomes a VizCard in `runs/<id>/viz.json`. `GET /ml/viz` serves both next to the built-in cards (the dicts are validated against `models.VizCard`; PNGs were already picked up). CIFAR-10's hand-written `.forge/extra_viz.py` is the worked example.
 
 ## Open any ML repo (A5, ML_PLAN 6)
 
