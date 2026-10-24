@@ -44,7 +44,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]
         float minSpeechSeconds = 0.25f;
         [SerializeField, Tooltip("After the mic stops, the hub's stt.final must arrive within this many seconds; otherwise the turn counts as empty (so he never hangs in Listening).")]
-        float finalTimeout = 6f;
+        float finalTimeout = 10f;   // 6 dropped turns whose transcript came late over the phone hotspot (live 19:31)
 
         ISpeechToText _stt;
         bool _warnedNoStt;

@@ -141,7 +141,9 @@ STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "pl
                                                                 "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
-WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
+WAKE_FINAL_TIMEOUT_S = 8.0  # a wake turn with no transcription.completed by then is decided on the last partial
+# (5 s decided on partials over the phone hotspot, live 19:29-19:30; Unity's PushToTalk finalTimeout is 10 s)
+GROK_PING_TIMEOUT_S = 60.0  # the hotspot delayed keepalive pongs past websockets' 20 s default: 4 drops in 11 min
 
 
 def provider() -> str:
@@ -305,6 +307,7 @@ class GrokVoiceSession(_Base):
         self._commits: deque[_Commit] = deque()  # sent input_audio_buffer.commit, waiting for .committed (in order)
         self._by_item: dict[str, _Commit] = {}  # committed, waiting for the transcript
         self._timed_out_seq = -1  # the turn _wake_timeout decided without a transcript
+        self._timed_out_answered = False  # ...and answered it on the partial: its late transcript must not answer again
         self._wake_answered = False  # the last wake turn was routed to a reply (for the turn log)
         # current response
         self._utt: str | None = None
@@ -450,6 +453,7 @@ class GrokVoiceSession(_Base):
             self._timed_out_seq = seq
             log.info("wake turn: no transcript %.0f s after commit, deciding on %r", WAKE_FINAL_TIMEOUT_S, self._partial)
             await self._final()
+            self._timed_out_answered = self._wake_answered
 
     async def _late_transcript(self, c: _Commit, text: str) -> None:
         """A wake turn's transcript after its turn was superseded or timed out: route it now with its own flags."""
@@ -566,6 +570,8 @@ class GrokVoiceSession(_Base):
         elif t == "conversation.item.input_audio_transcription.completed":
             c = self._by_item.pop(msg.get("item_id") or "", None)
             if c is not None and (c.seq != self._turn_seq or (self._final_sent and c.seq == self._timed_out_seq)):
+                if c.seq == self._timed_out_seq and self._timed_out_answered:
+                    return  # answered on its partial already (live 19:29: "...new room" answered twice)
                 if c.wake:  # an earlier segment's words: never this turn's, and not lost either
                     await self._late_transcript(c, msg.get("transcript") or "")
                 return
@@ -860,7 +866,7 @@ async def _ws_connect(url: str, api_key: str) -> Any:
     from websockets.asyncio.client import connect  # only needed with VOICE_PROVIDER=grok
 
     return await connect(url, additional_headers={"Authorization": f"Bearer {api_key}"},
-                         max_size=None, open_timeout=10)
+                         max_size=None, open_timeout=10, ping_timeout=GROK_PING_TIMEOUT_S)
 
 
 def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, send_bytes: SendBytes,

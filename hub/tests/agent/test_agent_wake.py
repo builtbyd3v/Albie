@@ -125,7 +125,14 @@ def _facing_final(text: str, facing: bool, said_to_albie: bool = True, gated: bo
     return asyncio.run(go()), r
 
 
-def test_router_facing_without_name_goes_to_the_lead_when_judged_for_him() -> None:
+def test_router_facing_without_name_is_dropped_by_default() -> None:
+    """Dev's rule: name only. At the desk Albie sits in front of the screen, so a look can't tell them apart."""
+    d, r = _facing_final("Open the ML panel.", facing=True)
+    assert d.pet_id is None and not d.respond and r.events == []
+
+
+def test_router_facing_without_name_goes_to_the_lead_with_voice_facing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("agent.wake.FACING_COUNTS", True)
     d, r = _facing_final("Open the ML panel.", facing=True)
     assert d.pet_id == "bit" and d.respond and d.rest == "Open the ML panel."
     assert [(e.type, e.payload.get("mode") or e.payload.get("text")) for e in r.events] == \
@@ -175,7 +182,8 @@ def test_router_facing_empty_turn_is_dropped() -> None:  # a "stop" turn reaches
     assert d.pet_id is None and not d.respond and r.events == [] and r.owner == []
 
 
-def test_router_facing_is_per_turn() -> None:
+def test_router_facing_is_per_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("agent.wake.FACING_COUNTS", True)
     r = Recorder()
     router = r.router()
     router.begin(None, facing=True)
@@ -351,6 +359,33 @@ def test_back_to_back_segments_keep_their_own_transcripts(monkeypatch: pytest.Mo
         await _settle()
         await asyncio.sleep(0.1)  # segment 1's timer has run out: it must not end anything now
         assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_2"}  # segment 2: room chatter
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_a_turn_answered_on_its_partial_is_not_answered_again_by_its_late_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 19:29: 'I need to do a new room.' answered on the timeout, then 'I need to do a new room scale' again."""
+    import agent.voice as voice_mod
+
+    monkeypatch.setattr(voice_mod, "WAKE_FINAL_TIMEOUT_S", 0.05)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        s.wake_router = Recorder().router()
+        T = "conversation.item.input_audio_transcription"
+        await s.begin_turn(wake=True)
+        await s.feed(b"\x00\x00" * 3200)
+        grok.push(type=f"{T}.updated", transcript="Albie, I need to do a new room")
+        await _settle()
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        await asyncio.sleep(0.1)  # no .completed in time: decided (and answered) on the partial
+        assert grok.types().count("response.create") == 1
+        grok.push(type=f"{T}.completed", item_id="item_1", transcript="Albie, I need to do a new room scale, I think.")
+        await _settle()
+        assert grok.types().count("response.create") == 1
         await s.close()
 
     asyncio.run(run())

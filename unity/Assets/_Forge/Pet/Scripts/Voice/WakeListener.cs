@@ -62,7 +62,8 @@ namespace Forge.Pet
 
         AgentClient _client;
         ITextToSpeech _tts;
-        bool _ttsTalking, _subscribed;
+        bool _ttsTalking, _subscribed, _pauseLogged;
+        float _pausedSince = -1f;
 
         AudioClip _clip;
         int _clipSamples, _readPos, _chunkIn, _channels;
@@ -134,8 +135,18 @@ namespace Forge.Pet
             if (!want)
             {
                 if (_clip != null) { AbortSegment(); StopMic(); }
+                if (_pausedSince < 0f) _pausedSince = Time.time;
+                if (!_pauseLogged && Time.time - _pausedSince > 15f)   // once per long pause: why it isn't listening
+                {
+                    _pauseLogged = true;
+                    Debug.LogWarning($"[WakeListener] not listening for 15 s: names={listenForNames} hub={GatorAgentBridge.EventSourceIsHub} " +
+                                     $"connected={_client != null && _client.IsConnected} sessionBusy={sessionBusy} ttsTalking={_ttsTalking} " +
+                                     $"mic={MicPermission.HasPermission}");
+                }
                 return;
             }
+            _pausedSince = -1f;
+            _pauseLogged = false;
             if (_clip == null && !StartMic()) { _pausedUntil = Time.time + 2f; return; }
             Pump();
         }
@@ -187,7 +198,7 @@ namespace Forge.Pet
 
         void BeginSegment()
         {
-            bool facing = followUp != null && followUp.UserFacing;   // at speech onset: facing Bit = no name needed. ponytail: reuses GatorFollowUp's cone, no shared helper class
+            bool facing = followUp != null && followUp.UserFacing;   // at speech onset; the hub counts it only with VOICE_FACING=1. ponytail: reuses GatorFollowUp's cone, no shared helper class
             if (followUp != null)   // one line per segment: why facing missed (angle vs cone), read from quest-unity.log
                 Debug.Log($"[WakeListener] segment: facing={facing} angle={followUp.LastLookAngle:F0} limit={followUp.LastLookLimit:F0}");
             var start = new JObject { ["pet_id"] = _target ?? LeadPetId, ["wake"] = true, ["facing"] = facing, ["sample_rate"] = Rate, ["encoding"] = "pcm16" };

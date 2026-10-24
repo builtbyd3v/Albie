@@ -11,9 +11,9 @@ goes out only when a segment turns out to be a request for it:
     "open the ML panel" + facing    -> Albie answers: looking at him counts as his name
     "I don't know, bruh." + facing  -> dropped: agent/addressed.py word rules (talk to a person, fragments, filler)
 
-An unnamed turn is answered only when the user faced Albie at speech onset (stt.start {facing: true}). A gated
-turn (begin(gated=True): Unity's follow-up window while looking elsewhere, stt.start {require_name: true}) and
-any other unnamed turn are dropped: every sentence says "Albie" unless you look at him (Dev, 2026-10-24).
+Name only (Dev, 2026-10-24): every hands-free sentence says "Albie"; an unnamed turn is dropped. With
+VOICE_FACING=1 a turn whose speaker faced Albie at onset (stt.start {facing: true}) counts as named, minus the
+agent/addressed.py word rules. Buttons (Space, A, the whistle) never need the name.
 
 A name counts when it opens the sentence (after an optional "hey / ok / hi / yo"), or closes it after a comma
 ("thanks, Albie"), so "wait a bit" never wakes Albie. The lead's name is said "AL-bee"; at the start it may also
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -34,6 +35,11 @@ from . import events as ev
 from .crew import TYPES, crew
 
 log = logging.getLogger(__name__)
+
+# Dev, 2026-10-24: name only. At the desk Albie sits in front of the VS Code screen, so looking at the screen read as
+# looking at him (live 19:29-19:33: angle 5-17 degrees either way) and side talk was answered. VOICE_FACING=1 brings
+# "looking at him counts as his name" back.
+FACING_COUNTS = os.getenv("VOICE_FACING", "0") == "1"
 
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so"}
 # Common mis-hearings, per pet id ("bit" = the lead, spoken name Albie). Keep these unambiguous English-wise.
@@ -163,7 +169,7 @@ class WakeRouter:
         if flags is None:
             self.target, self.facing, self.gated = None, False, False
         pid, rest = self._who(text, target)
-        ask = pid is None and (facing or gated) and bool(text.strip())
+        ask = pid is None and ((facing and FACING_COUNTS) or gated) and bool(text.strip())
         self.judged = None
         if ask:
             self.judged = await self.judge(text, gated)
