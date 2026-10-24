@@ -10,8 +10,11 @@ namespace Forge.ML
     {
         public MLSession session;
         const int MaxDots = 1023;
-        const int DotColumns = 25;
-        const float DotSize = 11.5f;
+        // 32 × 32 holds all 1,000 validation samples inside the 320 × 290 wall.
+        const int DotColumns = 32;
+        const float DotSize = 8.3f;
+        const float DotColumnSpacing = 9.4f;
+        const float DotRowSpacing = 8.9f;
         readonly Matrix4x4[] dotMatrices = new Matrix4x4[MaxDots];
         readonly Vector4[] dotUvs = new Vector4[MaxDots];
         readonly Vector4[] dotColors = new Vector4[MaxDots];
@@ -59,7 +62,7 @@ namespace Forge.ML
                 if (s.removed || (wrongOnly && s.correct) || (classFilter >= 0 && s.true_idx != classFilter) || (truth >= 0 && (s.true_idx != truth || s.pred_idx != predicted))) continue;
                 if (dotCount == MaxDots) break;
                 int column = dotCount % DotColumns, row = dotCount / DotColumns;
-                var p = new Vector3(dotWall.rect.xMin + 8 + column * 12.3f, dotWall.rect.yMax - 8 - row * 12.3f, -4);
+                var p = new Vector3(dotWall.rect.xMin + 8 + column * DotColumnSpacing, dotWall.rect.yMax - 8 - row * DotRowSpacing, -4);
                 dotMatrices[dotCount] = dotWall.localToWorldMatrix * Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotSize, DotSize, 1));
                 Rect uv = session.UV(i); dotUvs[dotCount] = new Vector4(uv.x, uv.y, uv.width, uv.height);
                 Color tint = s.correct ? new Color(.45f, 1f, .58f) : new Color(1f, .32f, .35f);
@@ -92,8 +95,8 @@ namespace Forge.ML
         public void SelectAt(PointerEventData eventData)
         {
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(dotWall, eventData.position, eventData.pressEventCamera, out Vector2 local)) return;
-            int column = Mathf.FloorToInt((local.x - dotWall.rect.xMin - 2f) / 12.3f);
-            int row = Mathf.FloorToInt((dotWall.rect.yMax - local.y - 2f) / 12.3f);
+            int column = Mathf.FloorToInt((local.x - dotWall.rect.xMin - 2f) / DotColumnSpacing);
+            int row = Mathf.FloorToInt((dotWall.rect.yMax - local.y - 2f) / DotRowSpacing);
             int dot = row * DotColumns + column;
             if (column < 0 || column >= DotColumns || dot < 0 || dot >= dotCount) return;
             selected = visibleSamples[dot]; ShowDetail();
