@@ -11,12 +11,16 @@
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
 //   command_finished  a command in the "Bit" terminal ended, with its exit code
+//
+// A "Bit" item in the status bar says what Bit is doing in this window, so it shows on the streamed screen too.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
 
 let server;
 let terminal;
+let statusItem;
+let statusTimer;
 
 const glow = vscode.window.createTextEditorDecorationType({
   isWholeLine: true,
@@ -126,13 +130,26 @@ function train() {
   terminal.sendText(cmd);
 }
 
+// Highlighted while Bit acts, then back to idle after `ms`.
+function status(text, ms = 4000) {
+  statusItem.text = `$(sparkle) Bit: ${text}`;
+  statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(idle, ms);
+}
+
+function idle(text = "$(sparkle) Bit") {
+  statusItem.text = text;
+  statusItem.backgroundColor = undefined;
+}
+
 const routes = {
   "GET /context": () => context(),
   "GET /errors": (_, query) => errors(query.get("path")),
-  "POST /open": (b) => show(b.path, b.line).then(() => null),
-  "POST /highlight": (b) => highlight(b).then(() => null),
-  "POST /run": (b) => run(b).then((result) => ({ result })),
-  "POST /train": () => train(),
+  "POST /open": (b) => show(b.path, b.line).then(() => (status(`opened ${path.basename(b.path)}`), null)),
+  "POST /highlight": (b) => highlight(b).then(() => (status(b.note ?? `looking at line ${b.start}`, b.ms), null)),
+  "POST /run": (b) => run(b).then((result) => (status(`ran ${b.command.split(".").pop()}`), { result })),
+  "POST /train": () => (train(), status("started training", 6000)),
 };
 
 function readBody(req) {
@@ -190,6 +207,10 @@ function watch(ctx) {
 }
 
 function activate(ctx) {
+  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  statusItem.tooltip = "Forge Bit: the Forge pet can open, highlight and run things in this window";
+  idle();
+  statusItem.show();
   watch(ctx);
   const port = config().get("port");
   server = http.createServer(async (req, res) => {
@@ -207,9 +228,12 @@ function activate(ctx) {
     }
   });
   // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
-  server.on("error", (e) => console.error(`[forge-bit] ${e.message}`));
+  server.on("error", (e) => {
+    console.error(`[forge-bit] ${e.message}`);
+    idle("$(circle-slash) Bit: busy in another window");
+  });
   server.listen(port, "127.0.0.1");
-  ctx.subscriptions.push(glow, noteStyle, { dispose: () => server.close() });
+  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
 }
 
 function deactivate() {
