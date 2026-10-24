@@ -88,8 +88,9 @@ Assign generated prefabs to Workspace's ML items:
 
 The stack and model ship inside ForgePanels with actual 3D meshes in front of
 the canvas, so their controls inherit ray/poke interaction. Set these Workspace
-items to **Panel** when integrating. Core currently calls its placeholder dataset
-`ml-dataset`; the contract ID for this module is `ml-datastack`. Main is untouched.
+items to **Panel** when integrating. Main is wired like CAD: `Workspace.DefaultModes`
+uses `ml-datastack` / `ml-model3d` as Panels, and `MainSceneBuilder.ModulePrefabs` slots
+the four default prefabs, so **Forge > Build Main Scene** puts them in the ML mode.
 The dashboard is taller than Core's placeholder to keep ten-class evaluation
 readable; the integrator should allow space above the other panels.
 

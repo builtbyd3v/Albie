@@ -16,6 +16,8 @@ namespace Forge.ML
     [Serializable] public class MLMetrics { public string run_id; public int epoch, step; public float train_loss, train_acc, val_loss, val_acc, lr; }
     [Serializable] public class MLFixture { public string[] classes; public MLSample[] samples; public MLLayer[] layers; public MLMetrics[] metrics; [NonSerialized] public int[][] confusion; }
     public class MLRunInfo { public string run_id, status; public int? epochs; }
+    // GET /ml/metrics/{run_id}: a finished run's curves, so panels opened after training still show them.
+    public class MLMetricsHistory { public string run_id; public int total_epochs; public MLMetrics[] metrics; public MLReplayPayload overfit; }
 
     // Local presentation state. Starts on the generated mocks; once ForgeNet is Live it loads the hub's dataset,
     // atlas, graph and latest results (LoadFromHub) and follows Core's ml.* events.
@@ -156,7 +158,17 @@ namespace Forge.ML
         {
             TotalEpochs = totalEpochs > 0 ? totalEpochs : Data.metrics.Length; RunStatus = status; Done = status == "done"; Changed?.Invoke();
         }
-        public void Restart() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
+        // Live hub: replay the run on /ws (ML_PLAN 7.4 /ml/replay); the curves restart from its ml.run_state.
+        public void Restart()
+        {
+            if (HubData && IsLive && !string.IsNullOrEmpty(RunId))
+            {
+                ForgeNet.Post("/ml/replay", new { run_id = RunId, speed = 4f }, null, e => Debug.LogWarning("[ML] Replay failed: " + e));
+                return;
+            }
+            RestartMock();
+        }
+        void RestartMock() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
         public void Relabel(MLSample sample, int label)
@@ -253,7 +265,7 @@ namespace Forge.ML
             string error = null;
             Action<string> fail = e => error ??= e;
             string[] classes = null; MLDatasetEntry[] entries = null; MLAtlasMetadata meta = null; MLGraph graph = null;
-            MLRunInfo[] runs = null; MLResults results = null; MLConfusion confusion = null; byte[] png = null;
+            MLRunInfo[] runs = null; MLResults results = null; MLConfusion confusion = null; MLMetricsHistory history = null; byte[] png = null;
             yield return ForgeNet.Get<string[]>("/ml/classes", v => classes = v, fail);
             yield return ForgeNet.Get<MLDatasetEntry[]>("/ml/dataset?split=val", v => entries = v, fail);
             yield return ForgeNet.Get<MLAtlasMetadata>("/ml/atlas?split=val", v => meta = v, fail);
@@ -267,16 +279,17 @@ namespace Forge.ML
             {
                 yield return ForgeNet.Get<MLResults>($"/ml/results/{runId}", v => results = v, _ => { });
                 yield return ForgeNet.Get<MLConfusion>($"/ml/confusion/{runId}", v => confusion = v, _ => { });
+                yield return ForgeNet.Get<MLMetricsHistory>($"/ml/metrics/{runId}", v => history = v, _ => { });
             }
             if (error == null && meta != null && meta.atlas_url != atlasUrl) yield return ForgeNet.GetBytes(meta.atlas_url, v => png = v, fail);
             loading = false;
             if (error != null || classes == null || entries == null || meta == null || entries.Length == 0)
                 Debug.LogWarning("[ML] Hub data unavailable, keeping the current data: " + (error ?? "empty dataset"));
-            else ApplyHubData(classes, entries, meta, graph, runId, results, confusion, png);
+            else ApplyHubData(classes, entries, meta, graph, runId, results, confusion, history, png);
             if (reloadQueued) { reloadQueued = false; LoadFromHub(RunId); }
         }
         void ApplyHubData(string[] classes, MLDatasetEntry[] entries, MLAtlasMetadata meta, MLGraph graph, string runId,
-                          MLResults results, MLConfusion confusion, byte[] png)
+                          MLResults results, MLConfusion confusion, MLMetricsHistory history, byte[] png)
         {
             if (png != null)
             {
@@ -303,6 +316,13 @@ namespace Forge.ML
                 samples[i] = sample; cells[i] = meta.index != null && meta.index.TryGetValue(entry.id, out int cell) ? cell : 0;
             }
             if (runId != RunId) { RunId = runId; Data.metrics = new MLMetrics[0]; EpochIndex = -1; Overfit = false; OverfitReason = null; }
+            // A finished run with no live ticks seen: take its curves from the hub's history.
+            if (results != null && history?.metrics != null && history.metrics.Length > 0 && Data.metrics.Length == 0)
+            {
+                Data.metrics = history.metrics; EpochIndex = history.metrics.Length - 1;
+                TotalEpochs = Mathf.Max(history.total_epochs, history.metrics.Length);
+                if (history.overfit != null) { Overfit = true; OverfitReason = history.overfit.reason; }
+            }
             Data = new MLFixture
             {
                 classes = classes, samples = samples, layers = graph?.layers ?? Data.layers, metrics = Data.metrics,

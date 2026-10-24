@@ -97,6 +97,12 @@ def get_confusion(run_id: str, request: Request) -> Confusion:
     return _call(_svc(request).run_file, run_id, "confusion.json")
 
 
+@router.get("/metrics/{run_id}")
+def get_metrics(run_id: str, request: Request) -> dict:
+    """Proposed: a run's curve history {run_id, total_epochs, metrics: [ml.metrics...], overfit} (ML_PLAN 7.4)."""
+    return _call(_svc(request).metrics_history, run_id)
+
+
 @router.get("/summary/{run_id}")
 def get_summary(run_id: str, request: Request) -> Summary:
     """Proposed: results panel data (accuracy, per-class, confused pairs, confident mistakes)."""

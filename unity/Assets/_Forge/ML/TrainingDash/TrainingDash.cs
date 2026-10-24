@@ -19,12 +19,17 @@ namespace Forge.ML
             MLUI.Fill(root, 8, 29, 740, 6, new Color(.2f,.25f,.3f)); progress = MLUI.Fill(root, 8, 29, 0, 6, Color.cyan);
             MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
             MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
-            loss = MLUI.Rect("Loss curves", root, 8, 70, 330, 95).gameObject.AddComponent<MLCurve>(); loss.session = session; loss.raycastTarget = false;
-            accuracy = MLUI.Rect("Accuracy curves", root, 380, 70, 330, 95).gameObject.AddComponent<MLCurve>(); accuracy.session = session; accuracy.accuracy = true; accuracy.raycastTarget = false;
+            loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
             warning = MLUI.Text(root, "", 8, 175, 630, 28, 14); warning.color = new Color(1,.6f,.25f);
             MLUI.Button(root, "Replay", 650, 172, 90, 28, session.Restart);
             summary = MLUI.Rect("Evaluation", root, 8, 210, 740, 300);
             session.Changed += Refresh; Refresh();
+        }
+        MLCurve Curve(string name, Transform root, float x, bool acc)
+        {
+            // The CanvasRenderer first: added at runtime, the Graphic doesn't always bring one and then draws nothing.
+            var go = MLUI.Rect(name, root, x, 70, 330, 95).gameObject; go.AddComponent<CanvasRenderer>();
+            var curve = go.AddComponent<MLCurve>(); curve.session = session; curve.accuracy = acc; curve.raycastTarget = false; return curve;
         }
         void Refresh()
         {

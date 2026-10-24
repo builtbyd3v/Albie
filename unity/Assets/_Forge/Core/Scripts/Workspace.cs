@@ -521,8 +521,8 @@ public class Workspace : MonoBehaviour
             {
                 new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main),
                 new WorkspaceItem("ml-training", "Training", WorkspaceSlot.Above),
-                new WorkspaceItem("ml-dataset", "Dataset", WorkspaceSlot.FarLeft, WorkspaceItemKind.Volume),
-                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left, WorkspaceItemKind.Volume),
+                new WorkspaceItem("ml-datastack", "Dataset", WorkspaceSlot.FarLeft),
+                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left),
                 new WorkspaceItem("ml-results", "Results", WorkspaceSlot.Right),
             },
         },

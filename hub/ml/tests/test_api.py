@@ -119,6 +119,14 @@ def test_replay_streams_the_recording_onto_ws(client, image_repo):
     assert any(e["type"] == "ml.overfit_alert" for e in got)
 
 
+def test_metrics_history_feeds_curves_after_training(client):
+    h = client.get("/ml/metrics/mock0001").json()
+    epochs = [m["epoch"] for m in h["metrics"]]
+    assert epochs == sorted(set(epochs)) and len(epochs) == h["total_epochs"] == 15
+    assert h["overfit"] is not None
+    assert client.get("/ml/metrics/missing").status_code == 404
+
+
 def test_regression_mock(tmp_path):
     make_mocks.regression(tmp_path / "reg")
     with TestClient(make_app(tmp_path / "reg")) as c:
