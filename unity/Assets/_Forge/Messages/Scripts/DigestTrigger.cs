@@ -6,8 +6,9 @@ using UnityEngine;
 /// The arrival digest's cards (PROJECT_CONTEXT 8.8). The POST /messages/digest itself is <see cref="RequestDigest"/>,
 /// called by the pet's ArrivalDirector once per sit, after Bit has landed on the desk; the hub answers with
 /// notify.digest and a pet.say line, which Bit speaks. If the digest has messages and MSG mode is closed (no
-/// <see cref="MessagesPanel"/> open), a floating copy of the panel appears beside Bit at the front-right of the desk
-/// and folds away after <see cref="floatingSeconds"/>, when a real panel opens, or when the user leaves the desk.
+/// <see cref="SlackPanel"/> open), a floating <see cref="MentionsPanel"/> with the digest's cards (at most 4, "+N more")
+/// appears beside Bit at the front-right of the desk and folds away after <see cref="floatingSeconds"/>, when MSG mode
+/// opens, or when the user leaves the desk. Tapping a card opens MSG mode on that conversation.
 /// Installs itself: on scene load it adds one to any scene that has a DeskPresence (so Main needs no edit); dropping
 /// the component into a scene by hand also works and stops the auto-install.
 /// The static helpers (<see cref="SpawnAtDesk"/>, <see cref="PopIn"/>, <see cref="FoldOut"/>) are shared with
@@ -15,8 +16,8 @@ using UnityEngine;
 /// </summary>
 public class DigestTrigger : MonoBehaviour
 {
-    /// <summary>Resources path of the panel prefab (Assets/_Forge/Messages/Resources/MessagesPanel.prefab).</summary>
-    public const string PanelResource = "MessagesPanel";
+    /// <summary>Resources path of the floating stack's prefab (Assets/_Forge/Messages/Resources/MentionsPanel.prefab).</summary>
+    public const string PanelResource = "MentionsPanel";
     const string DigestPath = "/messages/digest";
 
     [Tooltip("Seconds the floating cards stay up after the digest.")]
@@ -46,14 +47,14 @@ public class DigestTrigger : MonoBehaviour
         }
         presence.stateChanged.AddListener(OnDeskState);
         ForgeEvents.OnNotifyDigest += OnDigest;
-        MessagesPanel.ActiveChanged += OnPanelsChanged;
+        SlackPanel.ActiveChanged += OnPanelsChanged;
     }
 
     void OnDestroy()
     {
         if (presence != null) presence.stateChanged.RemoveListener(OnDeskState);
         ForgeEvents.OnNotifyDigest -= OnDigest;
-        MessagesPanel.ActiveChanged -= OnPanelsChanged;
+        SlackPanel.ActiveChanged -= OnPanelsChanged;
     }
 
     void OnDeskState(DeskState state)
@@ -74,16 +75,16 @@ public class DigestTrigger : MonoBehaviour
 
     void OnDigest(NotifyDigest d)
     {
-        if (d == null || d.count == 0 || MessagesPanel.ActiveCount > 0 || presence.State != DeskState.Seated) return;
-        ShowFloating();
+        if (d == null || d.count == 0 || SlackPanel.ActiveCount > 0 || presence.State != DeskState.Seated) return;
+        ShowFloating(d);
     }
 
     void OnPanelsChanged()
     {
-        if (MessagesPanel.ActiveCount > 0) Fold();
+        if (SlackPanel.ActiveCount > 0) Fold();
     }
 
-    void ShowFloating()
+    void ShowFloating(NotifyDigest d)
     {
         Fold(immediate: true);
         var prefab = Resources.Load<GameObject>(PanelResource);
@@ -94,8 +95,12 @@ public class DigestTrigger : MonoBehaviour
         }
         floatingPanel = SpawnAtDesk(presence, prefab, floatingOffset, "FloatingMessages", go =>
         {
-            var panel = go.GetComponentInChildren<MessagesPanel>();
-            if (panel != null) panel.floating = true;  // set before OnEnable: a floating copy doesn't count as MSG mode open
+            var panel = go.GetComponentInChildren<MentionsPanel>();
+            if (panel != null)
+            {
+                panel.floating = true;  // set before OnEnable: a floating copy shows the digest, not the live list
+                panel.ShowDigest(d);
+            }
         });
         PopIn(this, floatingPanel.transform);
         fold = StartCoroutine(FoldLater());
