@@ -67,7 +67,7 @@ def capture(loop, args):
                 img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
             img.thumbnail((args.max_size, args.max_size))
             buf = io.BytesIO()
-            img.save(buf, "JPEG", quality=args.quality)
+            img.save(buf, "JPEG", quality=args.quality, subsampling=0)  # 4:4:4: colored text stays sharp
             jpeg = buf.getvalue()
             # ponytail: skip identical frames so a still screen costs Unity no decode time
             if jpeg != last:

@@ -137,10 +137,10 @@ function train() {
 
 // screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
 // terminal is where training shows, so the side bar and Copilot chat only cost columns.
-// Zoom is per window (not saved to settings): level 1 = 120%, which reads well on the panel at 1 m.
-// There is no command to set the panel's height, so: editor to its tallest, then 2 steps back. In the
-// 1280x800 window that leaves about 20 lines of code over 8 lines of terminal.
-async function layout({ zoom = 1 }) {
+// Zoom is per window (not saved to settings): level 2 = 144%, big enough on the panel at 1 m once the full-screen
+// window is shrunk to the stream's 1920 px. There is no command to set the panel's height, so: editor to its
+// tallest, then 2 steps back, which leaves Bit's terminal a few lines under the code.
+async function layout({ zoom = 2 }) {
   const run = (id, times = 1) =>
     Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
   await run("workbench.action.closeSidebar");
