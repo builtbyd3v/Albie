@@ -1,5 +1,5 @@
 // A ring of white light (a dock button or a volume base): white-hot core line, white glows, a faint mode-hue halo.
-// Hover runs a comet of light around it; selected fills it with a soft disc. _Outline draws only a thin ring, for the
+// Hover runs a comet of light around its rim; selected fills it with a soft disc. _Outline draws only a thin ring, for the
 // hologram column under a raised button (one quad per ring, alpha in the vertex color).
 Shader "Forge/NeonRing"
 {
@@ -69,11 +69,13 @@ Shader "Forge/NeonRing"
                 float hueB = min(1.0, 2.2 * _HueT), hueC = min(1.0, 0.45 + 3.0 * _HueT);
                 float3 hue = _Hue.rgb;
 
-                // Comet glow: the conic spread over a disc R + 10 mm and blurred, a sweep of light inside the ring.
+                // Comet glow: the conic light concentrated on the ring line, a Gaussian band (3 mm inside, 5.5 mm
+                // outside) around the core, so the glow travels round the rim instead of sweeping the disc.
                 float u = frac(atan2(p.x, p.y) / 6.2831853 - _Time.y / _Spin);
                 float4 comet = Comet(u, hue, hueC);
-                float sweep = (1.0 - smoothstep(R + 2.0, R + 14.0, r)) * (0.25 + 0.75 * saturate(r / R));
-                OverPremul(acc, comet * sweep * 0.85 * 0.6 * _Hover);
+                float dr = r - (R - 0.8);
+                float sigma = dr < 0.0 ? 3.0 : 5.5;
+                OverPremul(acc, comet * exp(-0.5 * dr * dr / (sigma * sigma)) * 0.62 * _Hover);
 
                 // Fill disc (selected): bright near the top-middle, fading out, mode hue at the rim.
                 float discMask = 1.0 - smoothstep(R - 1.6 - aa, R - 1.6 + aa, r);
