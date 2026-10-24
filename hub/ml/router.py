@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, Response
 from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchRequest, ProjectRequest,
                      RelabelRequest, ReplayRequest, RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest,
                      TrainResponse, TypeRequest, VizCard)
+from . import logtail
 from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
@@ -81,8 +82,13 @@ def get_runs(request: Request) -> list[RunInfo]:
 
 
 @router.post("/train")
-def train(req: TrainRequest, request: Request) -> TrainResponse:
-    run_id = _call(_svc(request).start_training, req.epochs, str(request.base_url))
+async def train(req: TrainRequest, request: Request) -> TrainResponse:
+    svc = _svc(request)
+    run_id = _call(svc.start_training, req.epochs, str(request.base_url))
+    # A6: if the script doesn't call forge, its own logs (TensorBoard / Lightning / HF) become the live curves.
+    # A script that does use forge writes the run's run.json first, and the tail stands down.
+    _start_tail(request.app.state, logtail.LogTail(svc.repo, svc.runs_dir, run_id, total_epochs=req.epochs),
+                svc.train_proc)
     return TrainResponse(run_id=run_id)
 
 
@@ -174,6 +180,32 @@ async def replay(req: ReplayRequest, request: Request) -> dict:
     return {"run_id": req.run_id, "events": len(events)}
 
 
+def _start_tail(state, tail: logtail.LogTail, proc=None) -> None:
+    """Poll the log tail every POLL_S and publish what it finds. With a training process, stop when it exits
+    (after one last read) with ml.run_state done; without one (after Skip), follow until replaced."""
+    _stop_tail(state)
+
+    async def follow() -> None:
+        while True:
+            ended = proc is not None and proc.poll() is not None
+            events = await asyncio.to_thread(tail.poll)
+            if ended:
+                events += tail.finish()
+            for event_type, payload in events:
+                await state.bus.publish(event_type, payload)
+            if ended or tail.stopped:
+                return
+            await asyncio.sleep(logtail.POLL_S)
+
+    state.ml_tail = asyncio.create_task(follow())
+
+
+def _stop_tail(state) -> None:
+    previous = getattr(state, "ml_tail", None)
+    if previous is not None and not previous.done():
+        previous.cancel()
+
+
 # --- project setup: open any ML repo (ML_PLAN 6, 7.4) -----------------------------------------------
 
 def _start_setup(request: Request, **kwargs) -> dict:
@@ -202,6 +234,7 @@ def _start_setup(request: Request, **kwargs) -> dict:
 async def open_project(req: ProjectRequest, request: Request) -> dict:
     """VS Code (or `python -m ml.open`) says which repo is open: set up, or reuse a working .forge/."""
     _call(_svc(request).open_project, req.path)
+    _stop_tail(request.app.state)
     return _start_setup(request)
 
 
@@ -239,4 +272,7 @@ async def apply_patch(req: PatchRequest, request: Request) -> dict:
                                            summary=profile.get("summary"), applied=applied)
     await request.app.state.bus.publish("ml.project_state", event)
     await request.app.state.bus.publish("ml.layout", new_layout)
+    if not req.accept:
+        # Skip: no forge calls in the script, so follow its own logs for runs started outside the hub (A6).
+        _start_tail(request.app.state, logtail.LogTail(svc.repo, svc.runs_dir))
     return {"applied": applied}
