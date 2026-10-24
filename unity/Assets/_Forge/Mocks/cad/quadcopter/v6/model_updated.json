@@ -324,6 +324,27 @@
             0.0
           ],
           "offset_mm": 21.2
+        },
+        {
+          "id": "prop",
+          "label": "Prop diameter",
+          "value_mm": 177.8,
+          "from": [
+            0.14064,
+            0.0308,
+            -0.01492
+          ],
+          "to": [
+            0.01492,
+            0.0308,
+            -0.14064
+          ],
+          "offset_dir": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "offset_mm": 12.0
         }
       ],
       "explode": {
@@ -637,7 +658,8 @@
             "rpm": 4405.8,
             "spin": "ccw",
             "rel_speed": null,
-            "motor_id": "MOTOR_1"
+            "motor_id": "MOTOR_1",
+            "radius_mm": 88.9
           },
           {
             "id": "PROP_2",
@@ -654,7 +676,8 @@
             "rpm": -4405.8,
             "spin": "cw",
             "rel_speed": null,
-            "motor_id": "MOTOR_2"
+            "motor_id": "MOTOR_2",
+            "radius_mm": 88.9
           },
           {
             "id": "PROP_3",
@@ -671,7 +694,8 @@
             "rpm": 4405.8,
             "spin": "ccw",
             "rel_speed": null,
-            "motor_id": "MOTOR_3"
+            "motor_id": "MOTOR_3",
+            "radius_mm": 88.9
           },
           {
             "id": "PROP_4",
@@ -688,7 +712,8 @@
             "rpm": -4405.8,
             "spin": "cw",
             "rel_speed": null,
-            "motor_id": "MOTOR_4"
+            "motor_id": "MOTOR_4",
+            "radius_mm": 88.9
           }
         ],
         "readouts": [
@@ -757,8 +782,29 @@
           "Max static thrust per motor: the prop's (55 g per square inch of prop) or the motor's (2.2 g per mm^2 of motor diameter), whichever is lower, on a 4S pack.",
           "Thrust grows with rpm squared (static thrust coefficient 0.15) and rpm with throttle, so hover throttle = sqrt(hover thrust / max thrust).",
           "Props alternate direction round the frame (prop 1 counter-clockwise seen from above), so their torques cancel."
-        ]
-      }
-    }
+        ],
+        "blocked": "Props collide: neighbouring props overlap by 22 mm.",
+        "reveal_ids": []
+      },
+      "verdict": {
+        "status": "bad",
+        "headline": "Props collide",
+        "sentence": "Neighbouring 7 in props overlap by 22 mm. Lengthen the arms or fit smaller props.",
+        "metric": "clearance"
+      },
+      "constants": [
+        {
+          "label": "Power system",
+          "value": "4S LiPo, 14.8 V",
+          "note": "80% of the pack usable \u00b7 25% efficient at hover"
+        },
+        {
+          "label": "Thrust per motor",
+          "value": "55 g per in\u00b2 of prop",
+          "note": "or 2.2 g per mm\u00b2 of motor diameter, whichever is lower"
+        }
+      ]
+    },
+    "label": "7-inch props"
   }
 }

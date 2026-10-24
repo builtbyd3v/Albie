@@ -12,9 +12,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cad import scene
-from cad.analysis import mass_properties
+from cad.analysis import analyze, mass_properties
 from cad.export import read_glb_json
-from cad.part_api import DEFAULT_GROUP, Param, param_groups
+from cad.part_api import DEFAULT_GROUP, Param, Verdict, param_groups
+from cad.service import VersionRecord, change_label, scan_part, version_label
 from cad.worker import build_part, load_part, run_job
 from events import CadAnalysis, CadModelUpdated
 from main import create_app
@@ -83,9 +84,24 @@ def unit(v) -> bool:
     return abs(math.sqrt(sum(x * x for x in v)) - 1.0) < 1e-3
 
 
-def check_scene(analysis: dict, meta: dict) -> None:
-    """What every design's analysis must satisfy (also run on every preset by test_designs)."""
+def check_scene(analysis: dict, meta: dict, schema: list[dict] | None = None) -> None:
+    """What every design's analysis (and, given, its parameter rows) must satisfy; test_designs runs it on every
+    preset."""
     parts = leaf_ids(meta)
+    dimension_ids = {d["id"] for d in analysis["dimensions"]}
+    for p in schema or []:
+        assert p["default"] in p["options"] if p["options"] else p["min"] <= p["default"] <= p["max"], p
+        assert p["parts"] and set(p["parts"]) <= set(parts), p
+        assert p["dimension"] is None or p["dimension"] in dimension_ids, p
+
+    v = analysis["verdict"]
+    assert v["status"] in ("ok", "warn", "bad") and v["headline"] and v["sentence"].endswith(".")
+    assert v["metric"] is None or v["metric"] in {m["id"] for m in analysis["metrics"]}
+    assert all(c["label"] and c["value"] and isinstance(c["note"], str) for c in analysis["constants"])
+    demo = analysis["demo"]
+    assert demo["blocked"] is None or (isinstance(demo["blocked"], str) and demo["blocked"])
+    assert set(demo["reveal_ids"]) <= set(parts)
+    assert all(s["radius_mm"] is None or s["radius_mm"] > 0 for s in demo["spin_parts"])
     explode = analysis["explode"]
     assert explode["axis"] in ("stack", "radial", "shaft", "auto")
     assert [p["id"] for p in explode["parts"]] == parts, "one entry per leaf part, in assembly order"
@@ -120,7 +136,7 @@ def check_scene(analysis: dict, meta: dict) -> None:
 
     # The WS event carries all of it (events.py mirrors the shapes; nothing is dropped or renamed).
     event = CadModelUpdated(version=1, params={}, analysis=analysis).model_dump()["analysis"]
-    for key in ("markers", "dimensions", "explode", "mass_breakdown", "demo"):
+    for key in ("markers", "dimensions", "explode", "mass_breakdown", "demo", "verdict", "constants"):
         assert json.dumps(event[key], sort_keys=True) == json.dumps(analysis[key], sort_keys=True), key
     assert set(CadAnalysis.model_validate(analysis).model_dump()) >= set(analysis)
 
@@ -158,7 +174,7 @@ def test_param_fallbacks_for_a_new_design():
 @pytest.mark.parametrize("name", DESIGNS)
 def test_every_design_passes_the_shared_checks(name, built):
     r, meta, _ = built[name]
-    check_scene(r["analysis"], meta)
+    check_scene(r["analysis"], meta, r["schema"])
 
 
 def test_rocket_explodes_along_its_stack(built):
@@ -273,10 +289,15 @@ def test_dimensions_match_the_model(built):
     assert dims["fin_span"]["value_mm"] == r["params"]["fin_span"]
     assert dims["diameter"]["offset_dir"] == [0.0, 0.0, 1.0]   # toward the front (part -Y), facing the viewer
 
-    q = built["quadcopter"][0]
+    q, _, boxes = built["quadcopter"]
     dims = {d["id"]: d for d in q["analysis"]["dimensions"]}
-    assert set(dims) == {"wheelbase", "width", "height"}
+    assert set(dims) == {"wheelbase", "prop", "width", "height"}
     assert dims["wheelbase"]["value_mm"] == pytest.approx(2 * q["params"]["arm_length"], abs=0.2)
+    assert dims["prop"]["value_mm"] == pytest.approx(q["params"]["prop_diameter"] * 25.4, abs=0.1)
+    hub = centre(boxes["PROP_1"])           # across prop 1's hub, at the top of the prop
+    mid = (np.array(dims["prop"]["from"]) + np.array(dims["prop"]["to"])) / 2
+    assert (mid[0], mid[2]) == pytest.approx((hub[0], hub[2]), abs=2e-4) and mid[1] == pytest.approx(
+        boxes["PROP_1"][1][1], abs=2e-4)
     assert dims["width"]["value_mm"] == q["analysis"]["size_mm"][0]
     assert dims["height"]["value_mm"] == q["analysis"]["size_mm"][2]
 
@@ -424,14 +445,15 @@ def hub(tmp_path_factory):
 
 def test_api_serves_the_new_fields(hub):
     params = hub.get("/cad/params").json()
-    assert params["groups"] == ["Body", "Nose", "Fins"]
-    assert all(p["group"] and p["help"] for p in params["params"])
+    assert params["groups"] == ["Body", "Nose", "Fins"] and params["glyph"] == "rocket"
+    assert all(p["group"] and p["help"] and p["parts"] and "default" in p and "dimension" in p
+               for p in params["params"])
     with hub.websocket_connect("/ws") as ws:
         event = ws.receive_json()["payload"]                    # the sticky cad.model_updated
     analysis = hub.get("/cad/analysis").json()
-    for key in ("markers", "dimensions", "explode", "mass_breakdown", "demo"):
+    for key in ("markers", "dimensions", "explode", "mass_breakdown", "demo", "verdict", "constants"):
         assert event["analysis"][key] == analysis[key], key
-    assert analysis["demo"]["kind"] == "launch"
+    assert analysis["demo"]["kind"] == "launch" and event["label"] == "Defaults"
 
     flight = hub.get("/cad/flight").json()
     check_flight(flight)
@@ -465,3 +487,180 @@ def test_a_hexacopter_spins_six_props_in_pairs(tmp_path):
     assert all(moves[f"PROP_{i}"]["dist_mm"] > 0 for i in range(1, 7))
     wheelbase = next(d for d in r["analysis"]["dimensions"] if d["id"] == "wheelbase")
     assert wheelbase["value_mm"] == pytest.approx(2 * r["params"]["arm_length"], abs=0.2)
+
+
+def next_of(ws, type_):
+    while True:
+        message = ws.receive_json()
+        if message["type"] == type_:
+            return message["payload"]
+
+
+# Round 4b: parameter rows, verdicts, constants, demo extras, version labels, glyphs
+
+SMALL_FINS = {"fin_root": 42, "fin_tip": 21, "fin_span": 36, "fin_sweep": 21}
+
+
+def analysis_of(name, params):
+    module, _, _, result = build_part(PARTS / f"{name}.py", params)
+    return analyze(result, mass_properties(result), module.analyze, features=("flight",) if name == "rocket" else ())
+
+
+def test_param_rows_say_what_they_shape(built):
+    rows = {name: {p["name"]: p for p in built[name][0]["schema"]} for name in DESIGNS}
+    rocket = rows["rocket"]
+    assert (rocket["body_length"]["default"], rocket["nose_shape"]["default"], rocket["fin_count"]["default"]) == \
+        (300.0, "ogive", 3)
+    assert rocket["fin_span"]["parts"] == ["FIN_1", "FIN_2", "FIN_3"] and rocket["fin_span"]["dimension"] == "fin_span"
+    assert rocket["body_length"]["parts"] == ["BODY_TUBE"] and rocket["body_length"]["dimension"] == "length"
+    assert rocket["nose_length"]["dimension"] == "length" and rocket["body_diameter"]["dimension"] == "diameter"
+    assert rocket["nose_shape"]["parts"] == ["NOSE_CONE"] and rocket["fin_root"]["dimension"] is None
+    quad = rows["quadcopter"]
+    assert quad["prop_diameter"]["parts"] == [f"PROP_{i}" for i in range(1, 5)]
+    assert quad["prop_diameter"]["dimension"] == "prop" and quad["arm_length"]["dimension"] == "wheelbase"
+    assert quad["plate_size"]["parts"] == ["BOTTOM_PLATE", "TOP_PLATE"] and quad["battery_mah"]["default"] == 1300
+    gear = rows["gearbox"]
+    assert gear["module"]["parts"] == ["PINION", "GEAR"] and gear["module"]["dimension"] == "centre_distance"
+    assert set(gear["shaft_diameter"]["parts"]) == {"INPUT_SHAFT", "OUTPUT_SHAFT", "BEARING_IN_FRONT",
+                                                     "BEARING_IN_BACK", "BEARING_OUT_FRONT", "BEARING_OUT_BACK"}
+    box = rows["_template"]   # no declarations on width/depth/height: the defaults find the same-named callouts
+    assert [box[n]["dimension"] for n in ("width", "depth", "height", "wall")] == ["width", "depth", "height", None]
+    assert all(row["parts"] == ["TRAY", "LID"] for row in box.values())
+
+
+def test_param_parts_and_dimension_fallbacks():
+    labels = ["fin_1", "fin_2", "body_tube", "input_shaft"]
+    assert Param("fin_root", 1.0, 0, 2).shapes(labels) == ["fin_1", "fin_2"]            # named like it
+    assert Param("shaft_diameter", 1.0, 0, 2).shapes(labels) == ["input_shaft"]
+    assert Param("module", 1.0, 0, 2).shapes(labels) == labels                          # nothing named like it: all
+    assert Param("x", 1.0, 0, 2, parts=("body_*", "fin_2")).shapes(labels) == ["fin_2", "body_tube"]
+    row = Param("width", 1.0, 0, 2).schema(1.0, labels, ["width", "height"])
+    assert row["dimension"] == "width" and row["parts"] == ["FIN_1", "FIN_2", "BODY_TUBE", "INPUT_SHAFT"]
+    assert Param("span", 1.0, 0, 2, dimension="wheelbase").schema(1.0, labels, ["width"])["dimension"] is None
+    assert Param("n", 12, 1, 9).schema(5)["default"] == 9              # the default as built: clamped to the range
+    assert "parts" not in Param("w", 1.0).schema(1.0) and "dimension" not in Param("w", 1.0).schema(1.0)
+
+
+VERDICTS = [   # (design, params, status, headline, part of the sentence)
+    ("rocket", {}, "ok", "Stable", "Flies straight. 1.57 cal margin"),
+    ("rocket", SMALL_FINS, "bad", "Unstable", "0.84 cal margin; it needs at least 1.0."),
+    ("rocket", {**SMALL_FINS, "fin_count": 4}, "warn", "Marginal", "1.25 cal; aim for 1.5."),
+    ("rocket", {"body_length": 600}, "warn", "Overstable", "over 2.5 weathercocks."),
+    ("quadcopter", {}, "ok", "Clear to fly", "Props clear by 29 mm and thrust is 14.1 times its weight"),
+    ("quadcopter", {"prop_diameter": 7.0}, "bad", "Props collide", "7 in props overlap by 22 mm"),
+    ("quadcopter", {"arm_length": 90}, "warn", "Tight", "clear by only 0.3 mm"),
+    ("quadcopter", {"prop_diameter": 3.0, "motor_size": 14, "battery_mah": 3000}, "warn", "Sluggish", "3.9 times"),
+    ("quadcopter", {"prop_diameter": 2.0, "motor_size": 40, "battery_mah": 3000}, "bad", "Too heavy", "barely lift off"),
+    ("gearbox", {}, "ok", "Runs clean", "3.00 : 1 reduction. The pinion keeps a solid 5.4 mm rim"),
+    ("gearbox", {"pinion_teeth": 12, "gear_teeth": 72}, "warn", "Runs, with care",
+     "6.00 : 1. A 12-tooth pinion gets undercut (14+ avoids it) and its rim is thin at 3.1 mm."),
+    ("gearbox", {"pinion_teeth": 12, "shaft_diameter": 4}, "warn", "Runs, with care", "14 or more teeth avoid it"),
+    ("gearbox", {"pinion_teeth": 10}, "bad", "Pinion too weak", "Only 1.6 mm of metal round the 8 mm shaft"),
+    ("gearbox", {"pinion_teeth": 10, "shaft_diameter": 12}, "bad", "Pinion too weak", "be made"),
+]
+
+
+@pytest.mark.parametrize("name,params,status,headline,says", VERDICTS,
+                         ids=[f"{v[0]}-{v[3]}-{i}" for i, v in enumerate(VERDICTS)])
+def test_verdicts_follow_each_designs_rules(name, params, status, headline, says):
+    a = analysis_of(name, params)
+    v = a["verdict"]
+    assert (v["status"], v["headline"]) == (status, headline) and says in v["sentence"], v
+    assert next(m for m in a["metrics"] if m["id"] == v["metric"])["status"] == status   # the metric it's about agrees
+
+
+def test_generic_verdict_speaks_for_the_worst_metric(built):
+    ok = {"id": "a", "label": "Capacity", "display": "0.5 L", "status": "ok", "note": ""}
+    warn = {"id": "b", "label": "Wall", "display": "1 mm", "status": "warn", "note": "thin"}
+    bad = {"id": "c", "label": "Lid gap", "display": "-2 mm", "status": "bad", "note": ""}
+    assert scene.worst_metric_verdict([ok, warn]) == Verdict("warn", "Check it", "Wall is 1 mm (thin).", "b")
+    assert scene.worst_metric_verdict([warn, bad, ok]) == Verdict("bad", "Needs work", "Lid gap is -2 mm.", "c")
+    assert scene.worst_metric_verdict([]) == Verdict("ok", "Looks good", "Nothing out of range.", None)
+    template = built["_template"][0]["analysis"]["verdict"]
+    assert template["status"] == "ok" and template["headline"] == "Looks good" and "capacity" in template["sentence"]
+
+
+def test_constants_name_the_fixed_inputs(built):
+    rocket = {c["label"]: c for c in built["rocket"][0]["analysis"]["constants"]}
+    assert rocket["Motor"]["value"] == "Estes C6-5" and "24.1 g loaded" in rocket["Motor"]["note"]
+    assert rocket["Recovery"]["value"] == "12 in parachute"
+    quad = {c["label"]: c for c in built["quadcopter"][0]["analysis"]["constants"]}
+    assert quad["Power system"]["value"] == "4S LiPo, 14.8 V"
+    gear = {c["label"]: c for c in built["gearbox"][0]["analysis"]["constants"]}
+    assert gear["Input motor"]["value"] == "3,000 rpm · 0.50 N·m"
+    assert built["_template"][0]["analysis"]["constants"] == []
+
+
+def test_demo_radii_reveal_and_blocked(built):
+    quad = built["quadcopter"][0]["analysis"]["demo"]
+    assert quad["blocked"] is None and quad["reveal_ids"] == []
+    assert all(s["radius_mm"] == pytest.approx(5 * 25.4 / 2) for s in quad["spin_parts"])   # swept radius
+    r = built["gearbox"][0]
+    gear, p = r["analysis"]["demo"], r["params"]
+    assert {s["id"]: s["radius_mm"] for s in gear["spin_parts"]} == pytest.approx({   # pitch radii; shaft radii
+        "PINION": p["module"] * p["pinion_teeth"] / 2, "GEAR": p["module"] * p["gear_teeth"] / 2,
+        "INPUT_SHAFT": p["shaft_diameter"] / 2, "OUTPUT_SHAFT": p["shaft_diameter"] / 2})
+    assert gear["reveal_ids"] == ["HOUSING_TOP"] and gear["blocked"] is None
+    assert built["rocket"][0]["analysis"]["demo"]["blocked"] is None   # unstable rockets still fly (no-wind sim)
+    collide = analysis_of("quadcopter", {"prop_diameter": 7.0})["demo"]
+    assert collide["blocked"] == "Props collide: neighbouring props overlap by 22 mm." and collide["values"]
+    heavy = analysis_of("quadcopter", {"prop_diameter": 2.0, "motor_size": 40, "battery_mah": 3000, "plate_size": 140})
+    assert heavy["demo"]["blocked"] == "Too heavy to lift off." and "can't lift off" in heavy["verdict"]["sentence"]
+
+
+def test_change_labels_in_words():
+    schema = [{"name": "fin_span", "label": "Fin span", "unit": "mm"}, {"name": "fin_count", "label": "Fin count",
+               "unit": ""}, {"name": "nose_shape", "label": "Nose shape", "unit": ""},
+              {"name": "fin_root", "label": "Fin root chord", "unit": "mm"}]
+    before = {"fin_span": 60.0, "fin_count": 3, "nose_shape": "ogive", "fin_root": 70.0}
+    assert change_label(schema, None, before) == "Defaults"
+    assert change_label(schema, before, {**before, "fin_span": 36.0}) == "Fin span 60 → 36 mm"
+    assert change_label(schema, before, {**before, "fin_count": 4}) == "Fin count 3 → 4"
+    assert change_label(schema, before, {**before, "nose_shape": "cone"}) == "Nose shape ogive → cone"
+    assert change_label(schema, before, {**before, "fin_span": 36.0, "fin_root": 42.0}) == "Fin span, fin root chord"
+    assert change_label(schema, before, {**before, "fin_span": 36.0, "fin_count": 4, "fin_root": 42.0}) == \
+        "Fin span, fin count +1"
+    assert change_label(schema, before, dict(before)) == "No change"
+
+    def old(source, parent=2):   # a version stored before labels existed
+        return VersionRecord(version=3, parent=parent, created_at=0.0, source=source, part="rocket", params={},
+                             param_schema=[], analysis={}, fingerprints={}, script_sha="")
+    assert [version_label(old(s)) for s in ("script", "reset", "pet", "api")] == \
+        ["Saved rocket.py", "Reset to defaults", "Changed by Bit", "Edited"]
+    assert version_label(old("open", parent=None)) == "Defaults"
+
+
+def test_versions_have_labels_and_their_main_metric(hub):
+    from cad.tools import call_tool
+    assert hub.post("/cad/part", json={"part": "rocket"}).status_code == 200
+    cad, bus = hub.app.state.cad, hub.app.state.bus
+    with hub.websocket_connect("/ws") as ws:
+        assert next_of(ws, "cad.model_updated")["label"] == "Defaults"   # the replay of the open version
+        assert hub.post("/cad/params", json={"fin_count": 4}).status_code == 200
+        assert next_of(ws, "cad.model_updated")["label"] == "Fin count 3 → 4"
+        hub.portal.call(call_tool, "cad_set_params", {"changes": SMALL_FINS, "request": "Make the fins smaller"},
+                        cad, bus)
+        assert next_of(ws, "cad.model_updated")["label"] == "Make the fins smaller"   # Bit's words
+    assert hub.post("/cad/preset", json={"name": "cone NOSE"}).status_code == 200
+    assert hub.post("/cad/params", json={"fin_root": 50, "fin_tip": 30, "fin_span": 50}).status_code == 200
+    assert hub.post("/cad/reset").status_code == 200
+    rows = hub.get("/cad/versions").json()
+    assert [r["label"] for r in rows] == ["Defaults", "Fin count 3 → 4", "Make the fins smaller", "Cone nose",
+                                          "Fin root chord, fin tip chord +1", "Reset to defaults"]
+    for row in rows:   # primary = the version's static margin, as its analysis has it
+        margin = next(m for m in hub.get("/cad/analysis", params={"v": row["version"]}).json()["metrics"]
+                      if m["id"] == "margin")
+        assert row["primary"] == {k: margin[k] for k in ("id", "label", "value", "display", "status")}
+    assert (rows[0]["primary"]["display"], rows[0]["primary"]["status"]) == ("1.57 cal", "ok")
+    assert rows[2]["primary"]["status"] == "warn"    # four smaller fins: marginal
+
+
+def test_glyphs(built, hub, tmp_path):
+    assert [built[name][0]["glyph"] for name in DESIGNS] == ["rocket", "drone", "gears", "box"]
+    listing = {p["part"]: p["glyph"] for p in hub.get("/cad/parts").json()["parts"]}
+    assert listing == {"rocket": "rocket", "quadcopter": "drone"}
+    params = hub.get("/cad/params").json()
+    assert params["glyph"] == listing[params["part"]]
+    plain = tmp_path / "thing.py"
+    plain.write_text('TITLE = "Thing"\nPARAMS = []\n', encoding="utf-8")
+    assert scan_part(plain)["glyph"] == "box" and scan_part(PARTS / "gearbox.py")["glyph"] == "gears"

@@ -484,7 +484,8 @@
         "rpm": 3000.0,
         "spin": "ccw",
         "rel_speed": 1.0,
-        "motor_id": null
+        "motor_id": null,
+        "radius_mm": 4.0
       },
       {
         "id": "PINION",
@@ -501,7 +502,8 @@
         "rpm": 3000.0,
         "spin": "ccw",
         "rel_speed": 1.0,
-        "motor_id": null
+        "motor_id": null,
+        "radius_mm": 11.25
       },
       {
         "id": "GEAR",
@@ -518,7 +520,8 @@
         "rpm": -1000.0,
         "spin": "cw",
         "rel_speed": -0.3333,
-        "motor_id": null
+        "motor_id": null,
+        "radius_mm": 33.75
       },
       {
         "id": "OUTPUT_SHAFT",
@@ -535,7 +538,8 @@
         "rpm": -1000.0,
         "spin": "cw",
         "rel_speed": -0.3333,
-        "motor_id": null
+        "motor_id": null,
+        "radius_mm": 4.0
       }
     ],
     "readouts": [
@@ -591,6 +595,28 @@
     "assumptions": [
       "Assumed input: a motor at 3000 rpm giving 0.5 N m.",
       "One spur mesh at 98% efficiency; the output turns the opposite way."
+    ],
+    "blocked": null,
+    "reveal_ids": [
+      "HOUSING_TOP"
     ]
-  }
+  },
+  "verdict": {
+    "status": "ok",
+    "headline": "Runs clean",
+    "sentence": "3.00 : 1 reduction. The pinion keeps a solid 5.4 mm rim around its 8 mm shaft.",
+    "metric": "rim"
+  },
+  "constants": [
+    {
+      "label": "Input motor",
+      "value": "3,000 rpm \u00b7 0.50 N\u00b7m",
+      "note": "assumed \u00b7 fixed in gearbox.py"
+    },
+    {
+      "label": "Teeth",
+      "value": "20\u00b0 involute, full depth",
+      "note": "98% efficient per mesh"
+    }
+  ]
 }

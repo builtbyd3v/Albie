@@ -14,7 +14,15 @@
       "options": null,
       "label": "Arms",
       "group": "Frame",
-      "help": "4 is a quad, 6 a hexacopter. Props spin in opposite pairs, so it's always even."
+      "help": "4 is a quad, 6 a hexacopter. Props spin in opposite pairs, so it's always even.",
+      "default": 4,
+      "parts": [
+        "ARM_1",
+        "ARM_2",
+        "ARM_3",
+        "ARM_4"
+      ],
+      "dimension": null
     },
     {
       "name": "arm_length",
@@ -26,7 +34,15 @@
       "options": null,
       "label": "Arm length",
       "group": "Frame",
-      "help": "Centre to motor. Longer arms make room for bigger props."
+      "help": "Centre to motor. Longer arms make room for bigger props.",
+      "default": 110.0,
+      "parts": [
+        "ARM_1",
+        "ARM_2",
+        "ARM_3",
+        "ARM_4"
+      ],
+      "dimension": "wheelbase"
     },
     {
       "name": "prop_diameter",
@@ -38,7 +54,15 @@
       "options": null,
       "label": "Prop diameter",
       "group": "Props",
-      "help": "Bigger props lift more, but they have to clear their neighbours."
+      "help": "Bigger props lift more, but they have to clear their neighbours.",
+      "default": 5.0,
+      "parts": [
+        "PROP_1",
+        "PROP_2",
+        "PROP_3",
+        "PROP_4"
+      ],
+      "dimension": "prop"
     },
     {
       "name": "motor_size",
@@ -50,7 +74,15 @@
       "options": null,
       "label": "Motor diameter",
       "group": "Power",
-      "help": "Bigger motors push harder and weigh more."
+      "help": "Bigger motors push harder and weigh more.",
+      "default": 28.0,
+      "parts": [
+        "MOTOR_1",
+        "MOTOR_2",
+        "MOTOR_3",
+        "MOTOR_4"
+      ],
+      "dimension": null
     },
     {
       "name": "plate_size",
@@ -62,7 +94,13 @@
       "options": null,
       "label": "Plate size",
       "group": "Frame",
-      "help": "The square carbon plates in the middle."
+      "help": "The square carbon plates in the middle.",
+      "default": 70.0,
+      "parts": [
+        "BOTTOM_PLATE",
+        "TOP_PLATE"
+      ],
+      "dimension": null
     },
     {
       "name": "battery_mah",
@@ -74,7 +112,12 @@
       "options": null,
       "label": "Battery",
       "group": "Power",
-      "help": "Capacity: longer hover time, but a heavier drone."
+      "help": "Capacity: longer hover time, but a heavier drone.",
+      "default": 1300,
+      "parts": [
+        "BATTERY"
+      ],
+      "dimension": null
     }
   ],
   "presets": [
@@ -117,5 +160,6 @@
     "Frame",
     "Props",
     "Power"
-  ]
+  ],
+  "glyph": "drone"
 }

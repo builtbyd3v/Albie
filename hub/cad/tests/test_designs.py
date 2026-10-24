@@ -45,7 +45,7 @@ def test_design_builds_exports_and_reports_metrics(script, tmp_path):
         gltf = read_glb_json(out / "model.glb")
         extents = [abs(x) for a in gltf["accessors"] if len(a.get("max", [])) == 3 for x in a["max"] + a["min"]]
         assert max(extents) < 1.0 and r["glb_bytes"] < 2_000_000  # metres, and small enough for the Quest's Wi-Fi
-        check_scene(r["analysis"], meta)  # markers, dimensions, explode, mass breakdown, demo (test_scene.py)
+        check_scene(r["analysis"], meta, r["schema"])  # the UI data: markers ... verdict, parameter rows (test_scene)
 
 
 def test_quadcopter_clearance_is_the_gap_between_the_built_props():

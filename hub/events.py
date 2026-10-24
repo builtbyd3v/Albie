@@ -87,6 +87,7 @@ class CadSpinPart(BaseModel):
     spin: str = ""                    # ccw | cw (seen from the tip of dir) | none
     rel_speed: float | None = None    # spin: speed relative to the input, signed
     motor_id: str | None = None       # hover: the motor under this prop
+    radius_mm: float | None = None    # design mm: a prop's swept radius, a gear's pitch radius, a shaft's radius
 
 
 class CadDemo(BaseModel):
@@ -101,6 +102,23 @@ class CadDemo(BaseModel):
     spin_parts: list[CadSpinPart] = []
     readouts: list[CadMetric] = []
     assumptions: list[str] = []
+    blocked: str | None = None        # why it can't run (button disabled, reason as its tooltip), else null
+    reveal_ids: list[str] = []        # parts to lift / turn to glass while it runs and on the stage (the gearbox lid)
+
+
+class CadVerdict(BaseModel):
+    """The panel's answer ("Will it fly?"), from the design's metrics."""
+    status: str = "ok"                # ok | warn | bad (the metrics' vocabulary)
+    headline: str = ""                # a word or two: Stable, Props collide, Runs clean
+    sentence: str = ""                # one plain sentence with the numbers
+    metric: str | None = None         # the id of the metric it's about
+
+
+class CadConstant(BaseModel):
+    """A fixed input the design assumes (an info row): the rocket's motor, the drone's power system."""
+    label: str
+    value: str
+    note: str = ""
 
 
 class CadAnalysis(BaseModel):
@@ -126,6 +144,8 @@ class CadAnalysis(BaseModel):
     explode: CadExplode | None = None
     mass_breakdown: list[CadMassItem] = []
     demo: CadDemo | None = None
+    verdict: CadVerdict | None = None
+    constants: list[CadConstant] = []
 
 
 class CadModelUpdated(BaseModel):
@@ -138,6 +158,7 @@ class CadModelUpdated(BaseModel):
     removed_ids: list[str] = []
     source: str = "api"               # api | pet | preset | script | undo | reset | open | startup
     analysis: CadAnalysis | None = None
+    label: str = ""                   # the version in words: Bit's request, a preset, "Saved rocket.py", a change
 
 
 class CadRegenFailed(BaseModel):

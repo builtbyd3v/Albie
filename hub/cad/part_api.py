@@ -4,19 +4,23 @@ Part scripts (and Bit, when it edits one) import only this module and build123d,
 Units are millimetres, Z up. Rocket parts put the tail at z=0 and the nose tip at +z.
 
 A part script is one file in hub/cad/parts/ (the file name is the design's id). It defines PARAMS and
-build(params) -> BuildResult, and optionally TITLE, DESCRIPTION, PRESETS ({name: {param: value}}),
-analyze(result, masses) -> list[Metric] | Analysis, and simulate_flight(result, masses). See parts/_template.py.
+build(params) -> BuildResult, and optionally TITLE, DESCRIPTION, GLYPH (the Designs menu icon: rocket | drone |
+gears | box), PRESETS ({name: {param: value}}), analyze(result, masses) -> list[Metric] | Analysis, and
+simulate_flight(result, masses). See parts/_template.py.
 
-analyze() can also hand Unity things to draw (all optional, in part millimetres; cad/scene.py converts them to the
-GLB's frame and works out generic ones for whatever is left out): markers, dimensions, explode, demo, mass_groups.
+analyze() can also hand Unity things to draw and say (all optional, in part millimetres; cad/scene.py converts them
+to the GLB's frame and works out generic ones for whatever is left out): markers, dimensions, explode, demo,
+mass_groups, verdict, constants.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 from typing import Any
 
 DEFAULT_GROUP = "General"            # the panel section of a parameter that names none
+DEFAULT_GLYPH = "box"                # the Designs menu icon of a design that names none
 
 Vec = tuple[float, float, float]     # a point or direction in part millimetres / axes (Z up)
 
@@ -45,6 +49,16 @@ class Param:
     label: str = ""
     group: str = ""               # the panel section it sits in ("Body", "Fins"); "" = "General"
     help: str = ""                # one short line on what it does (panel hint, Bit)
+    parts: tuple[str, ...] = ()   # the parts it shapes, as label patterns ("fin_*"); () = guessed from its name
+    dimension: str | None = None  # id of the dimension callout it changes; None = one with the same id as its name
+
+    def shapes(self, labels: list[str]) -> list[str]:
+        """The part labels this parameter shapes: those matching `parts`, else those sharing the first word of its
+        name (fin_root -> fin_1, fin_2, ...; shaft_diameter -> input_shaft, ...), else all of them."""
+        if self.parts:
+            return [label for label in labels if any(fnmatchcase(label, pattern) for pattern in self.parts)]
+        word = self.name.split("_")[0]
+        return [label for label in labels if word in label.split("_")] or list(labels)
 
     def fine_step(self) -> float | None:
         """`step`, or for a number without one: 1 for whole numbers, else about a hundredth of the range."""
@@ -75,11 +89,20 @@ class Param:
             clamped = float(clamped)
         return clamped, clamped != value
 
-    def schema(self, value: Any) -> dict[str, Any]:
-        return {"name": self.name, "value": value, "min": self.min, "max": self.max, "unit": self.unit,
-                "step": self.fine_step(), "options": list(self.options) if self.options else None,
-                "label": self.label or self.name.replace("_", " "),
-                "group": self.group or DEFAULT_GROUP, "help": self.help}
+    def schema(self, value: Any, labels: list[str] | None = None,
+               dimensions: list[str] | None = None) -> dict[str, Any]:
+        """The panel row. With the version's leaf part labels and dimension ids it also says which parts this
+        parameter shapes (`parts`, object ids) and which dimension callout it changes (`dimension`, or None)."""
+        out = {"name": self.name, "value": value, "min": self.min, "max": self.max, "unit": self.unit,
+               "step": self.fine_step(), "options": list(self.options) if self.options else None,
+               "label": self.label or self.name.replace("_", " "),
+               "group": self.group or DEFAULT_GROUP, "help": self.help, "default": self.coerce(self.default)[0]}
+        if labels is not None:
+            out["parts"] = [label.upper() for label in self.shapes(labels)]
+        if dimensions is not None:
+            wanted = self.dimension if self.dimension is not None else self.name
+            out["dimension"] = wanted if wanted in dimensions else None
+        return out
 
 
 def param_groups(schema: list[dict[str, Any]]) -> list[str]:
@@ -179,6 +202,14 @@ class Metric:
                 "bands": [{"to": to, "status": status} for to, status in self.bands], "note": self.note}
 
 
+def primary_metric(metrics: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A design's main metric among analysis metrics (schema dicts), as {id, label, value, display, status}: the
+    first with a range (the panel's dial: the rocket's margin, the drone's prop clearance), else the first."""
+    main = next((m for m in metrics if m.get("min") is not None and m.get("max") is not None),
+                metrics[0] if metrics else None)
+    return None if main is None else {k: main.get(k) for k in ("id", "label", "value", "display", "status")}
+
+
 def band(value: float, bands: tuple[tuple[float, str], ...]) -> str:
     """Status of value in ascending (upper bound, status) bands; past the last bound counts as the last band."""
     for upper, status in bands:
@@ -249,6 +280,7 @@ class Spinner:
     rpm: float
     rel_speed: float | None = None  # speed relative to the demo's input, signed (a gear train's ratio per gear)
     motor: str | None = None        # label of the motor part that drives it (a drone's prop)
+    radius_mm: float | None = None  # what to draw round the axis: a prop's swept radius, a gear's pitch radius
 
 
 @dataclass
@@ -264,12 +296,32 @@ class Demo:
     readouts: list[Metric] = field(default_factory=list)
     values: dict[str, float] = field(default_factory=dict)
     assumptions: list[str] = field(default_factory=list)
+    blocked: str | None = None              # why the demo can't run (the button greys out), e.g. props collide
+    reveal: list[str] = field(default_factory=list)   # part labels to lift / turn to glass while it runs (a lid)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """The design's answer on the panel ("Will it fly?"): status ok | warn | bad, a headline of a word or two, one
+    plain sentence with the numbers. metric: the id of the metric it's about."""
+    status: str
+    headline: str
+    sentence: str
+    metric: str | None = None
+
+
+@dataclass(frozen=True)
+class Constant:
+    """A fixed input the design assumes rather than a parameter (the rocket's motor), shown as an info row."""
+    label: str
+    value: str
+    note: str = ""
 
 
 @dataclass
 class Analysis:
     """What analyze() returns when it adds more than metrics: fields of its own for the analysis block (the
-    rocket's margin) and, all optional, things for Unity to draw (part mm; None = the hub's generic version)."""
+    rocket's margin) and, all optional, things for Unity to draw and say (part mm; None = the hub's generic one)."""
     metrics: list[Metric] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
     markers: list[Marker] = field(default_factory=list)       # added to the hub's CG marker
@@ -277,3 +329,5 @@ class Analysis:
     explode: Explode | None = None                            # None: parts spread out from the centre
     demo: Demo | None = None                                  # None: launch with simulate_flight, else none
     mass_groups: dict[str, list[str]] | None = None           # {group label: part labels}; None: top-level assemblies
+    verdict: Verdict | None = None                            # None: from the worst metric
+    constants: list[Constant] = field(default_factory=list)   # fixed inputs (motor, power system, input motor)

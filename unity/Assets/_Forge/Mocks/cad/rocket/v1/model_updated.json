@@ -444,8 +444,29 @@
         },
         "spin_parts": [],
         "readouts": [],
-        "assumptions": []
-      }
-    }
+        "assumptions": [],
+        "blocked": null,
+        "reveal_ids": []
+      },
+      "verdict": {
+        "status": "ok",
+        "headline": "Stable",
+        "sentence": "Flies straight. 1.57 cal margin; 1.5 to 2.5 is the sweet spot.",
+        "metric": "margin"
+      },
+      "constants": [
+        {
+          "label": "Motor",
+          "value": "Estes C6-5",
+          "note": "24.1 g loaded \u00b7 fixed in rocket.py"
+        },
+        {
+          "label": "Recovery",
+          "value": "12 in parachute",
+          "note": "12 g with shock cord and wadding"
+        }
+      ]
+    },
+    "label": "Defaults"
   }
 }

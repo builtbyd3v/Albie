@@ -10,15 +10,19 @@ from cad.part_api import Analysis, BuildResult, Explode, ExplodeMove, Metric, Pa
 
 TITLE = "Storage box"                    # the Designs menu and the label on the desk
 DESCRIPTION = "A box with a lift-off lid."
+GLYPH = "box"                            # the Designs menu icon: rocket | drone | gears | box
 
 # Each parameter is a slider (or one button per option with options=(...)): name, default, min, max, unit, step
 # (the fine stepper's increment; leave it out and it's worked out from the range). Optional: label, group (the
-# panel section; default "General") and help (one short line for the panel and for Bit).
+# panel section; default "General"), help (one short line for the panel and for Bit), parts (label patterns of the
+# parts it shapes, lit on the model when you point at its row; default: parts named like it, else all) and
+# dimension (the id of the dimension callout it changes; default: the one with its name, here width/depth/height).
 PARAMS = [
     Param("width", 120.0, 40, 300, "mm", 5, label="Width", group="Size", help="Outside width, left to right."),
     Param("depth", 80.0, 40, 300, "mm", 5, label="Depth", group="Size", help="Outside depth, front to back."),
     Param("height", 60.0, 20, 200, "mm", 5, label="Height", group="Size", help="Outside height with the lid on."),
-    Param("wall", 2.0, 1, 6, "mm", 0.5, label="Wall", group="Walls", help="Wall, floor and lid thickness."),
+    Param("wall", 2.0, 1, 6, "mm", 0.5, label="Wall", group="Walls", parts=("tray", "lid"),
+          help="Wall, floor and lid thickness."),
 ]
 
 # Optional: named sets of values, applied on top of the current ones (buttons on the panel; Bit can use them too).
@@ -55,8 +59,12 @@ def analyze(result: BuildResult, masses) -> Analysis:
       dimensions=[Dimension(...)]                           callouts (default: overall width, depth, height)
       explode=Explode(...)                                  how it comes apart (default: spread out from the centre)
       demo=Demo(...)                                        the demo button (default: none; Fly for rockets). A fan:
-          Demo("spin", "Run", spinners=[Spinner("rotor", origin=(0, 0, 20), direction=(0, 0, 1), rpm=1200)])
+          Demo("spin", "Run", spinners=[Spinner("rotor", origin=(0, 0, 20), direction=(0, 0, 1), rpm=1200,
+                                                radius_mm=60)], reveal=["guard"], blocked=None or "why it can't run")
       mass_groups={"Shell": ["tray", "lid"]}                the mass breakdown (default: by top-level assembly)
+      verdict=Verdict("ok", "Holds 0.5 L", "One plain sentence.", "capacity")   the panel's answer (default: from
+                                                            the worst metric's status: ok, warn or bad)
+      constants=[Constant("Material", "PLA", "1.24 g/cm³")]  fixed inputs, shown as info rows
     """
     p = result.params
     litres = (p["width"] - 2 * p["wall"]) * (p["depth"] - 2 * p["wall"]) * (p["height"] - 2 * p["wall"]) / 1e6

@@ -438,6 +438,26 @@
     },
     "spin_parts": [],
     "readouts": [],
-    "assumptions": []
-  }
+    "assumptions": [],
+    "blocked": null,
+    "reveal_ids": []
+  },
+  "verdict": {
+    "status": "warn",
+    "headline": "Marginal",
+    "sentence": "Flies, but a gust can push it off course. 1.25 cal; aim for 1.5.",
+    "metric": "margin"
+  },
+  "constants": [
+    {
+      "label": "Motor",
+      "value": "Estes C6-5",
+      "note": "24.1 g loaded \u00b7 fixed in rocket.py"
+    },
+    {
+      "label": "Recovery",
+      "value": "12 in parachute",
+      "note": "12 g with shock cord and wadding"
+    }
+  ]
 }

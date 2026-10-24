@@ -11,31 +11,34 @@ from build123d import (Axis, BuildLine, BuildSketch, Color, Compound, Cylinder, 
 from cad.analysis import (MARGIN_BANDS, MARGIN_GAUGE_MAX, STABILITY_ASSUMPTIONS, STABILITY_STATUS, barrowman,
                           center_of_mass, on_axis_gltf, stability_label)
 from cad.flight import simulate as simulate_flight  # noqa: F401 - the Fly button (GET /cad/flight)
-from cad.part_api import (Analysis, BuildResult, Dimension, Explode, ExplodeMove, FinSet, Marker, Metric, Param,
-                          PointMass, RocketSpec, ShellMass, SolidMass)
+from cad.part_api import (Analysis, BuildResult, Constant, Dimension, Explode, ExplodeMove, FinSet, Marker, Metric,
+                          Param, PointMass, RocketSpec, ShellMass, SolidMass, Verdict)
 
 PART = "rocket"
 TITLE = "Model rocket"
 DESCRIPTION = "Estes C6 model rocket: nose cone, body tube, motor mount, fins. Live Barrowman stability."
+GLYPH = "rocket"
 
+# parts: the parts a parameter shapes (lit on the model when you point at its row); dimension: the callout it changes.
 PARAMS = [
-    Param("body_length", 300.0, 150, 600, "mm", 5, label="Body length", group="Body",
-          help="Body tube length; the nose adds to it. Longer is more stable."),
-    Param("body_diameter", 40.0, 28, 60, "mm", 1, label="Body diameter", group="Body",
+    Param("body_length", 300.0, 150, 600, "mm", 5, label="Body length", group="Body", parts=("body_tube",),
+          dimension="length", help="Body tube length; the nose adds to it. Longer is more stable."),
+    Param("body_diameter", 40.0, 28, 60, "mm", 1, label="Body diameter", group="Body", dimension="diameter",
+          parts=("body_tube", "nose_cone", "centering_ring_*"),
           help="Outside diameter of the body tube. Wider adds drag and weight."),
-    Param("nose_length", 90.0, 40, 200, "mm", 5, label="Nose length", group="Nose",
-          help="A longer nose is slimmer and slips through the air more easily."),
-    Param("nose_shape", "ogive", options=("ogive", "cone"), label="Nose shape", group="Nose",
+    Param("nose_length", 90.0, 40, 200, "mm", 5, label="Nose length", group="Nose", parts=("nose_cone",),
+          dimension="length", help="A longer nose is slimmer and slips through the air more easily."),
+    Param("nose_shape", "ogive", options=("ogive", "cone"), label="Nose shape", group="Nose", parts=("nose_cone",),
           help="Ogive: rounded shoulders, low drag. Cone: straight sides."),
-    Param("fin_count", 3, 3, 6, "", 1, label="Fin count", group="Fins",
+    Param("fin_count", 3, 3, 6, "", 1, label="Fin count", group="Fins", parts=("fin_*",),
           help="Fins, evenly spaced round the tail. More fins, more stability."),
-    Param("fin_root", 70.0, 25, 120, "mm", 1, label="Fin root chord", group="Fins",
+    Param("fin_root", 70.0, 25, 120, "mm", 1, label="Fin root chord", group="Fins", parts=("fin_*",),
           help="Fin length along the body tube."),
-    Param("fin_tip", 35.0, 5, 100, "mm", 1, label="Fin tip chord", group="Fins",
+    Param("fin_tip", 35.0, 5, 100, "mm", 1, label="Fin tip chord", group="Fins", parts=("fin_*",),
           help="Fin length at its outer edge."),
-    Param("fin_span", 60.0, 15, 100, "mm", 1, label="Fin span", group="Fins",
-          help="How far each fin sticks out. Bigger fins pull the CP back: more stable."),
-    Param("fin_sweep", 35.0, 0, 100, "mm", 1, label="Fin sweep", group="Fins",
+    Param("fin_span", 60.0, 15, 100, "mm", 1, label="Fin span", group="Fins", parts=("fin_*",),
+          dimension="fin_span", help="How far each fin sticks out. Bigger fins pull the CP back: more stable."),
+    Param("fin_sweep", 35.0, 0, 100, "mm", 1, label="Fin sweep", group="Fins", parts=("fin_*",),
           help="How far back the tip's leading edge sits from the root's."),
 ]
 
@@ -57,6 +60,13 @@ DENSITY = {"paper": 0.70, "polystyrene": 1.05, "balsa": 0.16, "plywood": 0.68}  
 MOTOR = ("Estes C6 (loaded)", 24.1, 70.0)  # name, g, length mm: thrustcurve.org / NAR certification
 EJECTION_DELAY_S = 5.0                     # a C6-5: the ejection charge fires 5 s after burnout
 RECOVERY_G, PARACHUTE_MM = 12.0, 305.0     # 12" parachute, shock cord, wadding
+
+# The panel's verdict for each stability band: headline, sentence (with the margin in calibers).
+VERDICTS = {"unstable": ("Unstable", "Likely to tumble. {:.2f} cal margin; it needs at least 1.0."),
+            "marginal": ("Marginal", "Flies, but a gust can push it off course. {:.2f} cal; aim for 1.5."),
+            "stable": ("Stable", "Flies straight. {:.2f} cal margin; 1.5 to 2.5 is the sweet spot."),
+            "overstable": ("Overstable", "Very stable, but it will turn into the wind. {:.2f} cal; over 2.5 "
+                                         "weathercocks.")}
 
 
 def tube(outer_r, inner_r, length, z=0.0):
@@ -132,13 +142,15 @@ def build(p) -> BuildResult:
 
 def analyze(result: BuildResult, masses) -> Analysis:
     """Static stability: CP from Barrowman, CG at liftoff, margin in calibers (body diameters).
-    Plus the CP marker, dimension callouts and the exploded view for Unity (the CG marker comes free)."""
+    Plus, for the panel and Unity: the verdict, the fixed motor and recovery, the CP marker, dimension callouts and
+    the exploded view (the CG marker comes free)."""
     spec = result.rocket
     _, (_, _, cg_z) = center_of_mass(result, masses)
     cp_from_tip, cna = barrowman(spec)
     cg_from_tip = spec.length_mm - cg_z
     margin = (cp_from_tip - cg_from_tip) / spec.diameter_mm
     stability = stability_label(margin)
+    headline, sentence = VERDICTS[stability]
     return Analysis(
         metrics=[Metric("margin", "Static margin", margin, "cal", STABILITY_STATUS[stability], 0.0, MARGIN_GAUGE_MAX,
                         MARGIN_BANDS, note=stability, digits=2),
@@ -151,7 +163,11 @@ def analyze(result: BuildResult, masses) -> Analysis:
                "assumptions": STABILITY_ASSUMPTIONS},
         markers=[Marker("cp", "CP", "cp", (0.0, 0.0, spec.length_mm - cp_from_tip))],
         dimensions=dimensions(spec, result.params["body_length"]),
-        explode=explode(result, spec))
+        explode=explode(result, spec),
+        verdict=Verdict(STABILITY_STATUS[stability], headline, sentence.format(margin), "margin"),
+        constants=[Constant("Motor", f"{spec.motor}-{EJECTION_DELAY_S:g}", f"{MOTOR[1]:g} g loaded · fixed in rocket.py"),
+                   Constant("Recovery", f"{PARACHUTE_MM / 25.4:.0f} in parachute",
+                            f"{RECOVERY_G:g} g with shock cord and wadding")])
 
 
 def dimensions(spec: RocketSpec, body_len: float) -> list[Dimension]:

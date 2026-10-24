@@ -19,11 +19,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from cad.part_api import ParamError
+from cad.part_api import DEFAULT_GLYPH, ParamError
 from cad.worker import WorkerHandle, default_title, script_sha
 from events import CadModelUpdated, CadRegenFailed, CadView, EventBus
 
 log = logging.getLogger("forge.cad")
+LABEL_MAX = 120   # a version label (Bit's request in the user's words) is cut to this many characters
 
 
 class VersionRecord(BaseModel):
@@ -43,6 +44,39 @@ class VersionRecord(BaseModel):
     description: str = ""
     presets: dict[str, dict[str, Any]] = {}
     features: list[str] = []
+    label: str = ""          # what made it, in words: Bit's request, a preset name, "Saved rocket.py", a change
+    glyph: str = ""          # the design's icon (rocket | drone | gears | box)
+
+
+def number_text(value: Any) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def change_label(schema: list[dict[str, Any]], before: dict[str, Any] | None, after: dict[str, Any]) -> str:
+    """A version's change in words, from its parent's values: "Fin span 60 → 36 mm", "Fin root chord, fin tip chord
+    +2", or "Defaults" for a design's first version."""
+    if before is None:
+        return "Defaults"
+    rows = {p["name"]: p for p in schema}
+    changed = [name for name, value in after.items() if before.get(name) != value]
+    if not changed:
+        return "No change"
+    labels = [rows.get(name, {}).get("label") or name for name in changed]
+    if len(changed) == 1:
+        unit = rows.get(changed[0], {}).get("unit")
+        return (f"{labels[0]} {number_text(before.get(changed[0]))} → {number_text(after[changed[0]])}"
+                + (f" {unit}" if unit else ""))
+    return f"{labels[0]}, {labels[1][:1].lower()}{labels[1][1:]}" + (f" +{len(changed) - 2}" if len(changed) > 2 else "")
+
+
+def version_label(record: "VersionRecord") -> str:
+    """The stored label, or for a version built before labels existed, one from how it was made."""
+    if record.label:
+        return record.label
+    if record.parent is None:
+        return "Defaults"
+    return {"script": f"Saved {record.part}.py", "reset": "Reset to defaults", "pet": "Changed by Bit",
+            "preset": "Preset"}.get(record.source, "Edited")
 
 
 class RegenError(Exception):
@@ -52,14 +86,14 @@ class RegenError(Exception):
 
 
 def scan_part(script: Path) -> dict[str, Any]:
-    """A design's title, description, presets and features, read from its source without running it."""
+    """A design's title, description, glyph, presets and features, read from its source without running it."""
     info: dict[str, Any] = {"part": script.stem, "title": default_title(script.stem), "description": "",
-                            "presets": {}, "features": []}
+                            "glyph": DEFAULT_GLYPH, "presets": {}, "features": []}
     try:
         tree = ast.parse(script.read_text(encoding="utf-8"), filename=script.name)
     except (OSError, SyntaxError, ValueError) as e:
         return {**info, "error": f"{type(e).__name__}: {e}"}
-    keys = {"TITLE": "title", "DESCRIPTION": "description", "PRESETS": "presets"}
+    keys = {"TITLE": "title", "DESCRIPTION": "description", "PRESETS": "presets", "GLYPH": "glyph"}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
                 and node.targets[0].id in keys:
@@ -149,8 +183,9 @@ class CadService:
                 fresh = head is not None and head.script_sha == script_sha(self.script_for(part))
             except OSError:
                 continue  # deleted while listing
-            info = ({"part": part, "title": head.title, "description": head.description, "presets": head.presets,
-                     "features": head.features} if fresh else scan_part(self.script_for(part)))
+            info = ({"part": part, "title": head.title, "description": head.description,
+                     "glyph": head.glyph or DEFAULT_GLYPH, "presets": head.presets, "features": head.features}
+                    if fresh else scan_part(self.script_for(part)))
             out.append({**info, "version": head.version if head else None, "active": part == self.active})
         return out
 
@@ -163,25 +198,28 @@ class CadService:
 
     # changes (all on the open design)
 
-    async def set_params(self, changes: dict[str, Any], source: str = "api") -> VersionRecord:
+    async def set_params(self, changes: dict[str, Any], source: str = "api", label: str | None = None) -> VersionRecord:
+        """`label`: what the version is called in the history (Bit passes the user's request); default: the change
+        in words."""
         async with self._lock:
             known = {p["name"] for p in self.current.param_schema}
             unknown = sorted(set(changes) - known)
             if unknown:
                 raise ParamError(f"Unknown parameter(s) {unknown}; {self.current.title} has {sorted(known)}")
-            return await self._build(self.active, changes, source=source)
+            return await self._build(self.active, changes, source=source, label=label)
 
-    async def apply_preset(self, name: str, source: str = "preset") -> VersionRecord:
-        """A named set of values from the design's PRESETS, on top of the current ones. Case doesn't matter."""
+    async def apply_preset(self, name: str, source: str = "preset", label: str | None = None) -> VersionRecord:
+        """A named set of values from the design's PRESETS, on top of the current ones. Case doesn't matter.
+        The version is labelled with the preset's name unless `label` says otherwise."""
         presets = self.current.presets
         match = next((n for n in presets if n.casefold() == name.strip().casefold()), None)
         if match is None:
             raise LookupError(f"No preset {name!r}; {self.current.title} has {list(presets)}")
-        return await self.set_params(presets[match], source=source)
+        return await self.set_params(presets[match], source=source, label=label or match)
 
     async def reset(self) -> VersionRecord:
         async with self._lock:
-            return await self._build(self.active, {}, source="reset", from_head=False)
+            return await self._build(self.active, {}, source="reset", from_head=False, label="Reset to defaults")
 
     async def rebuild_from_script(self) -> VersionRecord:
         async with self._lock:
@@ -277,8 +315,9 @@ class CadService:
         await self._announce(record, None, source)
         return record
 
-    async def _build(self, part: str, changes: dict[str, Any], *, source: str, from_head: bool = True) -> VersionRecord:
-        """Build a new version of `part` and make it that design's head. Lock held."""
+    async def _build(self, part: str, changes: dict[str, Any], *, source: str, from_head: bool = True,
+                     label: str | None = None) -> VersionRecord:
+        """Build a new version of `part` and make it that design's head. Lock held. `label`: see set_params."""
         parent = self.heads.get(part)
         params = {**self._versions[parent].params, **changes} if from_head and parent is not None else dict(changes)
         version = max(self._versions, default=0) + 1
@@ -293,12 +332,19 @@ class CadService:
             log.warning("CAD regen of %s failed (%s): %s", part, source, failure.error)
             await self.bus.publish("cad.regen_failed", failure)
             raise RegenError(failure, result.get("traceback"))
+        if label:
+            label = " ".join(str(label).split())[:LABEL_MAX]
+        elif source == "script":
+            label = f"Saved {part}.py"
+        else:
+            label = change_label(result["schema"], self._versions[parent].params if parent is not None else None,
+                                 result["params"])
         record = VersionRecord(
             version=version, parent=parent, created_at=time.time(), source=source, part=part,
             params=result["params"], param_schema=result["schema"], analysis=result["analysis"],
             fingerprints=result["fingerprints"], script_sha=result["script_sha"], clamped=result["clamped"],
             timings_ms=result["timings_ms"], title=result["title"], description=result["description"],
-            presets=result["presets"], features=result["features"])
+            presets=result["presets"], features=result["features"], label=label, glyph=result["glyph"])
         self._versions[version] = record
         self.heads[part] = version
         self._save_index()
@@ -311,7 +357,7 @@ class CadService:
         await self.bus.publish("cad.model_updated", CadModelUpdated(
             version=record.version, part=record.part, title=record.title, params=record.params,
             previous_version=previous, changed_ids=changed, removed_ids=removed, source=source,
-            analysis=record.analysis))
+            analysis=record.analysis, label=version_label(record)))
 
     # persistence
 

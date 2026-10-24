@@ -523,7 +523,8 @@
             "rpm": 3000.0,
             "spin": "ccw",
             "rel_speed": 1.0,
-            "motor_id": null
+            "motor_id": null,
+            "radius_mm": 4.0
           },
           {
             "id": "PINION",
@@ -540,7 +541,8 @@
             "rpm": 3000.0,
             "spin": "ccw",
             "rel_speed": 1.0,
-            "motor_id": null
+            "motor_id": null,
+            "radius_mm": 9.0
           },
           {
             "id": "GEAR",
@@ -557,7 +559,8 @@
             "rpm": -500.0,
             "spin": "cw",
             "rel_speed": -0.1667,
-            "motor_id": null
+            "motor_id": null,
+            "radius_mm": 54.0
           },
           {
             "id": "OUTPUT_SHAFT",
@@ -574,7 +577,8 @@
             "rpm": -500.0,
             "spin": "cw",
             "rel_speed": -0.1667,
-            "motor_id": null
+            "motor_id": null,
+            "radius_mm": 4.0
           }
         ],
         "readouts": [
@@ -630,8 +634,31 @@
         "assumptions": [
           "Assumed input: a motor at 3000 rpm giving 0.5 N m.",
           "One spur mesh at 98% efficiency; the output turns the opposite way."
+        ],
+        "blocked": null,
+        "reveal_ids": [
+          "HOUSING_TOP"
         ]
-      }
-    }
+      },
+      "verdict": {
+        "status": "warn",
+        "headline": "Runs, with care",
+        "sentence": "6.00 : 1. A 12-tooth pinion gets undercut (14+ avoids it) and its rim is thin at 3.1 mm.",
+        "metric": "rim"
+      },
+      "constants": [
+        {
+          "label": "Input motor",
+          "value": "3,000 rpm \u00b7 0.50 N\u00b7m",
+          "note": "assumed \u00b7 fixed in gearbox.py"
+        },
+        {
+          "label": "Teeth",
+          "value": "20\u00b0 involute, full depth",
+          "note": "98% efficient per mesh"
+        }
+      ]
+    },
+    "label": "High reduction"
   }
 }

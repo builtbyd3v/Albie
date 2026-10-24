@@ -9,7 +9,7 @@
 
 **Status 2026-10-24 (round 3, `HANDOFF_CAD_3.md` 4.4 + 4.3 + 4.5):** **Inspect, take apart and the drawing done** (sandbox and desktop mode; XR simulator not yet tried). **Inspect** (panel button, key I) flies the model to a stage in front of the eyes, fitted to a 0.6 m box in front of the VS Code screen, turned to show a corner; Back to desk flies it home. **Take apart** works only there: hover outlines a part and shows a card (name, material, mass), grab with the mouse or a controller / hand ray, Shift+drag (mouse) or twist (rays) to turn, drop near its place to snap back, Reassemble. View only. Core change: `VolumeManipulator.ModelAway` (Hudson OK'd). **Drawing:** the hub draws each version as an A3 engineering sheet (`GET /cad/drawing.png`, `.svg`; `hub/cad/drawing.py`), and `CadDrawingPanel.prefab` (slot `cad-drawing`) shows it; tap to zoom. Waiting on Core: slotting `cad-drawing` in place of `cad-timeline` (`Workspace.DefaultModes` + `MainSceneBuilder`). 34 hub tests. How-tos: the CAD README ("Inspect", "Take it apart", "The drawing panel").
 
-**Status 2026-10-24 (round 4, hub data for `HANDOFF_UI2.md` section 3):** every design now reports parameter groups and help, markers, dimension callouts, per-part explode vectors, a mass breakdown and a demo (rocket launch, quadcopter hover, gearbox spin), and `/cad/flight` runs pad to landing with fixed-rate samples and events. All additive, mocks refreshed (JSON only; GLBs and drawings unchanged). 62 CAD tests. Unity side not wired yet. Fields: section 5, round 4.
+**Status 2026-10-24 (round 4, hub data for `HANDOFF_UI2.md` section 3):** every design now reports parameter groups and help, markers, dimension callouts, per-part explode vectors, a mass breakdown and a demo (rocket launch, quadcopter hover, gearbox spin), and `/cad/flight` runs pad to landing with fixed-rate samples and events. Part 2 (the design spec's asks): parameter defaults, the parts and dimension each parameter changes, a verdict per design, fixed-input info rows, demo radii / blocked / reveal, version labels with the main metric, and design glyphs. All additive, mocks refreshed (JSON only; GLBs and drawings unchanged). 84 CAD tests. Unity side not wired yet. Fields: section 5, round 4.
 
 ---
 
@@ -113,7 +113,8 @@ analysis (cad.model_updated, GET /cad/analysis, the POST responses, mocks analys
   dimensions:     [{ id, label, value_mm, from: [x,y,z], to: [x,y,z], offset_dir: [x,y,z], offset_mm }]
                   2-4 per design. value_mm = |to - from| (design mm); from/to are on the model; draw the line offset_mm
                   (design mm) along offset_dir (unit, perpendicular to the span) with extension lines back.
-                  rocket: length, diameter, fin_span. quadcopter: wheelbase (motor to opposite motor), width, height.
+                  rocket: length, diameter, fin_span. quadcopter: wheelbase (motor to opposite motor), width, height,
+                  prop (prop 1's diameter along its blades; added in part 2).
                   gearbox: length, height, depth (over the shafts), centre_distance (on the lid).
                   Default: width, depth, height along the bounding box's edges (= size_mm; what the drawing dimensions).
   explode:        { axis: stack | radial | shaft | auto, parts: [{ id, dir: [x,y,z], dist_mm, order }] }
@@ -161,19 +162,64 @@ GET  /cad/flight?v={version}  adds (rocket designs; existing fields unchanged; a
               the one before). downrange = horizontal distance from the pad along the launch heading (trajectory_m's north).
 ```
 
+Round 4, part 2 (the design spec's asks, `HANDOFF_UI2/cad/CAD_UX_SPEC.md` section 8; additive, same frame):
+
+```
+GET  /cad/params?v={version}  adds  glyph: string            the design's icon: rocket | drone | gears | box (default box)
+     params[] add  default     the design's default value, as built (clamped to the range): the default tick, Reset row
+                   parts       string[]: leaf part ids the parameter shapes, lit when its row is pointed at. The part's
+                               `parts` patterns, else the parts sharing the first word of its name (fin_root -> FIN_1..),
+                               else all parts
+                   dimension   string | null: the analysis.dimensions id it changes, drawn with the highlight. The part's,
+                               else the dimension with the parameter's own name (the template's width/depth/height)
+                   rocket: body_length -> BODY_TUBE + length, body_diameter -> body, nose, rings + diameter, nose_length ->
+                   length, fin_* -> FIN_N (fin_span -> fin_span); quadcopter: arm_length -> ARM_N + wheelbase,
+                   prop_diameter -> PROP_N + prop; gearbox: pinion/gear teeth, module -> centre_distance, face_width ->
+                   depth, shaft_diameter -> shafts + bearings.
+GET  /cad/parts               parts[] add  glyph             (unopened designs: read from the source's GLYPH = "...")
+GET  /cad/versions            rows add  label: string        the version in words: Bit's request (the new optional
+                                        `request` argument of cad_set_params / cad_apply_preset), the preset's name,
+                                        "Saved rocket.py", "Reset to defaults", "Defaults" (a design's first version), else
+                                        the change: "Fin span 60 → 36 mm", "Fin root chord, fin tip chord +1"
+                                primary: { id, label, value, display, status } | null   the design's main metric for
+                                        that version: the first metric with a range (rocket margin, quad clearance, gearbox
+                                        rim), else the first metric
+cad.model_updated adds  label    (the same; the mocks carry the demo story's requests and the preset names)
+analysis adds:
+  verdict:   { status: ok | warn | bad, headline, sentence, metric }   the panel's answer, from the metrics (status in the
+             metrics' vocabulary; metric = the id it's about).
+             rocket (static margin bands): Unstable bad / Marginal warn / Stable ok / Overstable warn.
+             quadcopter (bad before warn): Props collide (clearance < 0), Too heavy (thrust < 2x weight), Tight (clearance
+             < 5 mm), Sluggish (thrust < 4x weight), else Clear to fly.
+             gearbox: Pinion too weak (rim bad), Runs, with care (rim thin and/or a pinion under 14 teeth: undercut),
+             else Runs clean. Sentences carry the numbers ("Likely to tumble. 0.84 cal margin; it needs at least 1.0.").
+             Default: the first of the worst metrics speaks ("Needs work" / "Check it": "<label> is <display> (<note>).")
+             or "Looks good".
+  constants: [{ label, value, note }]   fixed inputs, as info rows. rocket: Motor "Estes C6-5", Recovery "12 in
+             parachute"; quadcopter: Power system "4S LiPo, 14.8 V", Thrust per motor; gearbox: Input motor "3,000 rpm ·
+             0.50 N·m", Teeth "20° involute, full depth". Default: [].
+  demo adds  blocked: string | null     why the demo can't run (button disabled, the reason as its tooltip). quadcopter:
+                                        "Props collide: neighbouring props overlap by 22 mm.", "Too heavy to lift off.";
+                                        its values still come back. Rockets are never blocked (the no-wind sim flies).
+             reveal_ids: string[]       parts to lift / turn to glass while it runs and on the stage: gearbox HOUSING_TOP
+             spin_parts[] add radius_mm prop swept radius, gear pitch radius (m z / 2), shaft radius (design mm)
+```
+
 The climb is RocketPy's run as before (so `apogee_m`, `time_to_apogee_s`, `max_speed_mps`, `trajectory_m` don't change).
 The way down is a quick point-mass model with drag: it falls until the C6-5's ejection charge fires (5 s after burnout,
 but not before apogee: a light rocket still climbing then gets an assumptions line saying so), the 12" parachute (Cd
 0.75 on its flat diameter) fills in 0.5 s, and it descends at ~4-5 m/s (baseline: lands at ~50 s, ~36 m downrange). It
 adds a few tens of ms to the RocketPy run. No wind, so the drift comes from the 85 deg launch.
 
-Part scripts may supply all of this (part millimetres, Z up; the hub converts): `Param(..., group=, help=)`, and
-`analyze()` returning `Analysis(markers=, dimensions=, explode=, demo=, mass_groups=)` (types in `cad/part_api.py`,
-`Marker`, `Dimension`, `Explode`/`ExplodeMove`, `Demo`/`Spinner`, plus `box_dimensions`). See `cad/parts/_template.py`.
-Anything left out gets the default above, so a new design has all five blocks. Bit's tools (`cad_get_params`,
-`cad_set_params`, ...) get the numbers without the coordinates (no explode, markers, dimension end points or spin parts),
-and `cad_simulate_flight` leaves out the samples. Versions built before round 4 (older `library.json` records) have none
-of the new keys: treat missing as "not provided" (the hub rebuilds a design whose part script changed when it opens).
+Part scripts may supply all of this (part millimetres, Z up; the hub converts): `GLYPH = "..."`, `Param(..., group=,
+help=, parts=, dimension=)`, and `analyze()` returning `Analysis(markers=, dimensions=, explode=, demo=, mass_groups=,
+verdict=, constants=)` (types in `cad/part_api.py`: `Marker`, `Dimension`, `Explode`/`ExplodeMove`, `Demo`/`Spinner`
+(with `radius_mm`, and `Demo.blocked` / `Demo.reveal`), `Verdict`, `Constant`, plus `box_dimensions`). See
+`cad/parts/_template.py`. Anything left out gets the default above, so a new design has every block. Bit's tools
+(`cad_get_params`, `cad_set_params`, ...) get the numbers without the coordinates (no explode, markers, dimension end
+points, spin parts or parameter part lists), and `cad_simulate_flight` leaves out the samples. Versions built before
+round 4 (older `library.json` records) have none of the new keys: treat missing as "not provided" (the hub rebuilds a
+design whose part script changed when it opens; a stored version without a label gets one from how it was made).
 
 Round 3 (the drawing; Inspect and take apart are Unity only, no contract change):
 

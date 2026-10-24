@@ -8,22 +8,25 @@ import math
 
 from build123d import Align, Box, Circle, Color, Compound, Cylinder, Location, Plane, Polygon, Solid
 
-from cad.part_api import (Analysis, BuildResult, Demo, Dimension, Explode, ExplodeMove, Marker, Metric, Param,
-                          SolidMass, Spinner, band)
+from cad.part_api import (Analysis, BuildResult, Constant, Demo, Dimension, Explode, ExplodeMove, Marker, Metric,
+                          Param, SolidMass, Spinner, Verdict, band)
 
 TITLE = "Gearbox"
 DESCRIPTION = "Spur gear reducer: pinion, gear, shafts, bearings, split housing. Ratio = gear teeth / pinion teeth."
+GLYPH = "gears"
 
+# parts: the parts a parameter shapes (lit on the model when you point at its row); dimension: the callout it changes.
 PARAMS = [
-    Param("pinion_teeth", 15, 8, 40, "", 1, label="Pinion teeth", group="Gears",
-          help="Teeth on the small input gear. Under 14 they get undercut."),
-    Param("gear_teeth", 45, 16, 100, "", 1, label="Gear teeth", group="Gears",
-          help="Teeth on the big output gear. Ratio = gear teeth / pinion teeth."),
-    Param("module", 1.5, 0.75, 3.0, "mm", 0.25, label="Gear module", group="Gears",
-          help="Tooth size: pitch diameter / teeth. Bigger teeth carry more load."),
-    Param("face_width", 10.0, 4, 30, "mm", 1, label="Face width", group="Gears",
-          help="How wide the gears are along their shafts."),
+    Param("pinion_teeth", 15, 8, 40, "", 1, label="Pinion teeth", group="Gears", parts=("pinion",),
+          dimension="centre_distance", help="Teeth on the small input gear. Under 14 they get undercut."),
+    Param("gear_teeth", 45, 16, 100, "", 1, label="Gear teeth", group="Gears", parts=("gear",),
+          dimension="centre_distance", help="Teeth on the big output gear. Ratio = gear teeth / pinion teeth."),
+    Param("module", 1.5, 0.75, 3.0, "mm", 0.25, label="Gear module", group="Gears", parts=("pinion", "gear"),
+          dimension="centre_distance", help="Tooth size: pitch diameter / teeth. Bigger teeth carry more load."),
+    Param("face_width", 10.0, 4, 30, "mm", 1, label="Face width", group="Gears", parts=("pinion", "gear"),
+          dimension="depth", help="How wide the gears are along their shafts."),
     Param("shaft_diameter", 8.0, 4, 16, "mm", 1, label="Shaft diameter", group="Shafts",
+          parts=("*_shaft", "bearing_*"),
           help="Thicker shafts are stiffer but leave less metal round the pinion's bore."),
 ]
 
@@ -46,6 +49,32 @@ FRONT = (0.0, -1.0, 0.0)     # the shafts' direction, out of the front (where th
 BEARINGS = [f"bearing_{s}_{end}" for s in ("in", "out") for end in ("front", "back")]
 MASS_GROUPS = {"Housing": ["housing_bottom", "housing_top"], "Gears": ["pinion", "gear"],
                "Shafts": ["input_shaft", "output_shaft"], "Bearings": BEARINGS}
+CONSTANTS = [
+    Constant("Input motor", f"{INPUT_RPM:,.0f} rpm · {INPUT_TORQUE_NM:.2f} N·m", "assumed · fixed in gearbox.py"),
+    Constant("Teeth", f"{math.degrees(PRESSURE_ANGLE):.0f}° involute, full depth",
+             f"{MESH_EFFICIENCY:.0%} efficient per mesh"),
+]
+
+
+def verdict(rim, rim_status, z1, ratio, shaft) -> Verdict:
+    """Will it run? A pinion rim too thin to survive its shaft first; then a thin rim or undercut teeth."""
+    if rim_status == "bad":
+        if rim <= 0:
+            return Verdict("bad", "Pinion too weak", f"The {shaft:g} mm shaft is wider than the pinion's tooth roots: "
+                           "the pinion can't be made. Fit a thinner shaft or more teeth.", "rim")
+        return Verdict("bad", "Pinion too weak", f"Only {rim:.1f} mm of metal round the {shaft:g} mm shaft: the "
+                       "pinion will crack.", "rim")
+    undercut = z1 < UNDERCUT_BELOW
+    if rim_status == "warn" or undercut:
+        if undercut and rim_status == "warn":
+            issue = f"A {z1}-tooth pinion gets undercut ({UNDERCUT_BELOW}+ avoids it) and its rim is thin at {rim:.1f} mm"
+        elif undercut:
+            issue = f"A {z1}-tooth pinion gets undercut when it's cut; {UNDERCUT_BELOW} or more teeth avoid it"
+        else:
+            issue = f"The pinion's rim is thin at {rim:.1f} mm round its {shaft:g} mm shaft"
+        return Verdict("warn", "Runs, with care", f"{ratio:.2f} : 1. {issue}.", "rim" if rim_status == "warn" else "pinion")
+    return Verdict("ok", "Runs clean", f"{ratio:.2f} : 1 reduction. The pinion keeps a solid {rim:.1f} mm rim around "
+                   f"its {shaft:g} mm shaft.", "rim")
 
 
 def labelled(shape, label, rgb):
@@ -169,21 +198,25 @@ def analyze(result: BuildResult, masses) -> Analysis:
                  Marker("output", "Output", "output", (axis_out[0], shaft_out.max.Y, axis_out[2]))],
         dimensions=dimensions(result, boxes, axis_in, axis_out),
         explode=explode(boxes),
-        demo=run(z1, z2, axis_in, axis_out),
-        mass_groups=MASS_GROUPS)
+        demo=run(m, z1, z2, p["shaft_diameter"], axis_in, axis_out),
+        mass_groups=MASS_GROUPS,
+        verdict=verdict(rim, rim_status, z1, ratio, p["shaft_diameter"]),
+        constants=CONSTANTS)
 
 
-def run(z1, z2, axis_in, axis_out) -> Demo:
-    """The gear train turning at the assumed input speed: external gears turn opposite ways."""
+def run(m, z1, z2, shaft, axis_in, axis_out) -> Demo:
+    """The gear train turning at the assumed input speed: external gears turn opposite ways. The lid lifts and
+    turns to glass so the mesh shows."""
     ratio, rel = z2 / z1, -z1 / z2
     out_rpm, out_torque = INPUT_RPM / ratio, INPUT_TORQUE_NM * ratio * MESH_EFFICIENCY
     return Demo(
-        "spin", "Run", axis=(axis_in, FRONT),
+        "spin", "Run", axis=(axis_in, FRONT), reveal=["housing_top"],
         note=(f"A {INPUT_RPM:.0f} rpm motor on the input turns the output {out_rpm:.0f} rpm the other way, "
               f"with {out_torque:.2f} N m."),
-        spinners=[Spinner("input_shaft", axis_in, FRONT, INPUT_RPM, 1.0), Spinner("pinion", axis_in, FRONT, INPUT_RPM, 1.0),
-                  Spinner("gear", axis_out, FRONT, INPUT_RPM * rel, rel),
-                  Spinner("output_shaft", axis_out, FRONT, INPUT_RPM * rel, rel)],
+        spinners=[Spinner("input_shaft", axis_in, FRONT, INPUT_RPM, 1.0, radius_mm=shaft / 2),
+                  Spinner("pinion", axis_in, FRONT, INPUT_RPM, 1.0, radius_mm=m * z1 / 2),
+                  Spinner("gear", axis_out, FRONT, INPUT_RPM * rel, rel, radius_mm=m * z2 / 2),
+                  Spinner("output_shaft", axis_out, FRONT, INPUT_RPM * rel, rel, radius_mm=shaft / 2)],
         readouts=[Metric("ratio", "Ratio", ratio, "", display=f"{ratio:.2f} : 1"),
                   Metric("input", "Input speed", INPUT_RPM, "rpm"), Metric("output", "Output speed", out_rpm, "rpm"),
                   Metric("torque", "Output torque", out_torque, "N m", digits=2)],

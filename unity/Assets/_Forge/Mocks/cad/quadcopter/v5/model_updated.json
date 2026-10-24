@@ -319,6 +319,27 @@
             0.0
           ],
           "offset_mm": 18.9
+        },
+        {
+          "id": "prop",
+          "label": "Prop diameter",
+          "value_mm": 127.0,
+          "from": [
+            0.12268,
+            0.0308,
+            -0.03288
+          ],
+          "to": [
+            0.03288,
+            0.0308,
+            -0.12268
+          ],
+          "offset_dir": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "offset_mm": 12.0
         }
       ],
       "explode": {
@@ -632,7 +653,8 @@
             "rpm": 8478.4,
             "spin": "ccw",
             "rel_speed": null,
-            "motor_id": "MOTOR_1"
+            "motor_id": "MOTOR_1",
+            "radius_mm": 63.5
           },
           {
             "id": "PROP_2",
@@ -649,7 +671,8 @@
             "rpm": -8478.4,
             "spin": "cw",
             "rel_speed": null,
-            "motor_id": "MOTOR_2"
+            "motor_id": "MOTOR_2",
+            "radius_mm": 63.5
           },
           {
             "id": "PROP_3",
@@ -666,7 +689,8 @@
             "rpm": 8478.4,
             "spin": "ccw",
             "rel_speed": null,
-            "motor_id": "MOTOR_3"
+            "motor_id": "MOTOR_3",
+            "radius_mm": 63.5
           },
           {
             "id": "PROP_4",
@@ -683,7 +707,8 @@
             "rpm": -8478.4,
             "spin": "cw",
             "rel_speed": null,
-            "motor_id": "MOTOR_4"
+            "motor_id": "MOTOR_4",
+            "radius_mm": 63.5
           }
         ],
         "readouts": [
@@ -752,8 +777,29 @@
           "Max static thrust per motor: the prop's (55 g per square inch of prop) or the motor's (2.2 g per mm^2 of motor diameter), whichever is lower, on a 4S pack.",
           "Thrust grows with rpm squared (static thrust coefficient 0.15) and rpm with throttle, so hover throttle = sqrt(hover thrust / max thrust).",
           "Props alternate direction round the frame (prop 1 counter-clockwise seen from above), so their torques cancel."
-        ]
-      }
-    }
+        ],
+        "blocked": null,
+        "reveal_ids": []
+      },
+      "verdict": {
+        "status": "ok",
+        "headline": "Clear to fly",
+        "sentence": "Props clear by 29 mm and thrust is 14.1 times its weight. About 10.9 min of hover.",
+        "metric": "clearance"
+      },
+      "constants": [
+        {
+          "label": "Power system",
+          "value": "4S LiPo, 14.8 V",
+          "note": "80% of the pack usable \u00b7 25% efficient at hover"
+        },
+        {
+          "label": "Thrust per motor",
+          "value": "55 g per in\u00b2 of prop",
+          "note": "or 2.2 g per mm\u00b2 of motor diameter, whichever is lower"
+        }
+      ]
+    },
+    "label": "Defaults"
   }
 }

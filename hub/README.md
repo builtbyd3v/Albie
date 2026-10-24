@@ -36,14 +36,17 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
   Designs menu in Unity) straight away; open it and save to regenerate. A part script defines `PARAMS` and
   `build(params) -> BuildResult`, optionally `TITLE`, `DESCRIPTION`, `PRESETS`, `analyze(result, masses)` (metrics:
   give `min`/`max` for a gauge) and `simulate_flight` (the Fly button). Mass, size and part count come free.
-- **Optional extras for the CAD UI** (all in part millimetres, Z up; see `_template.py`): `Param(..., group="Fins",
-  help="one short line")` puts the parameter in a panel section (default "General"; `step` is worked out from the range
-  if you give none). `analyze()` can return `Analysis(metrics=..., markers=[Marker(...)], dimensions=[Dimension(...)],
-  explode=Explode(axis, [ExplodeMove(part, direction, mm, order)]), demo=Demo(kind, label, spinners=[Spinner(...)]),
-  mass_groups={"Gears": ["pinion", "gear"]})`. Leave any out and `cad/scene.py` makes a generic one: the CG marker,
-  overall width/depth/height, parts spread out from the centre, mass by top-level assembly, and a demo of "launch" with
-  `simulate_flight`, else none. They land in the analysis block (`cad.model_updated`) in the GLB's frame: CAD_PLAN
-  section 5, round 4.
+- **Optional extras for the CAD UI** (all in part millimetres, Z up; see `_template.py`): `GLYPH = "rocket"` (the
+  Designs menu icon: rocket | drone | gears | box). `Param(..., group="Fins", help="one short line", parts=("fin_*",),
+  dimension="fin_span")` puts the parameter in a panel section (default "General"), says which parts it shapes and
+  which dimension callout it changes (defaults: parts named like it, a dimension with its name); `step` is worked out
+  from the range if you give none. `analyze()` can return `Analysis(metrics=..., markers=[Marker(...)],
+  dimensions=[Dimension(...)], explode=Explode(axis, [ExplodeMove(part, direction, mm, order)]), demo=Demo(kind, label,
+  spinners=[Spinner(..., radius_mm=)], blocked=, reveal=[...]), mass_groups={"Gears": ["pinion", "gear"]},
+  verdict=Verdict(status, headline, sentence, metric), constants=[Constant(label, value, note)])`. Leave any out and
+  `cad/scene.py` makes a generic one: the CG marker, overall width/depth/height, parts spread out from the centre, mass
+  by top-level assembly, a demo of "launch" with `simulate_flight` (else none), a verdict from the worst metric, no
+  constants. They land in the analysis block (`cad.model_updated`) in the GLB's frame: CAD_PLAN section 5, round 4.
 - Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
   `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
 - `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three

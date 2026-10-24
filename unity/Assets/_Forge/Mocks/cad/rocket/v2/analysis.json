@@ -423,6 +423,26 @@
     },
     "spin_parts": [],
     "readouts": [],
-    "assumptions": []
-  }
+    "assumptions": [],
+    "blocked": null,
+    "reveal_ids": []
+  },
+  "verdict": {
+    "status": "bad",
+    "headline": "Unstable",
+    "sentence": "Likely to tumble. 0.84 cal margin; it needs at least 1.0.",
+    "metric": "margin"
+  },
+  "constants": [
+    {
+      "label": "Motor",
+      "value": "Estes C6-5",
+      "note": "24.1 g loaded \u00b7 fixed in rocket.py"
+    },
+    {
+      "label": "Recovery",
+      "value": "12 in parachute",
+      "note": "12 g with shock cord and wadding"
+    }
+  ]
 }

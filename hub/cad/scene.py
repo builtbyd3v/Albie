@@ -1,14 +1,15 @@
-"""What Unity draws on and around the model, per version: the analysis block's markers, dimensions, explode,
-mass_breakdown and demo (CAD_PLAN section 5, round 4).
+"""What Unity draws on and around the model, and what the panel says about it, per version: the analysis block's
+markers, dimensions, explode, mass_breakdown, demo, verdict and constants (CAD_PLAN section 5, round 4).
 
 A part script can supply any of them from analyze() (part_api.Analysis, in part millimetres, Z up). This module
 converts them to the model frame and works out generic ones for whatever it leaves out, so a new design gets
-all five for free:
+all of them for free:
 - markers: the CG (id "cg") always, plus the part's own (the rocket's CP, the drone's thrust centre).
 - dimensions: the part's, else the overall width, depth and height (part_api.box_dimensions).
 - explode: an entry for every leaf part; the part's moves (parts without one stay put), else auto_explode.
 - mass_breakdown: by the part's mass_groups, else by top-level assembly; point masses (motor, parachute) get rows.
 - demo: the part's, else "launch" for a design with simulate_flight and a RocketSpec, else "none".
+- verdict: the part's, else from the worst metric. constants: the part's, else none.
 
 The model frame is the glTF scene space of the version's model.glb, the same space as analysis.cg_gltf and
 markers_gltf: metres, Y up, right-handed, origin at the part script's origin (the GLB's root node turns the part's
@@ -24,12 +25,13 @@ from typing import Any, Iterable
 from cad.analysis import Masses, leaves, to_gltf
 from cad.export import object_id
 from cad.flight import INCLINATION_DEG, RAIL_M
-from cad.part_api import (Analysis, BuildResult, Demo, Dimension, Explode, ExplodeMove, Marker, Vec,
+from cad.part_api import (Analysis, BuildResult, Demo, Dimension, Explode, ExplodeMove, Marker, Vec, Verdict,
                           box_dimensions)
 
 MAIN_AXIS_BIAS = 2.0    # auto explode: an offset along the design's longest side counts double...
 AUTO_SPREAD = 0.9       # ...each part moves 0.9x its (biased) offset from the centre,
 AUTO_MIN, AUTO_MAX = 0.12, 0.6   # at least 0.12 and at most 0.6 of the longest side
+SEVERITY = {"ok": 0, "warn": 1, "bad": 2}
 
 
 # The model frame
@@ -67,8 +69,9 @@ def centre(shape, masses: Masses) -> tuple[float, float, float]:
 # The five blocks
 
 def extras(result: BuildResult, masses: Masses, plan: Analysis, *, cg_mm: Vec, total_g: float,
-           features: Iterable[str] = ()) -> dict[str, Any]:
-    """The analysis block's markers, dimensions, explode, mass_breakdown and demo for one built version."""
+           metrics: list[dict[str, Any]], features: Iterable[str] = ()) -> dict[str, Any]:
+    """The analysis block's markers, dimensions, explode, mass_breakdown, demo, verdict and constants for one built
+    version. `metrics`: the block's metrics (schema dicts), for the generic verdict."""
     labels = [s.label for s in leaves(result.assembly)]
     dims = plan.dimensions if plan.dimensions is not None else box_dimensions(result.assembly)
     return {
@@ -77,7 +80,27 @@ def extras(result: BuildResult, masses: Masses, plan: Analysis, *, cg_mm: Vec, t
         "explode": explode(plan.explode if plan.explode is not None else auto_explode(result, masses), labels),
         "mass_breakdown": mass_breakdown(result, masses, plan.mass_groups, total_g),
         "demo": demo(plan.demo if plan.demo is not None else default_demo(result, features), labels),
+        "verdict": verdict(plan.verdict if plan.verdict is not None else worst_metric_verdict(metrics)),
+        "constants": [{"label": c.label, "value": c.value, "note": c.note} for c in plan.constants],
     }
+
+
+def verdict(v: Verdict) -> dict[str, Any]:
+    if v.status not in SEVERITY:
+        raise ValueError(f"verdict status must be ok, warn or bad, got {v.status!r}")
+    return {"status": v.status, "headline": v.headline, "sentence": v.sentence, "metric": v.metric}
+
+
+def worst_metric_verdict(metrics: list[dict[str, Any]]) -> Verdict:
+    """The generic verdict: the first of the worst metrics (bad, then warn) speaks; all fine says so."""
+    worst = max(metrics, key=lambda m: SEVERITY.get(m.get("status"), 0), default=None)
+    if worst is None or SEVERITY.get(worst.get("status"), 0) == 0:
+        shown = ", ".join(f"{m['label'].lower()} {m['display']}" for m in metrics[:2])
+        return Verdict("ok", "Looks good", f"Nothing out of range: {shown}." if shown else "Nothing out of range.",
+                       metrics[0]["id"] if metrics else None)
+    note = f" ({worst['note']})" if worst.get("note") else ""
+    return Verdict(worst["status"], "Needs work" if worst["status"] == "bad" else "Check it",
+                   f"{worst['label']} is {worst['display']}{note}.", worst["id"])
 
 
 def markers(own: list[Marker], cg_mm: Vec) -> list[dict[str, Any]]:
@@ -193,8 +216,13 @@ def demo(d: Demo, labels: list[str]) -> dict[str, Any]:
         spin.append({"id": object_id(s.part), "origin": point(s.origin), "dir": direction(s.direction),
                      "rpm": round(rpm, 1), "spin": "ccw" if rpm > 0 else "cw" if rpm < 0 else "none",
                      "rel_speed": None if s.rel_speed is None else round(float(s.rel_speed), 4),
-                     "motor_id": None if s.motor is None else object_id(s.motor)})
+                     "motor_id": None if s.motor is None else object_id(s.motor),
+                     "radius_mm": None if s.radius_mm is None else round(float(s.radius_mm), 2)})
+    unknown = [label for label in d.reveal if label not in labels]
+    if unknown:
+        raise ValueError(f"demo reveals {unknown}, which aren't parts; the parts are {labels}")
     return {"kind": d.kind, "label": d.label, "note": d.note, "source": d.source,
             "axis": None if d.axis is None else {"origin": point(d.axis[0]), "dir": direction(d.axis[1])},
             "values": {k: round(float(v), 4) for k, v in d.values.items()},
-            "spin_parts": spin, "readouts": [m.schema() for m in d.readouts], "assumptions": list(d.assumptions)}
+            "spin_parts": spin, "readouts": [m.schema() for m in d.readouts], "assumptions": list(d.assumptions),
+            "blocked": d.blocked or None, "reveal_ids": [object_id(label) for label in d.reveal]}

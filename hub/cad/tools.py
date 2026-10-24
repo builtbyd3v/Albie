@@ -34,12 +34,19 @@ TOOLS: list[dict[str, Any]] = [
                     "the new metrics: if one went bad, tell the user and suggest a fix.",
      "parameters": {"type": "object", "properties": {
          "changes": {"type": "object", "description": "parameter name -> new value, e.g. {\"fin_count\": 4}",
-                     "additionalProperties": {"type": ["number", "string"]}}},
+                     "additionalProperties": {"type": ["number", "string"]}},
+         "request": {"type": "string", "description": "What the user asked for, in a few of their words, e.g. "
+                                                       "\"Make the fins smaller\"; it names the version in the "
+                                                       "design's history."}},
          "required": ["changes"]}},
     {"name": "cad_apply_preset",
      "description": "Apply one of the open design's named presets (from cad_get_params), on top of its current "
                     "values. Returns the new metrics, like cad_set_params.",
-     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "request": {"type": "string", "description": "What the user asked for, in a few of their words (for the "
+                                                       "history; the preset's name if left out)."}},
+         "required": ["name"]}},
     {"name": "cad_undo", "description": "Undo the last change to the open design.", "parameters": NO_ARGS},
     {"name": "cad_reset", "description": "Put the open design back to its defaults (undo still works afterwards).",
      "parameters": NO_ARGS},
@@ -75,7 +82,8 @@ def _brief(analysis: dict[str, Any]) -> dict[str, Any]:
 
 def _design(cad: CadService) -> dict[str, Any]:
     r = cad.current
-    return {"part": r.part, "title": r.title, "version": r.version, "params": r.param_schema,
+    params = [{k: v for k, v in p.items() if k != "parts"} for p in r.param_schema]   # part lists are for Unity
+    return {"part": r.part, "title": r.title, "version": r.version, "params": params,
             "presets": list(r.presets), "analysis": _brief(r.analysis), "part_ids": sorted(r.fingerprints)}
 
 
@@ -97,9 +105,11 @@ async def call_tool(name: str, args: dict[str, Any], cad: CadService, bus: Event
         if name == "cad_get_params":
             return _design(cad)
         if name == "cad_set_params":
-            return _changed(cad, await cad.set_params(args.get("changes") or {}, source="pet"))
+            return _changed(cad, await cad.set_params(args.get("changes") or {}, source="pet",
+                                                      label=args.get("request") or None))
         if name == "cad_apply_preset":
-            return _changed(cad, await cad.apply_preset(str(args.get("name", "")), source="pet"))
+            return _changed(cad, await cad.apply_preset(str(args.get("name", "")), source="pet",
+                                                        label=args.get("request") or None))
         if name == "cad_undo":
             await cad.undo()
             return _design(cad)

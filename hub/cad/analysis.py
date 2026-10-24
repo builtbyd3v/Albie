@@ -115,7 +115,8 @@ def analyze(result: BuildResult, masses: Masses,
             part_analyze: Callable[[BuildResult, Masses], list[Metric] | Analysis] | None = None, *,
             features: Iterable[str] = ()) -> dict[str, Any]:
     """The analysis block of cad.model_updated: generic fields and metrics, plus the part's own analyze(), plus
-    what Unity draws (markers, dimensions, explode, mass_breakdown, demo). `features`: the design's ("flight")."""
+    what Unity draws and says (markers, dimensions, explode, mass_breakdown, demo, verdict, constants).
+    `features`: the design's ("flight")."""
     from cad.scene import extras  # cad.scene imports this module, so not at the top
 
     total, cg = center_of_mass(result, masses)
@@ -137,5 +138,5 @@ def analyze(result: BuildResult, masses: Masses,
         own = own.metrics
     ids = {m.id for m in own}
     out["metrics"] = [m.schema() for m in [*own, *(g for g in generic_metrics(total, size_mm, count) if g.id not in ids)]]
-    out.update(extras(result, masses, plan, cg_mm=cg, total_g=total, features=features))
+    out.update(extras(result, masses, plan, cg_mm=cg, total_g=total, metrics=out["metrics"], features=features))
     return out

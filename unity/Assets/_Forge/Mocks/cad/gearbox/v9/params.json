@@ -14,7 +14,12 @@
       "options": null,
       "label": "Pinion teeth",
       "group": "Gears",
-      "help": "Teeth on the small input gear. Under 14 they get undercut."
+      "help": "Teeth on the small input gear. Under 14 they get undercut.",
+      "default": 15,
+      "parts": [
+        "PINION"
+      ],
+      "dimension": "centre_distance"
     },
     {
       "name": "gear_teeth",
@@ -26,7 +31,12 @@
       "options": null,
       "label": "Gear teeth",
       "group": "Gears",
-      "help": "Teeth on the big output gear. Ratio = gear teeth / pinion teeth."
+      "help": "Teeth on the big output gear. Ratio = gear teeth / pinion teeth.",
+      "default": 45,
+      "parts": [
+        "GEAR"
+      ],
+      "dimension": "centre_distance"
     },
     {
       "name": "module",
@@ -38,7 +48,13 @@
       "options": null,
       "label": "Gear module",
       "group": "Gears",
-      "help": "Tooth size: pitch diameter / teeth. Bigger teeth carry more load."
+      "help": "Tooth size: pitch diameter / teeth. Bigger teeth carry more load.",
+      "default": 1.5,
+      "parts": [
+        "PINION",
+        "GEAR"
+      ],
+      "dimension": "centre_distance"
     },
     {
       "name": "face_width",
@@ -50,7 +66,13 @@
       "options": null,
       "label": "Face width",
       "group": "Gears",
-      "help": "How wide the gears are along their shafts."
+      "help": "How wide the gears are along their shafts.",
+      "default": 10.0,
+      "parts": [
+        "PINION",
+        "GEAR"
+      ],
+      "dimension": "depth"
     },
     {
       "name": "shaft_diameter",
@@ -62,7 +84,17 @@
       "options": null,
       "label": "Shaft diameter",
       "group": "Shafts",
-      "help": "Thicker shafts are stiffer but leave less metal round the pinion's bore."
+      "help": "Thicker shafts are stiffer but leave less metal round the pinion's bore.",
+      "default": 8.0,
+      "parts": [
+        "INPUT_SHAFT",
+        "BEARING_IN_FRONT",
+        "BEARING_IN_BACK",
+        "OUTPUT_SHAFT",
+        "BEARING_OUT_FRONT",
+        "BEARING_OUT_BACK"
+      ],
+      "dimension": null
     }
   ],
   "presets": [
@@ -101,5 +133,6 @@
   "groups": [
     "Gears",
     "Shafts"
-  ]
+  ],
+  "glyph": "gears"
 }

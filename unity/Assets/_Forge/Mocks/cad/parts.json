@@ -38,7 +38,8 @@
         "flight"
       ],
       "version": 1,
-      "active": true
+      "active": true,
+      "glyph": "rocket"
     },
     {
       "part": "quadcopter",
@@ -81,7 +82,8 @@
       ],
       "features": [],
       "version": 5,
-      "active": false
+      "active": false,
+      "glyph": "drone"
     },
     {
       "part": "gearbox",
@@ -121,7 +123,8 @@
       ],
       "features": [],
       "version": 8,
-      "active": false
+      "active": false,
+      "glyph": "gears"
     }
   ]
 }
