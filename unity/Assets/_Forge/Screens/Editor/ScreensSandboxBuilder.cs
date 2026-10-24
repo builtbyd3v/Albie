@@ -47,6 +47,7 @@ public static class ScreensSandboxBuilder
         root.AddComponent<ScreenSurface>().image = image;
         root.AddComponent<ScreenReceiver>();
         root.AddComponent<JpegScreenReceiver>().enabled = false; // ScreenReceiver turns it on if WebRTC fails
+        root.AddComponent<ScreenContext>();
 
         PrefabUtility.SaveAsPrefabAsset(root, ScreenForgePanelPath);
         Object.DestroyImmediate(root);

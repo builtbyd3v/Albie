@@ -30,6 +30,7 @@ public class CadTakeApart : MonoBehaviour
     const string LayerPrefix = "Glow ";         // CadViewer's outline layers
     const string MouseHint = "drag: move · Shift+drag: turn · scroll: push / pull";
     const string RayHint = "twist to turn · thumbstick: push / pull";
+    const string HandHint = "twist to turn · reach out to push it away";
 
     class Piece
     {
@@ -391,7 +392,7 @@ public class CadTakeApart : MonoBehaviour
         string facts = o?["material"] is JObject material ? (string)material["name"] : "";
         double? kg = (double?)o?["mass"];
         if (kg.HasValue) facts += (facts.Length > 0 ? " · " : "") + (kg.Value < 1.0 ? $"{kg.Value * 1000.0:0.#} g" : $"{kg.Value:0.##} kg");
-        string hint = holding ? (pointer != null && pointer.IsMouse ? MouseHint : RayHint) + "\nlet go near its place to put it back"
+        string hint = holding ? (pointer != null && pointer.IsMouse ? MouseHint : pointer != null && pointer.IsHand ? HandHint : RayHint) + "\nlet go near its place to put it back"
                     : p.off ? "grab to move it" : "grab to take it off";
         return "<b>" + name + "</b>" + (facts.Length > 0 ? "\n<size=82%><alpha=#B8>" + facts : "") + "\n<size=72%><alpha=#8C>" + hint;
     }

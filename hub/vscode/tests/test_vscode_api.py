@@ -3,7 +3,9 @@ from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
 
 from events import EventBus
+from vscode import tools
 from vscode.router import router
+from vscode.tests.fake_extension import fake_extension  # noqa: F401 - pytest fixture
 
 
 @pytest.fixture
@@ -42,3 +44,14 @@ def test_command_finished_carries_exit_code(client):
 
 def test_unknown_kind_is_rejected(client):
     assert client.post("/vscode/event", json={"kind": "saved"}).status_code == 422
+
+
+def test_context_proxies_the_extension(client, fake_extension):
+    r = client.get("/vscode/context")
+    assert r.status_code == 200 and r.json() == {"ok": True}
+    assert fake_extension == [("GET", "/context", None)]
+
+
+def test_context_is_503_when_vscode_is_closed(client, monkeypatch):
+    monkeypatch.setattr(tools, "BASE", "http://127.0.0.1:9")  # nothing listens there
+    assert client.get("/vscode/context").status_code == 503

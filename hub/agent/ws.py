@@ -39,6 +39,7 @@ from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
 from .voice import VoiceSession, make_voice, view_note
 from .wake import WakeRouter
+from .watcher import watcher
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
             crew.remove_listener(s.crew_listener)  # type: ignore[arg-type]
         if s.voice is not None:
             speech.unregister(s.pet_id, s.voice)
+            watcher.drop(s.voice)
             await s.voice.close()
         # Drop a running Q&A (nobody is listening), but let a code task finish on its
         # branch: a flaky Quest Wi-Fi reconnect must not abort half-done edits.
@@ -298,6 +300,7 @@ async def _open_voice(s: Session, h: Hello) -> None:
     voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
+    watcher.add(voice)  # proactive lines are spoken too
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))
     s.spawn(_voice_call(s, voice.start))
 
@@ -340,6 +343,7 @@ async def _voice_call(s: Session, fn) -> None:
         if s.voice is voice and voice is not None:
             s.voice = None
             speech.unregister(s.pet_id, voice)
+            watcher.drop(voice)
             await voice.close()
             await s.reply_error(f"Voice is offline ({exc}). Push-to-talk still works without it.")
 
