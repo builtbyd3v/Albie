@@ -51,7 +51,8 @@ public class ForgeSurface : MaskableGraphic
         float radius = pill ? Mathf.Min(half.x, half.y) : Mathf.Min(corner, Mathf.Min(half.x, half.y));
         // Room outside the shape for the shadow / glow.
         float pad = kind == Kind.Panel ? 56f * shadow + 1f : glow > 0f ? 14f : 1f;
-        var shape = new Vector4(half.x, half.y, radius, kind == Kind.Panel ? header : 0f);
+        // A pill's ends are truly round (the shader reads a negative corner that way); other corners are squircles.
+        var shape = new Vector4(half.x, half.y, pill ? -radius : radius, kind == Kind.Panel ? header : 0f);
         var style = new Vector4(kind == Kind.Panel ? 0f : 1f, glow, shadow, outline);
         Color32 c = color;
         float x0 = -half.x - pad, x1 = half.x + pad;
