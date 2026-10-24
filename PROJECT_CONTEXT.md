@@ -7,10 +7,15 @@
 
 ## 0. Status (update this as you go)
 
-**2026-10-24, Hudson (desk extras, branch `desk/timer-notes-movie`):**
-- **Done: hub side of the desk extras**, things Bit adds on top of any mode that stay open across mode switches: named **focus timers** ("Bit, set a focus timer for an hour", "and a 4 minute tea timer": pills above the screens, each rings at its end until you turn it off; minimized, one dot shows the soonest), **notes** ("add that to my notes", "pull up my notes"; minimizes to a dot you can move), and a **movie screen** above the desk ("put the movie on"; resumes where you stopped). `hub/desk/`: REST `/timers`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`, 11 Bit tools, mocks (`python -m desk.make_mocks`), tests. Proposed contract: hub/README "Desk (timers, notes, movie)".
-- **Movie:** files go in `hub/.data/media/` (gitignored; the Quest streams from the hub, nothing in the APK). Recipe for H.264 + English stereo in the README.
-- **Next: Unity** (mockups first): a pinned layer in `Workspace` for items outside the modes, the timer pill + chime, the notes panel + `PanelOrb` (tap to open, hold to move), the movie screen (VideoPlayer from `/movie/files/...`).
+**2026-10-24, Hudson (desk extras, branch `desk/timer-notes-movie`, PR #39):**
+- **Done: desk extras, hub + Unity**, things Bit adds on top of any mode that stay open across mode switches, fold when you stand up and come back when you sit:
+  - **Focus timers**, named, up to 5 ("Bit, set a focus timer for an hour", "and a 4 minute tea timer"): pills just above the main panel (above ML's Training), soonest at the bottom, a rim of light draining; ringing they pulse and chime (a bell built in code) until Stop; +5 min.
+  - **Notes** ("add that to my notes", "pull up my notes"): beside the open panels; check off, remove with Undo.
+  - **Movie** ("put the movie on"): a big screen high over the desk streaming `hub/.data/media/*.mp4` from the hub (resumes where you stopped, subtitles, quieter while Bit talks).
+  - **Dots:** the timers and the notes minimize into a neon dot (the soonest timer's minutes / the open count). Tap to open there; hold to carry it.
+- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 11 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`; Main has it under the Workspace. Proposed contract: hub/README "Desk (timers, notes, movie)".
+- Core changes: `Workspace.TopEdge` / `BesidePose` / `LayoutEye` (read-only helpers), `PanelManipulator.AddMinimize` + `PointedAt`. Main rebuilt (Forge > Build Main Scene).
+- The pet's name in the extras' UI is one field (`DeskExtras.assistantName`, "Bit").
 
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
 - **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).

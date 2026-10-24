@@ -16,7 +16,7 @@ public enum PanelGrab { None, Move, ResizeLeft, ResizeRight, TurnLeft, TurnRight
 ///   Push back / pull in with the scroll wheel, the thumbstick, or by reaching out / pulling the hand in.
 /// - Brackets at the bottom corners: resize (the opposite corner stays put). Changes SizeMeters, not scale.
 /// - Bars at the sides: turn left / right. Bar under the bottom edge: tilt. Both snap to Face me and Straight.
-/// - Title bar buttons: Face me, Straight.
+/// - Title bar buttons: Face me, Straight (and − on a panel that minimizes, <see cref="AddMinimize"/>).
 /// </summary>
 [RequireComponent(typeof(ForgePanel))]
 public class PanelManipulator : MonoBehaviour
@@ -43,6 +43,8 @@ public class PanelManipulator : MonoBehaviour
     public bool UserPlaced { get; private set; }
     /// <summary>Set while the workspace animates the panel; grabs wait until it's done.</summary>
     public bool Busy { get; set; }
+    /// <summary>A pointer is on the panel or its handles this frame (the handles show).</summary>
+    public bool PointedAt { get; private set; }
 
     ForgePanel panel;
     RectTransform rect;
@@ -50,7 +52,7 @@ public class PanelManipulator : MonoBehaviour
     CanvasGroup controls;
     RayInteractable[] rays;
     PokeInteractable[] pokes;
-    ForgePill faceButton, straightButton;
+    ForgePill faceButton, straightButton, minimizeButton;
     ForgeSurface frameSurface;
     float showTimer, lit;
     Coroutine turning;
@@ -97,6 +99,18 @@ public class PanelManipulator : MonoBehaviour
 
     public void FaceMe() => TurnTo(PanelFacing.FaceMe);
     public void Straighten() => TurnTo(PanelFacing.Straight);
+
+    /// <summary>
+    /// A "−" pill left of Straight that shows with the others, for a panel that can shrink into a dot
+    /// (<see cref="WorkspaceExtras"/>). Call after <see cref="Init"/>; once.
+    /// </summary>
+    public void AddMinimize(UnityEngine.Events.UnityAction onMinimize)
+    {
+        if (controls == null || straightButton == null || minimizeButton != null) return;
+        float fromRight = faceButton.Rect.sizeDelta.x + 8f + straightButton.Rect.sizeDelta.x + 8f;
+        minimizeButton = TitleButton((RectTransform)controls.transform, "−", fromRight, onMinimize);
+        minimizeButton.Rect.sizeDelta = new Vector2(ForgeTheme.PillHeight, ForgeTheme.PillHeight);
+    }
 
     void OnDisable() => Cancel();
 
@@ -342,7 +356,7 @@ public class PanelManipulator : MonoBehaviour
     // frame's rim brightens while pointed at, and more while held (it only redraws while that changes).
     void UpdateFade()
     {
-        bool pointed = IsPointedAt();
+        bool pointed = PointedAt = IsPointedAt();
         if (pointed || grab != PanelGrab.None) showTimer = 0.6f;
         else showTimer -= Time.deltaTime;
         float target = showTimer > 0f ? 1f : 0f;

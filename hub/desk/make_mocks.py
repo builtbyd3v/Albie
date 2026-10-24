@@ -54,11 +54,12 @@ def sequence() -> list[dict[str, Any]]:
 
 def files() -> dict[str, Any]:
     return {
-        "Resources/Mocks/timers.json": TimersUpdated(timers=[FOCUS]).model_dump(),
+        "Resources/Mocks/timers.json": TimersUpdated().model_dump(),  # none: a mock timer would ring in Main hub-off
         "Resources/Mocks/notes.json": NotesUpdated(notes=NOTES).model_dump(),
         "Resources/Mocks/movie.json": MovieState(status="paused", movie=MOVIE, position_s=1200).model_dump(),
         "Resources/Mocks/movie/library.json": [MOVIE.model_dump()],
-        "Resources/Mocks/ui/widgets.json": UiWidgets(timer="open", notes="open").model_dump(),
+        # Closed: hub off in Main shows nothing until asked; the sandbox's sequence opens them.
+        "Resources/Mocks/ui/widgets.json": UiWidgets().model_dump(),
         "desk/sequence.json": sequence(),
     }
 

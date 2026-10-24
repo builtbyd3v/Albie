@@ -19,6 +19,7 @@ public static class MainSceneBuilder
     const string CameraRigPath = "Packages/com.meta.xr.sdk.core/Prefabs/OVRCameraRig.prefab";
     const string MrukPath = "Packages/com.meta.xr.mrutilitykit/Core/Tools/MRUK.prefab";
     const string DesktopRoomJsonPath = "Assets/_Forge/Core/Rooms/SimLivingRoom.json";
+    const string DeskExtrasPath = "Assets/_Forge/Desk/Prefabs/DeskExtras.prefab";
 
     // Module prefabs slotted into the workspace modes, by item id (the panel IDs of PROJECT_CONTEXT section 7).
     // Items without one get a placeholder ForgePanel/ForgeVolume.
@@ -91,6 +92,20 @@ public static class MainSceneBuilder
             foreach (var mode in workspace.modes)
                 foreach (var item in mode.items)
                     if (item.id == id) item.prefab = prefab;
+        }
+
+        // Bit's desk extras (timers, notes, the movie), on top of any mode: the Desk module's prefab, hosted by
+        // WorkspaceExtras (its host field set by name, so Core doesn't need the module's types).
+        var extras = root.AddComponent<WorkspaceExtras>();
+        extras.workspace = workspace;
+        var deskPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(DeskExtrasPath);
+        if (deskPrefab == null) Debug.LogWarning($"[MainSceneBuilder] {DeskExtrasPath} not found (Forge > Desk > Build Desk Prefabs); no desk extras.");
+        else
+        {
+            var desk = (GameObject)PrefabUtility.InstantiatePrefab(deskPrefab, root.transform);
+            var link = new SerializedObject(desk.GetComponent("DeskExtras"));
+            link.FindProperty("host").objectReferenceValue = extras;
+            link.ApplyModifiedPropertiesWithoutUndo();
         }
 
         // Desktop mode (no headset or simulator): first-person rig, and the room drawn from MRUK's data since
