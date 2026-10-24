@@ -57,17 +57,21 @@ Core API added in PR C: `Workspace.TryGetItemTransform(string itemId, out Transf
 
 Hub: `hub/screens/` supervises `screen-bridge/start.js` as a child of the hub process (restart with backoff, killed on shutdown). `SCREEN_BRIDGE=0` disables it.
 
-## 5. Work split and merge order
+## 5. One branch: `feat/bit-in-main`
 
-Merge first, in this order: **#29** (Hudson's restyle; rewrites Main.unity), **#26** (gator mouth), **#14** (Dev's proactive Bit; touches `ws.py`, `main.py`). Then the ML pair open the PR for `ml/unity-panels` and get **#6** reviewed, so PR C can slot both.
+Everything below is on **one branch / one PR** so Hudson can test it on the Quest in a single checkout. It was built as three pieces (hub, Pet + Messages, Core) and merged together; the pieces are listed so reviewers know where to look.
 
-| PR | Branch | Contents |
-|---|---|---|
-| **A** hub | `feat/one-process-hub` | `hub/screens/` supervisor + `screen.status`; `workspace.mode` session message, crew tools gated to `code`; crew tool allowlist by kit; `messages.focus`; Slack history backfill; remove `/agent/text`, `/ws/agent`, standalone agent app, `tts.py`; docs. |
-| **B** Unity Pet + Messages | `feat/pet-in-main` | `ArrivalDirector`; `HubSpeechToText` on the prefab, `TypedSpeechToText` and `MockEventSource` sandbox-only, `eventSource` defaults to hub; gator takes its desk from `DeskPresence`; crew gated by mode; walk-to-panel; jaw lip sync; `PetRuntime.prefab` (gator + voice + whistle + crew + hatchery + director); Messages prefabs built and committed; "Reply with Bit" → `messages.focus`; delete `PetMain.unity`. |
-| **C** Core | `feat/main-wiring` (stacked on #29) | `screens` → `code`; `TryGetItemTransform` / `Current`; `MainSceneBuilder` drops in `PetRuntime.prefab`, sets the MSG item to `MessagesPanel.prefab`, slots the ML prefabs; rebuild Main. |
+| Piece | Contents |
+|---|---|
+| hub | `hub/screens/` supervisor + `screen.status`; `workspace.mode` session message, crew tools gated to `code`; crew tool allowlist by kit; `messages.focus`; Slack history backfill; `/agent/text`, `/ws/agent`, standalone agent app and `tts.py` removed; docs. |
+| Unity Pet + Messages | `ArrivalDirector`; `HubSpeechToText` on the prefab, `TypedSpeechToText` and `MockEventSource` sandbox-only, `eventSource` defaults to hub; gator takes its desk from `DeskPresence`; crew gated by mode; walk-to-panel; jaw lip sync; `PetRuntime.prefab` (gator + voice + whistle + crew + hatchery + director); "Reply with Bit" → `messages.focus`; `PetMain.unity` deleted. |
+| Unity Core | `screens` → `code` (CODE); `Workspace.Current`, `TryGetItemTransform`; `MainSceneBuilder` drops in `PetRuntime.prefab`, sets the MSG item to `MessagesPanel.prefab`, slots the ML prefabs when they exist; Main rebuilt. |
 
-C is where everything built in isolation lands in Main. It merges last, in one editor pass: `Forge > Pet > Build All`, `Forge > Pet > Build PetRuntime Prefab`, `Forge > Messages > Build Prefabs`, `Forge > Build Main Scene`, commit prefabs + `.meta`.
+Already on main (Hudson, 2026-10-24 evening): #29 restyle, #30 CAD inspect, #35 CAD experience, #26 gator jaw. The branch is based on top of them.
+
+Still open and independent of this branch: **#14** (Dev's proactive Bit, speaks first on errors; small, based on an old main so Dev rebases it; worth merging after this), **#36** (Hudson's CAD drawing on the middle screen; touches the same `MainSceneBuilder` slot list and `DefaultModes`, trivial 3-way merge whichever lands second), **#6** / `ml/unity-panels` (ML; not needed for the pet demo, the ML slots are null-safe until they land).
+
+Editor pass, once, on this branch: `Forge > Pet > Build All` (ends with the PetRuntime prefab), `Forge > Messages > Build Prefabs`, `Forge > Build Main Scene`, commit prefabs + `.meta` + `Main.unity`.
 
 ## 6. Running it
 
