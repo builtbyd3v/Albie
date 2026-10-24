@@ -1,18 +1,13 @@
-"""`forge` command line: `forge replay <run_dir>`."""
+"""`forge` command line. `forge replay <run dir>` is the same as `python -m forge.replay <run dir>`."""
 
 from __future__ import annotations
 
-import argparse
+import sys
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="forge")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    replay = sub.add_parser("replay", help="stream a recorded run to the hub at demo speed")
-    replay.add_argument("run_dir", help="e.g. demo/fallback/run1")
-    replay.add_argument("--speed", type=float, default=1.0)
-    args = parser.parse_args()
+    if len(sys.argv) < 2 or sys.argv[1] != "replay":
+        sys.exit("usage: forge replay <run dir> [--speed N] [--max-gap S] [--print]")
+    from forge.replay import main as replay_main
 
-    if args.cmd == "replay":
-        # TODO: read recorded events from run_dir and re-emit them with original timing / speed
-        raise SystemExit(f"replay not implemented yet: {args.run_dir}")
+    replay_main(sys.argv[2:])

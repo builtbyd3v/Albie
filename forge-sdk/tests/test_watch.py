@@ -99,7 +99,7 @@ def test_watch_writes_run_dir_and_emits_events(tmp_path, capsys):
                          epochs=3, run_dir=tmp_path)
     run = tmp_path / run_id
     assert {p.name for p in run.iterdir()} == {"atlas.png", "atlas.json", "dataset.json", "classes.json",
-                                               "graph.json", "run.json"}
+                                               "graph.json", "run.json", "events.jsonl"}
     assert len(json.loads((run / "dataset.json").read_text())) == 20
     assert json.loads((run / "graph.json").read_text())["layers"][0]["type"] == "conv"
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]

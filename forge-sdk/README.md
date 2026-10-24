@@ -15,10 +15,17 @@ pytest forge-sdk/tests
 cd ml-examples/cifar10 && FORGE_OFFLINE=1 python train.py --epochs 2 && cd -
 
 # ML router dev server (until hub/main.py is pushed)
-cd hub && uvicorn ml.dev_server:app --reload --port 8000
+cd hub && uvicorn ml.dev_server:app --port 8000     # /ml routes + the real /ws event bus
 ```
 
-`FORGE_HUB_URL` (default `http://localhost:8000`) points the SDK at the hub.
+## Streaming and replay (A2)
+
+- Every event is appended to the run's `events.jsonl` (`{t, type, payload}`, `t` = seconds since the run started), so **every run is a recording**.
+- A background thread batches events and POSTs them to `$FORGE_HUB/ml/ingest` (default `http://127.0.0.1:8000`); the hub rebroadcasts them on `/ws`. Training never waits on the network.
+- Hub down? One warning line on stderr, training continues, `events.jsonl` still complete. `FORGE_OFFLINE=1` skips the hub and echoes events to stdout.
+- **The SDK never raises into the training script.** Each failure (graph, atlas, a bad metric) becomes one `forge: ... (training continues)` line.
+- `forge.log` sends `ml.run_state` + `ml.metrics` and fires `ml.overfit_alert` when val loss rises 2 epochs in a row while train loss falls (once; re-arms if val loss improves).
+- Replay a run: `python -m forge.replay <run dir> --speed 4 [--max-gap 2] [--print]` (or `forge replay ...`).
 
 ## ML mocks for Unity (`unity/Assets/_Forge/Mocks/ml/`)
 
