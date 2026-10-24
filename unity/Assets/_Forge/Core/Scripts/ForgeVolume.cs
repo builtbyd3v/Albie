@@ -4,7 +4,9 @@ using UnityEngine;
 /// <summary>
 /// A 3D container: a box of <see cref="size"/> meters whose base sits at this transform's origin.
 /// Put 3D content (a GLB rocket, model layer blocks, a photo stack) under it with <see cref="SetContent"/>;
-/// it is scaled to fit the box and stood on the base. The base ring shows where the volume is.
+/// it is scaled to fit the box and stood on the base. The base is a ring of light on the desk (Forge/NeonRing over a
+/// LightPool with a contrast wash) tinted with the mode's hue (<see cref="SetAccent"/>); it brightens and runs a comet
+/// while pointed at (<see cref="SetHighlight"/>).
 /// </summary>
 public class ForgeVolume : MonoBehaviour
 {
@@ -19,7 +21,21 @@ public class ForgeVolume : MonoBehaviour
     [SerializeField] Transform spin;         // turntable pivot at the base center
     [SerializeField] Transform contentRoot;  // child of spin; scaled and offset by Fit
     [SerializeField] Transform baseRing;
+    [SerializeField] MeshRenderer basePool;
     [SerializeField] TMP_Text label;
+
+    const float BasePad = 0.03f;  // room around the ring for its glow (m)
+
+    static readonly int SizeId = Shader.PropertyToID("_Size"), RadiusId = Shader.PropertyToID("_Radius");
+    static readonly int HueId = Shader.PropertyToID("_Hue"), HueTId = Shader.PropertyToID("_HueT");
+    static readonly int NearId = Shader.PropertyToID("_Near"), HoverId = Shader.PropertyToID("_Hover");
+    static readonly int OpacityId = Shader.PropertyToID("_Opacity"), WashId = Shader.PropertyToID("_Wash");
+
+    MaterialPropertyBlock block;
+    MeshRenderer ringRenderer;
+    Color accent = ForgeTheme.Tool;
+    bool highlighted;
+    float highlight;
 
     public Transform ContentRoot => contentRoot;
 
@@ -35,12 +51,29 @@ public class ForgeVolume : MonoBehaviour
 
     void OnValidate() => ApplySize();
 
+    void Awake() => ApplySize();
+
     void Update()
     {
+        if (highlight != (highlighted ? 1f : 0f))
+        {
+            highlight = Mathf.MoveTowards(highlight, highlighted ? 1f : 0f, Time.deltaTime / ForgeTheme.HoverFade);
+            ShowBase();
+        }
         if (!turntable) return;
         ViewYaw = (ViewYaw + turntableDegreesPerSecond * Time.deltaTime) % 360f;
         ApplyView();
     }
+
+    /// <summary>The mode color the base light is tinted with (faintly, like the dock rings).</summary>
+    public void SetAccent(Color color)
+    {
+        accent = color;
+        ShowBase();
+    }
+
+    /// <summary>Pointed at: the base ring brightens and a comet of light runs around it.</summary>
+    public void SetHighlight(bool on) => highlighted = on;
 
     public void SetSize(Vector3 newSize)
     {
@@ -108,9 +141,52 @@ public class ForgeVolume : MonoBehaviour
 
     void ApplySize()
     {
-        if (baseRing != null) baseRing.localScale = new Vector3(size.x, 0.004f, size.z);
+        // Base: quads lying flat on the desk (a quad faces -Z; turned 90 deg about X it faces up).
+        float diameter = Mathf.Max(size.x, size.z);
+        if (baseRing != null)
+        {
+            baseRing.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            baseRing.localScale = new Vector3(diameter + 2f * BasePad, diameter + 2f * BasePad, 1f);
+        }
+        if (basePool != null)
+        {
+            basePool.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            basePool.transform.localScale = new Vector3(diameter + 0.06f, diameter + 0.06f, 1f);
+        }
         // The label is a small world-space canvas lying flat in front of the base.
         if (label != null) label.transform.parent.localPosition = new Vector3(0f, 0.01f, -size.z * 0.5f - 0.03f);
+        ShowBase();
+    }
+
+    // Sizes go to the shaders in mm, like the dock's.
+    void ShowBase()
+    {
+        if (baseRing == null) return;
+        if (ringRenderer == null) ringRenderer = baseRing.GetComponent<MeshRenderer>();
+        if (block == null) block = new MaterialPropertyBlock();
+        float radius = Mathf.Max(size.x, size.z) * 500f;
+        if (ringRenderer != null)
+        {
+            block.Clear();
+            block.SetFloat(SizeId, baseRing.localScale.x * 1000f);
+            block.SetFloat(RadiusId, radius);
+            block.SetColor(HueId, accent);
+            block.SetFloat(HueTId, ForgeTheme.HueStrength);
+            block.SetFloat(NearId, highlight);
+            block.SetFloat(HoverId, highlight);
+            ringRenderer.SetPropertyBlock(block);
+        }
+        if (basePool != null)
+        {
+            block.Clear();
+            block.SetFloat(SizeId, basePool.transform.localScale.x * 1000f);
+            block.SetFloat(RadiusId, radius);
+            block.SetColor(HueId, accent);
+            block.SetFloat(HueTId, ForgeTheme.HueStrength);
+            block.SetFloat(OpacityId, 0.35f + 0.35f * highlight);
+            block.SetFloat(WashId, 1f);
+            basePool.SetPropertyBlock(block);
+        }
     }
 
     void OnDrawGizmosSelected()

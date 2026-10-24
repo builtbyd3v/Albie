@@ -1,5 +1,6 @@
 // The light a ring casts on the desk: a warm-white pool tinted with the mode hue at its edge. _Imprint adds the faint
-// ring left on the desk where a raised button lifted from.
+// ring left on the desk where a raised button lifted from; _Wash a soft dark disc under it all (volume bases, which
+// have no dock frame to darken a bright desk for them).
 Shader "Forge/LightPool"
 {
     Properties
@@ -10,6 +11,7 @@ Shader "Forge/LightPool"
         _HueT ("Hue strength", Float) = 0.1
         _Opacity ("Opacity", Range(0, 1)) = 0.3
         _Imprint ("Imprint ring", Range(0, 1)) = 0
+        _Wash ("Contrast wash", Range(0, 1)) = 0
         _Fade ("Fade", Range(0, 1)) = 1
     }
     SubShader
@@ -29,7 +31,7 @@ Shader "Forge/LightPool"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Hue;
-            float _Size, _Radius, _HueT, _Opacity, _Imprint, _Fade;
+            float _Size, _Radius, _HueT, _Opacity, _Imprint, _Wash, _Fade;
             CBUFFER_END
 
             half4 Frag(Varyings i) : SV_Target
@@ -40,6 +42,11 @@ Shader "Forge/LightPool"
                 float aa = max(fwidth(r), 1e-3);
                 float R = _Radius;
                 float4 acc = 0;
+
+                // Wash: 0.30 in the middle, 0.18 at 60 %, gone 15 mm past the ring.
+                float w = r / (R + 15.0);
+                float wash = w < 0.6 ? lerp(0.30, 0.18, w / 0.6) : lerp(0.18, 0.0, saturate((w - 0.6) / 0.4));
+                Over(acc, float3(0.0030, 0.0036, 0.0070), wash * _Wash);
 
                 // Pool: warm white at the center, the hue at 40 %, gone at 68 % (of the spill box's corner radius).
                 float S = (R + 21.3) * 1.4142;

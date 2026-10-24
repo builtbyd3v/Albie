@@ -339,6 +339,7 @@ public class Workspace : MonoBehaviour
         }
         else if (o.volume != null && o.volume.gameObject == o.go)
         {
+            o.volume.SetAccent(mode.color);
             o.defaultScale = o.go.transform.localScale.x;
             o.grips = o.go.GetComponent<VolumeManipulator>();
             if (o.grips == null) o.grips = o.go.AddComponent<VolumeManipulator>();
@@ -412,6 +413,10 @@ public class Workspace : MonoBehaviour
                 WorkspaceSlot slot = o.item.slot;
                 float x = Mathf.Min(0.3f, Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.12f));
                 float z = Mathf.Clamp(presence.FrameDepth * 0.5f, 0.12f, 0.3f);
+                // Far enough back that the base and its label clear the dock, but still on the desk.
+                float depth = o.volume != null ? o.volume.size.z * o.go.transform.localScale.z : 0.3f;
+                float clear = dock.inset + ForgeTheme.DockHeight * 0.0005f + 0.06f + depth * 0.5f;
+                z = Mathf.Min(Mathf.Max(z, clear), Mathf.Max(0.12f, presence.FrameDepth - depth * 0.5f));
                 o.position = new Vector3(slot == WorkspaceSlot.DeskLeft ? -x : slot == WorkspaceSlot.DeskRight ? x : 0f, 0f, z);
                 o.rotation = Quaternion.LookRotation(Flat(o.position - eye), Vector3.up);
                 o.facing = PanelFacing.FaceMe;

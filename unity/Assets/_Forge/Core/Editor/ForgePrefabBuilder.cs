@@ -325,12 +325,8 @@ public static class ForgePrefabBuilder
         var root = new GameObject("ForgeVolume");
         var volume = root.AddComponent<ForgeVolume>();
 
-        var ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        ring.name = "Base";
-        Object.DestroyImmediate(ring.GetComponent<Collider>());
+        var ring = new GameObject("Base", typeof(MeshFilter), typeof(MeshRenderer));
         ring.transform.SetParent(root.transform, false);
-        ring.transform.localPosition = new Vector3(0f, 0.004f, 0f);
-        ring.GetComponent<MeshRenderer>().sharedMaterial = BaseMaterial();
 
         var spin = new GameObject("Spin").transform;
         spin.SetParent(root.transform, false);
@@ -344,8 +340,71 @@ public static class ForgePrefabBuilder
         Stretch(label.rectTransform, 0f, 0f, 0f, 0f);
 
         SetRefs(volume, ("spin", spin), ("contentRoot", content), ("baseRing", ring.transform), ("label", label));
-        volume.SetSize(volume.size);  // applies base ring + label placement
+        StyleVolume(root);
         Save(root, VolumePath);
+    }
+
+    /// <summary>
+    /// Restyle ForgeVolume.prefab in place (the base as a ring of light, Inter label). Keeps the prefab's objects, so
+    /// CadViewer and other variants stay linked and pick the look up.
+    /// </summary>
+    [MenuItem("Forge/Restyle Volume Prefab (keeps module variants)")]
+    public static void RestyleVolume()
+    {
+        ForgeLookBuilder.Build();
+        var root = PrefabUtility.LoadPrefabContents(VolumePath);
+        try
+        {
+            StyleVolume(root);
+            PrefabUtility.SaveAsPrefabAsset(root, VolumePath);
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+        Debug.Log("[ForgePrefabBuilder] Restyled " + VolumePath);
+    }
+
+    // "Base" (found by name) becomes a flat quad drawing the ring of light, "BasePool" beside it the pool and contrast
+    // wash under it; ForgeVolume sizes and tints both. The label gets Inter with a soft glow.
+    static void StyleVolume(GameObject root)
+    {
+        var volume = root.GetComponent<ForgeVolume>();
+        var quad = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+
+        var ring = root.transform.Find("Base");
+        ring.GetComponent<MeshFilter>().sharedMesh = quad;
+        LightRenderer(ring.GetComponent<MeshRenderer>(), ForgeTheme.RingLight);
+        ring.localPosition = new Vector3(0f, 0.004f, 0f);
+
+        var pool = root.transform.Find("BasePool");
+        if (pool == null)
+        {
+            pool = new GameObject("BasePool", typeof(MeshFilter), typeof(MeshRenderer)).transform;
+            pool.SetParent(root.transform, false);
+            pool.SetSiblingIndex(ring.GetSiblingIndex());
+        }
+        pool.GetComponent<MeshFilter>().sharedMesh = quad;
+        LightRenderer(pool.GetComponent<MeshRenderer>(), ForgeTheme.PoolLight);
+        pool.localPosition = new Vector3(0f, 0.003f, 0f);
+
+        var label = root.transform.Find("Label/Text").GetComponent<TMP_Text>();
+        StyleText(label, 15f, Color.white, FontStyles.Bold, TextAlignmentOptions.Center);
+        if (ForgeTheme.GlowText != null) label.fontSharedMaterial = ForgeTheme.GlowText;
+        label.overflowMode = TextOverflowModes.Overflow;
+        label.characterSpacing = 2f;
+
+        SetRefs(volume, ("basePool", pool.GetComponent<MeshRenderer>()));
+        volume.SetSize(volume.size);  // applies base + label placement
+    }
+
+    static void LightRenderer(MeshRenderer renderer, Material material)
+    {
+        renderer.sharedMaterial = material;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
     }
 
     static void AddCanvasInteraction(GameObject canvas)
@@ -405,17 +464,6 @@ public static class ForgePrefabBuilder
     }
 
     static Sprite Knob() => AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd");
-
-    static Material BaseMaterial()
-    {
-        const string path = MaterialDir + "/ForgeVolumeBase.mat";
-        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
-        if (mat != null) return mat;
-        mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-        mat.SetColor("_BaseColor", new Color(0.15f, 0.5f, 0.85f));
-        AssetDatabase.CreateAsset(mat, path);
-        return mat;
-    }
 
     static void Save(GameObject root, string path)
     {

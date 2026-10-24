@@ -28,8 +28,6 @@ public class VolumeManipulator : MonoBehaviour
     ForgeVolume volume;
     Transform frame;
     VolumeHandle baseHandle, modelHandle;
-    MeshRenderer baseRenderer;
-    MaterialPropertyBlock block;
     string title;
     bool showingHint;
     Vector3 builtSize;
@@ -48,9 +46,6 @@ public class VolumeManipulator : MonoBehaviour
         frame = deskFrame;
         volume = GetComponent<ForgeVolume>();
         title = volume.Title;
-        block = new MaterialPropertyBlock();
-        var ring = transform.Find("Base");
-        if (ring != null) baseRenderer = ring.GetComponent<MeshRenderer>();
         if (baseHandle == null)
         {
             baseHandle = NewHandle("GrabBase", Grab.Move);
@@ -176,15 +171,7 @@ public class VolumeManipulator : MonoBehaviour
         if (hovered == showingHint) return;
         showingHint = hovered;
         volume.Title = hovered ? title + HowTo : title;
-        if (baseRenderer != null)
-        {
-            if (hovered)
-            {
-                block.SetColor("_BaseColor", new Color(0.45f, 0.78f, 1f));
-                baseRenderer.SetPropertyBlock(block);
-            }
-            else baseRenderer.SetPropertyBlock(null);
-        }
+        volume.SetHighlight(hovered);
     }
 
     static void Angles(Vector3 dir, out float yaw, out float pitch)
