@@ -36,6 +36,9 @@ public class CadSession : MonoBehaviour
     public int MockCount => IsMock && mockPart >= 0 ? mocks.parts[mockPart].versions.Count : 0;
 
     public event Action<CadUpdate> ModelChanged;
+    /// <summary>A version is on its way (hub: announced and downloading; mock: shown at once). The drawing panel asks
+    /// for its drawing straight away instead of waiting for the model to load.</summary>
+    public event Action<CadModelUpdated> VersionComing;
     public event Action ParamsChanged;
     public event Action PartsChanged;
     public event Action<CadView> ViewChanged;
@@ -233,6 +236,28 @@ public class CadSession : MonoBehaviour
         }, timeout: 60));
     }
 
+    /// <summary>
+    /// A version's engineering drawing as PNG bytes (the drawing panel): GET /cad/drawing.png?v=N, which the hub
+    /// makes on the first request (a second or two) and then caches, or the mock's stored one. Null if there's none.
+    /// </summary>
+    public void GetDrawing(int version, Action<byte[]> done)
+    {
+        if (!IsMock)
+        {
+            StartCoroutine(GetBytes($"/cad/drawing.png?v={version}", done, timeout: 30));
+            return;
+        }
+        string suffix = "/v" + version;
+        foreach (var part in mocks.parts)
+            foreach (var v in part.versions)
+                if (v.label.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    done(v.drawing != null ? v.drawing.bytes : null);
+                    return;
+                }
+        done(null);
+    }
+
     public void StepMock(int delta)
     {
         if (IsMock) ShowMockVersion(Mathf.Clamp(mockIndex + delta, 0, MockVersions.Count - 1));
@@ -286,6 +311,7 @@ public class CadSession : MonoBehaviour
     IEnumerator Fetch(CadModelUpdated info)
     {
         fetching = true;
+        VersionComing?.Invoke(info);
         byte[] glb = null;
         string metadata = null, parameters = null;
         yield return GetBytes($"/cad/model.glb?v={info.version}", b => glb = b);
@@ -358,11 +384,11 @@ public class CadSession : MonoBehaviour
         }
     }
 
-    IEnumerator GetBytes(string path, Action<byte[]> done)
+    IEnumerator GetBytes(string path, Action<byte[]> done, int timeout = 10)
     {
         using (var req = UnityWebRequest.Get(ForgeNet.Url(path)))
         {
-            req.timeout = 10;
+            req.timeout = timeout;
             yield return req.SendWebRequest();
             done(req.result == UnityWebRequest.Result.Success ? req.downloadHandler.data : null);
         }
@@ -405,6 +431,7 @@ public class CadSession : MonoBehaviour
         if (record) mockHistory.Add(index);
         var v = MockVersions[index];
         Params = JsonConvert.DeserializeObject<CadParams>(v.parameters.text);
+        VersionComing?.Invoke(info);
         Publish(new CadUpdate { info = info, glb = v.glb.bytes, metadata = v.metadata.text });
     }
 
