@@ -61,8 +61,18 @@ class UiHighlight(BaseModel):
     class_idx: int | None = None
 
 
+class VizPlan(BaseModel):
+    """Proposed contract addition: which panels fit the repo open in VS Code (picked by Jev)."""
+    repo_path: str
+    repo_kind: str                    # ml_training | cad | xr_app | web_app | data_pipeline | other
+    entry_file: str | None = None
+    panels: list[str]                 # panel IDs to show, highest score first
+    scores: dict[str, float]          # every catalog panel, 0..1
+    model: str
+
+
 class EventBus:
-    STICKY = {"cad.model_updated"}  # replayed to clients that connect later
+    STICKY = {"cad.model_updated", "viz.plan"}  # replayed to clients that connect later
 
     def __init__(self) -> None:
         self._clients: set[WebSocket] = set()

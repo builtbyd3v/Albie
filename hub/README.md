@@ -52,3 +52,20 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/`. The four states are the de
 | `cad/service.py` | Version tree on disk, one regen at a time, events, undo/reset, file watcher. |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
 | `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+
+## Viz module (`viz/`): pick panels for a repo
+
+`POST /viz/plan {"repo_path": "<folder>"}` digests the folder (file tree + truncated source) and asks TypeSafe Jev 1.14 (a decision model, about 0.4 s per call) which panels fit. Panels scoring 0.7 or more come back highest first, and the same result goes out on `/ws` as `viz.plan` (sticky).
+
+- Env: `TYPESAFE_API_KEY` (503 without it). The digest is sent to `api.typesafe.ai`.
+- Repos over about 60k tokens add the experimental `TypeSafe-Danger-Zone-Long-Context: true` header (262k limit).
+- Try it: `curl -X POST localhost:8000/viz/plan -H "Content-Type: application/json" -d "{\"repo_path\": \"C:/path/to/repo\"}"`
+
+**Proposed contract addition (not in PROJECT_CONTEXT section 7 yet, needs team OK):**
+
+```
+POST /viz/plan { repo_path }  -> VizPlan
+viz.plan { repo_path, repo_kind, entry_file?, panels[], scores{panel_id: 0..1}, model }
+```
+
+`panels` uses the section 7 panel IDs. Unity does not consume it yet; the idea is that `Workspace` unfolds these panels when you sit down at a repo.
