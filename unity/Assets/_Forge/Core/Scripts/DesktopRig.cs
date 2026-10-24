@@ -49,6 +49,12 @@ public class DesktopRig : MonoBehaviour
     readonly List<RaycastResult> hits = new List<RaycastResult>();
     GameObject hovered;
     GameObject pressed;
+    int hintState = -1;
+    CanvasGroup hintGroup;
+    float hintShownAt;
+    Vector3 pressDirection;
+    const float ClickSlopDegrees = 1.5f;  // a press that turns the pointer further than this is a drag (about uGUI's 10 px)
+    const float HintHold = 7f, HintFade = 0.6f;  // the toast shows this long after it changes, then fades (s)
 
     void Awake()
     {
@@ -84,6 +90,13 @@ public class DesktopRig : MonoBehaviour
         bool hitUi = Point(screen, mouse.leftButton.wasPressedThisFrame, mouse.leftButton.wasReleasedThisFrame);
         // Free cursor: clicking empty space grabs the mouse again.
         if (!cursorLocked && !hitUi && mouse.leftButton.wasPressedThisFrame) SetCursorLocked(true);
+
+        // The crosshair swells over anything that takes a click, like Horizon's cursor.
+        if (crosshair != null && crosshair.activeSelf)
+        {
+            float s = Mathf.MoveTowards(crosshair.transform.localScale.x, hitUi ? 1.6f : 1f, Time.deltaTime * 6f);
+            crosshair.transform.localScale = new Vector3(s, s, 1f);
+        }
 
         UpdateHint();
     }
@@ -203,6 +216,7 @@ public class DesktopRig : MonoBehaviour
 
         if (down && target != null)
         {
+            pressDirection = cam.ScreenPointToRay(screen).direction;
             pointer.pressPosition = screen;
             pointer.pointerPressRaycast = hit;
             pointer.eligibleForClick = true;
@@ -223,12 +237,18 @@ public class DesktopRig : MonoBehaviour
             ExecuteEvents.Execute(pointer.pointerDrag, pointer, ExecuteEvents.dragHandler);
         }
 
+        // A press that moves (the view turns, or the free cursor slides) is a drag, not a click: dragging a scroll list
+        // by one of its buttons mustn't press the button. The locked crosshair never moves on screen, so measure the ray.
+        if (pressed != null && pointer.eligibleForClick && !down &&
+            Vector3.Angle(pressDirection, cam.ScreenPointToRay(screen).direction) > ClickSlopDegrees)
+            pointer.eligibleForClick = false;
+
         if (up)
         {
             if (pressed != null)
             {
                 ExecuteEvents.Execute(pressed, pointer, ExecuteEvents.pointerUpHandler);
-                if (target != null && ExecuteEvents.GetEventHandler<IPointerClickHandler>(target) == pressed)
+                if (pointer.eligibleForClick && target != null && ExecuteEvents.GetEventHandler<IPointerClickHandler>(target) == pressed)
                     ExecuteEvents.Execute(pressed, pointer, ExecuteEvents.pointerClickHandler);
             }
             if (pointer.dragging && pointer.pointerDrag != null)
@@ -242,9 +262,28 @@ public class DesktopRig : MonoBehaviour
         return target != null;
     }
 
+    // Rebuilt only when what it says changes (not a new string every frame). The toast shows for a few seconds after
+    // each change (sitting down, grabbing a panel, freeing the cursor), then gets out of the way.
     void UpdateHint()
     {
         if (hint == null) return;
+        if (hintGroup == null)
+        {
+            // The toast pill around the text (Forge > Restyle Desktop HUD), or just the text on an older HUD.
+            var pill = hint.transform.parent != null && hint.transform.parent.name == "HintPill" ? hint.transform.parent : hint.transform;
+            hintGroup = pill.GetComponent<CanvasGroup>();
+            if (hintGroup == null) hintGroup = pill.gameObject.AddComponent<CanvasGroup>();
+            hintGroup.blocksRaycasts = hintGroup.interactable = false;
+        }
+        bool atDesk = presence != null && presence.AtDesk;
+        int state = (PanelManipulator.Grabbing > 0 ? 1 : 0) | (cursorLocked ? 2 : 0) | (Seated ? 4 : 0) | (atDesk ? 8 : 0);
+        bool holding = PanelManipulator.Grabbing > 0;
+        float alpha = holding ? 1f : Mathf.Clamp01(1f - (Time.time - hintShownAt - HintHold) / HintFade);
+        if (!Mathf.Approximately(hintGroup.alpha, alpha)) hintGroup.alpha = alpha;
+        if (state == hintState) return;
+        hintState = state;
+        hintShownAt = Time.time;
+        hintGroup.alpha = 1f;
         if (PanelManipulator.Grabbing > 0)
         {
             hint.text = cursorLocked ? "Holding a panel · look around to carry it · scroll: push back / pull in · release to drop"
@@ -253,7 +292,7 @@ public class DesktopRig : MonoBehaviour
         }
         string cursor = cursorLocked ? "Esc: free cursor" : "Click empty space: grab mouse · hold right mouse: look";
         string desk = Seated ? "E: stand up"
-                    : presence != null && presence.AtDesk ? "E: sit at desk"
+                    : atDesk ? "E: sit at desk"
                     : "Walk up to a table";
         hint.text = $"WASD walk · Shift run · click buttons · {desk} · {cursor}";
     }

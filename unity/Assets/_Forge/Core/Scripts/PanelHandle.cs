@@ -10,8 +10,6 @@ using UnityEngine.UI;
 public class PanelHandle : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler,
     IPointerUpHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
-    static readonly Color Lit = new Color(0.45f, 0.78f, 1f, 1f);
-
     public PanelManipulator owner;
     public PanelGrab grab;
 
@@ -65,6 +63,6 @@ public class PanelHandle : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         if (tint == null) return;
         bool lit = held || hovers > 0;
         for (int i = 0; i < tint.Length; i++)
-            tint[i].color = lit ? Color.Lerp(baseColors[i], Lit, 0.6f) : baseColors[i];
+            tint[i].color = lit ? ForgeTheme.HandleLit : baseColors[i];
     }
 }

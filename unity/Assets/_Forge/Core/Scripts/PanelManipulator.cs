@@ -1,5 +1,4 @@
 using Oculus.Interaction;
-using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -33,10 +32,6 @@ public class PanelManipulator : MonoBehaviour
     const float SnapDegrees = 4f;
     const float MaxTurn = 80f, MaxTilt = 60f;
 
-    static readonly Color HandleColor = new Color(1f, 1f, 1f, 0.55f);
-    static readonly Color ButtonColor = new Color(1f, 1f, 1f, 0.16f);
-    static readonly Color ButtonActive = new Color(0.25f, 0.65f, 1f, 0.9f);
-
     /// <summary>How many panels are being held right now (DesktopRig's hint line uses it).</summary>
     public static int Grabbing { get; private set; }
 
@@ -55,8 +50,9 @@ public class PanelManipulator : MonoBehaviour
     CanvasGroup controls;
     RayInteractable[] rays;
     PokeInteractable[] pokes;
-    Image faceButton, straightButton;
-    float showTimer;
+    ForgePill faceButton, straightButton;
+    ForgeSurface frameSurface;
+    float showTimer, lit;
     Coroutine turning;
 
     PanelGrab grab;
@@ -312,8 +308,8 @@ public class PanelManipulator : MonoBehaviour
     void SetFacing(PanelFacing facing)
     {
         Facing = facing;
-        if (faceButton != null) faceButton.color = facing == PanelFacing.FaceMe ? ButtonActive : ButtonColor;
-        if (straightButton != null) straightButton.color = facing == PanelFacing.Straight ? ButtonActive : ButtonColor;
+        if (faceButton != null) faceButton.On = facing == PanelFacing.FaceMe;
+        if (straightButton != null) straightButton.On = facing == PanelFacing.Straight;
     }
 
     Quaternion StraightRotation() => Quaternion.LookRotation(Flat(frame.forward), Vector3.up);
@@ -342,14 +338,23 @@ public class PanelManipulator : MonoBehaviour
 
     // ---------------------------------------------------------------- handles
 
-    // Handles fade in while any pointer is on the panel (or its handles) and stay a moment after it leaves.
+    // Handles fade in while any pointer is on the panel (or its handles) and stay a moment after it leaves. The
+    // frame's rim brightens while pointed at, and more while held (it only redraws while that changes).
     void UpdateFade()
     {
-        if (IsPointedAt() || grab != PanelGrab.None) showTimer = 0.6f;
+        bool pointed = IsPointedAt();
+        if (pointed || grab != PanelGrab.None) showTimer = 0.6f;
         else showTimer -= Time.deltaTime;
         float target = showTimer > 0f ? 1f : 0f;
         if (!Mathf.Approximately(controls.alpha, target))
             controls.alpha = Mathf.MoveTowards(controls.alpha, target, Time.deltaTime * 6f);
+
+        float litTarget = grab != PanelGrab.None ? 1f : pointed ? 0.5f : 0f;
+        if (frameSurface != null && lit != litTarget)
+        {
+            lit = Mathf.MoveTowards(lit, litTarget, Time.deltaTime / ForgeTheme.HoverFade);
+            frameSurface.Glow = lit;
+        }
     }
 
     bool IsPointedAt()
@@ -364,9 +369,10 @@ public class PanelManipulator : MonoBehaviour
     void BuildHandles()
     {
         panel.HitMarginMm = HandleMarginMm;
+        var background = transform.Find("Background");
+        if (background != null) frameSurface = background.GetComponent<ForgeSurface>();
         var bar = transform.Find("TitleBar") as RectTransform;
-        Image barImage = bar != null ? bar.GetComponent<Image>() : null;
-        Sprite rounded = barImage != null ? barImage.sprite : null;
+        Graphic barGraphic = bar != null ? bar.GetComponent<Graphic>() : null;
 
         var root = NewRect("Manipulation", rect);
         root.anchorMin = Vector2.zero;
@@ -376,20 +382,20 @@ public class PanelManipulator : MonoBehaviour
         controls = root.gameObject.AddComponent<CanvasGroup>();
         controls.alpha = 0f;
 
-        if (barImage != null)
+        if (barGraphic != null)
         {
+            // The header is the move handle; pointing at it shows the handles and pills, nothing else lights up.
             var move = bar.gameObject.AddComponent<PanelHandle>();
             move.owner = this;
             move.grab = PanelGrab.Move;
-            move.SetTint(barImage);
-            straightButton = TitleButton(root, rounded, "Straight", 0, Straighten);
-            faceButton = TitleButton(root, rounded, "Face me", 1, FaceMe);
+            faceButton = TitleButton(root, "Face me", 0f, FaceMe);
+            straightButton = TitleButton(root, "Straight", faceButton.Rect.sizeDelta.x + 8f, Straighten);
         }
         else
         {
             // The module dropped the title bar: a move bar above the panel instead.
             var move = Handle(root, "Move", PanelGrab.Move, new Vector2(0.5f, 1f), new Vector2(0f, 22f), new Vector2(220f, 40f));
-            move.SetTint(Bar(move.transform, rounded, new Vector2(0f, -2f), new Vector2(160f, 10f)));
+            move.SetTint(Bar(move.transform, new Vector2(0f, -2f), new Vector2(160f, 8f)));
         }
 
         // Resize brackets hugging the bottom corners, just outside the panel.
@@ -397,8 +403,8 @@ public class PanelManipulator : MonoBehaviour
         {
             var grip = Handle(root, side < 0 ? "ResizeLeft" : "ResizeRight", side < 0 ? PanelGrab.ResizeLeft : PanelGrab.ResizeRight,
                               new Vector2(side < 0 ? 0f : 1f, 0f), new Vector2(16f * side, -16f), new Vector2(56f, 56f));
-            grip.SetTint(Bar(grip.transform, rounded, new Vector2(-22f * side, 6f), new Vector2(40f, 9f)),
-                         Bar(grip.transform, rounded, new Vector2(-6f * side, 22f), new Vector2(9f, 40f)));
+            grip.SetTint(Bar(grip.transform, new Vector2(-22f * side, 6f), new Vector2(40f, 8f)),
+                         Bar(grip.transform, new Vector2(-6f * side, 22f), new Vector2(8f, 40f)));
         }
 
         // Turn bars at the middle of each side, tilt bar under the bottom edge.
@@ -406,10 +412,10 @@ public class PanelManipulator : MonoBehaviour
         {
             var turn = Handle(root, side < 0 ? "TurnLeft" : "TurnRight", side < 0 ? PanelGrab.TurnLeft : PanelGrab.TurnRight,
                               new Vector2(side < 0 ? 0f : 1f, 0.5f), new Vector2(20f * side, 0f), new Vector2(40f, 160f));
-            turn.SetTint(Bar(turn.transform, rounded, new Vector2(-2f * side, 0f), new Vector2(9f, 90f)));
+            turn.SetTint(Bar(turn.transform, new Vector2(-2f * side, 0f), new Vector2(8f, 90f)));
         }
         var tiltGrip = Handle(root, "Tilt", PanelGrab.Tilt, new Vector2(0.5f, 0f), new Vector2(0f, -20f), new Vector2(160f, 40f));
-        tiltGrip.SetTint(Bar(tiltGrip.transform, rounded, new Vector2(0f, -2f), new Vector2(90f, 9f)));
+        tiltGrip.SetTint(Bar(tiltGrip.transform, new Vector2(0f, -2f), new Vector2(90f, 8f)));
     }
 
     // An invisible hit area (still takes rays and the mouse) with a PanelHandle on it.
@@ -426,52 +432,29 @@ public class PanelManipulator : MonoBehaviour
         return handle;
     }
 
-    static Image Bar(Transform parent, Sprite sprite, Vector2 positionMm, Vector2 sizeMm)
+    // A white rounded bar with a soft glow; PanelHandle lights it fully while pointed at or held.
+    static Graphic Bar(Transform parent, Vector2 positionMm, Vector2 sizeMm)
     {
         var rt = NewRect("Bar", (RectTransform)parent);
         rt.anchoredPosition = positionMm;
         rt.sizeDelta = sizeMm;
-        var image = rt.gameObject.AddComponent<Image>();
-        image.sprite = sprite;
-        image.type = Image.Type.Sliced;
-        image.pixelsPerUnitMultiplier = 2.5f;
-        image.color = HandleColor;
-        image.raycastTarget = false;
-        return image;
+        var bar = rt.gameObject.AddComponent<ForgeSurface>();
+        bar.Pill = true;
+        bar.Glow = 0.55f;
+        bar.color = ForgeTheme.HandleRest;
+        bar.raycastTarget = false;
+        return bar;
     }
 
-    // Small pill buttons at the right end of the title bar, counted from the right.
-    Image TitleButton(RectTransform parent, Sprite sprite, string label, int index, UnityEngine.Events.UnityAction onClick)
+    // Horizon-style pills at the right end of the header, laid out from the right edge.
+    ForgePill TitleButton(RectTransform parent, string label, float fromRight, UnityEngine.Events.UnityAction onClick)
     {
-        const float width = 92f, height = 30f, gap = 6f;
-        var rt = NewRect(label, parent);
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
-        rt.anchoredPosition = new Vector2(-8f - index * (width + gap), -7f);
-        rt.sizeDelta = new Vector2(width, height);
-        var image = rt.gameObject.AddComponent<Image>();
-        image.sprite = sprite;
-        image.type = Image.Type.Sliced;
-        image.pixelsPerUnitMultiplier = 1.5f;
-        image.color = ButtonColor;
-        var button = rt.gameObject.AddComponent<Button>();
-        button.targetGraphic = image;
-        var colors = button.colors;
-        colors.highlightedColor = new Color(1.4f, 1.4f, 1.4f, 1f);
-        colors.colorMultiplier = 1.5f;
-        button.colors = colors;
-        button.onClick.AddListener(onClick);
-
-        var text = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI)).GetComponent<TextMeshProUGUI>();
-        text.rectTransform.SetParent(rt, false);
-        text.rectTransform.anchorMin = Vector2.zero;
-        text.rectTransform.anchorMax = Vector2.one;
-        text.rectTransform.offsetMin = text.rectTransform.offsetMax = Vector2.zero;
-        text.text = label;
-        text.fontSize = 16f;
-        text.alignment = TextAlignmentOptions.Center;
-        text.color = Color.white;
-        text.raycastTarget = false;
-        return image;
+        var pill = ForgePill.Create(parent, label, onClick);
+        var rt = pill.Rect;
+        rt.anchorMin = rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 0.5f);
+        rt.anchoredPosition = new Vector2(-14f - fromRight, -ForgeTheme.PanelHeader * 0.5f);
+        return pill;
     }
 
     static RectTransform NewRect(string name, RectTransform parent)

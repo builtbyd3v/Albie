@@ -1,22 +1,144 @@
 <!doctype html>
 <!-- Screen Bridge sender: shares one window to Unity over WebRTC. Needs signaling.py running.
-     Serve it (python -m http.server 8080) and open http://localhost:8080; getDisplayMedia needs a secure context. -->
+     Serve it (python -m http.server 8080) and open http://localhost:8080; getDisplayMedia needs a secure context.
+     Styled like a Forge panel (graphite, Inter, Horizon pills); the status dot matches the desk dock's hub light. -->
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Screen Bridge</title>
-<body style="margin:0;background:#111;color:#ccc;font:13px monospace">
-<button id="share">Share window</button>
-<span id="status">signaling: connecting...</span>
-<span id="fps"></span>
-<video id="preview" autoplay muted style="width:100%"></video>
+<style>
+  :root {
+    color-scheme: dark;
+    --hair: rgba(255, 255, 255, 0.07);
+    --sub: rgba(255, 255, 255, 0.5);
+    --scr: 34, 207, 134;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 32px 16px;
+    background: radial-gradient(ellipse at 50% -10%, #1d2026 0%, #0b0c0f 62%);
+    color: rgba(255, 255, 255, 0.95);
+    font: 14px/1.4 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .panel {
+    width: min(960px, 100%);
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(33, 36, 42, 0.96), rgba(19, 21, 25, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px var(--hair), 0 30px 60px -12px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+  }
+  header {
+    min-height: 64px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 12px 14px 12px 20px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .badge {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: rgba(var(--scr), 0.16);
+    box-shadow: inset 0 0 0 1px rgba(var(--scr), 0.35);
+    color: #93e9c4;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .titles { flex: 1; min-width: 160px; }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  .sub { margin-top: 2px; font-size: 11.5px; color: var(--sub); }
+  .pill {
+    height: 28px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+    font: 500 12px Inter, system-ui, sans-serif;
+    white-space: nowrap;
+  }
+  .pill:empty { display: none; }
+  button.pill { cursor: pointer; transition: background 0.15s; }
+  button.pill:hover { background: rgba(255, 255, 255, 0.18); }
+  button.pill.primary { background: rgba(255, 255, 255, 0.92); color: #1c1e21; }
+  button.pill.primary:hover { background: #fff; }
+  button.pill:focus-visible { outline: 2px solid rgba(var(--scr), 0.8); outline-offset: 2px; }
+  .dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: #a3a9b3;
+    box-shadow: 0 0 6px 1px rgba(124, 131, 143, 0.7);
+  }
+  [data-state="wait"] .dot { background: #ffc04d; box-shadow: 0 0 6px 1px #ffb52e, 0 0 14px 2px rgba(255, 181, 46, 0.45); }
+  [data-state="ready"] .dot { background: #fff; box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.7); }
+  [data-state="live"] .dot { background: #4be38a; box-shadow: 0 0 6px 1px #22c46a, 0 0 14px 2px rgba(34, 196, 106, 0.45); }
+  [data-state="off"] .dot { background: #ff5a4e; box-shadow: 0 0 6px 1px rgba(255, 90, 78, 0.7); }
+  main { padding: 16px 18px 18px; }
+  .screen {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: #08090b;
+    box-shadow: inset 0 0 0 1px var(--hair);
+    overflow: hidden;
+  }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .empty { color: var(--sub); font-size: 13px; text-align: center; }
+  .empty strong { display: block; margin-bottom: 4px; color: rgba(255, 255, 255, 0.85); font-size: 15px; font-weight: 600; }
+  footer { padding: 0 20px 16px; color: var(--sub); font-size: 11.5px; }
+</style>
+<body>
+<div class="panel">
+  <header>
+    <div class="badge" aria-hidden="true">SCR</div>
+    <div class="titles">
+      <h1>Screen Bridge</h1>
+      <div class="sub">Shares one window into the Forge workspace</div>
+    </div>
+    <span class="pill" id="fps"></span>
+    <span class="pill" id="statusPill" data-state="wait"><span class="dot"></span><span id="status">signaling: connecting...</span></span>
+    <button class="pill primary" id="share">Share window</button>
+  </header>
+  <main>
+    <div class="screen">
+      <div class="empty" id="empty"><strong>No window shared yet</strong>Press Share window and pick VS Code</div>
+      <video id="preview" autoplay muted></video>
+    </div>
+  </main>
+  <footer>H.264 first (the Quest decodes it in hardware), capped at 1920 px for the headset's 2048 texture limit.</footer>
+</div>
 <script>
   const host = new URLSearchParams(location.search).get("host") || location.hostname || "localhost";
   const ws = new WebSocket(`ws://${host}:8766`);
   const status = document.getElementById("status");
+  const statusPill = document.getElementById("statusPill");
   const fps = document.getElementById("fps");
   let stream, pc;
 
-  ws.onopen = () => (status.textContent = "signaling: connected");
-  ws.onclose = () => (status.textContent = "signaling: disconnected");
+  // The dot says how it's going: amber waiting, white ready, green streaming, red lost.
+  function setStatus(text, state) {
+    status.textContent = text;
+    statusPill.dataset.state = state;
+  }
+
+  ws.onopen = () => setStatus("signaling: connected", "ready");
+  ws.onclose = () => setStatus("signaling: disconnected", "off");
   ws.onmessage = async ({ data }) => {
     const msg = JSON.parse(data);
     if (msg.type === "ready" && stream) call();
@@ -31,6 +153,7 @@
     });
     stream.getVideoTracks()[0].contentHint = "text"; // favor sharp text over frame rate
     document.getElementById("preview").srcObject = stream;
+    document.getElementById("empty").hidden = true;
     call();
   };
 
@@ -49,7 +172,9 @@
       let codec = "";
       if (pc.connectionState === "connected")
         (await pc.getStats()).forEach((s) => s.type === "codec" && (codec = ` (${s.mimeType})`));
-      status.textContent = `video: ${pc.connectionState}${codec}`;
+      const state = pc.connectionState === "connected" ? "live"
+        : ["failed", "disconnected", "closed"].includes(pc.connectionState) ? "off" : "wait";
+      setStatus(`video: ${pc.connectionState}${codec}`, state);
     };
     const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], { direction: "sendonly" });
     // H.264 first: the Quest decodes it in hardware.

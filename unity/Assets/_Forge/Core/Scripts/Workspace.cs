@@ -80,6 +80,12 @@ public class Workspace : MonoBehaviour
         public Vector3 position;
         public Quaternion rotation;
         public PanelFacing facing;
+        // Motion: the running tween (null at rest) and the scale (panels: size) it lands on. `shown` holds what's on
+        // screen while Rearrange lays out at rest. Panels fade through `group`.
+        public Coroutine motion;
+        public Vector3 restScale, shownScale;
+        public Vector2 restSize, shownSize;
+        public CanvasGroup group;
     }
 
     // Where the user left a panel or volume, in the desk frame.
@@ -158,9 +164,12 @@ public class Workspace : MonoBehaviour
             return;
         }
 
+        // Switching modes: the old one folds into its ring while this one unfolds out of its own, a beat behind.
+        float start = openItems.Count > 0 ? ForgeTheme.SwitchDelay : 0f;
         FoldAll();
-        foreach (var item in mode.items) openItems.Add(Spawn(item));
-        LayOut(ClampEye(presence.EyeInFrame()));
+        foreach (var item in mode.items) openItems.Add(Spawn(item, mode));
+        Vector3 eye = ClampEye(presence.EyeInFrame());
+        LayOut(eye);
         for (int i = 0; i < openItems.Count; i++)
         {
             var o = openItems[i];
@@ -168,7 +177,7 @@ public class Workspace : MonoBehaviour
             if (restored) Restore(o, pose);
             if (o.handles != null) o.handles.SetPlacement(o.facing, byUser: restored);
             if (o.grips != null) o.grips.SetPlacement(byUser: restored);
-            Unfold(o, i * 0.08f);
+            Unfold(o, modeId, start + StaggerIndex(o, outermostFirst: false) * ForgeTheme.UnfoldStagger, eye);
         }
 
         ActiveMode = modeId;
@@ -201,89 +210,263 @@ public class Workspace : MonoBehaviour
     /// <summary>Put the open mode's panels and volumes back where and how big they started.</summary>
     public void ResetLayout() => Rearrange(resetSizes: true);
 
-    // Forget the open mode's saved poses and animate every item to its slot in the current layout.
+    // Forget the open mode's saved poses and spring every item to its slot in the current layout.
     void Rearrange(bool resetSizes)
     {
         if (ActiveMode == null) return;
         foreach (var o in openItems) saved.Remove(Key(ActiveMode, o.item.id));
-        if (resetSizes)
-            foreach (var o in openItems)
-            {
-                if (o.panel != null) o.panel.SizeMeters = o.defaultSize;
-                if (o.volume != null) o.go.transform.localScale = Vector3.one * o.defaultScale;
-            }
-        LayOut(ClampEye(presence.EyeInFrame()));
+        // Lay out at the size each item ends up: where a running animation was taking it, else as it is now (the user
+        // may have resized it), or for Reset, as it started. Settle then animates from what's on screen.
         foreach (var o in openItems)
         {
             if (o.go == null) continue;
             Transform t = o.go.transform;
-            Vector3 p0 = t.localPosition, p1 = o.position;
-            Quaternion r0 = t.localRotation, r1 = o.rotation;
-            if (o.handles != null) o.handles.SetPlacement(o.facing, byUser: false);
-            if (o.grips != null) o.grips.SetPlacement(byUser: false);
-            SetBusy(o, true);
-            StartCoroutine(ForgeTween.Run(0.35f, 0f, k =>
-            {
-                if (t == null) return;
-                float e = ForgeTween.EaseOutCubic(k);
-                t.localPosition = Vector3.LerpUnclamped(p0, p1, e);
-                t.localRotation = Quaternion.SlerpUnclamped(r0, r1, e);
-            }, () => SetBusy(o, false)));
+            o.shownScale = t.localScale;
+            if (o.motion == null) o.restScale = o.shownScale;
+            if (resetSizes && o.volume != null) o.restScale = Vector3.one * o.defaultScale;
+            t.localScale = o.restScale;
+            if (o.panel == null) continue;
+            o.shownSize = o.panel.SizeMeters;
+            if (o.motion == null) o.restSize = o.shownSize;
+            if (resetSizes) o.restSize = o.defaultSize;
+            o.panel.SizeMeters = o.restSize;
         }
-    }
-
-    void Unfold(OpenItem o, float delay)
-    {
-        Transform t = o.go.transform;
-        Vector3 pos = o.position;
-        Quaternion rot = o.rotation;
-        // Rise out of the desk, near the front edge, lying flat.
-        Vector3 startPos = new Vector3(Mathf.Clamp(pos.x * 0.3f, -0.25f, 0.25f), 0.02f, 0.12f);
-        Quaternion startRot = Quaternion.LookRotation(Vector3.down, Vector3.forward);
-        Vector3 endScale = t.localScale;
-
-        t.localPosition = startPos;
-        t.localRotation = startRot;
-        t.localScale = endScale * 0.02f;
-        SetBusy(o, true);
-        StartCoroutine(ForgeTween.Run(0.45f, delay, k =>
-        {
-            if (t == null) return;
-            float e = ForgeTween.EaseOutCubic(k);
-            t.localPosition = Vector3.LerpUnclamped(startPos, pos, e);
-            t.localRotation = Quaternion.SlerpUnclamped(startRot, rot, e);
-            t.localScale = endScale * Mathf.Max(0.02f, ForgeTween.EaseOutBack(k));
-        }, () => SetBusy(o, false)));
-    }
-
-    void FoldAll()
-    {
+        Vector3 eye = ClampEye(presence.EyeInFrame());
+        LayOut(eye);
         foreach (var o in openItems)
         {
             if (o.go == null) continue;
-            // Remember what the user moved, resized or turned, to put it back next time this mode opens.
-            bool placed = (o.handles != null && o.handles.UserPlaced) || (o.grips != null && o.grips.UserPlaced);
-            if (ActiveMode != null && placed) saved[Key(ActiveMode, o.item.id)] = Capture(o);
-            if (o.handles != null) o.handles.Cancel();
-            if (o.grips != null) o.grips.Cancel();
-            SetBusy(o, true);
+            if (o.handles != null) o.handles.SetPlacement(o.facing, byUser: false);
+            if (o.grips != null) o.grips.SetPlacement(byUser: false);
+            // Caught mid-flight, it carries straight on; the rest go centre out.
+            float delay = o.motion != null ? 0f : StaggerIndex(o, outermostFirst: false) * ForgeTheme.LayoutStagger;
+            Settle(o, delay, eye);
+        }
+    }
 
-            GameObject go = o.go;
-            Transform t = go.transform;
-            Vector3 p0 = t.localPosition, s0 = t.localScale;
-            Vector3 p1 = new Vector3(Mathf.Clamp(p0.x * 0.3f, -0.25f, 0.25f), 0.02f, 0.12f);
-            StartCoroutine(ForgeTween.Run(0.25f, 0f, k =>
+    // ---- Motion ----
+    // Each item runs at most one tween (OpenItem.motion). A new one stops the old and starts from whatever is on screen,
+    // so opening another mode, Reset or walking away mid-animation never leaves an item half-grown or Busy.
+
+    // Spring shapes for ForgeTween.SpringDamped (damping, oscillations per tween).
+    const float RiseFrequency = 1.6f, SwingFrequency = 1.15f;  // unfold, critically damped: height and turn lead the swing
+    const float GrowDamping = 0.74f, GrowFrequency = 1.35f;    // unfold scale: one soft ~3% overshoot, no wobble
+    const float SettleDamping = 0.9f, SettleFrequency = 1.3f;  // re-layout: next to no overshoot
+    const float SeedScale = 0.01f;  // volumes have no fade, so they start (and fold down to) smaller than panels
+
+    // Unfold: a panel comes out of the ring that was pressed, tiny, see-through and lying flat like the ring, then rises
+    // and swings round and out to its place, turning to face you; it grows with one soft overshoot and fades in early.
+    // A floating volume comes out the same way, upright. A desk volume grows out of the desk where it stands instead:
+    // its base spreads, then the model rises out of it.
+    void Unfold(OpenItem o, string modeId, float delay, Vector3 eye)
+    {
+        StopMotion(o);
+        Transform t = o.go.transform;
+        o.restScale = t.localScale;
+        if (o.panel != null) o.restSize = o.panel.SizeMeters;
+        Vector3 pos = o.position, scale = o.restScale;
+        Quaternion rot = o.rotation;
+        SetBusy(o, true);
+
+        if (o.panel == null && IsDeskSlot(o.item.slot))
+        {
+            t.localPosition = pos;
+            t.localRotation = rot;
+            t.localScale = scale * SeedScale;
+            o.motion = StartCoroutine(ForgeTween.Run(ForgeTheme.UnfoldTime, delay, k =>
             {
                 if (t == null) return;
-                float e = ForgeTween.EaseInCubic(k);
-                t.localPosition = Vector3.Lerp(p0, p1, e);
-                t.localScale = s0 * (1f - e * 0.98f);
-            }, () => { if (go != null) Destroy(go); }));
+                float spread = ForgeTween.SpringDamped(Mathf.InverseLerp(0f, 0.7f, k), 1f, 1.1f);
+                float rise = ForgeTween.SpringDamped(Mathf.InverseLerp(0.15f, 1f, k), GrowDamping, GrowFrequency);
+                spread = Mathf.LerpUnclamped(SeedScale, 1f, spread);
+                rise = Mathf.LerpUnclamped(SeedScale, 1f, rise);
+                t.localScale = Vector3.Scale(scale, new Vector3(spread, rise, spread));
+            }, () => Landed(o)));
+            return;
+        }
+
+        CanvasGroup group = Group(o);
+        float seed = group != null ? ForgeTheme.UnfoldScale : SeedScale;
+        Vector3 from = RingPoint(modeId, DeskEdge(pos));
+        Quaternion fromRotation = o.panel != null ? Quaternion.LookRotation(Vector3.down, Vector3.forward) : rot;
+        t.localPosition = from;
+        t.localRotation = fromRotation;
+        t.localScale = scale * seed;
+        if (group != null) group.alpha = 0f;
+        o.motion = StartCoroutine(ForgeTween.Run(ForgeTheme.UnfoldTime, delay, k =>
+        {
+            if (t == null) return;
+            float rise = ForgeTween.SpringDamped(k, 1f, RiseFrequency);
+            t.localPosition = ForgeTween.Orbit(eye, from, pos, ForgeTween.SpringDamped(k, 1f, SwingFrequency), rise);
+            t.localRotation = Quaternion.SlerpUnclamped(fromRotation, rot, rise);
+            t.localScale = scale * Mathf.LerpUnclamped(seed, 1f, ForgeTween.SpringDamped(k, GrowDamping, GrowFrequency));
+            if (group != null) group.alpha = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, ForgeTheme.UnfoldFade, k));
+        }, () => Landed(o)));
+    }
+
+    // Fold the open mode away into its ring, outermost first, remembering what the user moved, resized or turned to put
+    // it back next time this mode opens.
+    void FoldAll()
+    {
+        if (openItems.Count == 0) return;
+        string modeId = ActiveMode;
+        Vector3 eye = ClampEye(presence.EyeInFrame());
+        foreach (var o in openItems)
+        {
+            if (o.go == null) continue;
+            bool placed = (o.handles != null && o.handles.UserPlaced) || (o.grips != null && o.grips.UserPlaced);
+            if (modeId != null && placed) saved[Key(modeId, o.item.id)] = CaptureSettled(o);
+            if (o.handles != null) o.handles.Cancel();
+            if (o.grips != null) o.grips.Cancel();
+            // Caught mid-flight, it turns straight back; the rest go outermost first.
+            float delay = o.motion != null ? 0f : StaggerIndex(o, outermostFirst: true) * ForgeTheme.FoldStagger;
+            Fold(o, modeId, delay, eye);
         }
         openItems.Clear();
     }
 
-    OpenItem Spawn(WorkspaceItem item)
+    // Fold: quicker than the unfold, and the other way round. A panel swings in, lies down and shrinks, fading out over
+    // the second half, and sinks into the ring last (following it down as it lowers). A desk volume's model sinks into
+    // its base, which then draws in. Destroyed at the end.
+    void Fold(OpenItem o, string modeId, float delay, Vector3 eye)
+    {
+        StopMotion(o);
+        SetBusy(o, true);
+        GameObject go = o.go;
+        Transform t = go.transform;
+        Vector3 p0 = t.localPosition, s0 = t.localScale;
+        Quaternion r0 = t.localRotation;
+
+        if (o.panel == null && IsDeskSlot(o.item.slot))
+        {
+            o.motion = StartCoroutine(ForgeTween.Run(ForgeTheme.FoldTime, delay, k =>
+            {
+                if (t == null) return;
+                float sink = Mathf.LerpUnclamped(1f, SeedScale, ForgeTween.EaseInOutCubic(Mathf.InverseLerp(0f, 0.65f, k)));
+                float draw = Mathf.LerpUnclamped(1f, SeedScale, ForgeTween.EaseInOutCubic(Mathf.InverseLerp(0.3f, 1f, k)));
+                t.localScale = Vector3.Scale(s0, new Vector3(draw, sink, draw));
+            }, () => { if (go != null) Destroy(go); }));
+            return;
+        }
+
+        CanvasGroup group = Group(o);
+        float a0 = group != null ? group.alpha : 1f;
+        if (group != null) group.blocksRaycasts = false;  // on its way out: clicks go past it
+        float end = group != null ? ForgeTheme.UnfoldScale : SeedScale;
+        Quaternion r1 = o.panel != null ? Quaternion.LookRotation(Vector3.down, Vector3.forward) : r0;
+        Vector3 ring = RingPoint(modeId, DeskEdge(p0));
+        o.motion = StartCoroutine(ForgeTween.Run(ForgeTheme.FoldTime, delay, k =>
+        {
+            if (t == null) return;
+            ring = RingPoint(modeId, ring);
+            float swing = ForgeTween.EaseInOutCubic(k);
+            t.localPosition = ForgeTween.Orbit(eye, p0, ring, swing, ForgeTween.EaseInOutCubic(Mathf.InverseLerp(0.15f, 1f, k)));
+            t.localRotation = Quaternion.SlerpUnclamped(r0, r1, swing);
+            t.localScale = s0 * Mathf.LerpUnclamped(1f, end, swing);
+            if (group != null) group.alpha = a0 * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.5f, 1f, k)));
+        }, () => { if (go != null) Destroy(go); }));
+    }
+
+    // Re-layout: from wherever it is (even caught mid-unfold) to its slot, its rest scale and size, fully shown.
+    void Settle(OpenItem o, float delay, Vector3 eye)
+    {
+        StopMotion(o);
+        Transform t = o.go.transform;
+        ForgePanel panel = o.panel;
+        t.localScale = o.shownScale;
+        if (panel != null) panel.SizeMeters = o.shownSize;
+        Vector3 p0 = t.localPosition, p1 = o.position, s0 = o.shownScale, s1 = o.restScale;
+        Quaternion r0 = t.localRotation, r1 = o.rotation;
+        Vector2 z0 = o.shownSize, z1 = o.restSize;
+        bool resize = panel != null && (z1 - z0).sqrMagnitude > 1e-8f;
+        CanvasGroup group = Group(o);
+        float a0 = group != null ? group.alpha : 1f;
+        SetBusy(o, true);
+        o.motion = StartCoroutine(ForgeTween.Run(ForgeTheme.LayoutTime, delay, k =>
+        {
+            if (t == null) return;
+            float e = ForgeTween.SpringDamped(k, SettleDamping, SettleFrequency);
+            t.localPosition = ForgeTween.Orbit(eye, p0, p1, e, e);
+            t.localRotation = Quaternion.SlerpUnclamped(r0, r1, e);
+            t.localScale = Vector3.LerpUnclamped(s0, s1, e);
+            if (resize) panel.SizeMeters = Vector2.LerpUnclamped(z0, z1, e);
+            if (group != null) group.alpha = Mathf.Lerp(a0, 1f, e);
+        }, () => Landed(o)));
+    }
+
+    // At rest: exactly its size, fully shown, and grabs work again.
+    static void Landed(OpenItem o)
+    {
+        o.motion = null;
+        if (o.go != null) o.go.transform.localScale = o.restScale;
+        if (o.group != null) o.group.alpha = 1f;
+        SetBusy(o, false);
+    }
+
+    // Stop whatever the item was doing; the next motion starts from wherever that left it.
+    void StopMotion(OpenItem o)
+    {
+        if (o.motion != null) StopCoroutine(o.motion);
+        o.motion = null;
+    }
+
+    // A panel fades as a whole, frame and content together, through a CanvasGroup on it.
+    static CanvasGroup Group(OpenItem o)
+    {
+        if (o.group != null || o.panel == null) return o.group;
+        o.group = o.panel.GetComponent<CanvasGroup>();
+        if (o.group == null) o.group = o.panel.gameObject.AddComponent<CanvasGroup>();
+        return o.group;
+    }
+
+    // The mode's dock ring in the desk frame; `fallback` while the dock isn't showing.
+    Vector3 RingPoint(string modeId, Vector3 fallback)
+    {
+        if (dock == null || modeId == null || !dock.TryGetRingPoint(modeId, out Vector3 world)) return fallback;
+        return presence.Frame.InverseTransformPoint(world);
+    }
+
+    // Where items come out of with no ring to use: the desk's front edge, toward their side.
+    static Vector3 DeskEdge(Vector3 pos) => new Vector3(Mathf.Clamp(pos.x * 0.3f, -0.25f, 0.25f), 0.02f, 0.12f);
+
+    // Centre out: Main, then what's beside it (and the desk volume under it), then the outer pair, then Above.
+    static int Tier(WorkspaceSlot slot)
+    {
+        switch (slot)
+        {
+            case WorkspaceSlot.Main: return 0;
+            case WorkspaceSlot.Left:
+            case WorkspaceSlot.Right:
+            case WorkspaceSlot.DeskCenter: return 1;
+            case WorkspaceSlot.Above: return 3;
+            default: return 2;  // FarLeft, FarRight, DeskLeft, DeskRight
+        }
+    }
+
+    // An item's turn in the stagger: how many of the open items' tiers come before its own (after it, folding).
+    int StaggerIndex(OpenItem o, bool outermostFirst)
+    {
+        int used = 0;
+        foreach (var other in openItems) used |= 1 << Tier(other.item.slot);
+        int tier = Tier(o.item.slot), index = 0;
+        for (int i = 0; i < 4; i++)
+            if ((used & (1 << i)) != 0 && (outermostFirst ? i > tier : i < tier)) index++;
+        return index;
+    }
+
+    // What to remember of an item: where the user left it, or if it's still unfolding, where it was going.
+    static SavedPose CaptureSettled(OpenItem o)
+    {
+        SavedPose pose = Capture(o);
+        if (o.motion == null) return pose;
+        pose.position = o.position;
+        pose.rotation = o.rotation;
+        pose.scale = o.restScale.x;
+        if (o.panel != null) pose.size = o.restSize;
+        return pose;
+    }
+
+    OpenItem Spawn(WorkspaceItem item, WorkspaceMode mode)
     {
         var o = new OpenItem { item = item };
         string title = string.IsNullOrEmpty(item.title) ? item.id : item.title;
@@ -318,12 +501,8 @@ public class Workspace : MonoBehaviour
             volume.name = $"Volume {item.id}";
             float s = IsDeskSlot(item.slot) ? 0.22f : 0.3f;
             volume.SetSize(new Vector3(s, s, s));
-            // Placeholder content until the module's prefab is assigned.
-            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            Destroy(cube.GetComponent<Collider>());
-            cube.transform.localRotation = Quaternion.Euler(20f, 30f, 10f);
-            volume.SetContent(cube);
-            volume.turntable = true;
+            // Until the module's prefab is assigned: an empty lit base with its label and what will stand on it.
+            volume.SetCaption(PlaceholderCaption(item.id));
             o.volume = volume;
             o.go = volume.gameObject;
         }
@@ -331,6 +510,8 @@ public class Workspace : MonoBehaviour
         o.go.transform.SetParent(presence.Frame, false);
         if (o.panel != null)
         {
+            o.panel.SetBadge(mode.label, mode.color);
+            if (item.prefab == null) o.panel.ShowEmptyState(title, PlaceholderCaption(item.id));
             o.defaultSize = o.panel.SizeMeters;
             o.handles = o.panel.GetComponent<PanelManipulator>();
             if (o.handles == null) o.handles = o.panel.gameObject.AddComponent<PanelManipulator>();
@@ -338,6 +519,7 @@ public class Workspace : MonoBehaviour
         }
         else if (o.volume != null && o.volume.gameObject == o.go)
         {
+            o.volume.SetAccent(mode.color);
             o.defaultScale = o.go.transform.localScale.x;
             o.grips = o.go.GetComponent<VolumeManipulator>();
             if (o.grips == null) o.grips = o.go.AddComponent<VolumeManipulator>();
@@ -411,10 +593,55 @@ public class Workspace : MonoBehaviour
                 WorkspaceSlot slot = o.item.slot;
                 float x = Mathf.Min(0.3f, Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.12f));
                 float z = Mathf.Clamp(presence.FrameDepth * 0.5f, 0.12f, 0.3f);
+                // Far enough back that the base and its label clear the dock, but still on the desk.
+                float depth = o.volume != null ? o.volume.size.z * o.go.transform.localScale.z : 0.3f;
+                float clear = dock.inset + ForgeTheme.DockHeight * 0.0005f + 0.06f + depth * 0.5f;
+                z = Mathf.Min(Mathf.Max(z, clear), Mathf.Max(0.12f, presence.FrameDepth - depth * 0.5f));
                 o.position = new Vector3(slot == WorkspaceSlot.DeskLeft ? -x : slot == WorkspaceSlot.DeskRight ? x : 0f, 0f, z);
                 o.rotation = Quaternion.LookRotation(Flat(o.position - eye), Vector3.up);
                 o.facing = PanelFacing.FaceMe;
             }
+        }
+
+        // Out of the room's walls (RoomFit): what fits keeps its place, and the rest come closer or toward the middle,
+        // clear of those if they can.
+        if (RoomFit.Begin(presence.Frame, eye))
+        {
+            foreach (var o in openItems)
+                if (Floats(o) && !RoomFit.InWall(o.position, o.rotation, FitSize(o), o.panel == null))
+                    RoomFit.Take(o.position, FitSize(o), o.panel == null);
+            foreach (var o in openItems)
+                if (Floats(o) && RoomFit.InWall(o.position, o.rotation, FitSize(o), o.panel == null))
+                    RoomFit.Fit(ref o.position, ref o.rotation, FitSize(o), o.panel == null, layout == WorkspaceLayout.Curved);
+        }
+    }
+
+    // Panels and volumes in the air (not the ones standing on the desk).
+    static bool Floats(OpenItem o) => o.go != null && !IsDeskSlot(o.item.slot);
+
+    // What RoomFit tests: a panel's width and height, a volume's box at its scale.
+    static Vector3 FitSize(OpenItem o)
+    {
+        if (o.panel != null) return o.panel.SizeMeters;
+        if (o.volume != null) return Vector3.Scale(o.volume.size, o.go.transform.localScale);
+        return new Vector3(0.3f, 0.3f, 0.3f);
+    }
+
+    // What a placeholder panel or volume will show once its module is plugged in (its empty state's caption).
+    static string PlaceholderCaption(string itemId)
+    {
+        switch (itemId)
+        {
+            case "ml-training": return "Loss and accuracy curves draw here while a model trains.";
+            case "ml-results": return "Predictions, mistakes and the confusion matrix land here after a run.";
+            case "ml-dataset":
+            case "ml-datastack": return "The dataset, as a stack of photos";
+            case "ml-model3d": return "The model's layers, as blocks";
+            case "cad-timeline": return "Every version of the design, newest first.";
+            case "messages": return "Slack messages land here, with replies Bit drafts for you.";
+            case "screen-left":
+            case "screen-right": return "Share a window from Screen Bridge to see it here.";
+            default: return "Shows up here once its module is plugged in.";
         }
     }
 
@@ -516,7 +743,7 @@ public class Workspace : MonoBehaviour
     {
         new WorkspaceMode
         {
-            id = "ml", label = "ML", color = new Color(0.25f, 0.55f, 1f),
+            id = "ml", label = "ML", color = ForgeTheme.ML,
             items =
             {
                 new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main),
@@ -528,7 +755,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "cad", label = "CAD", color = new Color(1f, 0.55f, 0.2f),
+            id = "cad", label = "CAD", color = ForgeTheme.CAD,
             items =
             {
                 new WorkspaceItem("screen-main", "rocket.py", WorkspaceSlot.Main),
@@ -539,7 +766,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "screens", label = "SCR", color = new Color(0.4f, 0.85f, 0.5f),
+            id = "screens", label = "SCR", color = ForgeTheme.Screens,
             items =
             {
                 new WorkspaceItem("screen-main", "Screen 1", WorkspaceSlot.Main),
@@ -549,7 +776,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "messages", label = "MSG", color = new Color(0.85f, 0.4f, 0.9f),
+            id = "messages", label = "MSG", color = ForgeTheme.Messages,
             items = { new WorkspaceItem("messages", "Messages", WorkspaceSlot.Right) },
         },
     };

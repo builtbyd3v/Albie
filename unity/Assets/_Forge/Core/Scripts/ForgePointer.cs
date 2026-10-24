@@ -50,8 +50,8 @@ public class ForgePointer
         {
             if (pass == 1 || rayInteractors == null)
             {
-                rayInteractors = Object.FindObjectsByType<RayInteractor>(FindObjectsSortMode.None);
-                pokeInteractors = Object.FindObjectsByType<PokeInteractor>(FindObjectsSortMode.None);
+                rayInteractors = Object.FindObjectsByType<RayInteractor>();
+                pokeInteractors = Object.FindObjectsByType<PokeInteractor>();
             }
             foreach (var r in rayInteractors)
                 if (r != null && r.Identifier == e.pointerId) pointer = new ForgePointer(Source.Ray, null, r, null, head);
