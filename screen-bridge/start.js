@@ -1,8 +1,11 @@
 // One command for screen streaming: starts signaling.py and the JPEG fallback (stream.py), opens Chrome,
 // and shares the VS Code window over WebRTC.
 // No clicks: Chrome auto-picks the capture source named by SCREEN_SOURCE (default: VS Code's front window).
+// VS Code not open? It opens VSCODE_FOLDER (default: this repo) and waits for the window; it never shares the
+// whole screen unless SCREEN_SOURCE asks for it.
 // One-time setup: "window.titleSeparator": " | " in VS Code settings, so Chrome can tell VS Code apart (see below).
 //   npm start                                  # share VS Code
+//   VSCODE_FOLDER=~/cifar npm start            # open that project if VS Code isn't open yet
 //   SCREEN_SOURCE="Entire screen" npm start    # share the whole screen
 // A Quest plugged in over USB is wired up automatically (adb reverse, see below).
 // Ctrl+C stops everything.
@@ -27,7 +30,25 @@ function vsCodeSource() {
   }
 }
 
-const source = process.env.SCREEN_SOURCE || vsCodeSource() || "Entire screen";
+// Open VS Code when it has no window, then wait for its title (about 3 s on a cold start).
+async function openVsCode() {
+  let source = vsCodeSource();
+  if (source) return source;
+  const folder = process.env.VSCODE_FOLDER || new URL("..", import.meta.url).pathname;
+  console.log(`Opening VS Code on ${folder}`);
+  execFileSync("open", ["-a", "Visual Studio Code", folder]);
+  for (let i = 0; i < 60 && !source; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    source = vsCodeSource();
+  }
+  if (!source) {
+    console.error("VS Code didn't open a window in 30 s; not sharing anything. Open it, then restart.");
+    process.exit(1);
+  }
+  return source;
+}
+
+const source = process.env.SCREEN_SOURCE || (await openVsCode());
 
 // Over USB, `adb reverse` makes localhost:<port> on the Quest reach this laptop, so ForgeNet's default
 // hubUrl (localhost) works with no IP to type: 8000 is the hub, 8766 signaling (video itself goes over Wi-Fi),

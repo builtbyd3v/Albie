@@ -3,7 +3,7 @@
 Each binary WS message is one complete JPEG. Clients always get the newest
 frame; a slow client skips frames instead of falling behind.
 
-    python stream.py                       # VS Code's front window at Retina resolution (macOS), else monitor 1
+    python stream.py                       # VS Code's front window at Retina resolution (macOS), else no frames
     python stream.py --app ""              # whole main monitor
     python stream.py --region 0,0,1600,1000
     python stream.py --monitor 2 --fps 15
@@ -53,13 +53,16 @@ def capture(loop, args):
                 if window is None or start - found_at > 2:
                     found = window_capture.find_window(args.app)
                     if found != window:
-                        print(f"capturing {args.app} window {found}" if found else f"no {args.app} window, sharing the monitor")
+                        print(f"capturing {args.app} window {found}" if found else f"no {args.app} window, holding the last frame")
                     window, found_at = found, start
                 if window is not None:
                     img = window_capture.grab_window(window)
                     if img is None:
                         window = None
-            if img is None:
+                if img is None:  # never fall back to the whole screen: Unity keeps the last frame
+                    time.sleep(0.5)
+                    continue
+            else:
                 shot = sct.grab(area)
                 img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
             img.thumbnail((args.max_size, args.max_size))
