@@ -132,16 +132,35 @@ public class NotifyMessage
 {
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
+    [JsonProperty("is_dm")] public bool isDm;                 // a DM to the user (channel_name is "dm")
     [JsonProperty("user")] public string user;
     [JsonProperty("user_name")] public string userName;
     [JsonProperty("text")] public string text;
     [JsonProperty("ts")] public string ts;                    // Slack message ts; reply thread key
     [JsonProperty("thread_ts")] public string threadTs;
-    [JsonProperty("mentions_me")] public bool mentionsMe;
+    [JsonProperty("mentions_me")] public bool mentionsMe;     // a DM, or the text mentions the user
+}
+
+/// <summary>A reply Bit wrote but has NOT sent: show it as a Send / Cancel card. Send = POST /messages/drafts/{id}/send.</summary>
+public class NotifyDraft
+{
+    [JsonProperty("draft_id")] public string draftId;
+    [JsonProperty("channel")] public string channel;
+    [JsonProperty("channel_name")] public string channelName;
+    [JsonProperty("text")] public string text;
+    [JsonProperty("thread_ts")] public string threadTs;
+    [JsonProperty("reply_to")] public NotifyMessage replyTo;  // the message this answers, when there is one
+}
+
+public class NotifyDraftCancelled
+{
+    [JsonProperty("draft_id")] public string draftId;
+    [JsonProperty("reason")] public string reason;            // cancelled | superseded | expired
 }
 
 public class NotifySent
 {
+    [JsonProperty("draft_id")] public string draftId;         // the draft this came from, when there was one
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
     [JsonProperty("text")] public string text;
@@ -177,6 +196,8 @@ public static class ForgeEvents
     public const string PetSayType = "pet.say";
     public const string UiHighlightType = "ui.highlight";
     public const string NotifyMessageType = "notify.message";
+    public const string NotifyDraftType = "notify.draft";
+    public const string NotifyDraftCancelledType = "notify.draft_cancelled";
     public const string NotifySentType = "notify.sent";
     public const string NotifyDigestType = "notify.digest";
 
@@ -193,6 +214,8 @@ public static class ForgeEvents
     public static event Action<PetSay> OnPetSay;
     public static event Action<UiHighlight> OnUiHighlight;
     public static event Action<NotifyMessage> OnNotifyMessage;
+    public static event Action<NotifyDraft> OnNotifyDraft;
+    public static event Action<NotifyDraftCancelled> OnNotifyDraftCancelled;
     public static event Action<NotifySent> OnNotifySent;
     public static event Action<NotifyDigest> OnNotifyDigest;
 
@@ -214,6 +237,8 @@ public static class ForgeEvents
             case PetSayType: Invoke(OnPetSay, payload); return true;
             case UiHighlightType: Invoke(OnUiHighlight, payload); return true;
             case NotifyMessageType: Invoke(OnNotifyMessage, payload); return true;
+            case NotifyDraftType: Invoke(OnNotifyDraft, payload); return true;
+            case NotifyDraftCancelledType: Invoke(OnNotifyDraftCancelled, payload); return true;
             case NotifySentType: Invoke(OnNotifySent, payload); return true;
             case NotifyDigestType: Invoke(OnNotifyDigest, payload); return true;
             default: return false;

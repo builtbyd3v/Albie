@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 CallTool = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 SERVER = "forge"
-PANELS = {"cad": "cad-viewer", "vscode": "screen-main"}  # tool prefix -> panel Bit walks to while working
+PANELS = {"cad": "cad-viewer", "vscode": "screen-main", "messages": "messages"}  # tool prefix -> panel Bit walks to while working
 
 _tools: dict[str, tuple[dict[str, Any], CallTool]] = {}
 _lead_only: set[str] = set()  # Bit's crew tools (agent/crew.py): not offered to crew runners

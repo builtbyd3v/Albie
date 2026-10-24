@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-Modules so far: **CAD** (see `../CAD_PLAN.md`) and the **agent** (pet; see [Agent module (pet)](#agent-module-pet)). `main.py` and `events.py` are a minimal skeleton for Person 5 to grow.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)) and **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -207,3 +207,68 @@ The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` plus
 (mono, 16 kHz, ~100 ms chunks). Every event goes to every `/ws/agent` socket; filter by `pet_id`.
 The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
 pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
+
+## Messaging (Slack)
+
+Bit reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
+`hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
+`hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so there is no public
+URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
+
+Setup with the Slack CLI (https://docs.slack.dev/tools/slack-cli), from `hub/`:
+
+```bash
+slack login                      # once per machine, into the team workspace
+slack install -E local           # creates "Bit (local)" from manifest.json and installs it (bot + user scopes)
+slack run                        # start hook (scripts/slack_cli_start.py) writes SLACK_BOT_TOKEN + SLACK_APP_TOKEN to hub/.env, then exits
+slack app settings               # OAuth & Permissions > "User OAuth Token" (xoxp-...) -> SLACK_USER_TOKEN in hub/.env (the CLI never hands it out)
+```
+
+Changed scopes or events? Edit `manifest.json`, run `slack run` again (it syncs the manifest and reinstalls), and
+re-copy the user token if user scopes changed. Another checkout of the repo: `slack app link -E local` (app id from
+`slack app list`); `.slack/apps.dev.json` is gitignored on purpose, it is per-checkout. Manual fallback:
+api.slack.com/apps with the same manifest.
+
+`hub/.env` after setup:
+
+```
+SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`: the app's identity
+SLACK_APP_TOKEN=xapp-...        # written by `slack run`: Socket Mode
+SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Bit sees only invited channels and posts as "Bit"
+SLACK_USER_ID=U...              # optional, derived from the user token; only needed without it
+SLACK_DEFAULT_CHANNEL=#forge-team
+```
+
+Bot + app tokens empty = messaging disabled (one warning at startup, `/messages/latest` and `/drafts*` answer 503,
+`/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, open_draft}`.
+
+Live check without Unity:
+
+```bash
+.venv/bin/python scripts/slack_smoke.py                              # listen: print every inbox message
+.venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hi"   # write a draft, post nothing (notify.draft)
+.venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hi"   # dev shortcut: draft + send with no confirmation
+.venv/bin/python scripts/slack_smoke.py --digest                     # what Bit would say on sit-down
+```
+
+**Sending is always two steps.** `messages_send` (tool) or `POST /messages/drafts` writes a `Draft` and emits
+`notify.draft`; Unity shows it as a Send / Cancel card. Only `POST /messages/drafts/{id}/send` (the button) or the
+`messages_confirm` tool ("send it") posts it, with your token, then `notify.sent`. One open draft at a time: a new
+one supersedes it (`notify.draft_cancelled`, reason `superseded`); unsent drafts expire after 120 s (`expired`);
+Cancel gives `cancelled`. The card closes on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed.
+
+| | |
+|---|---|
+| `GET /messages/latest?n=5` | newest inbox messages (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me) |
+| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id or `#name`, omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
+| `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
+| `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks all seen. |
+| `/ws` events | `notify.message` (each inbox message), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only), `messages_confirm {send, draft_id?}` |
+
+Map: `messaging/settings.py` (env), `store.py` (last 50 messages + `last_seen_ts` in `.data/messages/state.json`),
+`slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, name
+caches, drafts, digest), `router.py`, `tools.py`. Inbox rules: your own messages, Bit's posts and other bots are
+ignored; a post delivered twice (bot + user subscription, or `app_mention` + `message`) is recorded once; a DM or
+group DM is `is_dm` and counts as a mention.

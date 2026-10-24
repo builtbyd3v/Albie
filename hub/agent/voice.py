@@ -90,7 +90,10 @@ DELEGATE_RULES = (
 )
 TOOL_RULES = (
     " Use your other tools yourself for quick actions: read or change the rocket design, and open, highlight "
-    "or check code in VS Code. Call them instead of guessing, then say in one short line what you did."
+    "or check code in VS Code. Call them instead of guessing, then say in one short line what you did. "
+    "Slack replies go out under the user's own name and are never sent directly: messages_send only writes a draft "
+    "that pops up for them to confirm, so say what you wrote and ask them to tap Send or say 'send it'; "
+    "messages_confirm is for their yes or no."
 )
 DELEGATE_TOOL = {
     "type": "function",
