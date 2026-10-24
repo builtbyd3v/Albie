@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -34,12 +35,43 @@ class BusRecorder:
         return next(p for t, p in reversed(self.events) if t == type_)
 
 
+class SlackApiError(Exception):
+    """Shape of slack_sdk.errors.SlackApiError as the backfill reads it: .response["error"], .response.headers."""
+
+    def __init__(self, error: str, retry_after: str | None = None) -> None:
+        super().__init__(error)
+
+        class Resp(dict):
+            headers = {"Retry-After": retry_after} if retry_after else {}
+
+        self.response = Resp(error=error)
+
+
 class StubClient:
-    """Just enough of AsyncWebClient for the handler and posting paths."""
+    """Just enough of AsyncWebClient for the handler, posting and backfill paths."""
 
     def __init__(self, identity: str = "UBOT") -> None:
         self.identity = identity
         self.posted: list[dict[str, Any]] = []
+        self.conversations: list[dict[str, Any]] = []            # users.conversations pages (list of channel dicts)
+        self.history: dict[str, list[dict[str, Any]]] = {}       # channel -> messages (newest first, like Slack)
+        self.history_errors: dict[str, list[Exception]] = {}     # channel -> exceptions to raise first
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def users_conversations(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("users.conversations", kwargs))
+        page = int(kwargs.get("cursor") or 0)
+        chunk = self.conversations[page * 2:(page + 1) * 2]  # two per page so cursors get exercised
+        more = (page + 1) * 2 < len(self.conversations)
+        return {"channels": chunk, "response_metadata": {"next_cursor": str(page + 1) if more else ""}}
+
+    async def conversations_history(self, channel: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("conversations.history", {"channel": channel, **kwargs}))
+        queued = self.history_errors.get(channel)
+        if queued:
+            raise queued.pop(0)
+        oldest = float(kwargs.get("oldest") or 0)
+        return {"messages": [m for m in self.history.get(channel, []) if float(m["ts"]) > oldest]}
 
     async def auth_test(self) -> dict[str, Any]:
         return {"user_id": self.identity, "user": "bit" if self.identity == "UBOT" else "adrian", "team": "forge"}
@@ -62,18 +94,25 @@ class StubClient:
         return {"ts": "1700000099.000100"}
 
 
-def make_service(tmp_path: Path, *, enabled: bool = True, as_user: bool = False
+def make_service(tmp_path: Path, *, enabled: bool = True, as_user: bool = False, voice: bool = True,
                  ) -> tuple[SlackService, BusRecorder, list[tuple[str, str]]]:
     spoken: list[tuple[str, str]] = []
+    noted: list[tuple[str, str]] = []
 
     async def speak(pet_id: str, text: str) -> bool:
-        spoken.append((pet_id, text))
-        return True
+        if voice:
+            spoken.append((pet_id, text))
+        return voice  # False = no live voice session (speech.speak found nobody)
+
+    async def note(pet_id: str, text: str) -> bool:
+        noted.append((pet_id, text))
+        return voice
 
     settings = SlackSettings(bot_token="xoxb-x" if enabled else "", app_token="xapp-x" if enabled else "",
                              user_token="xoxp-x" if as_user else "", user_id="UME", default_channel="#forge-team")
     bus = BusRecorder()
-    svc = SlackService(settings, MessageStore(tmp_path / "messages"), bus, speak)  # type: ignore[arg-type]
+    svc = SlackService(settings, MessageStore(tmp_path / "messages"), bus, speak, note)  # type: ignore[arg-type]
+    svc.noted = noted  # type: ignore[attr-defined]  (test-only handle)
     svc._client = StubClient("UBOT")
     if as_user:
         svc._user_client = StubClient("UME")
@@ -191,6 +230,105 @@ def test_user_id_derived_from_user_token(tmp_path: Path) -> None:
     assert svc.health()["as_user"] is True and svc.health()["user_id"] == "UME"
 
 
+# ------------------------------------------------------------------ startup backfill
+def _hist(ts: str, text: str, user: str = "U1", **over: Any) -> dict[str, Any]:
+    return {"type": "message", "user": user, "text": text, "ts": ts, **over}
+
+
+def test_backfill_feeds_the_digest_without_notifying(tmp_path: Path) -> None:
+    svc, bus, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "C1", "name": "forge-team"}, {"id": "D1", "is_im": True},
+                            {"id": "C2", "name": "random"}]  # 3 -> two pages
+    reader.history = {
+        "C1": [_hist("1700007000.000100", "newest"), _hist("1700006000.000100", "mine", user="UME"),
+               _hist("1700005000.000100", "from a bot", bot_id="B1"), _hist("1700004000.000100", "older")],
+        "D1": [_hist("1700006500.000100", "dm for you")],
+        "C2": [],
+    }
+    n = asyncio.run(svc.backfill(now=1700008000.0))
+    assert n == 3 and svc.backfilled == 3
+    assert bus.events == []  # nothing told to Unity
+    assert [m.text for m in svc.store.latest(10)] == ["newest", "dm for you", "older"]
+    dm = svc.store.latest(10)[1]
+    assert (dm.channel_name, dm.is_dm, dm.mentions_me) == ("dm", True, True)  # names resolved like live events
+    assert svc.store.latest(10)[0].channel_name == "forge-team"
+    conv_calls = [kw for name, kw in reader.calls if name == "users.conversations"]
+    assert len(conv_calls) == 2 and conv_calls[0]["types"] == "public_channel,private_channel,im,mpim"
+    assert conv_calls[0]["exclude_archived"] is True and conv_calls[0]["limit"] == 200 and conv_calls[1]["cursor"] == "1"
+    hist = [kw for name, kw in reader.calls if name == "conversations.history"]
+    assert [h["channel"] for h in hist] == ["C1", "D1", "C2"] and all(h["limit"] == 20 for h in hist)
+    assert hist[0]["oldest"] == f"{1700008000.0 - 7200:.6f}"  # no last_seen_ts: the last two hours
+    # the digest counts them; a live duplicate of a backfilled message is dropped
+    assert asyncio.run(svc.on_event(event(channel="C1", text="newest", ts="1700007000.000100"))) is None
+    assert asyncio.run(svc.digest()).count == 3
+
+
+def test_backfill_starts_at_last_seen_and_uses_the_bot_without_a_user_token(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path)
+    svc.store.add(msg("1700000005.000100"))
+    svc.store.mark_seen()
+    bot: StubClient = svc._client
+    bot.conversations = [{"id": "C1", "name": "forge-team"}]
+    bot.history = {"C1": [_hist("1700000006.000100", "after"), _hist("1700000004.000100", "before")]}
+    assert asyncio.run(svc.backfill()) == 1
+    assert bot.calls[-1][1]["oldest"] == "1700000005.000100"
+    assert [m.text for m in svc.store.unread()] == ["after"]
+
+
+def test_backfill_rate_limit_waits_once_then_stops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "C1", "name": "a"}, {"id": "C2", "name": "b"}, {"id": "C3", "name": "c"}]
+    reader.history = {c: [_hist("1700000009.000100", c)] for c in ("C1", "C2", "C3")}
+    reader.history_errors = {"C1": [SlackApiError("ratelimited", retry_after="7")],
+                             "C2": [SlackApiError("ratelimited", retry_after="3")]}
+    slept: list[float] = []
+
+    async def fake_sleep(s: float) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("messaging.slack_client.asyncio.sleep", fake_sleep)
+    assert asyncio.run(svc.backfill(now=1700000010.0)) == 1  # C1 after the wait; C2 hit the limit again -> stop; C3 never asked
+    assert slept == [7.0]
+    assert [kw["channel"] for name, kw in reader.calls if name == "conversations.history"] == ["C1", "C1", "C2"]
+
+
+def test_backfill_missing_scope_skips_the_channel(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="forge.messaging")
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "G1", "is_mpim": True}, {"id": "C2", "name": "b"}]
+    reader.history = {"G1": [_hist("1700000009.000100", "secret")], "C2": [_hist("1700000009.000200", "fine")]}
+    reader.history_errors = {"G1": [SlackApiError("missing_scope")]}
+    assert asyncio.run(svc.backfill(now=1700000010.0)) == 1
+    assert "missing_scope" in caplog.text and "1 skipped" in caplog.text
+    assert [m.text for m in svc.store.latest(5)] == ["fine"]
+
+
+def test_backfill_runs_after_connect_and_survives_a_list_failure(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    svc.user_id = ""
+
+    class Handler:
+        async def connect_async(self) -> None:
+            pass
+
+    async def boom(**kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("network down")
+
+    svc._user_client.users_conversations = boom  # type: ignore[method-assign]
+    svc._handler = Handler()
+
+    async def run() -> int | None:
+        await svc._connect()
+        assert svc._backfill is not None
+        await svc._backfill
+        return svc.backfilled
+
+    assert asyncio.run(run()) == 0  # listed nothing, stored nothing, raised nothing
+
+
 # ------------------------------------------------------------------ drafts
 def test_draft_create_send_emits_and_posts_as_user(tmp_path: Path) -> None:
     svc, bus, _ = make_service(tmp_path, as_user=True)
@@ -263,6 +401,81 @@ def test_draft_expires(tmp_path: Path) -> None:
     asyncio.run(run())
     assert bus.types() == ["notify.draft", "notify.draft_cancelled"]
     assert bus.last("notify.draft_cancelled").reason == "expired"
+
+
+# ------------------------------------------------------------------ focus ("Reply with Bit")
+def test_focus_speaks_notes_and_seeds_the_next_send(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path, as_user=True)
+    svc.store.add(msg("1700000001.000100", text="unrelated"))
+    svc.store.add(msg("1700000002.000100", text="can you review my PR today"))
+
+    async def run() -> list[Any]:
+        found = await svc.focus("C1", "1700000002.000100")
+        drafted = await mtools.call_tool("messages_send", {"text": "yes, after lunch"}, svc)
+        draft = svc.open_draft
+        sent = await mtools.call_tool("messages_confirm", {"send": True}, svc)
+        return [found, drafted, draft, sent]
+
+    found, drafted, draft, sent = asyncio.run(run())
+    assert found is not None and found.ts == "1700000002.000100"
+    assert spoken == [("bit", "hudson in #forge-team says: can you review my PR today. Want me to answer?")]
+    assert bus.types() == ["notify.draft", "notify.sent"]  # voice spoke, so no pet.say caption
+    note = svc.noted[0][1]  # type: ignore[attr-defined]
+    assert "hudson" in note and "#forge-team" in note and "can you review my PR today" in note and "messages_send" in note
+    assert drafted["status"] == "awaiting_confirmation"
+    assert (draft.channel, draft.thread_ts, draft.reply_to.ts) == ("C1", "1700000002.000100", "1700000002.000100")
+    assert svc._user_client.posted[-1]["thread_ts"] == "1700000002.000100"
+    assert sent["status"] == "sent" and svc.focused is None  # answered: the focus is spent
+
+
+def test_focus_explicit_target_wins_and_focus_persists_until_answered(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", text="ping", channel="C1"))
+
+    async def run() -> None:
+        await svc.focus("C1", "1700000002.000100")
+        await mtools.call_tool("messages_send", {"text": "elsewhere", "channel": "#forge-team"}, svc)
+        assert svc.open_draft is not None and svc.open_draft.thread_ts is None and svc.open_draft.reply_to is None
+        await mtools.call_tool("messages_confirm", {"send": True}, svc)
+        assert svc.focused is not None  # that send didn't answer the focused message
+        await mtools.call_tool("messages_send", {"text": "now you"}, svc)
+        assert svc.open_draft is not None and svc.open_draft.thread_ts == "1700000002.000100"
+
+    asyncio.run(run())
+
+
+def test_focus_without_voice_says_it_as_a_caption(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path, voice=False)
+    long = "word " * 80  # 400 chars
+    dm = msg("1700000003.000100", text=long, channel="D1").model_copy(update={"channel_name": "dm", "is_dm": True})
+    svc.store.add(dm)
+    found = asyncio.run(svc.focus("D1", "1700000003.000100", "bit"))
+    assert found is not None and spoken == []
+    assert bus.types() == ["pet.say"]
+    line = bus.events[0][1]["text"]
+    assert line.startswith("hudson in a DM says: word word") and line.endswith("... Want me to answer?")
+    assert len(line) < 200 + 60
+
+
+def test_focus_unknown_message_is_quiet(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", channel="C1"))
+    assert asyncio.run(svc.focus("C1", "1.0")) is None
+    assert asyncio.run(svc.focus("C9", "1700000002.000100")) is None  # right ts, wrong channel
+    assert spoken == [] and bus.events == [] and svc.focused is None
+
+
+def test_focus_from_ws_uses_the_sessions_pet(tmp_path: Path) -> None:
+    svc, _, spoken = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", channel="C1"))
+
+    class Session:
+        pet_id = "bit"
+
+    asyncio.run(svc.focus_from_ws(Session(), {"channel": "C1", "ts": "1700000002.000100"}))
+    assert spoken[0][0] == "bit"
+    with pytest.raises(Exception):  # bad payload -> ValidationError, ws.py answers agent.error
+        asyncio.run(svc.focus_from_ws(Session(), {"channel": "C1"}))
 
 
 # ------------------------------------------------------------------ tools
@@ -361,3 +574,8 @@ def test_router_enabled_draft_flow(api) -> None:
 
     r = c.post("/messages/digest", json={"pet_id": "bit"})
     assert r.status_code == 200 and r.json()["line"] == "You have 1 new message, and it mentions you."
+
+    r = c.post("/messages/focus", json={"pet_id": "bit", "channel": "C1", "ts": "1700000001.000100"})
+    assert r.status_code == 200 and r.json()["text"] == "first" and svc.focused is not None
+    assert c.post("/messages/focus", json={"channel": "C1", "ts": "nope"}).status_code == 404
+    assert api(False).post("/messages/focus", json={"channel": "C1", "ts": "1"}).status_code == 503

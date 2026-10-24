@@ -38,17 +38,18 @@ Console must stay free of errors/warnings from `Forge.Pet` scripts. One benign l
 ## 2. Real WebSocket path to the hub (fake agent) — 5 min
 
 ```bash
-cd hub && FAKE_AGENT=1 .venv/bin/python -m agent                      # agent only, no CAD deps
-# or the full hub (CAD + agent):  FAKE_AGENT=1 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+cd hub && FAKE_AGENT=1 SCREEN_BRIDGE=0 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000   # the one hub process
+# SCREEN_BRIDGE=0 skips the screen bridge (Chrome + VS Code sharing) while you only test the pet.
 # see hub/README.md "Agent module (pet)" for install; check: curl localhost:8000/health
 ```
-Set `unity/Assets/StreamingAssets/pet_config.json` → `"eventSource": "hub"` (hubUrl `ws://127.0.0.1:8000/ws/agent`; plain `/ws` is the CAD event bus and will not answer the pet). Play the sandbox again:
+Set `unity/Assets/StreamingAssets/pet_config.json` → `"eventSource": "hub"`. The pet talks over ForgeNet's socket, `/ws`
+(hub address on the ForgeNet object / PlayerPrefs `Forge.HubUrl`; the hub has no other socket). Play the sandbox again:
 - hub log prints `ws connected` then `hello client=unity pet=bit project=gatorhack`.
 - Space → type → Enter: same visible flow as §1, but events now come from the hub (`pet.state`, `agent.partial_answer`, …).
 - Optional: `hub/.venv/bin/python hub/scripts/ws_smoke.py "where is the websocket handler?" --mode qa` prints the raw event stream.
 Set `eventSource` back to `"mock"` before committing.
 
-Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/python -m agent` (or `uvicorn main:app`) from a normal terminal, then ask a real question about the repo.
+Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/uvicorn main:app` from a normal terminal, then ask a real question about the repo.
 
 ## 3. Meta XR Simulator — 10 min
 

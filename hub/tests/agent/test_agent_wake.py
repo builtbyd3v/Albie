@@ -1,4 +1,4 @@
-"""Say a gator's name (agent/wake.py): parsing, the Grok wake turn, and wake turns over /ws/agent."""
+"""Say a gator's name (agent/wake.py): parsing, the Grok wake turn, and wake turns over /ws."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def test_fake_voice_wake_turn_over_ws(client: TestClient, monkeypatch: pytest.Mo
     """The fake transcript is "Hey Bit, are you there?": a wake turn that names Bit gets the spoken reply."""
     monkeypatch.setenv("VOICE_PROVIDER", "fake")
     monkeypatch.setenv("FAKE_VOICE_PACE", "0")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         assert ws.receive_json()["type"] == "voice.ready"
         ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit", "wake": True}})
@@ -165,7 +165,7 @@ def test_text_path_wake_turn_routes_to_the_crew(client: TestClient, monkeypatch:
     monkeypatch.setenv("VOICE_PROVIDER", "none")
     monkeypatch.setattr("agent.ws.make_stt", lambda repo=None: Canned())
     assert stt_mod  # imported for the monkeypatch target's module
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         _hello(ws)
         ws.send_json({"type": "crew.roster", "payload": {"members": [{"pet_id": "scout", "agent_type": "scout"}]}})
         ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit", "wake": True}})

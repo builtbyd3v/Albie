@@ -65,6 +65,10 @@ CODE_DENY = [
 ]
 # Crew members share the repo through worktrees: they must not touch other branches or worktrees either.
 CREW_DENY = CODE_DENY + ["Bash(git worktree:*)", "Bash(git merge:*)", "Bash(git rebase:*)", "Bash(git stash:*)"]
+# Hub tools (agent/tools.py) a crew runner may call, by name prefix: the editor for everyone, plus its kit's own
+# module. Never cad_* outside the Designer, never messages_* (Slack goes through Bit), never the crew tools.
+CREW_FORGE_TOOLS: tuple[str, ...] = ("vscode_",)
+KIT_FORGE_TOOLS: dict[str, tuple[str, ...]] = {"cad": ("cad_",)}
 PARTIAL_MIN_INTERVAL_S = 0.15
 
 PERSONA = (
@@ -120,10 +124,17 @@ def _crew_tools(agent: AgentType, mode: ConcreteMode) -> tuple[list[str], list[s
     return (DOCS_TOOLS if agent.kit == "docs" else CODE_TOOLS), []
 
 
+def crew_forge_allow(agent: AgentType) -> tuple[str, ...]:
+    """Name prefixes of the hub tools this crew member's runner gets (see CREW_FORGE_TOOLS)."""
+    return CREW_FORGE_TOOLS + KIT_FORGE_TOOLS.get(agent.kit, ())
+
+
 def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
              agent: AgentType | None = None, cwd: Path | None = None) -> ClaudeAgentOptions:
-    """Bit (agent None): QA/CODE tools plus the lead-only crew tools. A crew member: its own kit and prompt."""
+    """Bit (agent None): QA/CODE tools plus every hub tool incl. the lead-only crew tools. A crew member: its own
+    kit and prompt, and only the hub tools in crew_forge_allow (vscode_* and, for the Designer, cad_*)."""
     lead = agent is None
+    allow: tuple[str, ...] | None = None
     if lead:
         tools, extra = (QA_TOOLS if mode == "qa" else CODE_TOOLS), []
         from .crew import lead_rules  # registers the crew tools; imported late (crew imports this module lazily)
@@ -132,12 +143,13 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
     else:
         tools, extra = _crew_tools(agent, mode)
         prompt = crew_prompt(agent, mode)
+        allow = crew_forge_allow(agent)
     deny = (CODE_DENY if lead else CREW_DENY) if mode == "code" else []
     effort = os.getenv("AGENT_QA_EFFORT" if mode == "qa" else "AGENT_CODE_EFFORT")
     return ClaudeAgentOptions(
         tools=tools,  # built-in tools that exist at all
-        allowed_tools=tools + extra + forge_tools.mcp_names(lead),  # ...auto-approved, plus CAD/VS Code (+ crew) tools
-        mcp_servers={forge_tools.SERVER: forge_tools.mcp_server(pet_id, lead)},
+        allowed_tools=tools + extra + forge_tools.mcp_names(lead, allow),  # ...auto-approved, plus the hub tools
+        mcp_servers={forge_tools.SERVER: forge_tools.mcp_server(pet_id, lead, allow)},
         disallowed_tools=deny,
         permission_mode="dontAsk",  # never prompt: anything not pre-approved is denied
         cwd=str(cwd or project.path),

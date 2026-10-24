@@ -1,13 +1,15 @@
 """WebSocket event bus (`/ws`) and payload models. Mirror of ForgeEvents.cs.
 
-Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event and
-the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8). The ML and pet models from section 7 still belong to their
-owners; add them next to these.
+Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event,
+the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8) and screen.status (the screen-bridge supervisor, hub/screens;
+docs/PET_AGENT_CONTRACT.md Addendum F). The ML and pet models from section 7 still belong to their owners; add
+them next to these.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -185,6 +187,20 @@ class VscodeEvent(BaseModel):
     exit_code: int | None = None
 
 
+SCREEN_STATUS = "screen.status"
+
+
+class ScreenStatus(BaseModel):
+    """State of the screen bridge (screen-bridge/start.js, supervised by hub/screens). Sticky on /ws.
+
+    starting: the child was (re)spawned and is bringing up signaling + Chrome; sharing: Chrome is capturing
+    `source`; stopped: disabled, or the hub is shutting down; error: the child died and restarts are exhausted.
+    """
+    state: Literal["starting", "sharing", "stopped", "error"]
+    source: str | None = None         # what Chrome shares ("| gatorhack-dubz", "Entire screen")
+    detail: str | None = None         # last status line ("signaling: connected", "video: connected h264", an error)
+
+
 class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
@@ -270,11 +286,16 @@ class NotifyDigest(BaseModel):
 
 
 class EventBus:
-    STICKY = {"cad.model_updated", "cad.view"}  # replayed to clients that connect later
+    STICKY = frozenset({"cad.model_updated", "cad.view"})  # default set replayed to clients that connect later
 
-    def __init__(self) -> None:
+    def __init__(self, sticky: Iterable[str] | None = None) -> None:
         self._clients: set[WebSocket] = set()
         self._last: dict[str, dict[str, Any]] = {}
+        self.sticky: set[str] = set(self.STICKY if sticky is None else sticky)
+
+    def make_sticky(self, type_: str) -> None:
+        """Replay the last `type_` payload to late joiners too (modules register their own, e.g. screen.status)."""
+        self.sticky.add(type_)
 
     def latest(self, prefix: str = "") -> dict[str, dict[str, Any]]:
         """Last sticky payload per type: lets a client without a WebSocket poll for state."""
@@ -283,7 +304,7 @@ class EventBus:
     async def publish(self, type_: str, payload: BaseModel | dict[str, Any]) -> None:
         body = payload.model_dump() if isinstance(payload, BaseModel) else payload
         message = {"type": type_, "payload": body}
-        if type_ in self.STICKY:
+        if type_ in self.sticky:
             self._last[type_] = message
         dead = []
         for ws in list(self._clients):

@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)) and **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)). The ML router is still to come.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)), **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)) and **screens** (the screen bridge child process; see [One process](#one-process)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -24,6 +24,26 @@ uvicorn main:app --host 0.0.0.0 --port 8000     # no --reload (it restarts the C
 - Open `cad/parts/rocket.py` in VS Code: **saving the open design's script regenerates it** and pushes `cad.model_updated`. A broken save keeps the last good model and emits `cad.regen_failed` with the error line.
 - Try it: `curl -X POST localhost:8000/cad/params -H "Content-Type: application/json" -d "{\"fin_count\": 4}"`
 - Data (versions, GLBs) lives in `hub/.data/` (gitignored). Delete `.data/cad` to start fresh. Env: `FORGE_DATA_DIR`, `FORGE_CAD_SCRIPT` (the design opened the first time; after that the hub reopens the last one).
+
+## One process
+
+`uvicorn main:app` is the only thing to start on the laptop. Its lifespan brings up, in order: the CAD worker, Slack
+Socket Mode (plus a history backfill, see Messaging), and the **screen bridge**: `hub/screens/` runs `npm start` in
+`../screen-bridge/` as a child process group (the `prestart` installs the VS Code extension, then `start.js` starts
+`signaling.py` on :8766 and the JPEG fallback `stream.py` on :8765 and launches Chrome sharing the VS Code window).
+Its output shows up in the hub log as `[screen-bridge] ...`. On Ctrl+C the hub sends the whole group SIGINT (SIGKILL
+after 3 s), so Chrome and both python servers die with it; if the child dies on its own it is restarted after 2, 5 and
+10 s, then given up (`screen.status {state: "error"}`).
+
+| | |
+|---|---|
+| `SCREEN_BRIDGE=0` | don't run it (default `1`). It is also skipped, with one warning, when `node` is not on PATH or the directory has no `start.js`. |
+| `SCREEN_BRIDGE_DIR` | where `start.js` lives (default `../screen-bridge`). |
+| `GET /health` | `screen: {enabled, state, source}`; `GET /screens/status` adds `detail`, `fps`, `pid`, `restarts`. |
+| `/ws` | `screen.status {state: starting\|sharing\|stopped\|error, source?, detail?}`, sticky (replayed on connect). |
+
+Everything else the screen bridge needs is unchanged (its `.venv`, `npm install`, the `window.titleSeparator` setting:
+see `screen-bridge/start.js`). Running `npm start` by hand still works: set `SCREEN_BRIDGE=0` so the hub doesn't start a second copy.
 
 ## Designs (the CAD library)
 
@@ -55,7 +75,7 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
 ## Test
 
 ```powershell
-pytest            # a few minutes: geometry, RocketPy cross-check, every design + preset, library API, watcher, timeouts
+pytest            # a few minutes: CAD (geometry, RocketPy cross-check, designs, library API, watcher), agent, messaging, screens, VS Code
 ```
 
 ## Mocks for Unity (hub off)
@@ -88,32 +108,33 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 Adrian's module: the gator pet answers questions about a repo and runs coding tasks through the
 **Claude Agent SDK** (`claude-agent-sdk`). Protocol: [`docs/PET_AGENT_CONTRACT.md`](../docs/PET_AGENT_CONTRACT.md).
 
-- REST: `POST /agent/text` (typed fallback, returns the final answer), `GET /agent/projects`.
-- WebSocket: **`/ws/agent`** (not `/ws`). `/ws` belongs to the `EventBus` in `events.py`; the agent has its
-  own broadcast bus (`agent/bus.py`). Folding the agent onto `/ws` is Person 5's call (the agent handler
-  already ignores unknown message types, so sharing a socket would work).
+- REST: `GET /agent/projects`. There is no typed REST fallback: a typed question is `agent.ask` on the socket.
+- WebSocket: **`/ws`**, the hub's one socket (Unity's ForgeNet). `main.py` accepts it, attaches the `EventBus`
+  (CAD, Slack, screen events) and runs the agent session on it; the agent handler ignores message types it
+  doesn't own, and other modules register theirs in `agent.ws.client_handlers` (`messages.focus`).
 - `/health` adds `fake_agent`, `stt` and `agent_sockets`.
-- `agent/` imports no CAD code, so it runs and tests without build123d/rocketpy.
+- `agent/` imports no CAD code; `tests/agent/` builds a tiny agent-only app (conftest) so it tests without build123d/rocketpy.
 
 ```
 agent/
-  app.py      create_agent_app(): standalone app (/agent, /ws/agent, /health); health_fields(); load_env()
-  __main__.py python -m agent (runs create_agent_app with uvicorn)
+  app.py      load_env() (hub/.env) and health_fields() for main.py
   events.py   pydantic models for every agent WS message + builders + PET_STATE_FOR_EVENT
-  bus.py      broadcast to all /ws/agent sockets + per-turn Emitter (pet.state companions, path redaction)
-  ws.py       /ws/agent session: hello, agent.ask, agent.cancel, stt.start/stop, binary audio
-  router.py   POST /agent/text, GET /agent/projects
-  runner.py   real turns via ClaudeSDKClient (qa = read-only, code = edits on a pet/* branch)
+  bus.py      broadcast to all /ws sockets + per-turn Emitter (pet.state companions, path redaction)
+  ws.py       the /ws session: hello, agent.ask, agent.cancel, stt.*, tts.stop, crew.roster, workspace.mode, binary audio
+  router.py   GET /agent/projects
+  runner.py   real turns via ClaudeSDKClient (qa = read-only, code = edits on a pet/* branch); crew tool allowlist
+  crew.py     Bit's crew: agent types, roster, parallel member turns, the lead-only crew tools
+  wake.py     "Hey Bit" / "<Crew name>, ..." routing for always-on wake turns
+  speech.py   live voice sessions by pet id: speak(text) and note(text) for other modules (digest, focus)
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
   stt.py      SpeechToText: NoneSTT, WhisperSTT (faster-whisper, optional)
   voice.py    VOICE_PROVIDER=grok|fake: one speech-to-speech session per socket (stt.* in, tts.* + PCM out)
   assets/     fake_voice_24k.pcm (regenerate: scripts/make_fake_voice.py)
-  tts.py      TextToSpeech protocol + NullTTS stub
 config/projects.yaml   project_id -> repo path (paths never leave the server)
-tests/agent/           pytest, fake mode, never imports main.py
+tests/agent/           pytest, fake mode, agent-only test app (never imports main.py)
 scripts/ws_smoke.py    prints the event stream from a running hub
-.env.example           copy to hub/.env (main.py and python -m agent both load it)
+.env.example           copy to hub/.env (main.py loads it)
 ```
 
 ### Install
@@ -133,10 +154,11 @@ The SDK ships its own Claude Code CLI binary; no separate install.
 ### Run
 
 ```bash
-FAKE_AGENT=1 .venv/bin/python -m agent              # agent alone, no API key, no model calls (port 8000)
-FAKE_AGENT=1 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000   # full hub: CAD + agent
+FAKE_AGENT=1 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000   # the hub; no API key, no model calls
 curl localhost:8000/health
 ```
+
+(Add `SCREEN_BRIDGE=0` to leave Chrome and the screen servers out while you only work on the pet.)
 
 Fake turns: thinking, 3 cumulative partials, answer_done. A code ask gives task_started, 3 progress
 events, task_complete (branch `pet/fake-123`). The text `error` gives agent.error. `FAKE_AGENT_DELAY`
@@ -165,11 +187,13 @@ Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
 - spoken text -> `agent.partial_answer` / `agent.answer_done`, so captions work unchanged
 - `tts.stop` from the client stops the current reply
 
-Conversational only for now (no tools, no `delegate`). `VOICE_PROVIDER=fake` speaks a canned reply from
+Grok also gets Bit's fast tools (CAD, VS Code, Slack drafts, the crew) and `delegate` for the Claude runner. Unity's
+`workspace.mode {mode}` tells the hub which view is open: Grok gets a one-line note about it, and the crew tools
+only work while the CODE view is open (they answer an error otherwise). `VOICE_PROVIDER=fake` speaks a canned reply from
 `agent/assets/fake_voice_24k.pcm` with no key, for Unity testing:
 
 ```bash
-VOICE_PROVIDER=fake FAKE_AGENT=1 .venv/bin/python -m agent
+VOICE_PROVIDER=fake FAKE_AGENT=1 SCREEN_BRIDGE=0 .venv/bin/uvicorn main:app
 ```
 
 ### Say a gator's name (wake turns)
@@ -197,28 +221,29 @@ that member's turn without touching Bit's.
 FAKE_AGENT=1 .venv/bin/python -m pytest tests/agent -q    # fake mode, a few seconds, no CAD deps
 ```
 
-(Plain `pytest` still runs only `cad/tests`, per `pytest.ini`.)
+(Plain `pytest` runs everything in `pytest.ini`'s `testpaths`: CAD, `tests/`, VS Code.)
 
 ### Smoke test against a running hub
 
 ```bash
 .venv/bin/python scripts/ws_smoke.py "where is the websocket handler?" --mode qa
-.venv/bin/python scripts/ws_smoke.py "add a docstring to agent/tts.py" --mode code
-.venv/bin/python scripts/ws_smoke.py "hi" --url ws://10.0.0.5:8000/ws/agent
+.venv/bin/python scripts/ws_smoke.py "add a docstring to agent/speech.py" --mode code
+.venv/bin/python scripts/ws_smoke.py "hi" --url ws://10.0.0.5:8000/ws
 ```
 
 ### How Unity connects
 
-`unity/Assets/StreamingAssets/pet_config.json` → `hubUrl`, with `eventSource: "hub"` (commit it as `"mock"`):
+Through ForgeNet's socket, `/ws` (hub address on the ForgeNet object or PlayerPrefs `Forge.HubUrl`); set
+`unity/Assets/StreamingAssets/pet_config.json` → `eventSource: "hub"` (commit it as `"mock"`):
 
-| Where Unity runs | hubUrl |
+| Where Unity runs | hub address |
 |---|---|
-| Editor / desktop on the same laptop | `ws://127.0.0.1:8000/ws/agent` |
-| Quest on the same Wi-Fi | `ws://<laptop LAN IP>:8000/ws/agent` (macOS: `ipconfig getifaddr en0`); bind `0.0.0.0`, allow it through the firewall |
-| Quest over USB | `adb reverse tcp:8000 tcp:8000`, keep `ws://127.0.0.1:8000/ws/agent` |
+| Editor / desktop on the same laptop | `ws://127.0.0.1:8000/ws` |
+| Quest on the same Wi-Fi | `ws://<laptop LAN IP>:8000/ws` (macOS: `ipconfig getifaddr en0`); bind `0.0.0.0`, allow it through the firewall |
+| Quest over USB | `adb reverse tcp:8000 tcp:8000` (the screen bridge does this for you), keep `ws://127.0.0.1:8000/ws` |
 
-The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` plus binary PCM16 frames
-(mono, 16 kHz, ~100 ms chunks). Every event goes to every `/ws/agent` socket; filter by `pet_id`.
+The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` / `workspace.mode` plus binary PCM16 frames
+(mono, 16 kHz, ~100 ms chunks). Every event goes to every `/ws` socket; filter by `pet_id`.
 The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
 pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
 
@@ -278,8 +303,15 @@ Cancel gives `cancelled`. The card closes on `notify.sent` or `notify.draft_canc
 | `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks all seen. |
-| `/ws` events | `notify.message` (each inbox message), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest` |
-| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only), `messages_confirm {send, draft_id?}` |
+| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a card (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of the last 50. |
+| `/ws` events | `notify.message` (each inbox message), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus), `messages_confirm {send, draft_id?}` |
+
+**Startup backfill.** Right after Socket Mode connects, a background task lists the conversations you are in
+(`users.conversations`, up to 600) and reads each one's history since the last digest (`last_seen_ts`; the last two hours
+if there is none), 20 per conversation, into the store with the same filtering as live events but **without**
+`notify.message`. So the sit-down digest counts what arrived while the hub was off, and Unity sees no flood. One rate
+limit is waited out, a second one stops the backfill; a missing scope skips that conversation. One summary line in the log.
 
 Map: `messaging/settings.py` (env), `store.py` (last 50 messages + `last_seen_ts` in `.data/messages/state.json`),
 `slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, name

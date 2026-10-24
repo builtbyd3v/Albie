@@ -1,4 +1,4 @@
-"""Voice session: Grok event mapping against a mocked Grok socket, and the fake provider over /ws/agent."""
+"""Voice session: Grok event mapping against a mocked Grok socket, and the fake provider over /ws."""
 
 from __future__ import annotations
 
@@ -270,7 +270,7 @@ def _recv_until(ws: Any, until: str, limit: int = 200) -> list[tuple[str, Any]]:
 def test_fake_voice_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VOICE_PROVIDER", "fake")
     monkeypatch.setenv("FAKE_VOICE_PACE", "0")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo",
                                                     "audio_out_rate": 48000}})
         ready = _recv_until(ws, "voice.ready")[-1]
@@ -301,7 +301,7 @@ def test_fake_voice_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch)
 
 def test_no_voice_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VOICE_PROVIDER", "none")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit"}})
         ws.send_json({"type": "stt.stop", "payload": {"pet_id": "bit"}})
@@ -331,7 +331,7 @@ def test_cancel_turn_drops_audio_and_commits_nothing() -> None:
 def test_stt_cancel_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch, provider: str) -> None:
     monkeypatch.setenv("VOICE_PROVIDER", provider)
     monkeypatch.setenv("FAKE_VOICE_PACE", "0")
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit"}})
         ws.send_bytes(b"\x00\x00" * 1600)
@@ -433,7 +433,7 @@ def test_delegate_over_ws_uses_the_runner(client: TestClient, monkeypatch: pytes
         return None  # no voice session; we only want the delegate callable ws builds
 
     monkeypatch.setattr(ws_mod, "make_voice", fake_make_voice)
-    with client.websocket_connect("/ws/agent") as ws:
+    with client.websocket_connect("/ws") as ws:
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         ws.send_json({"type": "agent.cancel", "payload": {}})  # round-trip so hello is processed
         assert callable(seen.get("delegate"))
