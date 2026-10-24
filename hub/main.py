@@ -1,11 +1,11 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Minimal skeleton (CAD + agent so far); Person 5 owns the hub and adds the ml and messaging routers.
+Modules: CAD, agent (pet), VS Code push, messaging (Slack). The ML router is still to come.
 `/ws` is shared: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. `/ws/agent` is the same agent protocol alone. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
-Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py).
+Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py).
 """
 from __future__ import annotations
 
@@ -19,11 +19,14 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import handle_socket as agent_socket, router as agent_router
-from agent import tools as agent_tools
+from agent import speech, tools as agent_tools
 from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
 from events import EventBus
+from messaging import MessageStore, SlackService, SlackSettings
+from messaging import tools as messaging_tools
+from messaging.router import router as messaging_router
 from vscode.router import router as vscode_router
 
 HUB_DIR = Path(__file__).resolve().parent
@@ -39,7 +42,11 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         cad = CadService(data_dir / "cad", cad_script, bus)
         app.state.bus, app.state.cad = bus, cad
         agent_tools.register_cad(cad, bus)  # Bit's CAD tools for Grok and the Claude runner
+        slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak)
+        app.state.slack = slack
+        agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
         await cad.start()
+        await slack.start()
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
         try:
             yield
@@ -48,6 +55,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
+            await slack.stop()
             await cad.stop()
 
     app = FastAPI(title="Forge hub", lifespan=lifespan)
@@ -55,6 +63,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(cad_router)
     app.include_router(agent_router)
     app.include_router(vscode_router)
+    app.include_router(messaging_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
@@ -73,7 +82,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.get("/health")
     def health():
-        return {"ok": True, "cad_version": app.state.cad.head, **agent_health()}
+        return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(), **agent_health()}
 
     return app
 
