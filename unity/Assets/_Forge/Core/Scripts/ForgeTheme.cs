@@ -31,6 +31,14 @@ public static class ForgeTheme
     // Timings (s).
     public const float HoverFade = 0.3f, PressTime = 0.12f, LiftTime = 0.6f, HeadSmoothing = 0.35f, SelectFade = 0.45f;
 
+    // Motion (s). A mode unfolds out of the dock ring that was pressed and folds back into it; Flat / Curve and Reset
+    // spring the items to their new places. Items go centre out (Main, the pair beside it, the outer pair, Above) and
+    // fold outermost first; switching modes, the new one starts SwitchDelay after the old one starts folding.
+    public const float UnfoldTime = 0.55f, UnfoldStagger = 0.06f, FoldTime = 0.3f, FoldStagger = 0.04f, SwitchDelay = 0.1f;
+    public const float LayoutTime = 0.45f, LayoutStagger = 0.03f;
+    public const float UnfoldFade = 0.4f;    // share of the unfold over which a panel fades in
+    public const float UnfoldScale = 0.04f;  // a panel's scale as it leaves (and goes back into) the ring
+
     // Graphite panels.
     public static readonly Color PanelTop = new Color32(33, 36, 42, 245);
     public static readonly Color PanelBottom = new Color32(19, 21, 25, 245);
@@ -45,7 +53,7 @@ public static class ForgeTheme
     public static readonly Color PillOffText = new Color(1f, 1f, 1f, 0.85f);
     public static readonly Color PillOn = new Color(1f, 1f, 1f, 0.92f);
     public static readonly Color PillOnText = Hex(0x1C1E21);
-    public const float PillHeight = 28f, PillText = 12f;
+    public const float PillHeight = 30f, PillText = 13f;
 
     // Handles: white bars that glow brighter while pointed at or held.
     public static readonly Color HandleRest = new Color(1f, 1f, 1f, 0.62f);

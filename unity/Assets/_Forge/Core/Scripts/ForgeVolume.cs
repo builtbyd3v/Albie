@@ -38,6 +38,7 @@ public class ForgeVolume : MonoBehaviour
     float highlight;
     TMP_Text hint;
     float hintShown, hintTarget;
+    string hintText, caption;
 
     public Transform ContentRoot => contentRoot;
 
@@ -83,11 +84,26 @@ public class ForgeVolume : MonoBehaviour
     public void SetHighlight(bool on) => highlighted = on;
 
     /// <summary>
-    /// A small line of help under the label (how to move and turn it), faded in while set. Null or empty fades it
-    /// out. The label itself (<see cref="Title"/>) is left alone, so a module can retitle the volume at any time.
+    /// A small line of help under the label (how to move and turn it), faded in while set; it stands in for the
+    /// <see cref="SetCaption"/> line meanwhile. Null or empty takes it away. The label itself (<see cref="Title"/>)
+    /// is left alone, so a module can retitle the volume at any time.
     /// </summary>
     public void SetHint(string text)
     {
+        hintText = text;
+        ShowLine();
+    }
+
+    /// <summary>A quiet line that stays under the label (e.g. what a placeholder volume is waiting for).</summary>
+    public void SetCaption(string text)
+    {
+        caption = text;
+        ShowLine();
+    }
+
+    void ShowLine()
+    {
+        string text = !string.IsNullOrEmpty(hintText) ? hintText : caption;
         bool show = !string.IsNullOrEmpty(text);
         if (show && hint == null) hint = MakeHint();
         if (hint == null) return;

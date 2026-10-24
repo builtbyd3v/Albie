@@ -72,6 +72,12 @@ public class DeskDock : MonoBehaviour
     Color hubColor = ForgeTheme.HubConnecting, hubGlow = ForgeTheme.HubConnectingGlow;
     float dividerX, shownFade = -1f;
     bool frameDirty = true;
+    // Hub status in words beside the corner light: shown for a few seconds after it changes, and while a pointer is
+    // near the light, so mock mode is clear without shouting.
+    TextMeshPro hubLabel;
+    string hubText = "Connecting…";
+    float hubShown, hubAttentionUntil;
+    const float HubLabelMm = 10f, HubAttention = 4f, HubNearRange = 80f;
 
     // Interaction SDK pointers, found when the dock shows (the rig is picked by then).
     RayInteractor[] rays = new RayInteractor[0];
@@ -93,6 +99,9 @@ public class DeskDock : MonoBehaviour
     {
         hubColor = status == ForgeNetStatus.Live ? ForgeTheme.HubLive : status == ForgeNetStatus.Mock ? ForgeTheme.HubMock : ForgeTheme.HubConnecting;
         hubGlow = status == ForgeNetStatus.Live ? ForgeTheme.HubLiveGlow : status == ForgeNetStatus.Mock ? ForgeTheme.HubMockGlow : ForgeTheme.HubConnectingGlow;
+        hubText = status == ForgeNetStatus.Live ? "Hub live" : status == ForgeNetStatus.Mock ? "Mock data" : "Connecting…";
+        if (hubLabel != null) hubLabel.text = hubText;
+        hubAttentionUntil = Time.time + HubAttention;
         frameDirty = true;
     }
 
@@ -129,6 +138,7 @@ public class DeskDock : MonoBehaviour
         SyncHitArea();
         frame = Layer("Frame", lightRoot, ForgeTheme.FrameLight, ForgeTheme.Quad, new Vector2(size.x + 2f * GlowPad + 20f, size.y + 2f * GlowPad + 20f), 0f);
         frameDirty = true;
+        BuildHubLabel(size);
 
         workspace.layoutChanged.RemoveListener(ShowLayout);
         workspace.layoutChanged.AddListener(ShowLayout);
@@ -301,6 +311,53 @@ public class DeskDock : MonoBehaviour
         Vector3 eye = head != null ? transform.InverseTransformPoint(head.position) : new Vector3(0f, -400f, -500f);
         foreach (var r in rings) Animate(r, dt, now, fade, fadeChanged, eye);
         if (frameDirty || fadeChanged) ShowFrame(fade);
+        ShowHubLabel(dt, now, fade);
+    }
+
+    // Hub light position (dock canvas mm), the same spot ShowFrame draws the dot at.
+    static Vector2 HubDot(Vector2 size) => new Vector2(size.x * 0.5f - 21.3f, size.y * 0.5f - 16.4f);
+
+    // Just outside the dock's right edge, level with the light, so it never sits over a ring.
+    void BuildHubLabel(Vector2 size)
+    {
+        hubLabel = new GameObject("Hub status", typeof(RectTransform)).AddComponent<TextMeshPro>();
+        hubLabel.gameObject.layer = gameObject.layer;
+        hubLabel.transform.SetParent(lightRoot, false);
+        var rt = hubLabel.rectTransform;
+        rt.pivot = new Vector2(0f, 0.5f);
+        rt.sizeDelta = new Vector2(120f, HubLabelMm * 2f);
+        rt.localPosition = new Vector3(size.x * 0.5f + 10f, HubDot(size).y, -0.8f);
+        if (ForgeTheme.Font != null)
+        {
+            hubLabel.font = ForgeTheme.Font;
+            hubLabel.fontSharedMaterial = ForgeTheme.Font.material;
+        }
+        hubLabel.fontSize = HubLabelMm * 10f;  // TextMeshPro (3D) is 0.1 unit per point
+        hubLabel.characterSpacing = 4f;
+        hubLabel.alignment = TextAlignmentOptions.MidlineLeft;
+        hubLabel.textWrappingMode = TextWrappingModes.NoWrap;
+        hubLabel.color = new Color(1f, 1f, 1f, 0.7f);
+        hubLabel.alpha = 0f;
+        hubLabel.text = hubText;
+        var r = hubLabel.GetComponent<MeshRenderer>();
+        r.shadowCastingMode = ShadowCastingMode.Off;
+        r.receiveShadows = false;
+        hubShown = 0f;
+    }
+
+    void ShowHubLabel(float dt, float now, float fade)
+    {
+        if (hubLabel == null) return;
+        Vector2 dot = HubDot(((RectTransform)transform).sizeDelta);
+        bool near = false;
+        for (int i = 0; i < pointerCount && !near; i++)
+            near = ((Vector2)pointers[i] - dot).sqrMagnitude < HubNearRange * HubNearRange;
+        float target = now < hubAttentionUntil || near ? 1f : 0f;
+        float shown = Mathf.MoveTowards(hubShown, target, dt / ForgeTheme.HoverFade);
+        float alpha = 0.7f * shown * fade;
+        if (Mathf.Approximately(shown, hubShown) && Mathf.Approximately(hubLabel.alpha, alpha)) return;
+        hubShown = shown;
+        hubLabel.alpha = alpha;
     }
 
     void Animate(Ring r, float dt, float now, float fade, bool force, Vector3 eye)
@@ -472,5 +529,22 @@ public class DeskDock : MonoBehaviour
             columnMesh.RecalculateBounds();
             return columnMesh;
         }
+    }
+
+    /// <summary>
+    /// Where a mode's ring is in the world (its light, raised or not), for the workspace to unfold out of and fold back
+    /// into. False while the dock is hidden, or if no ring is that mode's.
+    /// </summary>
+    public bool TryGetRingPoint(string modeId, out Vector3 world)
+    {
+        world = default;
+        if (!gameObject.activeInHierarchy) return false;
+        foreach (var r in rings)
+        {
+            if (!r.isMode || r.modeId != modeId || r.lift == null) continue;
+            world = r.lift.position;
+            return true;
+        }
+        return false;
     }
 }
