@@ -18,24 +18,31 @@ using UnityEngine;
 /// - spin (Run, 10.4 s): the lid (demo.reveal_ids, else what explodes furthest up) lifts and turns to glass, every
 ///   spinner turns at rpm ÷ <see cref="spinSlowdown"/> about its own axis, so the ratio shows; dashed pitch circles,
 ///   rotation arrows round the shaft ends, In / Out chips; it stops and the lid comes back.
+/// - walk (Walk, about 13 s): the keyframed motion from GET demo.source (/cad/motion, the humanoid's lap of Unitree's
+///   trained gait): it steps out to the lap, centred on its base (<see cref="walkAroundBase"/>), walks it once with
+///   every joint turning about its pivot and the whole model following the path (feet on the base), then steps back.
+///   A dashed lap circle, and a chip with the speed and how hard its hardest-working joint works now.
 /// Every demo ends with the model exactly as it was. CadViewer owns one, binds it to each shown version, ticks it in
 /// LateUpdate (after the turntable), applies its lid reveal (<see cref="RevealLift"/>, <see cref="RevealGlass"/>), and
 /// stops it at once when the version, the view or the place changes.
 /// </summary>
 public sealed class CadDemoPlayer
 {
-    public const string Launch = "launch", Hover = "hover", Spin = "spin";
+    public const string Launch = "launch", Hover = "hover", Spin = "spin", Walk = "walk";
 
     // Tuning: CadViewer copies its fields in before each start.
     public float launchHeight = 1.3f, descentSpeedup = 8f, maxDrift = 0.35f;
     public float hoverHeight = 0.22f, hoverSeconds = 6f, propTurnsPerSecond = 4.5f;
     public float spinSlowdown = 100f, spinSeconds = 7.6f;
+    /// <summary>Walk: centre the lap on the model's base (it steps out to it) rather than set off from where it stands.</summary>
+    public bool walkAroundBase = true;
     /// <summary>Set while something else moves the model (CadViewer's trip to or from the stage): a start waits for it.</summary>
     public bool hold;
 
     const float Countdown = 1.2f, LandedHold = 1.4f, HomeSeconds = 0.6f, ChuteOpen = 0.35f;
     const float SpinUp = 0.8f, TakeOff = 1.2f, LandSeconds = 1.2f, SpinDown = 0.6f;
     const float LidUp = 0.6f, Ramp = 0.8f, Stopping = 0.8f, LidDown = 0.6f;
+    const float StepOut = 0.9f, StepBack = 0.9f;
     const float PrepTimeout = 75f;          // the hub's flight sim gets 60 s
     const int PathMax = 420;
     static readonly CadDemo LegacyLaunch = new CadDemo { kind = Launch, label = "Fly", source = "/cad/flight" };
@@ -57,14 +64,23 @@ public sealed class CadDemoPlayer
         public float pitch;                       // gear pitch radius, if known (holder units), else 0
     }
 
+    struct WalkJoint
+    {
+        public Transform transform;
+        public Vector3 restPosition;
+        public Quaternion restRotation;
+        public Vector3 origin, axis;              // in its parent's space at rest (the parent turns with it)
+        public float[] angles;                    // degrees per sample, hub sense (right-hand rule in glTF)
+    }
+
     /// <summary>Started (true: getting ready or running) or ended (false).</summary>
     public event Action<bool> Changed;
     /// <summary>Every frame while it runs.</summary>
     public event Action<CadDemoFrame> Frame;
 
     public bool Running => stage != Stage.Idle;
-    /// <summary>Fly and Hover move the whole model: markers and labels step aside while they run.</summary>
-    public bool MovesModel => stage != Stage.Idle && (kind == Launch || kind == Hover);
+    /// <summary>Fly, Hover and Walk move the whole model: markers and labels step aside while they run.</summary>
+    public bool MovesModel => stage != Stage.Idle && (kind == Launch || kind == Hover || kind == Walk);
     public string Kind => stage != Stage.Idle ? kind : null;
     /// <summary>Run: how far the lid is lifted, as a share of its explode distance (CadViewer applies it).</summary>
     public float RevealLift { get; private set; }
@@ -124,6 +140,17 @@ public sealed class CadDemoPlayer
     float height, endFromHeight, thrustShare, lid, runEnd;
     string hoverSub, hoverTitle;
 
+    // Walk.
+    CadMotion motion;
+    bool motionFailed;
+    readonly List<WalkJoint> walkJoints = new List<WalkJoint>();
+    Vector3[] walkPos;        // the model's place per sample (holder space), the lap centred if walkAroundBase
+    Quaternion[] walkRot;
+    float[] walkLoad;         // % of rating per sample, or null
+    int walkCount;
+    float walkRate, lapSeconds, lapRadius, walkSpeed, walkShare, lapTime, endShare, endLap;
+    string walkTitle, walkSub;
+
     public CadDemoPlayer(Transform overlayRoot, CadExploder exploder)
     {
         this.exploder = exploder;
@@ -146,7 +173,7 @@ public sealed class CadDemoPlayer
     public static CadDemo Resolve(CadAnalysis analysis, CadParams parameters)
     {
         var d = analysis?.demo;
-        if (d != null) return d.kind == Launch || d.kind == Hover || d.kind == Spin ? d : null;
+        if (d != null) return d.kind == Launch || d.kind == Hover || d.kind == Spin || d.kind == Walk ? d : null;
         return parameters != null && parameters.Has("flight") ? LegacyLaunch : null;
     }
 
@@ -198,6 +225,8 @@ public sealed class CadDemoPlayer
         token++;
         flight = null;
         flightFailed = false;
+        motion = null;
+        motionFailed = false;
         stage = Stage.Prep;
         prepClock = 0f;
         simulatingShown = false;
@@ -206,6 +235,7 @@ public sealed class CadDemoPlayer
         if (partsWereOff) session.Reassemble();
         Changed?.Invoke(true);
         if (kind == Launch) FetchFlight();
+        else if (kind == Walk) FetchMotion();
         return true;
     }
 
@@ -243,6 +273,7 @@ public sealed class CadDemoPlayer
         chips.Begin();
         if (kind == Launch) TickLaunch(dt, eye);
         else if (kind == Hover) TickHover(dt, eye);
+        else if (kind == Walk) TickWalk(dt, eye);
         else TickSpin(dt, eye);
         if (stage == Stage.Idle) return;  // it finished this frame
         DrawChips();
@@ -280,27 +311,39 @@ public sealed class CadDemoPlayer
         });
     }
 
+    void FetchMotion()
+    {
+        int mine = token;
+        session.GetMotion(info.version, demo.source, m =>
+        {
+            if (mine != token || stage != Stage.Prep) return;
+            if (m == null || m.joints == null || m.joints.Count == 0) motionFailed = true;
+            else motion = m;
+        });
+    }
+
     void TickPrep(float dt, Vector3 eye)
     {
         prepClock += dt;
-        if (flightFailed || prepClock > PrepTimeout)
+        if (flightFailed || motionFailed || prepClock > PrepTimeout)
         {
             Finish();
             return;
         }
         bool together = exploder == null || (!exploder.Moving && exploder.Progress < 0.002f);
-        bool ready = together && !hold && (!partsWereOff || prepClock > 0.45f) && (kind != Launch || flight != null);
+        bool ready = together && !hold && (!partsWereOff || prepClock > 0.45f) && (kind != Launch || flight != null) &&
+                     (kind != Walk || motion != null);
         if (ready)
         {
             BeginRun(eye);
             return;
         }
-        if (kind == Launch && flight == null && prepClock > 0.25f)
+        if ((kind == Launch && flight == null || kind == Walk && motion == null) && prepClock > 0.25f)
         {
             if (!simulatingShown)
             {
                 simulatingShown = true;  // set once: SetText builds its rich text, so not every frame of the wait
-                readout.SetText("Simulating the flight…");
+                readout.SetText(kind == Walk ? "Getting the walk…" : "Simulating the flight…");
                 readout.SetAnchor(1);
             }
             readout.MoveTo(holder.TransformPoint(assembled.center) + Right(eye, holder.position) * (HalfWidth() + 0.03f), eye, dt);
@@ -333,6 +376,7 @@ public sealed class CadDemoPlayer
         frame = new CadDemoFrame { kind = kind, phase = "", playback = 1f, readouts = kind == Launch ? null : demo.readouts };
         if (kind == Launch) BeginLaunch(eye);
         else if (kind == Hover) BeginHover();
+        else if (kind == Walk) BeginWalk();
         else BeginSpin();
     }
 
@@ -345,6 +389,11 @@ public sealed class CadDemoPlayer
             endFromRotation = holder.rotation;
         }
         else if (kind == Hover) endFromHeight = height;
+        else if (kind == Walk)
+        {
+            endShare = walkShare;  // step back from where it is in the lap
+            endLap = lapTime;
+        }
         else
         {
             runEnd = Mathf.Min(runEnd, clock);  // stop now: slow down, then the lid comes back
@@ -378,6 +427,14 @@ public sealed class CadDemoPlayer
             s.transform.localRotation = s.restRotation;
         }
         spinners.Clear();
+        for (int i = 0; i < walkJoints.Count; i++)
+        {
+            var j = walkJoints[i];
+            if (j.transform == null) continue;
+            j.transform.localPosition = j.restPosition;
+            j.transform.localRotation = j.restRotation;
+        }
+        walkJoints.Clear();
         stopping = false;
         RevealLift = RevealGlass = 0f;
         lines.Hide();
@@ -1165,6 +1222,189 @@ public sealed class CadDemoPlayer
         float size = Mathf.Max(0.005f, radius * 0.35f);
         lines.Segment(tip, tip - tangent * size + radial * (size * 0.6f), CadLook.ThinLine, color);
         lines.Segment(tip, tip - tangent * size - radial * (size * 0.6f), CadLook.ThinLine, color);
+    }
+
+    // ---- Walk ----
+
+    // The motion in holder space: each joint's pivot and axis in its parent's space at rest (so a turned hip carries the
+    // knee's pivot with it), and the model's path, mirrored like every model-frame point (glTFast flips X: a turn by a
+    // about axis d in glTF is a turn by -a about the flipped d here, the quaternion (x, -y, -z, w)).
+    void BeginWalk()
+    {
+        walkJoints.Clear();
+        var m = motion;
+        foreach (var j in m.joints)
+        {
+            if (j == null || j.anglesDeg == null || string.IsNullOrEmpty(j.id) || !model.objects.TryGetValue(j.id, out var go) || go == null) continue;
+            var t = go.transform;
+            var parent = t.parent;
+            if (parent == null) continue;
+            Vector3 o = CadLook.Flip(j.origin, Vector3.zero), d = CadLook.Flip(j.dir, Vector3.zero);
+            if (d.sqrMagnitude < 1e-8f) continue;
+            walkJoints.Add(new WalkJoint
+            {
+                transform = t,
+                restPosition = t.localPosition,
+                restRotation = t.localRotation,
+                origin = parent.InverseTransformPoint(holder.TransformPoint(o)),
+                axis = parent.InverseTransformVector(holder.TransformVector(d.normalized)).normalized,
+                angles = j.anglesDeg,
+            });
+        }
+        walkCount = m.samples > 0 ? m.samples : walkJoints.Count > 0 ? walkJoints[0].angles.Length : 0;
+        walkRate = m.rateHz > 0f ? m.rateHz : 50f;
+        lapSeconds = walkCount / walkRate;
+        Vector3 shift = Vector3.zero;
+        if (walkAroundBase && m.centre != null)
+        {
+            Vector3 c = CadLook.Flip(m.centre, Vector3.zero);
+            shift = new Vector3(-c.x, 0f, -c.z);
+        }
+        walkPos = new Vector3[walkCount];
+        walkRot = new Quaternion[walkCount];
+        var root = m.root;
+        for (int i = 0; i < walkCount; i++)
+        {
+            float[] p = root?.pos != null && i < root.pos.Count ? root.pos[i] : null;
+            float[] q = root?.rot != null && i < root.rot.Count ? root.rot[i] : null;
+            walkPos[i] = (p != null ? CadLook.Flip(p, Vector3.zero) : Vector3.zero) + shift;
+            walkRot[i] = q != null && q.Length >= 4 ? new Quaternion(q[0], -q[1], -q[2], q[3]).normalized : Quaternion.identity;
+        }
+        walkLoad = m.tracks != null && m.tracks.TryGetValue("load_pct", out var load) && load != null && load.Length == walkCount ? load : null;
+        float radiusMm = m.values != null && m.values.TryGetValue("radius_mm", out float r) ? r : 0f;
+        lapRadius = radiusMm / 1000f;
+        walkSpeed = Value("speed_m_s", m.values != null && m.values.TryGetValue("speed_m_s", out float v) ? v : 0f);
+        walkShare = lapTime = 0f;
+        var inv = CultureInfo.InvariantCulture;
+        walkTitle = walkSpeed > 0f ? "Walking  ·  " + walkSpeed.ToString("0.00", inv) + " m/s" : "Walking";
+        float steps = Value("step_rate_hz", 0f);
+        walkSub = steps > 0f ? (steps * 60f).ToString("0", inv) + " steps a minute  ·  Unitree's trained gait" : "Unitree's trained gait";
+        tag1.SetStyle(CadLabel.Style.Event);
+        shownA = float.NaN;
+        frame.phase = "Stepping out";
+        if (walkCount < 2 || walkJoints.Count == 0)
+        {
+            Debug.LogWarning("[CadDemoPlayer] The walk has no joints or samples to play.");
+            BeginEnd();
+        }
+    }
+
+    void TickWalk(float dt, Vector3 eye)
+    {
+        float tau = clock;
+        if (stage == Stage.Run)
+        {
+            if (tau < StepOut)
+            {
+                walkShare = CadLook.EaseInOut(tau / StepOut);
+                lapTime = 0f;
+                frame.phase = "Stepping out";
+            }
+            else
+            {
+                walkShare = 1f;
+                lapTime = tau - StepOut;
+                frame.phase = "Walking";
+                if (lapTime >= lapSeconds)
+                {
+                    lapTime = 0f;  // the lap closes where it began
+                    BeginEnd();
+                }
+            }
+        }
+        if (stage == Stage.End)
+        {
+            float k = (clock - endStart) / StepBack;
+            if (k >= 1f)
+            {
+                Finish();
+                return;
+            }
+            walkShare = endShare * (1f - CadLook.EaseInOut(k));
+            lapTime = endLap;
+            frame.phase = "Stepping back";
+        }
+        PoseWalk(lapTime, walkShare, out float load);
+        DrawWalk(eye, dt, load);
+        frame.timeS = lapTime;
+        frame.altitudeM = 0f;
+        frame.speedMps = walkShare > 0.99f ? walkSpeed : 0f;
+        frame.progress = lapSeconds > 0f ? Mathf.Clamp01(lapTime / lapSeconds) : 0f;
+        frame.load = load;
+    }
+
+    // The lap at time t, blended in by `share` (0: the version's pose where it stands; 1: walking): the joints turned
+    // about their pivots, the holder moved along the path. While it blends it lifts a little, as Fly glides home.
+    void PoseWalk(float t, float share, out float load)
+    {
+        float f = t * walkRate;
+        int i0 = Mathf.FloorToInt(f);
+        float k = f - i0;
+        i0 = ((i0 % walkCount) + walkCount) % walkCount;
+        int i1 = (i0 + 1) % walkCount;
+        for (int n = 0; n < walkJoints.Count; n++)
+        {
+            var j = walkJoints[n];
+            if (j.transform == null) continue;
+            var a = j.angles;
+            float angle = i1 < a.Length ? Mathf.Lerp(a[i0], a[i1], k) * share : 0f;
+            Quaternion q = Quaternion.AngleAxis(-angle, j.axis);
+            j.transform.localPosition = j.origin + q * (j.restPosition - j.origin);
+            j.transform.localRotation = q * j.restRotation;
+        }
+        Quaternion r0 = walkRot[i0], r1 = walkRot[i1];
+        if (Quaternion.Dot(r0, r1) < 0f) r1 = new Quaternion(-r1.x, -r1.y, -r1.z, -r1.w);
+        Quaternion rot = Quaternion.Slerp(Quaternion.identity, Quaternion.Slerp(r0, r1, k), share);
+        Vector3 pos = Vector3.Lerp(walkPos[i0], walkPos[i1], k) * share;
+        float hop = share > 0.001f && share < 0.999f ? Mathf.Sin(share * Mathf.PI) * Mathf.Min(0.03f, walkPos[0].magnitude * 0.3f) : 0f;
+        holder.rotation = RestRotation * rot;
+        holder.position = RestPoint(pos) + (restParent != null ? restParent.TransformDirection(Vector3.up) : Vector3.up) * (hop * holder.lossyScale.x);
+        load = walkLoad != null ? Mathf.Lerp(walkLoad[i0], walkLoad[i1], k) : Value("peak_load_pct", 0f);
+    }
+
+    void DrawWalk(Vector3 eye, float dt, float load)
+    {
+        float scale = holder.lossyScale.x;
+        float fade = Mathf.Clamp01(walkShare * 1.4f);
+        // The lap: a dashed circle on the base round its centre.
+        if (lapRadius > 0f && walkAroundBase)
+        {
+            Vector3 up = RestRotation * Vector3.up, centre = RestPoint(Vector3.zero) + up * 0.003f;  // just off the base
+            Vector3 u = Vector3.ProjectOnPlane(Mathf.Abs(up.y) < 0.9f ? Vector3.up : Vector3.forward, up).normalized, w = Vector3.Cross(up, u);
+            float rr = lapRadius * scale;
+            Color dash = CadLook.Alpha(Color.Lerp(Color.white, CadLook.Hue, 0.55f), 0.8f * fade);
+            lines.DashStart(0.007f, 0.006f);
+            Vector3 previous = centre + u * rr;
+            for (int n = 1; n <= 64; n++)
+            {
+                float a = n * 2f * Mathf.PI / 64f;
+                Vector3 next = centre + (u * Mathf.Cos(a) + w * Mathf.Sin(a)) * rr;
+                lines.Dash(previous, next, CadLook.Line, dash);
+                previous = next;
+            }
+        }
+        // The readout over its head (it walks round the base, so to one side it would cross the panels), and the
+        // joint load under it (numbers only when they change: no allocations).
+        string title = frame.phase == "Walking" ? walkTitle : frame.phase;
+        if (formatKey != title)
+        {
+            formatKey = title;
+            readout.SetText(title, walkSub);
+        }
+        Vector3 top = holder.TransformPoint(new Vector3(assembled.center.x, assembled.max.y, assembled.center.z));
+        float far = Vector3.Distance(eye, top);  // chips keep their angular size, so the gaps grow with distance
+        readout.SetAnchor(0);
+        readout.MoveTo(top + Vector3.up * (0.012f + 0.075f * far), eye, dt);
+        readout.SetAlpha(Mathf.Max(0.35f, fade));
+        float shown = Mathf.Round(load);
+        if (shown != shownA)
+        {
+            shownA = shown;
+            tag1.SetFormat(load > 100f ? "Joint load  <b><color=#FF6B5A>{0:0}%</color></b>" : load > 60f ? "Joint load  <b><color=#FFB547>{0:0}%</color></b>" : "Joint load  <b>{0:0}%</b>", shown, 0f, 0f);
+        }
+        tag1.SetAnchor(0);
+        tag1.MoveTo(top + Vector3.up * (0.008f + 0.028f * far), eye, dt);
+        tag1.SetAlpha(walkShare > 0.5f ? fade : 0f);
     }
 
     // ---- Spinners (hover and spin) ----

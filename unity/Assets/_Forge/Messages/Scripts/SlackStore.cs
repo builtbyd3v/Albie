@@ -7,7 +7,7 @@ using UnityEngine;
 /// on open), each conversation's history (GET /messages/history, cached oldest -> newest, grown by "load earlier" and
 /// notify.message), the user id -> name map learnt from messages (for &lt;@U..&gt; mentions), who "me" is
 /// (GET /messages/users/me) and the recent messages across conversations the Mentions panel lists. Static, so the
-/// Mentions panel, the floating digest copy and the Slack panel agree; subscribes to ForgeEvents once. Live hub only:
+/// Mentions panel and Slack panel agree; subscribes to ForgeEvents once. Live hub only:
 /// with no hub nothing loads and the panels show their offline line. Events fire on the main thread when data changes;
 /// nothing here runs per frame.
 /// </summary>

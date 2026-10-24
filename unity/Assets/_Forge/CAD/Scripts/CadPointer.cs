@@ -31,6 +31,9 @@ public sealed class CadPointer
     /// <summary>A mouse (no hand to twist): Shift + drag turns the part instead.</summary>
     public bool IsMouse => forge == null || forge.source == ForgePointer.Source.Mouse;
 
+    /// <summary>A pinching hand: no thumbstick, but the part rides the hand, so reaching out pushes it away.</summary>
+    public bool IsHand => forge != null && forge.IsHand;
+
     public bool Held => forge != null ? forge.Held : Mouse.current != null && Mouse.current.leftButton.isPressed;
 
     public Ray Ray => forge != null ? forge.Ray : Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());

@@ -434,3 +434,90 @@ def test_ws_wake_turn_sends_no_pet_state_before_it_is_decided() -> None:
     asyncio.run(go())
     assert [(e.type, e.payload.get("mode")) for e in target.sent] == \
         [("stt.partial", None), ("pet.state", "listening"), ("stt.final", None)]
+
+
+@pytest.mark.parametrize("text, who", [
+    ("Tester, run the hub tests.", "tester"),
+    ("Hey Scout, where does greet live?", "scout"),
+    ("Scout.", "scout"),
+    ("can you check the diff, Reviewer?", "reviewer"),
+    ("builder pattern or factory?", None),  # a question for Bit that starts with a type name
+    ("Bit, ask the tester to run them", None),
+    ("what's the static margin", None),
+])
+def test_crew_target_in_a_bit_turn(text: str, who: str | None) -> None:
+    assert Recorder().router().crew_target(text) == who
+
+
+def test_grok_wake_turn_routes_to_the_crew() -> None:
+    """Wake turn naming a crew gator over the Grok path: no response from Grok, the gator gets the task."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        r = Recorder()
+        s.wake_router = r.router()
+        T = "conversation.item.input_audio_transcription"
+        await s.begin_turn(wake=True)
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type=f"{T}.completed", transcript="Tester, run the hub tests.")
+        await _settle()
+        assert "response.create" not in grok.types()
+        assert [(e.type, e.payload["pet_id"]) for e in r.events] == [("pet.state", "tester"), ("stt.final", "tester")]
+        assert len(r.jobs) == 1  # crew.assign("tester", ...)
+        for job in r.jobs:
+            job.close()
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_grok_bit_turn_naming_the_crew_goes_to_the_crew() -> None:
+    """A normal (hands-free / follow-up) Bit turn that addresses a crew gator: Grok's reply is dropped, Bit gets an
+    empty final (back to idle) and the crew gator gets the task. The WakeListener is paused in these windows."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        r = Recorder()
+        s.wake_router = r.router()
+        T = "conversation.item.input_audio_transcription"
+        await s.begin_turn()
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type=f"{T}.completed", transcript="Hey Scout, where does greet live?")
+        grok.push(type="response.created")
+        await _settle()
+        assert grok.types()[-1] == "response.cancel"
+        finals = [e.payload["text"] for k, e in sink.log if k != "bytes" and e.type == "stt.final"]
+        assert finals == [""]
+        assert [(e.type, e.payload["pet_id"]) for e in r.events] == [("pet.state", "scout"), ("stt.final", "scout")]
+        for job in r.jobs:
+            job.close()
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text, pet, rest", [
+    ("Scott, map the repo", "scout", "map the repo"),
+    ("Hey Scouts", "scout", ""),
+    ("Fix her, run the tests", "fixer", "run the tests"),
+    ("hey test her, run the hub tests", "tester", "run the hub tests"),
+    ("Review her: anything risky in ws.py?", "reviewer", "anything risky in ws.py?"),
+    ("thanks, ship her", "shipper", "thanks"),
+    ("Skipper, write the PR", "shipper", "write the PR"),
+    ("Sentinal, audit the hub", "sentinel", "audit the hub"),
+])
+def test_parse_mishearings(text, pet, rest):
+    assert parse(text) == (pet, rest)
+
+
+@pytest.mark.parametrize("text, pet, rest", [
+    ("Albie, test her code", "bit", "test her code"),  # a split name mid-sentence is left alone
+    ("fix her bike", None, "fix her bike"),  # no punctuation after the split name: not a name
+    ("Scott said hi", "scout", "said hi"),  # a one-word alias opening the sentence wakes, like "Bit said hi"
+])
+def test_parse_split_names_only_where_a_name_can_stand(text, pet, rest):
+    assert parse(text) == (pet, rest)

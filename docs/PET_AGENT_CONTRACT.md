@@ -290,7 +290,7 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
 | fixer | hunts down bugs and fixes the root cause | code | 0.90 | bandana, red |
 | tester | writes and runs tests (test files only) | code | 0.86 | visor, yellow |
 | reviewer | reviews branches and diffs for bugs | read-only + git read | 1.10 | beanie, purple |
-| scribe | writes docs, READMEs and comments | edit/write, no shell | 0.87 | top hat, blue |
+| scribe | writes docs, READMEs and comments | edit/write + git add/commit | 0.87 | top hat, blue |
 | shipper | handles git, changelogs and PR write-ups (never pushes) | code | 1.14 | captain cap, white |
 | designer | tweaks the rocket CAD design | read + CAD tools | 0.89 | bow, pink |
 | sentinel | audits the code for security problems | read-only + git read | 1.15 | helmet, navy |
@@ -308,6 +308,10 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
 * Every `GatorAgentBridge` now ignores events whose `pet_id` isn't its own (Bit = `pet_config.json` petId).
 * Crew code tasks run in a git worktree (`<repo>-crew/<agent>-<id>`, branch `pet/<agent>/<slug>-<id>`) and are
   committed there; `git push`, `checkout`, `switch`, `reset`, `merge`, `rebase`, `stash` and `worktree` are denied.
+  The worktree starts from the main checkout as it is (`git stash create`, so Bit's uncommitted edits are in it).
+* When a crew code task finishes, its changes (commits plus anything uncommitted) are applied to the main checkout
+  with `git apply`, as uncommitted edits on whatever branch is checked out, and the worktree and branch are removed.
+  If they don't apply cleanly, nothing is touched: the worktree and branch stay and the summary names them.
 * Bit's lead-only tools: `spawn_agent {type}`, `assign_task {agent, task, mode?}`, `dismiss_agent {agent}`,
   `crew_status {}`. In voice mode, Bit speaks "<Name> says: <summary>" when a member finishes.
 

@@ -59,7 +59,7 @@ from typing import Any, Protocol
 from . import addressed
 from . import events as ev
 from . import tools
-from .crew import lead_rules
+from .crew import TYPES, lead_rules
 from .events import Event
 from .wake import ALIASES, SPLIT_FIRST, SPLIT_SECOND
 
@@ -708,6 +708,15 @@ class GrokVoiceSession(_Base):
         if self._final_sent:
             return
         final = (text if text is not None else self._partial).strip()
+        crew_pid = (self.wake_router.crew_target(final)
+                    if not self._wake and self.wake_router is not None else None)
+        if crew_pid is not None:
+            # "Tester, run the hub tests" in one of Bit's own turns (hands-free, follow-up window, push-to-talk; the
+            # WakeListener is paused then): the crew gator gets it, Bit says nothing and goes back to idle.
+            self._drop_reply = True
+            await super()._final("")
+            await self.wake_router.final(final)
+            return
         stop = is_stop(final)
         named = "partial" if self._named else "final" if has_name(final) else "no"
         drop = stop or (self._require_name and named == "no")
@@ -892,7 +901,9 @@ def has_name(text: str, last: bool = True) -> bool:
 
 
 def keyterms_for(repo: Path | None) -> list[str]:
-    return list(dict.fromkeys(ROCKET_TERMS + vocab_terms(repo)))[:100]
+    # The crew's names right after Bit's, so "Hey Scout" isn't transcribed as "Hey Scott" (agent/wake.py routes by name).
+    crew_names = [t.name for t in TYPES.values()]
+    return list(dict.fromkeys(ROCKET_TERMS[:1] + crew_names + ROCKET_TERMS[1:] + vocab_terms(repo)))[:100]
 
 
 def vocab_terms(repo: Path | None, limit: int = 100) -> list[str]:

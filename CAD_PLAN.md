@@ -11,6 +11,8 @@
 
 **Status 2026-10-24 (round 4, hub data for `HANDOFF_UI2.md` section 3):** every design now reports parameter groups and help, markers, dimension callouts, per-part explode vectors, a mass breakdown and a demo (rocket launch, quadcopter hover, gearbox spin), and `/cad/flight` runs pad to landing with fixed-rate samples and events. Part 2 (the design spec's asks): parameter defaults, the parts and dimension each parameter changes, a verdict per design, fixed-input info rows, demo radii / blocked / reveal, version labels with the main metric, and design glyphs. All additive, mocks refreshed (JSON only; GLBs and drawings unchanged). 84 CAD tests. Unity side not wired yet. Fields: section 5, round 4.
 
+**Status 2026-10-24 (humanoid, branch `cad/humanoid`, `HANDOFF_CAD_HUMANOID.md`):** a fourth design, the **Unitree G1 humanoid** (`hub/cad/parts/humanoid.py`): 88 mesh parts from Unitree's BSD-3 robot description placed by its URDF kinematics, 10 pose parameters, "Will it stand?" (balance margin, static joint loads against the URDF ratings), and a **Walk** demo that plays one lap of Unitree's trained walking policy recorded in MuJoCo. Mesh parts, `FixedMass`, `GET /cad/motion` and a mesh drawing path are new and generic (Round 5 below). Unity: Walk, the balance instrument, the robot glyph, Expand's **Life size**, explode chips by mass group for many-part designs. 102 CAD tests.
+
 **Status 2026-10-24 (CAD screens, branch `cad/versions-and-drawing`):** round 4's Unity side shipped (PR #35). Hudson's call: the drawing goes on the **middle screen** (no VS Code or 3D app there in CAD mode) and the left screen is a real **Versions** panel (`CadVersionsPanel`, slot `cad-timeline`). Both slotted in `Workspace.DefaultModes` + `MainSceneBuilder`; Core's layout puts the main panel behind the desk model.
 
 ---
@@ -86,6 +88,37 @@ Rules:
 ## 5. Proposed contract additions (section 7)
 
 All implemented in `hub/cad/router.py` and `hub/events.py`. Omit `v` for the current version (`no-store`); with `v` the file is immutable and cacheable.
+
+Round 5 (the humanoid: mesh parts and a keyframed demo; `HANDOFF_CAD_HUMANOID.md`). **Additive only.** Code: `hub/cad/meshes.py`
+(mesh packs), `robot.py` (URDF kinematics, static torques), `part_api.py` (`FixedMass`, `Motion`, `MotionJoint`), `scene.motion`,
+`drawing.py` (mesh path), the worker's `motion` op, `/cad/motion`.
+
+```
+GET  /cad/parts, /cad/params   features may include "motion" (the design defines simulate_motion); glyph may be "robot"
+analysis.demo     kind "walk": label "Walk", source "/cad/motion", note, readouts [speed, steps, walk_load], values
+                  { speed_m_s, step_rate_hz, lap_s, radius_mm, peak_load_pct }, assumptions, blocked (it falls over standing
+                  still, or a joint would pass its rating walking). No spin_parts or axis.
+analysis.markers  + kind "support": the centre of the support polygon (the feet), on the floor.
+GET  /cad/motion?v={version}  -> { version, rate_hz, loop, samples, duration_s,
+       joints:  [{ id, origin: [x,y,z], dir: [x,y,z], angles_deg: [samples] }],
+       root:    { pos: [[x,y,z] x samples], rot: [[x,y,z,w] x samples] } | null,
+       centre:  [x,y,z] | null,
+       values:  { radius_mm, lap_s, speed_m_s, step_rate_hz },
+       tracks:  { load_pct: [samples] } }
+     Model frame. joints are GLB assembly nodes: turn each about origin + dir by angles_deg[i], relative to the version's
+     pose (right-hand rule in glTF; in Unity -angle about the flipped axis, like spin's rpm), parents first. Each origin and
+     dir is where the joint is in the version, the assemblies sit at identity, so a turned hip carries the knee's pivot.
+     root: where the whole model is at sample i, rot * p + pos (Unity: the quaternion (x, -y, -z, w)). loop: the last
+     sample runs into the first. centre: what the path goes round (Unity centres the lap on the base). Made on first
+     request (2-4 s), cached per version; 409 for designs without one. Mock: <part>/vN/motion.json.
+```
+
+Part scripts: `FixedMass(mass_g, cg_mm, material)` (a part's known mass and CG: a mesh has no volume), `simulate_motion(result,
+masses) -> Motion(rate_hz, joints=[MotionJoint(part, origin, direction, angles_deg)], positions, rotations, loop, centre,
+values, tracks)`, and mesh parts from `cad.meshes.pack(folder).place(key, transform, label, rgb)`. A design with any mesh
+part gets the drawing's mesh path (visible lines only; OCCT's exact hidden-line removal crashes on surfaceless faces);
+drawings now get 3x the build timeout. `events.py`'s `CadDemo` takes the walk as is (`kind` is a string, extra fields
+allowed); its docstring's kind list could gain "walk" (Core's call).
 
 Round 4 (data for the richer CAD UI, `HANDOFF_UI2.md` section 3: grouped parameters, Explode that explodes, Fly / Hover /
 Run for every design, markers, dimensions, mass breakdown). **Additive only**: no field renamed, removed or changed. Code:
