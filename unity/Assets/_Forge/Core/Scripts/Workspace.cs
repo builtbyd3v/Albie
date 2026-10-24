@@ -603,10 +603,28 @@ public class Workspace : MonoBehaviour
             }
         }
 
-        // Out of the room's walls: a slot that pokes through one comes closer, then toward the middle (RoomFit).
-        foreach (var o in openItems)
-            if (o.go != null && !IsDeskSlot(o.item.slot))
-                RoomFit.Fit(presence.Frame, eye, ref o.position, ref o.rotation, Size(o), layout == WorkspaceLayout.Curved);
+        // Out of the room's walls (RoomFit): what fits keeps its place, and the rest come closer or toward the middle,
+        // clear of those if they can.
+        if (RoomFit.Begin(presence.Frame, eye))
+        {
+            foreach (var o in openItems)
+                if (Floats(o) && !RoomFit.InWall(o.position, o.rotation, FitSize(o), o.panel == null))
+                    RoomFit.Take(o.position, FitSize(o), o.panel == null);
+            foreach (var o in openItems)
+                if (Floats(o) && RoomFit.InWall(o.position, o.rotation, FitSize(o), o.panel == null))
+                    RoomFit.Fit(ref o.position, ref o.rotation, FitSize(o), o.panel == null, layout == WorkspaceLayout.Curved);
+        }
+    }
+
+    // Panels and volumes in the air (not the ones standing on the desk).
+    static bool Floats(OpenItem o) => o.go != null && !IsDeskSlot(o.item.slot);
+
+    // What RoomFit tests: a panel's width and height, a volume's box at its scale.
+    static Vector3 FitSize(OpenItem o)
+    {
+        if (o.panel != null) return o.panel.SizeMeters;
+        if (o.volume != null) return Vector3.Scale(o.volume.size, o.go.transform.localScale);
+        return new Vector3(0.3f, 0.3f, 0.3f);
     }
 
     // What a placeholder panel or volume will show once its module is plugged in (its empty state's caption).
