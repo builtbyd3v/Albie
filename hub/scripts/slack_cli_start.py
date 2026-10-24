@@ -15,12 +15,16 @@ ENV = HUB / ".env"
 KEYS = {
     "SLACK_BOT_TOKEN": ("SLACK_BOT_TOKEN", "SLACK_CLI_XOXB"),
     "SLACK_APP_TOKEN": ("SLACK_APP_TOKEN", "SLACK_CLI_XAPP"),
+    "SLACK_USER_TOKEN": ("SLACK_USER_TOKEN", "SLACK_CLI_XOXP"),  # only when the manifest asks for user scopes
 }
+OPTIONAL = {"SLACK_USER_TOKEN"}
 
 
 def main() -> int:
     found = {k: next((os.environ[v] for v in names if os.environ.get(v)), "") for k, names in KEYS.items()}
-    missing = [k for k, v in found.items() if not v]
+    print("slack_cli_start: CLI env has", sorted(k for k in os.environ if k.startswith("SLACK")), file=sys.stderr)
+    missing = [k for k, v in found.items() if not v and k not in OPTIONAL]
+    found = {k: v for k, v in found.items() if v}
     if missing:
         print(f"slack_cli_start: CLI did not provide {missing}; nothing written", file=sys.stderr)
         return 1
