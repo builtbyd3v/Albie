@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from forge import adapter as forge_adapter
-from forge import atlas, client, evaluation, graph
+from forge import client, evaluation
 
 CLASSIFICATION = ("image_classification", "text_classification")
 KIND = {"image_classification": "image", "text_classification": "text", "regression": "row"}
@@ -38,6 +38,8 @@ def _write(path: Path, data: Any) -> None:
 
 
 def run_graph(ad: forge_adapter.Adapter, out: Path) -> dict:
+    from forge import graph
+
     example = ad.example_input()
     if example is None:
         raise ValueError("adapter has no example_input (e.g. sklearn): no layer graph for this project")
@@ -66,6 +68,7 @@ class _SampleSet:
 def run_dataset(ad: forge_adapter.Adapter, out: Path, split: str = "val", limit: int = 1000) -> list[dict]:
     samples = ad.samples(split, limit=limit)
     kind = KIND.get(ad.archetype)
+    from forge import atlas  # images need PIL; rows and text don't, but sample ids are shared
     if kind is None:
         raise ValueError(f"no dataset view for archetype {ad.archetype!r}")
     if kind == "image":

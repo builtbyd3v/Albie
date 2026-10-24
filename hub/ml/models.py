@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DatasetItem(BaseModel):
@@ -161,3 +161,51 @@ class SampleUpdated(BaseModel):
     id: str
     label_idx: int
     removed: bool
+
+
+ARCHETYPE = Literal["image_classification", "regression", "text_classification", "generic"]
+
+
+class EntryPoints(BaseModel):
+    train: str
+    model: str | None = None          # "model.py:SmallCNN"
+    data: str | None = None           # "data.py:get_loaders"
+
+
+class ExtraViz(BaseModel):
+    viz_id: str
+    why: str
+
+
+class Profile(BaseModel):
+    """.forge/profile.json (ML_PLAN 7.1): what the classifier decided about a repo."""
+    model_config = {"populate_by_name": True}
+
+    schema_version: int = Field(1, alias="schema")
+    archetype: ARCHETYPE
+    confidence: float = Field(ge=0, le=1)
+    framework: Literal["pytorch", "lightning", "sklearn", "keras", "hf_transformers", "other"]
+    python: str | None = None
+    entry_points: EntryPoints
+    train_cmd: str | None = None
+    classes: list[str] | None = None
+    target: str | None = None
+    input_shape: list[int] | None = None
+    checkpoint: str | None = None
+    existing_logs: list[str] = []
+    extra_viz: list[ExtraViz] = []
+    summary: str
+    notes: str = ""
+    candidates: list[ARCHETYPE] = []  # proposed: the types to offer when confidence is low
+
+
+class ProjectRequest(BaseModel):
+    path: str
+
+
+class TypeRequest(BaseModel):
+    archetype: ARCHETYPE
+
+
+class PatchRequest(BaseModel):
+    accept: bool

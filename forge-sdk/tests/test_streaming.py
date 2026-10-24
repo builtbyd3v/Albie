@@ -128,3 +128,13 @@ def test_hub_ingest_rebroadcasts_on_ws(hub_client):
 def test_hub_ingest_rejects_non_ml_events(hub_client):
     r = hub_client.post("/ml/ingest", json={"run_id": "r1", "events": [{"type": "pet.say", "payload": {}}]})
     assert r.status_code == 400
+
+
+def test_log_accepts_partial_and_custom_metrics_without_raising(tmp_path, capsys):
+    """A script without loss/accuracy (e.g. a backtest) logs what it has: nothing may raise into it."""
+    forge.log(epoch=1, val_sharpe=1.25, train_hit_rate=0.53)
+    forge.log(epoch=2, train_loss=0.5)
+    metrics = [e["payload"] for e in load_events(run_dir(tmp_path)) if e["type"] == "ml.metrics"]
+    assert metrics[0]["extra"] == {"val_sharpe": 1.25, "train_hit_rate": 0.53} and metrics[0]["val_loss"] is None
+    assert "extra" not in metrics[1] and metrics[1]["train_loss"] == 0.5
+    assert "forge:" not in capsys.readouterr().err

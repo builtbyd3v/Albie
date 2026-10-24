@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from forge import atlas, client, evaluation, graph
+from forge import client, evaluation  # atlas/graph import torch: loaded when first needed
 
 OVERFIT_EPOCHS = 2
 
@@ -90,6 +90,10 @@ def _num(x: Any) -> float:
     return float(x.item() if hasattr(x, "item") else x)
 
 
+def _opt(x: Any) -> float | None:
+    return None if x is None else _num(x)
+
+
 def watch(
     model: Any,
     val_dataset: Any,
@@ -107,6 +111,8 @@ def watch(
     _attempt("classes", lambda: run.write_json("classes.json", run.classes))
 
     def save_atlas() -> None:
+        from forge import atlas
+
         image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
         image.save(run.dir / "atlas.png")
         run.write_json("atlas.json", atlas_meta)
@@ -115,6 +121,8 @@ def watch(
     _attempt("dataset atlas", save_atlas)
 
     def save_graph() -> None:
+        from forge import graph
+
         example, _ = val_dataset[0]
         run.write_json("graph.json", graph.describe(model, example))
         run.emit("ml.graph_ready", {})
@@ -124,27 +132,35 @@ def watch(
 
 
 def log(
-    epoch: int,
-    train_loss: float,
-    train_acc: float,
-    val_loss: float,
-    val_acc: float,
-    lr: float,
+    epoch: int = 0,
+    train_loss: float | None = None,
+    train_acc: float | None = None,
+    val_loss: float | None = None,
+    val_acc: float | None = None,
+    lr: float | None = None,
     step: int = 0,
+    **extra: float,
 ) -> None:
-    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting."""
+    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting.
+
+    Any metric can be left out (None). Other numeric metrics (e.g. val_sharpe=1.2) go in `extra`, so a
+    script without loss/accuracy still logs what it has, and no keyword ever raises into training.
+    """
 
     def send() -> None:
         run = _current()
-        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _num(train_loss),
-                   "train_acc": _num(train_acc), "val_loss": _num(val_loss), "val_acc": _num(val_acc),
-                   "lr": _num(lr)}
+        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _opt(train_loss),
+                   "train_acc": _opt(train_acc), "val_loss": _opt(val_loss), "val_acc": _opt(val_acc),
+                   "lr": _opt(lr)}
+        if extra:
+            metrics["extra"] = {k: _opt(v) for k, v in extra.items()}
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": metrics["epoch"],
                                   "total_epochs": run.total_epochs})
         run.emit("ml.metrics", metrics)
-        if run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc:
+        if metrics["val_acc"] is not None and (run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc):
             run.best_epoch, run.best_val_acc = metrics["epoch"], metrics["val_acc"]
-        _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+        if metrics["train_loss"] is not None and metrics["val_loss"] is not None:
+            _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
 
     _attempt("log", send)
 
@@ -203,6 +219,8 @@ def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:
     import numpy as np
     import torch
     from torch.utils.data import DataLoader
+
+    from forge import atlas
 
     if isinstance(val_data, DataLoader):
         dataset, batch_size, collate = val_data.dataset, val_data.batch_size or 256, val_data.collate_fn

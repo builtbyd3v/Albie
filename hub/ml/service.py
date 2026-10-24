@@ -8,6 +8,8 @@ Env: FORGE_ML_REPO (default ml-examples/cifar10). Point it at hub/.data/mocks/ml
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import json
 import os
 import re
@@ -18,6 +20,8 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any
+
+from .archetypes import layout
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -52,6 +56,7 @@ class MLService:
         self.repo = Path(repo or os.environ.get("FORGE_ML_REPO") or DEFAULT_REPO).resolve()
         self.train_proc: subprocess.Popen | None = None
         self.train_run_id: str | None = None
+        self.project: dict[str, Any] = {"path": str(self.repo), "status": "idle"}
 
     # --- layout -------------------------------------------------------------------------------
     @property
@@ -305,3 +310,84 @@ class MLService:
             raise NotFound(f"run {run_id} has no events.jsonl")
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
         return sorted(events, key=lambda e: e.get("t", 0.0))
+
+
+    # --- project setup (ML_PLAN 6, 7.4) -----------------------------------------------------------
+    def open_project(self, path: str) -> Path:
+        repo = Path(path).expanduser().resolve()
+        if not repo.is_dir():
+            raise NotFound(f"no folder at {path!r}")
+        self.repo = repo
+        self.project = {"path": str(repo), "status": "scanning"}
+        return repo
+
+    def update_project(self, status: str, **fields: Any) -> tuple[dict, dict | None]:
+        """Record one setup step. Returns (ml.project_state payload, ml.layout payload or None)."""
+        profile = fields.pop("profile", None)
+        state: dict[str, Any] = {"path": str(self.repo), "status": status}
+        state.update({k: v for k, v in fields.items() if v is not None})
+        if profile is not None:
+            state["profile"] = profile.model_dump(by_alias=True)
+        elif self.project.get("profile") and status not in ("scanning", "classifying"):
+            state["profile"] = self.project["profile"]
+        new_layout = None
+        if status in ("ready", "failed"):
+            extra = [v["viz_id"] for v in state.get("profile", {}).get("extra_viz", [])]
+            new_layout = layout(state.get("archetype", "generic"), extra)
+            state["layout"] = new_layout
+        self.project = state
+        event = {k: state[k] for k in ("path", "status", "archetype", "candidates", "summary", "error") if k in state}
+        return event, new_layout
+
+    def _manifest(self) -> dict:
+        path = self.forge_dir / "patch" / "manifest.json"
+        return _read_json(path) if path.exists() else {}
+
+    def patch_files(self) -> list[dict]:
+        """The proposed patch as unified diffs, for GET /ml/project."""
+        out = []
+        for rel in self._manifest():
+            original, patched = self.repo / rel, self.forge_dir / "patch" / rel
+            def lines(path: Path) -> list[str]:  # a missing final newline would glue two diff lines
+                return [line if line.endswith("\n") else line + "\n" for line in path.read_text().splitlines(True)]
+
+            diff = difflib.unified_diff(lines(original), lines(patched), fromfile=f"a/{rel}", tofile=f"b/{rel}")
+            out.append({"path": rel, "diff": "".join(diff)})
+        return out
+
+    def project_state(self) -> dict:
+        state = dict(self.project)
+        if state.get("status") == "needs_approval":
+            state["patch"] = {"files": self.patch_files()}
+        return state
+
+    def open_diff(self) -> dict:
+        """Open the proposed patch in the laptop's real VS Code (`code --diff`), else return the diff text."""
+        files = list(self._manifest())
+        if not files:
+            raise NotFound("no proposed patch")
+        code = shutil.which("code")
+        if code is None:
+            return {"ok": True, "opened": False, "files": self.patch_files()}
+        for rel in files:
+            subprocess.Popen([code, "--diff", str(self.repo / rel), str(self.forge_dir / "patch" / rel)])
+        return {"ok": True, "opened": True}
+
+    def apply_patch(self, accept: bool) -> list[str]:
+        """The only way setup changes the user's code (ML_PLAN 6.6). Keeps <file>.orig in .forge/patch/ and
+        refuses if a file changed after the patch was written. accept=False is Skip: nothing is written."""
+        if self.project.get("status") != "needs_approval":
+            raise Conflict(f"nothing to approve (project is {self.project.get('status')})")
+        manifest = self._manifest()
+        applied = []
+        if accept:
+            for rel, info in manifest.items():
+                target = self.repo / rel
+                if hashlib.sha256(target.read_bytes()).hexdigest() != info["sha256"]:
+                    raise Conflict(f"{rel} changed after the patch was written; rescan the project")
+            for rel in manifest:
+                target, patched = self.repo / rel, self.forge_dir / "patch" / rel
+                shutil.copyfile(target, patched.with_name(patched.name + ".orig"))
+                shutil.copyfile(patched, target)
+                applied.append(rel)
+        return applied

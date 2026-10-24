@@ -11,9 +11,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, RelabelRequest, ReplayRequest,
-                     RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest, TrainResponse)
+from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchRequest, ProjectRequest,
+                     RelabelRequest, ReplayRequest, RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest,
+                     TrainResponse, TypeRequest)
 from .service import Conflict, MLService, NotFound
+from .setup import pipeline
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -152,3 +154,71 @@ async def replay(req: ReplayRequest, request: Request) -> dict:
 
     state.ml_replay = asyncio.create_task(play())
     return {"run_id": req.run_id, "events": len(events)}
+
+
+# --- project setup: open any ML repo (ML_PLAN 6, 7.4) -----------------------------------------------
+
+def _start_setup(request: Request, **kwargs) -> dict:
+    """Run the setup flow in a worker thread; each step becomes ml.project_state (and ml.layout) on /ws."""
+    state, svc = request.app.state, _svc(request)
+    running = getattr(state, "ml_setup", None)
+    if running is not None and not running.done():
+        raise HTTPException(status_code=409, detail="project setup already running")
+    loop = asyncio.get_running_loop()
+    repo = svc.repo
+
+    def emit(status: str, **fields) -> None:
+        event, new_layout = svc.update_project(status, **fields)
+        asyncio.run_coroutine_threadsafe(state.bus.publish("ml.project_state", event), loop).result(timeout=10)
+        if new_layout is not None:
+            asyncio.run_coroutine_threadsafe(state.bus.publish("ml.layout", new_layout), loop).result(timeout=10)
+
+    # tests inject fakes: state.ml_llm (adapter / Claude classifier), state.ml_jev (+ state.ml_backend)
+    extra = {k: v for k, v in (("llm", getattr(state, "ml_llm", None)), ("jev_ask", getattr(state, "ml_jev", None)),
+                               ("backend", getattr(state, "ml_backend", None))) if v is not None}
+    state.ml_setup = asyncio.ensure_future(asyncio.to_thread(pipeline.run_setup, repo, emit, **kwargs, **extra))
+    return {"status": svc.project["status"]}
+
+
+@router.post("/project")
+async def open_project(req: ProjectRequest, request: Request) -> dict:
+    """VS Code (or `python -m ml.open`) says which repo is open: set up, or reuse a working .forge/."""
+    _call(_svc(request).open_project, req.path)
+    return _start_setup(request)
+
+
+@router.get("/project")
+def get_project(request: Request) -> dict:
+    return _call(_svc(request).project_state)
+
+
+@router.post("/project/rescan")
+async def rescan_project(request: Request) -> dict:
+    """"Bit, look again": ignore the existing .forge/ and classify + adapt from scratch."""
+    return _start_setup(request, force=True)
+
+
+@router.post("/project/type")
+async def confirm_type(req: TypeRequest, request: Request) -> dict:
+    """The user picks the type after a low-confidence classification (status confirm_type)."""
+    if _svc(request).project.get("status") != "confirm_type":
+        raise HTTPException(status_code=409, detail="the project isn't waiting for a type")
+    return _start_setup(request, archetype=req.archetype)
+
+
+@router.post("/project/diff")
+def open_diff(request: Request) -> dict:
+    return _call(_svc(request).open_diff)
+
+
+@router.post("/project/patch")
+async def apply_patch(req: PatchRequest, request: Request) -> dict:
+    """Accept (apply the patch) or Skip. The only way setup changes the user's code."""
+    svc = _svc(request)
+    applied = _call(svc.apply_patch, req.accept)
+    profile = svc.project.get("profile", {})
+    event, new_layout = svc.update_project("ready", archetype=profile.get("archetype"),
+                                           summary=profile.get("summary"), applied=applied)
+    await request.app.state.bus.publish("ml.project_state", event)
+    await request.app.state.bus.publish("ml.layout", new_layout)
+    return {"applied": applied}
