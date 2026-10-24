@@ -1,7 +1,8 @@
 """Say a gator's name and it listens: routing for Unity's always-on, VAD-gated speech (WakeListener).
 
 Unity streams each speech segment it hears as a normal turn marked ``stt.start {wake: true}``. The transcript is
-held back (no stt.* for room chatter) until we know who it is for:
+held back (no stt.*, no pet.state for room chatter) until we know who it is for; the gator's ``pet.state listening``
+goes out only when a segment turns out to be a request for it:
 
     "Hey Bit, what's in ws.py?"     -> Bit answers (voice: Grok responds to the turn; else agent.ask)
     "Tester, run the hub tests"     -> crew.assign("tester", "run the hub tests") (hatches the tester if needed)
@@ -112,12 +113,16 @@ class WakeRouter:
             if not rest:  # just "Hey Bit": open a hands-free turn on the Unity side
                 await self._send_owner(ev.wake_listen(pid))
                 return Decision(pid, rest, False)
+            # Decided: this segment is for Bit. Only now does he look like he is listening (the stt.* events of a
+            # wake turn carry no pet.state companion, see ws.py), and thinking follows right behind.
+            await self._emit_for(pid)(ev.pet_state(pid, "listening"))
             await self._emit_for(pid)(ev.stt_final(pid, text, voice=True))
             return Decision(pid, rest, True)
         # A crew gator (hatched on demand).
         if not rest:
             self._spawn(self._summon(pid))
         else:
+            await self._emit_for(pid)(ev.pet_state(pid, "listening"))
             await self._emit_for(pid)(ev.stt_final(pid, rest))
             self._spawn(self._assign(pid, rest))
         return Decision(pid, rest, False)

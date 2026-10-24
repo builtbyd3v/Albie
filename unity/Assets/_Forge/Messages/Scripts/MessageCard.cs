@@ -1,148 +1,186 @@
 using System;
-using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.UI;
 
 /// <summary>
-/// One Slack message in <see cref="MessagesPanel"/>: sender initial bubble, name + channel, first line of text,
-/// relative time, and an accent strip when the message mentions the user. Slightly translucent at rest.
-/// Hover (mouse crosshair via DesktopRig, Interaction SDK ray via PointableCanvasModule, both arrive as uGUI pointer
-/// events) lifts the card 1 cm toward the viewer, makes it opaque and expands it to the full text. Click = reply with Bit.
-/// Layout: the parent VerticalLayoutGroup reads <see cref="LayoutElement.preferredHeight"/>; 1 canvas unit = 1 mm.
+/// One Slack message on a translucent slate card (MessageCard.prefab, pooled by its owners; 1 canvas unit = 1 mm).
+/// Two styles: <see cref="Style.Inbox"/> (Mentions panel, the floating digest copy): initials bubble, name + channel,
+/// relative time, up to two lines of text; hover lifts it 1 cm toward the viewer and makes it opaque; click opens the
+/// conversation. <see cref="Style.Thread"/> (the Slack panel's message list): bubble, name, time, the whole text,
+/// "N replies" when the hub reports a thread, the user's own rows tinted. Mentions of the user get a thin accent strip.
+/// Owners size the card: <see cref="Measure"/> gives the height for a width, <see cref="Layout"/> places the children.
+/// Hover and click arrive as uGUI pointer events from the mouse (DesktopRig) and Interaction SDK rays / pokes alike.
 /// </summary>
 public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
 {
-    [SerializeField] Image frame;          // card background; alpha RestAlpha at rest, 1 on hover
-    [SerializeField] Image accent;         // thin strip on the left, on for mentions
-    [SerializeField] Image bubble;         // sender initial disc
+    public enum Style { Inbox, Thread }
+
+    [SerializeField] ForgeSurface shadow;
+    [SerializeField] ForgeSurface frame;      // the slate fill; alpha RestAlpha at rest, 1 on hover (Inbox)
+    [SerializeField] ForgeSurface accent;     // thin strip on the left, on for mentions
+    [SerializeField] ForgeSurface bubble;     // sender initials disc
     [SerializeField] TMP_Text initial;
-    [SerializeField] TMP_Text header;      // "Hudson  #forge-team"
-    [SerializeField] TMP_Text time;        // "2m", "1h"
-    [SerializeField] TMP_Text body;        // first line at rest, full text on hover
-    [SerializeField] LayoutElement layout;
+    [SerializeField] TMP_Text nameText;
+    [SerializeField] TMP_Text timeText;
+    [SerializeField] TMP_Text body;
+    [SerializeField] TMP_Text meta;           // Thread: "3 replies"; Inbox: hidden
 
-    public const float CollapsedHeightMm = 86f;
-    public const float RestAlpha = 0.8f;
-    public const float LiftMm = 10f;       // 1 cm toward the viewer (canvas -Z)
+    public const float InboxHeight = 72f;
+    public const float LiftMm = 10f;          // 1 cm toward the viewer (canvas -Z)
     const float HoverSeconds = 0.18f;
-    const float BodyTopMm = 42f, BodyBottomMm = 10f;
-
-    static readonly Color MentionAccent = new Color(1f, 0.6f, 0.2f);
-    static readonly Color[] BubbleColors =
-    {
-        new Color(0.25f, 0.55f, 1f), new Color(0.85f, 0.4f, 0.9f), new Color(0.3f, 0.8f, 0.45f),
-        new Color(1f, 0.55f, 0.2f), new Color(0.95f, 0.35f, 0.4f), new Color(0.25f, 0.8f, 0.85f),
-    };
-    static readonly char[] LineBreaks = { '\n', '\r' };
+    // Thread geometry (mm).
+    const float PadX = 10f, BubbleT = 28f, NameX = 48f, NameY = 7f, LineH = 16f, BodyY = 25f, BodyBottom = 9f, MetaH = 15f, TimeW = 44f;
+    // Inbox geometry.
+    const float BubbleI = 32f, NameXI = 52f;
 
     public NotifyMessage Message { get; private set; }
+    public Style CardStyle { get; private set; }
     /// <summary>The user clicked or poked the card.</summary>
     public event Action<MessageCard> Clicked;
 
     RectTransform rect;
     Coroutine anim;
-    string firstLine = "";
+    string rendered;
+    float width = -1f, measured;
+    bool hovered;
 
-    void Awake() => rect = (RectTransform)transform;
-
-    public void Bind(NotifyMessage m)
+    void Awake()
     {
+        rect = (RectTransform)transform;
+        if (body != null) body.textWrappingMode = TextWrappingModes.Normal;
+    }
+
+    /// <summary>
+    /// Show <paramref name="m"/>. <paramref name="renderedBody"/> is its text as TMP rich text (<see cref="SlackText.Render"/>);
+    /// <paramref name="channelLabel"/> ("#forge-team", "DM") sits after the name in the Inbox style only.
+    /// Binding the same message again in the same style is a no-op, so pooled rows refill cheaply.
+    /// </summary>
+    public void Bind(NotifyMessage m, Style style, string renderedBody, string channelLabel = null)
+    {
+        if (Message == m && CardStyle == style && rendered == renderedBody) return;
         Message = m;
-        string name = string.IsNullOrEmpty(m.userName) ? m.user : m.userName;
-        if (string.IsNullOrEmpty(name)) name = "?";
-        initial.text = name.Substring(0, 1).ToUpperInvariant();
-        bubble.color = BubbleColors[Mathf.Abs(StableHash(name)) % BubbleColors.Length];
-        header.text = IsDm(m) ? $"{name}  <alpha=#99><size=85%>DM" : $"{name}  <alpha=#99><size=85%>#{m.channelName}";
-        firstLine = FirstLine(m.text);
-        accent.enabled = m.mentionsMe;
+        CardStyle = style;
+        rendered = renderedBody ?? "";
+        width = -1f;  // re-measure
+
+        string name = SlackText.SenderName(m);
+        if (initial != null) initial.text = SlackText.Initials(m);
+        if (bubble != null) bubble.color = SlackUi.BubbleColor(string.IsNullOrEmpty(m.user) ? name : m.user);
+        if (nameText != null)
+        {
+            nameText.text = style == Style.Inbox && !string.IsNullOrEmpty(channelLabel)
+                ? name + "  <alpha=#80><size=85%>" + channelLabel
+                : m.isMe ? name + "  <alpha=#80><size=85%>you" : name;
+        }
+        body.text = rendered;
+        body.overflowMode = style == Style.Inbox ? TextOverflowModes.Ellipsis : TextOverflowModes.Overflow;
+        if (accent != null) SlackUi.Show(accent, m.mentionsMe && !m.isMe);
+        if (meta != null)
+        {
+            bool replies = style == Style.Thread && m.replyCount.HasValue && m.replyCount.Value > 0;
+            SlackUi.Show(meta, replies);
+            if (replies) meta.text = m.replyCount.Value == 1 ? "1 reply" : m.replyCount.Value + " replies";
+        }
         RefreshTime();
-        SetHover(false, immediate: true);
+        hovered = false;
+        if (anim != null) { StopCoroutine(anim); anim = null; }
+        ApplyRest();
     }
 
     public void RefreshTime()
     {
-        if (Message != null) time.text = RelativeTime(Message.ts);
+        if (Message != null && timeText != null) timeText.text = SlackText.RelativeTime(Message.ts) + (Message.edited ? " · edited" : "");
     }
 
-    /// <summary>The hub sets is_dm; the channel name is only consulted when the hub sent none.</summary>
-    public static bool IsDm(NotifyMessage m) => m.isDm || (string.IsNullOrEmpty(m.channelName) ? true : m.channelName == "dm");
-
-    /// <summary>For payloads without is_dm (notify.sent): the hub names a DM channel "dm".</summary>
-    public static bool IsDmChannel(string channelName) =>
-        string.IsNullOrEmpty(channelName) || channelName == "dm" || channelName == "group-dm";
-
-    /// <summary>Slack ts ("1729800000.123456") to "now" / "5m" / "2h" / "3d".</summary>
-    public static string RelativeTime(string ts)
+    /// <summary>Height (mm) the card needs at <paramref name="w"/> mm wide; measured once per bind and width.</summary>
+    public float Measure(float w)
     {
-        if (!double.TryParse(ts, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds)) return "";
-        double age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - seconds;
-        if (age < 60) return "now";
-        if (age < 3600) return $"{(int)(age / 60)}m";
-        if (age < 86400) return $"{(int)(age / 3600)}h";
-        return $"{(int)(age / 86400)}d";
+        if (CardStyle == Style.Inbox) return InboxHeight;
+        if (Mathf.Approximately(w, width)) return measured;
+        width = w;
+        float textW = Mathf.Max(20f, w - NameX - PadX);
+        float h = BodyY + SlackUi.Height(body, rendered, textW) + BodyBottom;
+        if (meta != null && meta.gameObject.activeSelf) h += MetaH;
+        measured = Mathf.Max(BubbleT + 16f, h);
+        return measured;
     }
 
-    static string FirstLine(string text)
+    /// <summary>Place the children for a card <paramref name="w"/> x <paramref name="h"/> (the owner set the card's rect).</summary>
+    public void Layout(float w, float h)
     {
-        if (string.IsNullOrEmpty(text)) return "";
-        int cut = text.IndexOfAny(LineBreaks);
-        return cut < 0 ? text : text.Substring(0, cut);
-    }
-
-    // string.GetHashCode is randomized per process; keep bubble colors stable across runs.
-    static int StableHash(string s)
-    {
-        int h = 17;
-        for (int i = 0; i < s.Length; i++) h = unchecked(h * 31 + s[i]);
-        return h;
+        bool inbox = CardStyle == Style.Inbox;
+        float b = inbox ? BubbleI : BubbleT;
+        float nameX = inbox ? NameXI : NameX;
+        if (bubble != null) SlackUi.Place(bubble.rectTransform, PadX, inbox ? 10f : 8f, b, b);
+        if (accent != null) SlackUi.Place(accent.rectTransform, 2f, 10f, 3f, Mathf.Max(8f, h - 20f));
+        if (timeText != null) SlackUi.PlaceRight(timeText.rectTransform, PadX, inbox ? 9f : NameY + 1f, TimeW + 30f, LineH);
+        if (nameText != null) SlackUi.Place(nameText.rectTransform, nameX, inbox ? 8f : NameY, Mathf.Max(20f, w - nameX - PadX - TimeW), LineH);
+        float bodyY = inbox ? 26f : BodyY;
+        float bodyH = inbox ? h - bodyY - 8f : Mathf.Max(12f, h - bodyY - BodyBottom - (meta != null && meta.gameObject.activeSelf ? MetaH : 0f));
+        SlackUi.Place(body.rectTransform, nameX, bodyY, Mathf.Max(20f, w - nameX - PadX), bodyH);
+        if (meta != null && meta.gameObject.activeSelf) SlackUi.Place(meta.rectTransform, nameX, bodyY + bodyH, Mathf.Max(20f, w - nameX - PadX), MetaH);
     }
 
     public void OnPointerEnter(PointerEventData eventData) => SetHover(true);
     public void OnPointerExit(PointerEventData eventData) => SetHover(false);
     public void OnPointerClick(PointerEventData eventData) => Clicked?.Invoke(this);
 
-    void SetHover(bool on, bool immediate = false)
+    void OnDisable()
     {
-        if (Message == null) return;
-        body.text = on ? Message.text : firstLine;
-        body.textWrappingMode = on ? TextWrappingModes.Normal : TextWrappingModes.NoWrap;
-        body.overflowMode = on ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
-
-        float h1 = on ? ExpandedHeight() : CollapsedHeightMm;
-        float a1 = on ? 1f : RestAlpha;
-        float z1 = on ? -LiftMm : 0f;
+        hovered = false;
         if (anim != null) { StopCoroutine(anim); anim = null; }
-        if (immediate || !isActiveAndEnabled)
+        ApplyRest();
+    }
+
+    Color RestFill => Message != null && Message.isMe ? SlackUi.MeFill : SlackUi.CardFill;
+
+    void ApplyRest()
+    {
+        if (frame != null) frame.color = RestFill;
+        if (rect != null)
         {
-            Apply(h1, a1, z1);
+            Vector3 p = rect.localPosition;
+            p.z = 0f;
+            rect.localPosition = p;
+        }
+    }
+
+    void SetHover(bool on)
+    {
+        if (Message == null || on == hovered) return;
+        hovered = on;
+        if (CardStyle == Style.Thread)
+        {
+            // List rows: just a touch brighter, no motion (the list may be scrolling under the pointer).
+            Color c = RestFill;
+            if (on) c.a = Mathf.Min(1f, c.a + 0.12f);
+            frame.color = c;
             return;
         }
-        float h0 = layout.preferredHeight, a0 = frame.color.a, z0 = rect.localPosition.z;
+        Color rest = RestFill;
+        float a1 = on ? 1f : rest.a, z1 = on ? -LiftMm : 0f;
+        if (anim != null) { StopCoroutine(anim); anim = null; }
+        if (!isActiveAndEnabled)
+        {
+            Apply(a1, z1);
+            return;
+        }
+        float a0 = frame.color.a, z0 = rect.localPosition.z;
         anim = StartCoroutine(ForgeTween.Run(HoverSeconds, 0f, k =>
         {
             float e = ForgeTween.EaseOutCubic(k);
-            Apply(Mathf.Lerp(h0, h1, e), Mathf.Lerp(a0, a1, e), Mathf.Lerp(z0, z1, e));
+            Apply(Mathf.Lerp(a0, a1, e), Mathf.Lerp(z0, z1, e));
         }, () => anim = null));
     }
 
-    void Apply(float heightMm, float alpha, float zMm)
+    void Apply(float alpha, float zMm)
     {
-        layout.preferredHeight = heightMm;
-        Color c = frame.color;
+        Color c = RestFill;
         c.a = alpha;
         frame.color = c;
-        Vector3 p = rect.localPosition;  // the layout group owns x/y; z is ours
+        Vector3 p = rect.localPosition;  // the owner places x/y; z is ours
         p.z = zMm;
         rect.localPosition = p;
-    }
-
-    float ExpandedHeight()
-    {
-        float width = body.rectTransform.rect.width;
-        if (width <= 1f) width = 300f;  // not laid out yet
-        float text = body.GetPreferredValues(Message.text, width, 0f).y;
-        return Mathf.Max(CollapsedHeightMm, BodyTopMm + text + BodyBottomMm);
     }
 }

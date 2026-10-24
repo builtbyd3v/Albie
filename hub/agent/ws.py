@@ -1,10 +1,6 @@
-"""/ws/agent session handler for the pet agent.
+"""Pet agent session on the hub's shared /ws socket (main.py accepts it, attaches the EventBus, then calls us).
 
-Mount it from any FastAPI app:
-
-    @app.websocket("/ws/agent")
-    async def ws_endpoint(ws: WebSocket) -> None:
-        await agent.ws.handle_socket(ws)
+    await handle_socket(ws, accept=False)
 
 Per socket: hello -> (pet_id, project_id); agent.ask -> background turn streaming
 events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.stop
@@ -12,8 +8,10 @@ events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.s
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
 Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
 gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
-run that member's own background turn instead of the socket's turn.
-Unknown message types are ignored (other modules may share the socket) and logged.
+run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
+shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
+Other modules own their client -> hub messages on this socket through ``client_handlers`` (main.py registers
+``messages.focus`` for hub/messaging). Unknown message types are ignored and logged.
 """
 
 from __future__ import annotations
@@ -21,7 +19,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -31,16 +31,21 @@ from . import speech
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
 from .crew import Member, crew, spoken
-from .events import AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
+from .events import (
+    AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest, WorkspaceMode,
+)
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
-from .voice import VoiceSession, make_voice
+from .voice import VoiceSession, make_voice, view_note
 from .wake import WakeRouter
 
 log = logging.getLogger(__name__)
 
 CANCEL_GRACE_S = 3.0
+
+ClientHandler = Callable[["Session", dict[str, Any]], Awaitable[None]]
+client_handlers: dict[str, ClientHandler] = {}  # type -> handler(session, payload); the handler validates the payload
 
 
 @dataclass
@@ -58,6 +63,7 @@ class Session:
     crew_listener: object | None = None  # announces finished crew work through this socket's voice
     wake: WakeRouter | None = None
     wake_turn: bool = False  # the open stt turn is a wake turn (decided by s.wake on its transcript)
+    mode: str | None = None  # workspace.mode: the view Unity shows ("code", "cad", ...; "" = none); None until it says
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def spawn(self, coro) -> None:  # fire-and-forget helper that keeps a reference
@@ -81,7 +87,10 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
     async def send_owner(event: Event) -> None:
         await bus.send(ws, event)
 
-    s.wake = WakeRouter(lead_pet_id=s.pet_id, emit_for=lambda pid: Emitter(pid), send_owner=send_owner, spawn=s.spawn)
+    # Wake turns carry no pet.state companions: room chatter must not make a gator look like it is listening. The
+    # router sends pet.state listening itself once a segment is addressed to a gator.
+    s.wake = WakeRouter(lead_pet_id=s.pet_id, emit_for=lambda pid: Emitter(pid, companion=False), send_owner=send_owner,
+                        spawn=s.spawn)
     log.info("ws connected (%d total)", bus.count)
     try:
         while True:
@@ -138,6 +147,8 @@ async def _on_text(s: Session, raw: str) -> None:
         elif event.type == "crew.roster":
             roster = CrewRoster.model_validate(event.payload)
             crew.set_roster([m.model_dump() for m in roster.members])
+        elif event.type == "workspace.mode":
+            await _on_mode(s, WorkspaceMode.model_validate(event.payload))
         elif event.type == "stt.start":
             start = SttStart.model_validate(event.payload)
             if start.sample_rate != 16000:
@@ -166,11 +177,29 @@ async def _on_text(s: Session, raw: str) -> None:
             TtsStopRequest.model_validate(event.payload)
             if s.voice is not None:
                 await _voice_call(s, s.voice.stop_speech)
+        elif event.type in client_handlers:
+            await client_handlers[event.type](s, event.payload)
         else:
             log.debug("ignoring ws message type %s", event.type)
     except ValidationError as exc:
         log.warning("invalid %s payload: %s", event.type, exc)
         await s.reply_error(f"Bad {event.type} message.")
+
+
+async def _on_mode(s: Session, wm: WorkspaceMode) -> None:
+    """Unity switched workspace view: remember it, tell the voice model in one line (no reply), gate crew tools."""
+    mode = wm.mode.strip().lower()
+    if mode == s.mode:
+        return
+    s.mode = mode
+    log.info("workspace mode: %s", mode or "(closed)")
+    voice = s.voice
+    if voice is None:
+        return
+    voice.workspace_mode = mode
+    note = getattr(voice, "note", None)
+    if note is not None:
+        s.spawn(_voice_call(s, lambda: note(view_note(mode))))
 
 
 def _project_path(s: Session):
@@ -266,6 +295,7 @@ async def _open_voice(s: Session, h: Hello) -> None:
     if voice is None:
         return
     voice.wake_router = s.wake
+    voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))

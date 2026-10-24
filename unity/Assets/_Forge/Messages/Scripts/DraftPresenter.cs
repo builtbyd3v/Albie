@@ -1,10 +1,11 @@
 using UnityEngine;
 
 /// <summary>
-/// Shows the Send / Cancel card for notify.draft (PROJECT_CONTEXT 8.8). One card at a time: a new draft replaces the open
-/// one (the hub also emits notify.draft_cancelled with reason superseded for it). Placement: docked just below the open
-/// <see cref="MessagesPanel"/> when MSG mode is open; otherwise floating at the desk's front-right beside Bit, a little
-/// closer to the user than the digest stack; with no desk in the scene, in front of the camera.
+/// Routes notify.draft (PROJECT_CONTEXT 8.8). With the Slack panel open (<see cref="SlackPanel.Active"/>) the draft goes
+/// into its composer as editable text, with Send / Cancel and the conversation switched to the draft's. Otherwise it pops
+/// a <see cref="DraftCard"/> (Send / Cancel) floating at the desk's front-right beside Bit, a little closer to the user
+/// than the digest stack, or in front of the camera when there is no desk. One card at a time: a new draft replaces the
+/// open one (the hub also emits notify.draft_cancelled with reason superseded for it).
 /// Installs itself like <see cref="DigestTrigger"/>: on scene load, into any scene that has a DeskPresence.
 /// </summary>
 public class DraftPresenter : MonoBehaviour
@@ -14,8 +15,6 @@ public class DraftPresenter : MonoBehaviour
 
     [Tooltip("Floating card pose in the desk frame (m) when MSG mode is closed: right of the front edge midpoint, up, into the desk.")]
     public Vector3 floatingOffset = new Vector3(0.35f, 0.22f, 0.02f);
-    [Tooltip("Gap between the open Messages panel's bottom edge and the card (m).")]
-    public float dockGap = 0.03f;
 
     DeskPresence presence;
     DraftCard card;
@@ -31,15 +30,35 @@ public class DraftPresenter : MonoBehaviour
     {
         presence = FindAnyObjectByType<DeskPresence>();
         ForgeEvents.OnNotifyDraft += OnDraft;
+        SlackPanel.ActiveChanged += OnPanelsChanged;
     }
 
-    void OnDestroy() => ForgeEvents.OnNotifyDraft -= OnDraft;
+    void OnDestroy()
+    {
+        ForgeEvents.OnNotifyDraft -= OnDraft;
+        SlackPanel.ActiveChanged -= OnPanelsChanged;
+    }
+
+    // The Slack panel opened while a card floats: the composer takes over the draft, the card folds.
+    void OnPanelsChanged()
+    {
+        if (SlackPanel.Active == null || card == null || card.Closing) return;
+        SlackPanel.Active.ReceiveDraft(card.Draft);
+        DigestTrigger.FoldOut(this, card.Root != null ? card.Root : card.gameObject);
+        card = null;
+    }
 
     void OnDraft(NotifyDraft d)
     {
         if (d == null || string.IsNullOrEmpty(d.draftId)) return;
+        if (SlackPanel.Active != null) return;  // the panel subscribes itself and puts it in the composer
         if (card != null)
         {
+            if (card.Draft != null && card.Draft.draftId == d.draftId && d.edited)
+            {
+                card.Bind(d);  // the same draft, edited (PATCH): refresh the text
+                return;
+            }
             Destroy(card.Root != null ? card.Root : card.gameObject);  // replaced; the hub cancels the old draft itself
             card = null;
         }
@@ -52,9 +71,7 @@ public class DraftPresenter : MonoBehaviour
         }
 
         GameObject root;
-        MessagesPanel open = MessagesPanel.Active;
-        if (open != null) root = DockBelow(prefab, open);
-        else if (presence != null) root = DigestTrigger.SpawnAtDesk(presence, prefab, floatingOffset, "FloatingDraft");
+        if (presence != null && presence.AtDesk && presence.Frame != null) root = DigestTrigger.SpawnAtDesk(presence, prefab, floatingOffset, "FloatingDraft");
         else root = InFrontOfCamera(prefab);
         if (root == null) return;
 
@@ -68,23 +85,6 @@ public class DraftPresenter : MonoBehaviour
         card.Root = root;
         card.Bind(d);
         DigestTrigger.PopIn(this, root.transform);
-    }
-
-    // Under the open panel's bottom edge, same facing. Not parented to the panel (its root is a 1 mm-per-unit canvas);
-    // parented to the desk frame when there is one so it follows the table.
-    GameObject DockBelow(GameObject prefab, MessagesPanel panel)
-    {
-        Transform anchor = panel.transform;
-        Vector2 panelSize = panel.Panel != null ? panel.Panel.SizeMeters : new Vector2(0.42f, 0.52f);
-        float drop = panelSize.y * 0.5f + dockGap + DraftCard.SizeMeters.y * 0.5f;
-
-        var holder = new GameObject("DockedDraft");
-        if (presence != null) holder.transform.SetParent(presence.Frame, false);
-        holder.transform.SetPositionAndRotation(anchor.position - anchor.up * drop, anchor.rotation);
-        var go = Instantiate(prefab, holder.transform);
-        go.transform.localPosition = Vector3.zero;
-        go.transform.localRotation = Quaternion.identity;
-        return holder;
     }
 
     static GameObject InFrontOfCamera(GameObject prefab)
