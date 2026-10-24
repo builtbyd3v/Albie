@@ -50,7 +50,9 @@ import os
 import re
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -168,6 +170,18 @@ class VoiceSession(Protocol):
     async def stop_speech(self, reason: str = "cancel") -> None: ...
     async def close(self) -> None: ...
     def is_echo(self, text: str) -> bool: ...
+
+
+@dataclass
+class _Commit:
+    """One committed turn, until its transcript arrives. WakeListener sends segments back to back, so a segment's
+    transcript can land after the next one began (live 18:49: five real sentences came back as '' turns)."""
+
+    seq: int
+    wake: bool
+    gated: bool  # Unity's gated turn (its hands-free session wants a final)
+    flags: tuple[str | None, bool, bool]  # the WakeRouter's (target, facing, gated) for this turn
+    item: str | None = None
 
 
 class _Base:
@@ -289,6 +303,9 @@ class GrokVoiceSession(_Base):
         self._last_activity = time.monotonic()
         self._fed = 0
         self._last_item: str | None = None  # item id of the last committed user turn (wake turns may delete it)
+        self._commits: deque[_Commit] = deque()  # sent input_audio_buffer.commit, waiting for .committed (in order)
+        self._by_item: dict[str, _Commit] = {}  # committed, waiting for the transcript
+        self._timed_out_seq = -1  # the turn _wake_timeout decided without a transcript
         self._wake_answered = False  # the last wake turn was routed to a reply (for the turn log)
         # current response
         self._utt: str | None = None
@@ -334,6 +351,8 @@ class GrokVoiceSession(_Base):
 
     async def _drop_socket(self) -> None:
         ws, self._ws = self._ws, None
+        self._commits.clear()  # a new socket starts a new conversation: nothing pending carries over
+        self._by_item.clear()
         if self._reader is not None and self._reader is not asyncio.current_task() and not self._reader.done():
             self._reader.cancel()
         self._reader = None
@@ -409,8 +428,11 @@ class GrokVoiceSession(_Base):
             await self._final("")
             return
         await self._send({"type": "input_audio_buffer.commit"})
+        r = self.wake_router
+        flags = (r.target, bool(r.facing), bool(r.gated)) if self._wake else (None, False, False)
+        self._commits.append(_Commit(self._turn_seq, self._wake, self._gated, flags))
         if self._wake:  # wait for the transcript (wake_router decides in _final)
-            job = asyncio.create_task(self._wake_timeout())
+            job = asyncio.create_task(self._wake_timeout(self._turn_seq))
             self._jobs.add(job)
             job.add_done_callback(self._jobs.discard)
             return
@@ -429,10 +451,31 @@ class GrokVoiceSession(_Base):
             self._response_requested = False
             await self._final("")
 
-    async def _wake_timeout(self) -> None:
+    async def _wake_timeout(self, seq: int) -> None:
         await asyncio.sleep(WAKE_FINAL_TIMEOUT_S)
-        if self._wake and not self._final_sent:
+        if seq == self._turn_seq and self._wake and not self._final_sent:  # a later segment's turn isn't ours to end
+            self._timed_out_seq = seq
+            log.info("wake turn: no transcript %.0f s after commit, deciding on %r", WAKE_FINAL_TIMEOUT_S, self._partial)
             await self._final()
+
+    async def _late_transcript(self, c: _Commit, text: str) -> None:
+        """A wake turn's transcript after its turn was superseded or timed out: route it now with its own flags."""
+        text = text.strip()
+        if is_stop(text):
+            await self.stop_speech("barge_in")
+            respond = False
+        elif text and self.wake_router is not None:
+            respond = (await self.wake_router.final(text, c.flags)).respond
+        else:
+            respond = False
+        if respond:
+            await self.stop_speech("barge_in")
+            await self._request_response()
+            await self._emit(ev.thinking(self.pet_id))
+        elif c.item:
+            await self._send({"type": "conversation.item.delete", "item_id": c.item})
+        log.info("turn (late transcript): %r facing=%s gated=%s judged=%s %s", text[:120], c.flags[1],
+                 c.gated or c.flags[2], getattr(self.wake_router, "judged", None), "answered" if respond else "dropped")
 
     async def _wake_decided(self, respond: bool) -> None:
         self._wake_answered = respond
@@ -518,9 +561,20 @@ class GrokVoiceSession(_Base):
                 text = self._partial + (msg.get("delta") or "")
             await self._transcript(text)
         elif t == "input_audio_buffer.committed":
-            self._committed = True
-            self._last_item = msg.get("item_id") or self._last_item  # a dropped wake turn deletes it
+            item = msg.get("item_id")
+            c = self._commits.popleft() if self._commits else None
+            if c is not None and item:
+                c.item = item
+                self._by_item[item] = c
+            if c is None or c.seq == self._turn_seq:
+                self._committed = True
+                self._last_item = item or self._last_item  # a dropped wake turn deletes it
         elif t == "conversation.item.input_audio_transcription.completed":
+            c = self._by_item.pop(msg.get("item_id") or "", None)
+            if c is not None and (c.seq != self._turn_seq or (self._final_sent and c.seq == self._timed_out_seq)):
+                if c.wake:  # an earlier segment's words: never this turn's, and not lost either
+                    await self._late_transcript(c, msg.get("transcript") or "")
+                return
             # Grok also sends .completed per segment while the user is still talking; only the one after commit is final.
             if self._committed:
                 await self._final(msg.get("transcript"))

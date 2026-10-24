@@ -307,6 +307,42 @@ def test_grok_unnamed_wake_turn_right_after_albie_spoke_counts_as_a_reply() -> N
     asyncio.run(run())
 
 
+def test_back_to_back_segments_keep_their_own_transcripts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 18:49: the user spoke in bursts; each segment's 5 s timer ended the NEXT segment's turn as '' and the real
+    transcripts landed on the wrong turn. Now a timer only ends its own turn, and a late transcript is routed alone."""
+    import agent.voice as voice_mod
+
+    monkeypatch.setattr(voice_mod, "WAKE_FINAL_TIMEOUT_S", 0.05)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        r = Recorder()
+        s.wake_router = r.router()
+        T = "conversation.item.input_audio_transcription"
+
+        await s.begin_turn(wake=True)  # segment 1: "Albie, list like 5"
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        await _settle()
+        await s.begin_turn(wake=True)  # segment 2 starts before segment 1's transcript
+        await s.feed(b"\x00\x00" * 3200)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_2")
+        grok.push(type=f"{T}.completed", item_id="item_1", transcript="Albie, list like 5.")
+        await _settle()
+        assert grok.types()[-1] == "response.create"  # segment 1 answered on its own
+        assert [(e.type, e.payload.get("text")) for e in r.events if e.type == "stt.final"] == [("stt.final", "Albie, list like 5.")]
+        grok.push(type=f"{T}.completed", item_id="item_2", transcript="lunch at noon?")
+        await _settle()
+        await asyncio.sleep(0.1)  # segment 1's timer has run out: it must not end anything now
+        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_2"}  # segment 2: room chatter
+        await s.close()
+
+    asyncio.run(run())
+
+
 def _hello(ws: Any) -> None:
     ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
 
