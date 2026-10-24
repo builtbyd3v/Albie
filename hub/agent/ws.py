@@ -7,7 +7,7 @@ events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.s
 -> stt.partial / stt.final. With VOICE_PROVIDER=grok|fake the same stt.* frames drive a
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
 Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
-gator ("Hey Albie ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
+gator ("Hey Albie ...", "Tester, ...") or the user faces Albie (facing: true). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
 run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
 shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
 Other modules own their client -> hub messages on this socket through ``client_handlers`` (main.py registers
@@ -158,7 +158,7 @@ async def _on_text(s: Session, raw: str) -> None:
             s.stt_cancelled = False
             s.wake_turn = start.wake and s.wake is not None
             if s.wake_turn:
-                s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None)  # type: ignore[union-attr]
+                s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None, facing=start.facing)  # type: ignore[union-attr]
             if s.voice is not None:
                 await _voice_call(s, lambda: s.voice.begin_turn(require_name=start.require_name, wake=s.wake_turn))
             else:

@@ -66,6 +66,7 @@ class SttStart(_Payload):
     encoding: Literal["pcm16"] = "pcm16"
     require_name: bool = False  # proposed: look-to-talk turn opened while the user wasn't facing Bit
     wake: bool = False  # proposed: always-on VAD segment; only answered if it names a gator (agent/wake.py)
+    facing: bool = False  # proposed: wake turn whose speaker faced Bit at onset; answered by Bit with no name
 
 
 class SttStop(_Payload):

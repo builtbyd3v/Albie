@@ -15,6 +15,7 @@ namespace Forge.Pet
     /// Look-to-talk: the follow-up window only watches the mic (nothing sent). Speech opens a turn when the user faces
     /// the gator; speech while looking elsewhere opens a turn that the hub answers only if it names the gator ("Albie, ...").
     /// Cutting the gator off needs facing it. Space / A / the whistle always open a turn.
+    /// WakeListener reads UserFacing too: facing the gator answers any hands-free turn, not only in this window.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorFollowUp : MonoBehaviour
@@ -52,7 +53,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Albie, ...\"). Buttons and the whistle always work.")]
         bool lookToTalk = true;
         [SerializeField, Tooltip("Max angle (degrees) between where the user looks and the gator.")]
-        float lookAngle = 40f;
+        float lookAngle = 25f;
 
         ITextToSpeech _tts;
         ITalkLevel _talk;
@@ -148,13 +149,19 @@ namespace Forge.Pet
             if (_monitor != null) { _monitor.StopMonitoring(); _monitor = null; }
         }
 
-        bool Facing()
+        /// <summary>The user looks at the gator (within lookAngle). False with look-to-talk off or no camera.</summary>
+        public bool UserFacing
         {
-            var cam = Camera.main;
-            if (!lookToTalk || cam == null) return true;
-            Vector3 to = controller.transform.position - cam.transform.position;
-            return to.sqrMagnitude < 0.01f || Vector3.Angle(cam.transform.forward, to) <= lookAngle;
+            get
+            {
+                var cam = Camera.main;
+                if (!lookToTalk || cam == null || controller == null) return false;
+                Vector3 to = controller.transform.position - cam.transform.position;
+                return to.sqrMagnitude < 0.01f || Vector3.Angle(cam.transform.forward, to) <= lookAngle;
+            }
         }
+
+        bool Facing() => !lookToTalk || Camera.main == null || UserFacing;   // no way to tell: every turn counts
 
         void CheckSpeech()
         {

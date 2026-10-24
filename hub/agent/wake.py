@@ -8,6 +8,7 @@ goes out only when a segment turns out to be a request for it:
     "Tester, run the hub tests"     -> crew.assign("tester", "run the hub tests") (hatches the tester if needed)
     "Hey Scout"                     -> wake.listen {pet_id: "scout"}: the next segment goes to the Scout, no name needed
     "...a bit later we can eat"     -> nobody: dropped (deleted from the voice conversation)
+    "open the email panel" + facing -> Albie answers: the user was facing him (stt.start {facing: true}), no name needed
 
 A name counts when it opens the sentence (after an optional "hey / ok / hi / yo"), or closes it after a comma
 ("thanks, Albie"), so "wait a bit" never wakes Albie. The lead's name is said "AL-bee"; at the start it may also
@@ -91,14 +92,18 @@ class WakeRouter:
         self._send_owner = send_owner  # owner socket only
         self._spawn = spawn  # fire-and-forget on the socket's task set
         self.target: str | None = None  # from stt.start {wake, pet_id}: addressed up front
+        self.facing = False  # from stt.start {wake, facing}: user faced the lead at speech onset
 
-    def begin(self, target: str | None) -> None:
+    def begin(self, target: str | None, facing: bool = False) -> None:
         self.target = target or None
+        self.facing = facing
 
     def _who(self, text: str) -> tuple[str | None, str]:
         pid, rest = parse(text, self.lead)
         if pid is None and self.target is not None:
             return self.target, text.strip()
+        if pid is None and self.facing and text.strip():  # facing Albie counts as saying his name
+            return self.lead, text.strip()
         return pid, rest
 
     async def partial(self, text: str) -> None:
@@ -108,7 +113,7 @@ class WakeRouter:
 
     async def final(self, text: str) -> Decision:
         pid, rest = self._who(text)
-        self.target = None
+        self.target, self.facing = None, False
         if pid is None:
             if text.strip():
                 log.debug("wake: nobody addressed in %r", text)

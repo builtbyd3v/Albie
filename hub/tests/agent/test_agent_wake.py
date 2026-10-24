@@ -104,6 +104,63 @@ def test_router_crew_target_from_a_previous_listen() -> None:
     assert r.events[1].payload["mode"] == "listening"
 
 
+def _facing_final(text: str, facing: bool) -> tuple[Any, Recorder]:
+    r = Recorder()
+    router = r.router()
+    router.begin(None, facing=facing)
+
+    async def go() -> Any:
+        d = await router.final(text)
+        for job in r.jobs:
+            job.close()  # crew coroutines (no hub here)
+        return d
+
+    return asyncio.run(go()), r
+
+
+def test_router_facing_without_name_goes_to_the_lead() -> None:
+    d, r = _facing_final("And we can open the email panel.", facing=True)
+    assert d.pet_id == "bit" and d.respond and d.rest == "And we can open the email panel."
+    assert [(e.type, e.payload.get("mode") or e.payload.get("text")) for e in r.events] == \
+        [("pet.state", "listening"), ("stt.final", "And we can open the email panel.")]
+
+
+def test_router_looking_away_without_name_is_dropped() -> None:
+    d, r = _facing_final("And we can open the email panel.", facing=False)
+    assert d.pet_id is None and not d.respond and r.events == []
+
+
+def test_router_facing_named_routes_as_before() -> None:
+    d, _ = _facing_final("Hey Albie, how's the build?", facing=True)
+    assert d.pet_id == "bit" and d.respond and d.rest == "how's the build?"
+    d, r = _facing_final("Hey Albie", facing=True)
+    assert d.pet_id == "bit" and not d.respond
+    assert [e.type for e in r.owner] == ["wake.listen"]
+
+
+def test_router_facing_crew_name_goes_to_the_crew() -> None:
+    d, _ = _facing_final("Tester, run the hub tests", facing=True)
+    assert d.pet_id == "tester" and d.rest == "run the hub tests" and not d.respond
+
+
+def test_router_facing_empty_turn_is_dropped() -> None:  # a "stop" turn reaches the router as an empty final
+    d, r = _facing_final("", facing=True)
+    assert d.pet_id is None and not d.respond and r.events == [] and r.owner == []
+
+
+def test_router_facing_is_per_turn() -> None:
+    r = Recorder()
+    router = r.router()
+    router.begin(None, facing=True)
+
+    async def go() -> None:
+        assert (await router.final("open the email panel")).respond
+        router.begin(None)
+        assert not (await router.final("open the email panel")).respond
+
+    asyncio.run(go())
+
+
 def test_grok_wake_turn_answers_only_when_named() -> None:
     async def run() -> None:
         grok, sink = MockGrok(), Sink()

@@ -29,8 +29,9 @@ from ``workspace.mode``) gates Albie's crew tools: they answer with an error unl
 the crew's gators live on that screen. None (the client never said) leaves them available.
 
 Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
-and no response until ``wake_router`` has read the transcript; it answers only if a gator was named, otherwise
-the committed item is deleted so room chatter never reaches the conversation.
+and no response until ``wake_router`` has read the transcript; it answers only if a gator was named (or the user
+faced Albie: stt.start {facing: true}), otherwise the committed item is deleted so room chatter never reaches the
+conversation.
 
 Transcripts and agent.* go through the broadcast Emitter (other viewers stay in sync); tts.* and
 audio go to the owning socket only. The reader is the only task that sends tts.*/audio, so the
@@ -628,10 +629,11 @@ class GrokVoiceSession(_Base):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         wake = self._wake
+        facing = wake and bool(self.wake_router.facing)  # read before the router resets it in final()
         await super()._final(text)
         answered = self._wake_answered if wake else bool(final)
-        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s %s", final[:120], self._require_name, named,
-                 stop, wake, "answered" if answered and not drop else "dropped")
+        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s facing=%s %s", final[:120], self._require_name,
+                 named, stop, wake, facing, "answered" if answered and not drop else "dropped")
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
