@@ -12,7 +12,7 @@ public static class ForgeTheme
     // Mode hues: only a faint tint of these shows (HueStrength); the light itself is white.
     public static readonly Color ML = Hex(0x4D8DFF);
     public static readonly Color CAD = Hex(0xFF8A3D);
-    public static readonly Color Screens = Hex(0x22CF86);
+    public static readonly Color Code = Hex(0x22CF86);
     public static readonly Color Messages = Hex(0xA77BFF);
     public static readonly Color Tool = Hex(0xCFE0FF);
     public const float HueStrength = 0.10f;
@@ -77,6 +77,9 @@ public static class ForgeTheme
     public static Material RingLight => ring != null ? ring : ring = Load<Material>("NeonRing");
     /// <summary>UI material for graphite panel backgrounds (rounded, gradient, rim light).</summary>
     public static Material PanelSurface => panel != null ? panel : panel = Load<Material>("PanelSurface");
+
+    /// <summary>A mode's white dock icon (Resources/ForgeLook/DockIcons/{modeId}.svg, imported as a sprite), or null.</summary>
+    public static Sprite DockIcon(string modeId) => Resources.Load<Sprite>("ForgeLook/DockIcons/" + modeId);
 
     static T Load<T>(string name) where T : Object
     {

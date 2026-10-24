@@ -782,15 +782,11 @@ public class Workspace : MonoBehaviour
                 new WorkspaceItem("cad-timeline", "Versions", WorkspaceSlot.Left),
             },
         },
+        // The landing mode: just the editor.
         new WorkspaceMode
         {
-            id = "screens", label = "SCR", color = ForgeTheme.Screens,
-            items =
-            {
-                new WorkspaceItem("screen-main", "Screen 1", WorkspaceSlot.Main),
-                new WorkspaceItem("screen-left", "Screen 2", WorkspaceSlot.Left),
-                new WorkspaceItem("screen-right", "Screen 3", WorkspaceSlot.Right),
-            },
+            id = "code", label = "CODE", color = ForgeTheme.Code,
+            items = { new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main) },
         },
         new WorkspaceMode
         {

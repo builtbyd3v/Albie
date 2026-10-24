@@ -307,25 +307,15 @@ MonoBehaviour:
       slot: 1
       kind: 0
       prefab: {fileID: 4787528561096868969, guid: f1fdfa7048d09a742a06e1d97f24a7f3, type: 3}
-  - id: screens
-    label: SCR
+  - id: code
+    label: CODE
     color: {r: 0.13333334, g: 0.8117647, b: 0.5254902, a: 1}
     items:
     - id: screen-main
-      title: Screen 1
+      title: VS Code
       slot: 0
       kind: 0
       prefab: {fileID: 6415020660726269157, guid: 6dea7bb19f3c3437884fc39d41c757bf, type: 3}
-    - id: screen-left
-      title: Screen 2
-      slot: 1
-      kind: 0
-      prefab: {fileID: 0}
-    - id: screen-right
-      title: Screen 3
-      slot: 2
-      kind: 0
-      prefab: {fileID: 0}
   - id: messages
     label: MSG
     color: {r: 0.654902, g: 0.48235294, b: 1, a: 1}
