@@ -217,10 +217,32 @@ class SlackMessage(BaseModel):
     text: str
     ts: str                           # Slack message ts; reply thread key
     thread_ts: str | None = None
-    mentions_me: bool = False         # a DM, or the text contains <@the user's id>
+    mentions_me: bool = False         # a DM, or the text contains <@the user's id>; never for the user's own posts
+    reply_count: int | None = None    # replies in its thread (from conversations.history; null on live events)
+    edited: bool | None = None        # Slack marked it edited
+    is_me: bool | None = None         # the user's own message: shown in history, skipped by digest / unread
+    user_initials: str | None = None  # two letters for the avatar bubble
 
 
 NotifyMessage = SlackMessage          # same name as the C# DTO
+
+
+class ChannelSummary(BaseModel):
+    """One row of the Slack panel's channel list (GET /messages/channels, notify.channels)."""
+    id: str
+    name: str                         # "#general"; a DM: the other person's display name; a group DM: names, comma-joined
+    kind: Literal["channel", "private", "dm", "group-dm"]
+    unread: int = 0                   # inbox messages since the channel was last seen (the user's own never count)
+    mentions: int = 0                 # of those, DMs and <@me>
+    last_ts: str | None = None
+    last_text: str | None = None
+    topic: str | None = None
+    is_default: bool = False          # SLACK_DEFAULT_CHANNEL
+
+
+class NotifyChannels(BaseModel):
+    """The whole channel list, sorted: DMs / group DMs with unread first, then by last_ts desc. Sticky on /ws."""
+    channels: list[ChannelSummary] = []
 
 
 class Draft(BaseModel):
@@ -235,6 +257,7 @@ class Draft(BaseModel):
     text: str
     thread_ts: str | None = None
     reply_to: SlackMessage | None = None
+    edited: bool = False              # the user changed the text (PATCH /messages/drafts/{id}); same draft_id re-emitted
 
 
 class NotifySent(BaseModel):
