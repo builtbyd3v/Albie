@@ -3,7 +3,7 @@
 > Companion to `PROJECT_CONTEXT.md` section 8.5. Resolves decision 11.4 ("CAD engine: pending repo review").
 > Contract changes below are **proposals** until the team agrees (section 12 rule).
 
-**Status 2026-10-23:** Phase 1 (hub) **done** plus the non-Unity SHOULD/STRETCH items: undo, reset, script-save regen, explode/focus events, STL export, flight sim, pet tools, mocks. 15 tests pass (`cd hub && pytest`). Phase 2 (Unity) **not started**, on hold until Hudson's Unity work lands. Hub how-to: `hub/README.md`.
+**Status 2026-10-23:** Phase 1 (hub) **done** plus the non-Unity SHOULD/STRETCH items: undo, reset, script-save regen, explode/focus events, STL export, flight sim, pet tools, mocks. 15 tests pass (`cd hub && pytest`). Phase 2 (Unity) **done**: `CadViewer` + `CadParamsPanel` prefabs and `CADSandbox.unity`, working from mocks and live against the hub. Next: Hudson slots the prefabs into the CAD mode. How-tos: `hub/README.md`, `unity/Assets/_Forge/CAD/README.md`.
 
 ---
 
@@ -93,6 +93,8 @@ POST /cad/undo                        -> { version, clamped, analysis }       NE
 POST /cad/reset                       -> { version, clamped, analysis }       NEW (back to defaults; undo still works)
 POST /cad/view    { explode?, focus_id? } -> { ok }                           NEW (UI only, emits cad.view)
 GET  /cad/versions                    -> [{ version, parent, source, head, params, margin_cal, stability, created_at }]  NEW
+GET  /cad/latest                      -> { "cad.model_updated": payload, "cad.view": payload }   NEW (the WS state, for
+                                         clients without a WebSocket; Unity polls it until ForgeNet lands)
 
 cad.model_updated { version, params, previous_version, source,               (source: api|pet|script|undo|reset|startup)
                     changed_ids: string[], removed_ids: string[],             NEW: glow these / fade these out
@@ -104,7 +106,7 @@ cad.view          { explode?, focus_id? }                                     NE
 
 `stability` bands: `unstable` < 1.0 cal (red), `marginal` 1.0 to 1.5 (amber), `stable` 1.5 to 2.5 (green), `overstable` > 2.5 (amber).
 `markers_gltf` are in the GLB's scene space (metres, Y-up) on the rocket axis, so handedness doesn't matter in Unity.
-`cad.model_updated` is replayed to every client when it connects, so Unity gets the current model after a reconnect.
+`cad.model_updated` and `cad.view` are replayed to every client when it connects (and served by `GET /cad/latest`), so Unity gets the current state after a reconnect.
 Panel IDs: add `cad-params`, `cad-timeline` next to `cad-viewer`.
 `changed_ids` is computed in the hub by comparing per-object volume and bounding box between versions (verified: shrinking fins lights only the fins; lengthening lights only nose + body).
 
@@ -160,15 +162,16 @@ Owner: Person 5 owns the hub side until CAD gets an owner (section 10); the Unit
 - Extra: file watcher, undo/reset, STL, flight sim (`flight.py`), pet tools (`tools.py`), mocks (`make_mocks.py`).
 - **Accept:** met. About 400 ms per edit end to end.
 
-**Phase 2: Unity viewer from mocks (about 4 h). NOT STARTED, waiting on Hudson's go-ahead**
-- U1. Copy the cad-vision loader + shaders into `CAD/ThirdParty/CadVision/`; load `Mocks/cad/v1/model.glb + metadata.json` in `CADSandbox.unity`. Mocks: run `python -m cad.make_mocks` in `hub/` and copy `hub/.data/mocks/cad/` to `Assets/_Forge/Mocks/cad/` (4 demo states v1 to v4, each with glb, metadata, analysis, flight, params and the WS message, plus `regen_failed.json`).
-- U2. `CadViewer` prefab: turntable, grab to rotate, swap version with a dissolve, glow `changed_ids`, ghost the previous version.
-- U3. `CadParamsPanel` (ForgePanel): sliders/toggles generated from `GET /cad/params`.
-- U4. Analysis overlay: CG/CP markers in model space, margin gauge, red "UNSTABLE" banner.
-- **Accept:** in the sandbox, cycling the mocks shows glow, ghost and moving CG/CP markers.
+**Phase 2: Unity viewer from mocks (DONE 2026-10-23, `unity/Assets/_Forge/CAD/`, see its README)**
+- U1 done. cad-vision's `CadMetadata.cs` + outline shaders in `CAD/ThirdParty/CadVision/` (unchanged, MIT); our glTFast loader `CadModel.cs`; mocks in `Mocks/cad/` (`model.glb.bytes` so Unity keeps raw bytes).
+- U2 done. `CadViewer.prefab` (ForgeVolume variant): turntable, glow on `changed_ids`, fading ghost of the changed parts, fit once with headroom, explode/focus. Not done: grab to rotate (waits on Core's grab), dissolve swap.
+- U3 done. `CadParamsPanel.prefab` (ForgePanel variant): rows from `GET /cad/params`, POST on slider release, Undo / Reset / Explode / Fly.
+- U4 done. CG/CP collars that slide between versions, stability chip + gauge, apogee in the stats line.
+- **Accept:** met in `CADSandbox.unity`, and live against the hub: slider, external `POST /cad/params` (as Bit would), undo and flight all verified.
 
 **Phase 3: integrate (about 2 h)**
-- Wire to the live hub and the pet tools; file watcher (`watchfiles`) on `rocket.py`; explode/focus; Bit tinkering animation.
+- Hudson slots the two prefabs into the CAD mode; Person 5 registers `cad/tools.py`; swap `CadSession`'s poll for ForgeNet's `/ws` events; Bit tinkering animation.
+- Live hub wiring, file watcher on `rocket.py` and explode/focus are already done.
 - **Accept:** demo beat 5 works by voice, with typed fallback.
 
 Tiers: **MUST** C1 to C4, U1 to U3, voice params. **SHOULD** U4 + the unstable-catch moment, undo, file-watch regen, explode. **STRETCH** A/B ghost, apogee sim + trajectory arc, script editing by Bit, STL export, SolidWorks import.
