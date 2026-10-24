@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Rendering;
@@ -21,7 +22,7 @@ namespace Forge.ML
         readonly int[] visibleSamples = new int[MaxDots];
         RectTransform root, dotWall, detail;
         int classFilter = -1, truth = -1, predicted = -1, selected = -1;
-        bool wrongOnly;
+        bool wrongOnly, confidentMistakes;
         int dotCount;
         Material dotMaterial;
         MaterialPropertyBlock dotProperties;
@@ -31,9 +32,10 @@ namespace Forge.ML
         void Start()
         {
             session = MLSession.Resolve(session); root = GetComponent<ForgePanel>().Content;
-            MLUI.Button(root, "All", 8, 4, 60, 28, () => { wrongOnly = false; classFilter = truth = predicted = -1; Refresh(); });
-            MLUI.Button(root, "Wrong", 72, 4, 70, 28, () => { wrongOnly = true; truth = predicted = -1; Refresh(); });
-            MLUI.Button(root, "Class >", 146, 4, 90, 28, () => { classFilter = (classFilter + 2) % (session.Data.classes.Length + 1) - 1; truth = predicted = -1; Refresh(); });
+            MLUI.Button(root, "All", 8, 4, 60, 28, () => { wrongOnly = confidentMistakes = false; classFilter = truth = predicted = -1; Refresh(); });
+            MLUI.Button(root, "Wrong", 72, 4, 70, 28, () => { wrongOnly = true; confidentMistakes = false; truth = predicted = -1; Refresh(); });
+            MLUI.Button(root, "Mistakes", 146, 4, 84, 28, () => { wrongOnly = confidentMistakes = true; truth = predicted = -1; Refresh(); });
+            MLUI.Button(root, "Class >", 234, 4, 90, 28, () => { classFilter = (classFilter + 2) % (session.Data.classes.Length + 1) - 1; confidentMistakes = false; truth = predicted = -1; Refresh(); });
             dotWall = MLUI.Rect("Dot wall", root, 8, 64, 320, 290);
             var surface = dotWall.gameObject.AddComponent<Image>();
             surface.color = MLUI.Ink;
@@ -48,32 +50,37 @@ namespace Forge.ML
             Destroy(temp);
             session.SamplesChanged += Refresh; session.PairSelected += FilterPair; Refresh();
         }
-        public void FilterPair(int trueClass, int predictedClass) { truth = trueClass; predicted = predictedClass; wrongOnly = false; classFilter = -1; Refresh(); }
+        public void FilterPair(int trueClass, int predictedClass) { truth = trueClass; predicted = predictedClass; wrongOnly = confidentMistakes = false; classFilter = -1; Refresh(); }
         void Refresh()
         {
             if (dotWall == null) return;
             MLUI.Clear(detail);
             if (filterLabel == null) filterLabel = MLUI.Text(root, "", 8, 36, 320, 24, 13);
-            filterLabel.text = truth >= 0 ? $"True {session.Data.classes[truth]} → {session.Data.classes[predicted]}" : (wrongOnly ? "Wrong" : "All") + " / " + (classFilter < 0 ? "all classes" : session.Data.classes[classFilter]);
+            filterLabel.text = truth >= 0 ? $"True {session.Data.classes[truth]} → {session.Data.classes[predicted]}" : (confidentMistakes ? "Most confident mistakes" : (wrongOnly ? "Wrong" : "All")) + " / " + (classFilter < 0 ? "all classes" : session.Data.classes[classFilter]);
             dotCount = 0;
             for (int i = 0; i < session.Data.samples.Length; i++)
             {
                 var s = session.Data.samples[i];
                 if (s.removed || (wrongOnly && s.correct) || (classFilter >= 0 && s.true_idx != classFilter) || (truth >= 0 && (s.true_idx != truth || s.pred_idx != predicted))) continue;
                 if (dotCount == MaxDots) break;
-                int column = dotCount % DotColumns, row = dotCount / DotColumns;
-                var p = new Vector3(dotWall.rect.xMin + 8 + column * DotColumnSpacing, dotWall.rect.yMax - 8 - row * DotRowSpacing, -4);
-                dotMatrices[dotCount] = dotWall.localToWorldMatrix * Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotSize, DotSize, 1));
-                Rect uv = session.UV(i); dotUvs[dotCount] = new Vector4(uv.x, uv.y, uv.width, uv.height);
-                Color tint = s.correct ? new Color(.45f, 1f, .58f) : new Color(1f, .32f, .35f);
-                dotColors[dotCount] = tint;
                 visibleSamples[dotCount++] = i;
+            }
+            if (confidentMistakes) Array.Sort(visibleSamples, 0, dotCount, Comparer);
+            for (int visual = 0; visual < dotCount; visual++)
+            {
+                int i = visibleSamples[visual]; var s = session.Data.samples[i]; int column = visual % DotColumns, row = visual / DotColumns;
+                var p = new Vector3(dotWall.rect.xMin + 8 + column * DotColumnSpacing, dotWall.rect.yMax - 8 - row * DotRowSpacing, -4);
+                dotMatrices[visual] = dotWall.localToWorldMatrix * Matrix4x4.TRS(p, Quaternion.identity, new Vector3(DotSize, DotSize, 1));
+                Rect uv = session.UV(i); dotUvs[visual] = new Vector4(uv.x, uv.y, uv.width, uv.height);
+                Color tint = s.correct ? new Color(.45f, 1f, .58f) : new Color(1f, .32f, .35f);
+                dotColors[visual] = tint;
             }
             if (noMatches == null) noMatches = MLUI.Text(dotWall, "No matching samples", 8, 10, 280, 30);
             noMatches.gameObject.SetActive(dotCount == 0);
             ShowDetail();
         }
         TMPro.TMP_Text filterLabel;
+        int Comparer(int a, int b) => session.Data.samples[b].probs[session.Data.samples[b].pred_idx].CompareTo(session.Data.samples[a].probs[session.Data.samples[a].pred_idx]);
         void ShowDetail()
         {
             MLUI.Clear(detail);

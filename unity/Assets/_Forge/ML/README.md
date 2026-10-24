@@ -20,7 +20,8 @@ settings are unchanged.
   input/output shape labels, sequential pulse on each metrics tick, and hover/select
   details for each layer.
 - **ResultsWall:** an atlas-backed GPU-instanced dot wall (up to 1,000 validation
-  images in one draw call) with green/red correctness tint. All/Wrong/class and
+  images in one draw call) with green/red correctness tint. All/Wrong/most-confident
+  mistakes/class and
   confusion-pair filters rebuild the wall without creating sample UI objects.
   Click or poke a dot for the expanded image and per-class probabilities.
   Relabel opens a class picker, Remove excludes the sample, Looks fine dismisses
