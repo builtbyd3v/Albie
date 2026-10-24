@@ -256,11 +256,22 @@ GET  /cad/params                      -> { part, params: [{ name, value, min, ma
 POST /cad/params  { name: value, ...} -> { version }
 GET  /cad/model.glb?v={version}
 
-GET  /messages/latest?n=5            -> [SlackMessage]   SlackMessage = { channel, channel_name, is_dm, user, user_name, text, ts, thread_ts?, mentions_me }
-POST /messages/drafts { channel?, text, thread_ts? } -> Draft   (Bit WRITES the reply; nothing is posted. Same as the messages_send tool)
-POST /messages/drafts/{id}/send      -> { ts }   (the card's Send button, or "yes, send it" through messages_confirm; posts under the USER's own name)
+GET  /messages/latest?n=5            -> [SlackMessage]   SlackMessage = { channel, channel_name, is_dm, user, user_name, text, ts, thread_ts?, mentions_me,
+                                                                        reply_count?, edited?, is_me?, user_initials? }   (the ? fields are null unless known)
+GET  /messages/channels               -> { channels: ChannelSummary[] }   sorted: DMs / group DMs with unread first, then by last_ts desc
+                                         ChannelSummary = { id, name, kind: "channel"|"private"|"dm"|"group-dm", unread, mentions, last_ts, last_text, topic, is_default }
+                                         name: "#general" for channels; the other person's display name for a dm; the people, comma-joined, for a group-dm
+GET  /messages/history?channel=<id>&limit=50&before=<ts>
+                                      -> { channel, channel_name, kind, messages: SlackMessage[] (oldest -> newest, limit max 100), has_more }
+                                         top-level only (a threaded message carries reply_count); the user's own messages included (is_me)
+POST /messages/channels/{id}/seen     -> { ok, unread: 0 }   (that conversation is open in the panel; notify.channels follows)
+GET  /messages/users/me               -> { user_id, name, display_name }   (who the hub posts as)
+POST /messages/drafts { channel?, text, thread_ts?, reply_to_ts? } -> Draft   (Bit WRITES the reply; nothing is posted. Same as the messages_send tool.
+                                         channel: an id, "#name", or a person's name = their DM)
+PATCH /messages/drafts/{id} { text?, channel?, thread_ts? } -> Draft   (the user edited the composer; re-emits notify.draft with the same draft_id and edited: true)
+POST /messages/drafts/{id}/send      -> { ts }   (the Send button, or "yes, send it" through messages_confirm; posts under the USER's own name)
 POST /messages/drafts/{id}/cancel    -> { ok }
-POST /messages/digest                 -> { count, mentions, line, messages: SlackMessage[] }   (Unity calls it when the user sits down; marks everything seen; see 8.8)
+POST /messages/digest                 -> { count, mentions, line, messages: SlackMessage[] }   (Unity calls it when the user sits down; counts every conversation, marks all seen; see 8.8)
 ```
 
 ### WebSocket events (`/ws`, JSON `{ "type": ..., "payload": {...} }`)
@@ -279,8 +290,9 @@ pet.state        { pet_id, mode: "follow"|"idle"|"listening"|"thinking"|"working
 pet.say          { pet_id, text, card?: { title, bullets: string[], actions?: [{ label, action_id }] } }
 ui.highlight     { panel, item_ids?: string[], class_idx? }
 
-notify.message   SlackMessage (above; `ts` is the reply thread key)
-notify.draft     Draft = { draft_id, channel, channel_name, text, thread_ts?, reply_to?: SlackMessage }   (Unity pops the Send / Cancel card)
+notify.message   SlackMessage (above; `ts` is the reply thread key). Also the user's OWN posts made elsewhere (is_me: true) so the open conversation stays live; the digest and unread counts skip those
+notify.channels  { channels: ChannelSummary[] }   (the whole list whenever unread / mention counts or last_ts change, debounced 300 ms; sticky: replayed on connect)
+notify.draft     Draft = { draft_id, channel, channel_name, text, thread_ts?, reply_to?: SlackMessage, edited }   (the composer shows it with Send / Cancel; edited after a PATCH)
 notify.sent      { draft_id?, channel, channel_name, text, ts }
 notify.draft_cancelled { draft_id, reason: "cancelled"|"superseded"|"expired" }
 notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest first, at most 4; `line` is the spoken sentence, empty when count is 0)
@@ -359,11 +371,11 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 
 ### 8.7 Pet brain, voice, Slack
 - Voice: Grok Voice Agent session in the hub. Push-to-talk (spacebar on desktop, trigger/pinch-hold in XR) to start; server VAD ends the turn.
-- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_send` (writes a **draft** and returns `awaiting_confirmation`; Bit says what it wrote and asks you to hit Send or say so), `messages_confirm` (`send: true|false` on the open draft, for "send it" / "never mind"). There is no tool that posts directly.
+- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_list_channels`, `messages_read_channel`, `messages_send` (writes a **draft** and returns `awaiting_confirmation`; Bit says what it wrote and asks you to hit Send or say so), `messages_confirm` (`send: true|false` on the open draft, for "send it" / "never mind"). There is no tool that posts directly.
 - **`delegate(task)` tool** for anything that needs real analysis ("why is it bad at cats?", "suggest a design change"): the hub runs a reasoning model with read access to run results / CAD script, returns a card. While it runs, emit `pet.state working` (blob dive) and have the voice model say "give me a sec."
 - Every tool call also emits `pet.state` so the body animates.
 - Persona: short, cute, competent. 1 to 3 spoken sentences, details go in the card.
-- Slack: one app ("Bit", `hub/manifest.json`) with bot scopes and **user scopes** (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, ...) and matching `bot_events` + `user_events`. `hub/messaging/` runs Bolt's `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task. Inbound `message` events (bot or user subscription, deduped by `(channel, ts)`) -> `notify.message` on `/ws` and a ring buffer (last 50) behind `messages_read_latest` and the digest. Skipped: the user's own messages, anything with `bot_id`, the bot itself. `is_dm` from `conversations.info`, `mentions_me` = DM or `<@user_id>` in the text. **Sending is always two steps:** `messages_send` / `POST /messages/drafts` writes a `Draft` and emits `notify.draft`; only `POST /messages/drafts/{id}/send` (card button) or `messages_confirm` (voice) posts it, with the user token, then `notify.sent`. A new draft supersedes the open one (`notify.draft_cancelled`, reason `superseded`); drafts expire after 2 minutes. Without `SLACK_USER_TOKEN` the hub falls back to the bot identity (reads only invited channels, posts as Bit) and logs a warning. Tokens all missing -> module disabled, hub still boots. No fake or mock mode.
+- Slack: one app ("Bit", `hub/manifest.json`) with bot scopes and **user scopes** (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, ...) and matching `bot_events` + `user_events`. `hub/messaging/` runs Bolt's `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task. Inbound `message` events (bot or user subscription, deduped by `(channel, ts)`) -> `notify.message` on `/ws` and a per-conversation ring (last 200 each, `last_seen_ts` per channel) behind `messages_read_latest`, the channel list / history endpoints and the digest. Skipped: the user's own messages, anything with `bot_id`, the bot itself. `is_dm` from `conversations.info`, `mentions_me` = DM or `<@user_id>` in the text. **Sending is always two steps:** `messages_send` / `POST /messages/drafts` writes a `Draft` and emits `notify.draft`; only `POST /messages/drafts/{id}/send` (card button) or `messages_confirm` (voice) posts it, with the user token, then `notify.sent`. A new draft supersedes the open one (`notify.draft_cancelled`, reason `superseded`); drafts expire after 2 minutes. Without `SLACK_USER_TOKEN` the hub falls back to the bot identity (reads only invited channels, posts as Bit) and logs a warning. Tokens all missing -> module disabled, hub still boots. No fake or mock mode.
   - Tools register through `agent/tools.py` like CAD and VS Code do (`messages_` prefix -> panel `messages`).
   - **Setup (5 min, Slack CLI):** `hub/manifest.json` is the app and `hub/.slack/` is the CLI project. Install the CLI (https://docs.slack.dev/tools/slack-cli), `slack login` to the team workspace, then from `hub/`: `slack install -E local` (creates and installs "Bit (local)" with bot + user scopes), `slack run` once (the start hook writes `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` into `hub/.env` and exits). The CLI never hands out the user token, so once: `slack app settings` > OAuth & Permissions > copy **User OAuth Token** (`xoxp-`) into `SLACK_USER_TOKEN`. Scope or event changes: edit `manifest.json`, `slack run` again, re-copy the user token if user scopes changed. Other checkouts: `slack app link -E local`. Manual path (api.slack.com/apps, same manifest) still works.
   - Teammates install the Slack mobile app and turn on notifications so the on-stage reply visibly buzzes a phone.
