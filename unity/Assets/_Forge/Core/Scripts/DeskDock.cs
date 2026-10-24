@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Oculus.Interaction.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -77,6 +78,16 @@ public class DeskDock : MonoBehaviour
 
         int n = Mathf.Max(1, buttons.Count + tools.Count);
         ((RectTransform)transform).sizeDelta = new Vector2(n * ButtonMm + (n - 1) * SpacingMm + PaddingMm * 2f, HeightMm);
+        SyncHitArea();
+    }
+
+    // The Interaction SDK only lets rays and pokes hit inside its clippers' boxes, which the prefab saved at its
+    // original size. Fit them to the dock, or the outer buttons can't be pressed in XR (the mouse doesn't care).
+    void SyncHitArea()
+    {
+        Vector2 size = ((RectTransform)transform).sizeDelta;
+        foreach (var clipper in GetComponentsInChildren<BoundsClipper>(true))
+            clipper.Size = new Vector3(size.x, size.y, clipper.Size.z);
     }
 
     public void SetActiveMode(string modeId)
