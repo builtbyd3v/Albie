@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest==9.1.1
 httpx==0.28.1
+websockets==17.3  # scripts/ws_smoke.py

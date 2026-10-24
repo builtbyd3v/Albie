@@ -5,3 +5,9 @@ watchfiles==1.3.0
 # CAD. Never install cadquery in the same env: its OCP build breaks build123d's imports.
 build123d==0.13.0
 rocketpy==1.13.0  # flight sim (GET /cad/flight); also cross-checks our Barrowman math in tests
+# Agent module (pet: Q&A + coding tasks). The SDK bundles its own Claude Code CLI.
+claude-agent-sdk==0.2.173
+PyYAML==6.0.3
+python-dotenv==1.2.4
+# Optional speech-to-text (STT_PROVIDER=whisper):
+# faster-whisper>=1.0

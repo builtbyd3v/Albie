@@ -1,6 +1,8 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Minimal skeleton (CAD only so far); Person 5 owns the hub and adds the ml, agent and messaging routers.
+Minimal skeleton (CAD + agent so far); Person 5 owns the hub and adds the ml and messaging routers.
+The agent (pet) module serves its own socket at `/ws/agent` for now (its own broadcast bus in
+agent/bus.py); folding it into the `/ws` EventBus is Person 5's call. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py).
@@ -16,6 +18,8 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent import handle_socket as agent_socket, router as agent_router
+from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
 from events import EventBus
@@ -46,18 +50,24 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app = FastAPI(title="Forge hub", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(cad_router)
+    app.include_router(agent_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
         await app.state.bus.serve(websocket)
 
+    @app.websocket("/ws/agent")  # pet agent socket (own bus in agent/bus.py) until Person 5 unifies onto /ws
+    async def ws_agent(websocket: WebSocket):
+        await agent_socket(websocket)
+
     @app.get("/health")
     def health():
-        return {"ok": True, "cad_version": app.state.cad.head}
+        return {"ok": True, "cad_version": app.state.cad.head, **agent_health()}
 
     return app
 
 
+load_env()  # hub/.env (agent settings: FAKE_AGENT, ANTHROPIC_API_KEY, ...)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = create_app()
 

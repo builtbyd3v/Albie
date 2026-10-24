@@ -1,0 +1,564 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &275768685626357008
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 283743111020266995}
+  - component: {fileID: 3877379771379846151}
+  - component: {fileID: 6873838313542610372}
+  - component: {fileID: 2768760745351789636}
+  - component: {fileID: 1124947603312513688}
+  - component: {fileID: 5483496642845409791}
+  - component: {fileID: 4053773938213354025}
+  - component: {fileID: 4915495619108957880}
+  - component: {fileID: 7540052793651538206}
+  - component: {fileID: 6902552125889962105}
+  - component: {fileID: 2751513760250796205}
+  - component: {fileID: 6615477836626566946}
+  - component: {fileID: 2004733851524714870}
+  - component: {fileID: 1237875458703887617}
+  m_Layer: 0
+  m_Name: GatorAssistant
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &283743111020266995
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 4773769778989584712}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!195 &3877379771379846151
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 0
+  m_AgentTypeID: 0
+  m_Radius: 0.06
+  m_Speed: 0.6
+  m_Acceleration: 6
+  avoidancePriority: 50
+  m_AngularSpeed: 240
+  m_StoppingDistance: 0.1
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 0.2
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 1
+--- !u!136 &6873838313542610372
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.049402006
+  m_Height: 0.33013746
+  m_Direction: 2
+  m_Center: {x: 0, y: 0.06, z: 0}
+--- !u!82 &2768760745351789636
+AudioSource:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  serializedVersion: 4
+  OutputAudioMixerGroup: {fileID: 0}
+  m_audioClip: {fileID: 0}
+  m_Resource: {fileID: 0}
+  m_PlayOnAwake: 0
+  m_Volume: 1
+  m_Pitch: 1
+  Loop: 0
+  Mute: 0
+  Spatialize: 0
+  SpatializePostEffects: 0
+  Priority: 128
+  DopplerLevel: 1
+  MinDistance: 0.5
+  MaxDistance: 8
+  Pan2D: 0
+  rolloffMode: 1
+  BypassEffects: 0
+  BypassListenerEffects: 0
+  BypassReverbZones: 0
+  rolloffCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 1
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  panLevelCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  spreadCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  reverbZoneMixCustomCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+--- !u!114 &1124947603312513688
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6b02f17689afe4729b83f6a0ff834d80, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorController
+  walkSpeed: 0.15993224
+  runSpeed: 0.4797967
+  angularSpeed: 240
+  acceleration: 6
+  turnSpeed: 270
+  speedDampTime: 0.15
+  sampleRadius: 1.5
+  hopSeconds: 0.6
+  deskEdgeInset: 0.15
+  deskNearDistance: 0.35
+  floorLandingOffsets: {x: 0.35, y: 0.6, z: 0.9}
+  startState: 0
+  stateAfterIntro: 1
+  autoLeaveIntroSeconds: 0
+  spinSeconds: 1.2
+  errorSeconds: 3
+  workingBlobMorph: 0
+  wanderCenter: {fileID: 0}
+  wanderRadius: 3
+  runChance: 0.3
+  idlePause: {x: 1, y: 4}
+  idleVariantChance: 0.35
+  emoteChance: 0.15
+  frontDistance: 1.2
+  followDistance: 1
+  repathDistance: 0.5
+  nearUserDistance: 2
+--- !u!114 &5483496642845409791
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 983c61b0273644fc696eb51dfd46086c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorExpressions
+  startMood: 0
+  autoBlink: 1
+  blinkInterval: {x: 2, y: 6}
+  blinkDuration: 0.15
+--- !u!114 &4053773938213354025
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4c86343f8b6f4a5c8cc62092b4caf0d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorInteraction
+  happySeconds: 1.5
+  cooldown: 0.3
+  fallbackInput: 1
+  maxDistance: 10
+  raycastMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  xrSelect:
+    m_Name: XRSelect
+    m_Type: 1
+    m_ExpectedControlType: 
+    m_Id: 421d7581-fe92-43b6-bda0-d16ca9418872
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: cd6d7f41-2076-41a0-a42a-e89ba7472efa
+      m_Path: <XRController>/{TriggerButton}
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: XRSelect
+      m_Flags: 0
+    m_Flags: 0
+    m_Priority: 0
+  onPoked:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &4915495619108957880
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab0cf3aabe4874944b42327e2b33ba60, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorCaption
+  text: {fileID: 0}
+  anchor: {fileID: 0}
+  offset: {x: 0, y: 0.19999999, z: 0}
+  wrapWidth: 0.6
+  fontSize: 0.35
+  textColor: {r: 1, g: 1, b: 1, a: 1}
+  showBackground: 1
+  backgroundColor: {r: 0, g: 0, b: 0, a: 0.6}
+  backgroundMaterial: {fileID: 0}
+  padding: {x: 0.03, y: 0.02}
+  autoHideSeconds: 6
+  partialAlpha: 0.7
+--- !u!114 &7540052793651538206
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66c1cc47f02dc41278562f00541781c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorAgentBridge
+  controller: {fileID: 1124947603312513688}
+  expressions: {fileID: 5483496642845409791}
+  caption: {fileID: 4915495619108957880}
+  tts: {fileID: 0}
+  playIntroOnStart: 1
+  wanderAfterSpeech: 1
+--- !u!114 &6902552125889962105
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 785093ce5fc794eed8ebeb743031b28b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.PushToTalk
+  talkAction:
+    m_Name: PushToTalk
+    m_Type: 1
+    m_ExpectedControlType: 
+    m_Id: 6668cdf7-a709-4891-864b-383798c2c72a
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings: []
+    m_Flags: 0
+    m_Priority: 0
+  sttProvider: {fileID: 0}
+  controller: {fileID: 1124947603312513688}
+  caption: {fileID: 4915495619108957880}
+  bridge: {fileID: 7540052793651538206}
+--- !u!114 &2751513760250796205
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e59598a5e213e49e8bfee1a3add59c8d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.TypedSpeechToText
+  placeholder: Ask the gator... (Enter = send, Esc = cancel)
+  fontSize: 28
+  sortingOrder: 500
+--- !u!114 &6615477836626566946
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc32dc80a583e4ea38cd456099b9eef9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.MockEventSource
+  answerSequence:
+  - type: agent.thinking
+    delayMs: 0
+    payloadJson: '{}'
+  - type: agent.partial_answer
+    delayMs: 600
+    payloadJson: '{"text":"The hub lives in hub/,"}'
+  - type: agent.partial_answer
+    delayMs: 600
+    payloadJson: '{"text":"The hub lives in hub/, a FastAPI app; the agent code is in hub/agent/"}'
+  - type: agent.partial_answer
+    delayMs: 600
+    payloadJson: '{"text":"The hub lives in hub/, a FastAPI app; the agent code is in hub/agent/ and projects are listed in hub/config/projects.yaml."}'
+  - type: agent.answer_done
+    delayMs: 400
+    payloadJson: '{"text":"The hub lives in hub/, a FastAPI app; the agent code is in hub/agent/ and projects are listed in hub/config/projects.yaml."}'
+  taskSequence:
+  - type: agent.task_started
+    delayMs: 800
+    payloadJson: '{"title":"{ask}"}'
+  - type: agent.task_progress
+    delayMs: 1000
+    payloadJson: '{"text":"Reading the relevant files...","pct":25}'
+  - type: agent.task_progress
+    delayMs: 1000
+    payloadJson: '{"text":"Editing code...","pct":60}'
+  - type: agent.task_progress
+    delayMs: 1000
+    payloadJson: '{"text":"Running checks...","pct":90}'
+  - type: agent.task_complete
+    delayMs: 1000
+    payloadJson: '{"summary":"Done! Changes are on a new branch.","branch":"pet/mock-change"}'
+  codeKeywords:
+  - fix
+  - add
+  - change
+  - make
+--- !u!114 &2004733851524714870
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a60ffedf1b28436cb16a1537957704d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.AgentClient
+  receiveBufferSize: 16384
+  maxBackoffSeconds: 16
+--- !u!114 &1237875458703887617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 275768685626357008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bcf08af4a23de4ef6a4203974ac6db34, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorMrukAdapter
+  controller: {fileID: 1124947603312513688}
+  hopOnFound: 1
+  hopDelay: 1
+  deskInset: 0.03
+--- !u!1001 &2888132305325744167
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 283743111020266995}
+    m_Modifications:
+    - target: {fileID: 2055220131168869454, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_Name
+      value: Model
+      objectReference: {fileID: 0}
+    - target: {fileID: 2834222037917228964, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 6bd29e94289d646d8877275a6b5d878c, type: 2}
+    - target: {fileID: 2834222037917228964, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.size
+      value: 29
+      objectReference: {fileID: 0}
+    - target: {fileID: 3129311860599242381, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4755176975549492314, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_Controller
+      value: 
+      objectReference: {fileID: 9100000, guid: f19d48df72a0344a1a6cb13fdef8e77f, type: 2}
+    - target: {fileID: 4755176975549492314, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_CullingMode
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7100943386905731548, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 6bd29e94289d646d8877275a6b5d878c, type: 2}
+    - target: {fileID: 7100943386905731548, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.size
+      value: 29
+      objectReference: {fileID: 0}
+    - target: {fileID: 7149149534607551026, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 6bd29e94289d646d8877275a6b5d878c, type: 2}
+    - target: {fileID: 7149149534607551026, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.size
+      value: 29
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 0.20284739
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 0.20284739
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 0.20284739
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0.0002682461
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.00023492126
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0.00090739096
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 9186047692677262213, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 6bd29e94289d646d8877275a6b5d878c, type: 2}
+    - target: {fileID: 9186047692677262213, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_BlendShapeWeights.Array.size
+      value: 29
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+--- !u!4 &4773769778989584712 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+  m_PrefabInstance: {fileID: 2888132305325744167}
+  m_PrefabAsset: {fileID: 0}
