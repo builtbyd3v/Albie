@@ -37,6 +37,11 @@ namespace Forge.Pet
             territorySize = size;
             if (!moved) return;
             nextTerritoryReturn = 0f;
+            if (BusyInTerritory && (State == GatorState.Thinking || State == GatorState.Working) && !hopping)
+            {
+                GoToTerritoryFront();                 // e.g. sent to the back-of-desk line while working
+                return;
+            }
             // Wandering somewhere that is no longer ours: end the trip so the next one heads home.
             if (State == GatorState.Wandering && tripActive && !InTerritory(OnMesh && agent.hasPath ? agent.destination : transform.position))
                 tripActive = false;

@@ -22,6 +22,10 @@ namespace Forge.Pet
     /// the keep-out doesn't count), nearest the user first: Bit, then the crew in hatch order. Gators that don't fit
     /// (strips narrower than minStripWidth) share the floor. Scope Floor splits the floor instead. Everyone idles
     /// more while a crew exists (restful idle profile); Bit gets his solo behaviour back when the crew is gone.
+    ///
+    /// Whistle (any WhistleButton): clears the desk for Bit. Idle crew gators go home; busy ones (GatorAgentBridge.Busy)
+    /// line up along the desk's back edge, away from the user, and keep working there. A gator leaves the line when
+    /// its task is done; the others' areas stop short of the line while it exists.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorCrew : MonoBehaviour
@@ -44,6 +48,14 @@ namespace Forge.Pet
         [SerializeField] Vector2 restSeconds = new Vector2(6f, 16f);
         [SerializeField, Range(0f, 1f)] float runChance = 0.08f;
         [SerializeField] Vector2 shortPause = new Vector2(2.5f, 6f);
+
+        [Header("Whistle")]
+        [SerializeField, Tooltip("A whistle sends idle crew home and lines busy crew up at the back of the desk.")]
+        bool whistleClearsDesk = true;
+        [SerializeField, Tooltip("Gap (m) between gators in the line.")]
+        float lineupSpacing = 0.17f;
+        [SerializeField, Tooltip("Line distance (m) in from the back edge; the other areas keep twice this clear.")]
+        float lineupInset = 0.07f;
 
         [Header("Keyboard")]
         [SerializeField, Tooltip("Hatch the type shown on the egg (or the next free type).")]
@@ -70,6 +82,7 @@ namespace Forge.Pet
         readonly List<GatorTerritory> _areas = new List<GatorTerritory>(GatorAgentTypes.All.Length + 1);
         readonly List<GatorTerritory> _floorAreas = new List<GatorTerritory>(GatorAgentTypes.All.Length + 1);
         readonly List<MonoBehaviour> _scratch = new List<MonoBehaviour>(32);
+        readonly List<GatorCrewMember> _lineup = new List<GatorCrewMember>(GatorAgentTypes.All.Length);
         GatorAgentBridge _leadBridge;
         IPetEventSource _source;
         GatorHatchery _hatchery;
@@ -91,12 +104,15 @@ namespace Forge.Pet
             if (lead != null) _leadBridge = lead.GetComponent<GatorAgentBridge>();
         }
 
+        void Start() => WhistleButton.AnyPressed += OnWhistle;
+
         void OnEnable() { hatchAction.Enable(); dismissAction.Enable(); }
         void OnDisable() { hatchAction.Disable(); dismissAction.Disable(); }
 
         void OnDestroy()
         {
             if (_source != null) _source.EventReceived -= OnHubEvent;
+            WhistleButton.AnyPressed -= OnWhistle;
             if (Instance == this) Instance = null;
         }
 
@@ -173,7 +189,8 @@ namespace Forge.Pet
             GatorCrewMember m = Find(GatorAgentTypes.Find(petIdOrName));
             if (m == null) return false;
             _members.Remove(m);
-            if (m.Bridge != null && m.Bridge.TaskInProgress && m.Bridge.Source != null)
+            _lineup.Remove(m);
+            if (m.Bridge != null && m.Bridge.Busy && m.Bridge.Source != null)
                 m.Bridge.Source.Send("agent.cancel", new JObject { ["pet_id"] = m.PetId });
             m.GoHome();
             OnCrewChanged();
@@ -181,6 +198,24 @@ namespace Forge.Pet
         }
 
         public bool DismissLast() => _members.Count > 0 && Dismiss(_members[_members.Count - 1].PetId);
+
+        /// <summary>Whistle: idle crew go home, busy crew line up at the back of the desk (Bit is untouched).</summary>
+        public void ClearDeskForLead()
+        {
+            for (int i = _members.Count - 1; i >= 0; i--)
+            {
+                GatorCrewMember m = _members[i];
+                if (m == null) continue;
+                if (m.Bridge != null && m.Bridge.Busy) { if (!_lineup.Contains(m)) _lineup.Add(m); }
+                else Dismiss(m.PetId);
+            }
+            _territoriesDirty = true;
+        }
+
+        void OnWhistle(WhistleButton _)
+        {
+            if (whistleClearsDesk && _members.Count > 0) ClearDeskForLead();
+        }
 
         // ---------------------------------------------------------------- per frame
 
@@ -198,6 +233,9 @@ namespace Forge.Pet
                 if (hatchAction.WasPressedThisFrame()) HatchFromKeyboard();
                 if (dismissAction.WasPressedThisFrame()) DismissLast();
             }
+
+            for (int i = _lineup.Count - 1; i >= 0; i--)          // done working: back to a normal area
+                if (_lineup[i] == null || _lineup[i].Bridge == null || !_lineup[i].Bridge.Busy) { _lineup.RemoveAt(i); _territoriesDirty = true; }
 
             if (Time.time >= _nextLayoutCheck || _territoriesDirty)
             {
@@ -265,7 +303,7 @@ namespace Forge.Pet
         {
             unchecked
             {
-                int h = _members.Count * 31 + (int)scope;
+                int h = (_members.Count * 31 + _lineup.Count) * 31 + (int)scope;
                 h = h * 31 + SurfaceHash(GatorNavSurface.Desk);
                 h = h * 31 + SurfaceHash(GatorNavSurface.Floor);
                 return h;
@@ -293,7 +331,7 @@ namespace Forge.Pet
             _gators.Clear();
             if (lead != null) _gators.Add(lead);
             for (int i = 0; i < _members.Count; i++)
-                if (_members[i] != null && _members[i].Controller != null) _gators.Add(_members[i].Controller);
+                if (_members[i] != null && _members[i].Controller != null && !_lineup.Contains(_members[i])) _gators.Add(_members[i].Controller);
             if (_members.Count == 0)
             {
                 if (lead != null) lead.ClearTerritory();   // solo Bit: the whole desk / room, exactly as before
@@ -302,6 +340,7 @@ namespace Forge.Pet
 
             GatorNavSurface desk = GatorNavSurface.Desk, floor = GatorNavSurface.Floor;
             Transform head = PetUser.Head;
+            bool lined = _lineup.Count > 0 && desk != null && desk.IsBuilt && AssignLineup(desk, head);
             int onDesk = 0;
             if (scope == TerritoryScope.Desk && desk != null && desk.IsBuilt)
             {
@@ -316,12 +355,54 @@ namespace Forge.Pet
             for (int i = 0; i < _gators.Count; i++)
             {
                 GatorTerritory a;
-                if (i < onDesk) a = _areas[i];
+                if (i < onDesk) a = lined ? InFrontOfLine(_areas[i], desk) : _areas[i];
                 else if (floorOk) a = _floorAreas[i - onDesk];
                 else if (_areas.Count > 0) a = _areas[(i - onDesk) % _areas.Count];   // no floor: double up on the desk
                 else { _gators[i].ClearTerritory(); continue; }
                 _gators[i].SetTerritory(a.Surface, a.Center, a.Rotation, a.Size);
             }
+        }
+
+        // ---------------------------------------------------------------- lineup (whistle)
+
+        bool _backAlongZ;      // the back edge runs along the desk's local X (back is ±Z), else along Z
+        float _backSign;       // which side is the back (away from the user), in desk-local units
+
+        // Busy crew stand in a row along the back edge, facing the user. Their "area" is a small square at their slot.
+        bool AssignLineup(GatorNavSurface desk, Transform head)
+        {
+            Vector2 size = desk.Size;
+            float hx = size.x * 0.5f, hz = size.y * 0.5f;
+            Vector3 l = Quaternion.Inverse(desk.Rotation) * ((head != null ? head.position : desk.TopCenter - desk.Rotation * Vector3.forward) - desk.TopCenter);
+            _backAlongZ = Mathf.Abs(l.z) / Mathf.Max(0.01f, hz) >= Mathf.Abs(l.x) / Mathf.Max(0.01f, hx);
+            _backSign = _backAlongZ ? (l.z >= 0f ? -1f : 1f) : (l.x >= 0f ? -1f : 1f);
+            float halfAlong = (_backAlongZ ? hx : hz) - 0.06f, depth = (_backAlongZ ? hz : hx) - lineupInset;
+            int n = _lineup.Count;
+            float spacing = n > 1 ? Mathf.Min(lineupSpacing, 2f * halfAlong / (n - 1)) : 0f;
+            for (int k = 0; k < n; k++)
+            {
+                GatorCrewMember m = _lineup[k];
+                if (m == null || m.Controller == null) continue;
+                float along = (k - (n - 1) * 0.5f) * spacing;
+                Vector3 local = _backAlongZ ? new Vector3(along, 0f, _backSign * depth) : new Vector3(_backSign * depth, 0f, along);
+                m.Controller.SetTerritory(desk, desk.TopCenter + desk.Rotation * local, desk.Rotation, new Vector2(0.1f, 0.1f));
+            }
+            return true;
+        }
+
+        // A desk area cut short so it stops before the line (kept as is if that would leave a sliver).
+        GatorTerritory InFrontOfLine(GatorTerritory a, GatorNavSurface desk)
+        {
+            Vector3 c = Quaternion.Inverse(desk.Rotation) * (a.Center - desk.TopCenter);
+            float half = (_backAlongZ ? desk.Size.y : desk.Size.x) * 0.5f, limit = half - 2f * lineupInset;
+            float mid = _backAlongZ ? c.z : c.x, ext = (_backAlongZ ? a.Size.y : a.Size.x) * 0.5f;
+            float lo = mid - ext, hi = mid + ext;
+            if (_backSign > 0f) hi = Mathf.Min(hi, limit); else lo = Mathf.Max(lo, -limit);
+            if (hi - lo < 0.08f) return a;
+            mid = (lo + hi) * 0.5f;
+            if (_backAlongZ) { c.z = mid; a.Size.y = hi - lo; } else { c.x = mid; a.Size.x = hi - lo; }
+            a.Center = desk.TopCenter + desk.Rotation * c;
+            return a;
         }
 
         // Every gator idles more while there's a crew; Bit's own profile comes back when the crew is gone.

@@ -3,8 +3,9 @@
 // Adds Bit's crew to the CURRENTLY OPEN scene (no scene is created or saved):
 //   * GatorCrew        lead = the scene's gator, crewPrefab = its prefab (GatorAssistant), hats in M_Whistle (tinted)
 //   * WakeListener     on the gator: always-on mic + VAD, say a gator's name and it listens (hub mode)
-//   * GatorHatchery    the egg (near-left desk corner) + a small "next type" button, each with Meta Interaction SDK
-//                      PokeInteractable / RayInteractable + InteractableUnityEventWrapper → Hatch / NextType
+//   * GatorHatchery    the white egg (near-left desk corner) + its carousel picker's buttons (< > Hatch), each with
+//                      Meta Interaction SDK PokeInteractable / RayInteractable + InteractableUnityEventWrapper →
+//                      TogglePicker / Previous / Next / Confirm (an older egg's "next type" button is removed)
 //                      (types looked up by name, so this compiles without the SDK; mouse and N always work)
 // Idempotent: re-running reuses what exists and re-wires it. Save the scene yourself afterwards.
 // -executeMethod Forge.Pet.Editor.CrewSetup.AddCrewToOpenScene
@@ -24,8 +25,8 @@ namespace Forge.Pet.Editor
         const string HatMaterialPath = "Assets/_Forge/Pet/Materials/M_Whistle.mat";
         const string BaseMaterialPath = "Assets/_Forge/Pet/Materials/M_Whistle_Base.mat";
         static readonly Vector3 EggCollider = new Vector3(0.07f, 0.1f, 0.07f);     // root origin = collider centre
-        static readonly Vector3 NextPos = new Vector3(0.06f, -0.04f, 0.015f);
-        static readonly Vector3 NextCollider = new Vector3(0.03f, 0.02f, 0.03f);
+        const float PickerHeight = 0.2f;
+        static readonly Vector3 ArrowSize = new Vector3(0.045f, 0.045f, 0.008f), HatchSize = new Vector3(0.11f, 0.032f, 0.008f);
 
         [MenuItem("Forge/Pet/7. Add Agent Crew To Open Scene", priority = 7)]
         public static void AddCrewToOpenScene()
@@ -48,7 +49,7 @@ namespace Forge.Pet.Editor
             Selection.activeGameObject = egg.gameObject;
             Undo.CollapseUndoOperations(group);
             Debug.Log($"[CrewSetup] Done in '{lead.gameObject.scene.name}': {crew.name} (lead '{lead.name}', WakeListener) + GatorHatchery ({isdk}). " +
-                      "Save the scene to keep it. Test: press the egg / click it / N to hatch, the arrow to pick a type, X to send the last one home.");
+                      "Save the scene to keep it. Test: click the egg to open the picker, < > to browse, Hatch; N hatches the next free agent, X sends the last one home, the whistle clears the desk.");
         }
 
         static GatorController FindLead()
@@ -79,38 +80,60 @@ namespace Forge.Pet.Editor
 
         static GatorHatchery FindOrCreateHatchery(GatorController lead)
         {
-            var existing = Object.FindAnyObjectByType<GatorHatchery>(FindObjectsInactive.Include);
-            if (existing != null) return existing;
-
-            var go = new GameObject("GatorHatchery");
-            Transform g = lead.transform;
-            go.transform.position = g.position - g.right * 0.3f + Vector3.up * (EggCollider.y * 0.5f);
-            go.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized, Vector3.up);
-            var box = go.AddComponent<BoxCollider>();
-            box.size = EggCollider;
-            box.isTrigger = true;
-
-            Material baseMat = WhistleSetup.LoadOrCreateMaterial(BaseMaterialPath, new Color(0.16f, 0.17f, 0.2f));
-            Material eggMat = WhistleSetup.LoadOrCreateMaterial(HatMaterialPath, new Color(1f, 0.62f, 0.15f));
-            float bottom = -EggCollider.y * 0.5f;
-            WhistleSetup.Disc(go.transform, "Base", new Vector3(0.075f, 0.004f, 0.075f), new Vector3(0f, bottom + 0.004f, 0f), baseMat);
-            Renderer egg = Primitive(go.transform, PrimitiveType.Sphere, "Egg", new Vector3(0.05f, 0.066f, 0.05f), new Vector3(0f, bottom + 0.008f + 0.033f, 0f), eggMat);
-
-            var next = new GameObject("NextButton");
-            next.transform.SetParent(go.transform, false);
-            next.transform.localPosition = NextPos;
-            var nextBox = next.AddComponent<BoxCollider>();
-            nextBox.size = NextCollider;
-            nextBox.isTrigger = true;
-            WhistleSetup.Disc(next.transform, "Base", new Vector3(0.03f, 0.004f, 0.03f), new Vector3(0f, -0.006f, 0f), baseMat);
-            Renderer arrow = Primitive(next.transform, PrimitiveType.Cube, "Arrow", new Vector3(0.012f, 0.006f, 0.012f), new Vector3(0f, 0.001f, 0f), eggMat);
-            arrow.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
-
-            var hatchery = go.AddComponent<GatorHatchery>();
-            WhistleSetup.SetRef(hatchery, "egg", egg);
-            WhistleSetup.SetRef(hatchery, "nextButton", nextBox);
-            Undo.RegisterCreatedObjectUndo(go, "Create GatorHatchery");
+            var hatchery = Object.FindAnyObjectByType<GatorHatchery>(FindObjectsInactive.Include);
+            if (hatchery == null)
+            {
+                var go = new GameObject("GatorHatchery");
+                Transform g = lead.transform;
+                go.transform.position = g.position - g.right * 0.3f + Vector3.up * (EggCollider.y * 0.5f);
+                go.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized, Vector3.up);
+                var box = go.AddComponent<BoxCollider>();
+                box.size = EggCollider;
+                box.isTrigger = true;
+                Material baseMat = WhistleSetup.LoadOrCreateMaterial(BaseMaterialPath, new Color(0.16f, 0.17f, 0.2f));
+                Material eggMat = WhistleSetup.LoadOrCreateMaterial(HatMaterialPath, new Color(1f, 0.62f, 0.15f));
+                float bottom = -EggCollider.y * 0.5f;
+                WhistleSetup.Disc(go.transform, "Base", new Vector3(0.075f, 0.004f, 0.075f), new Vector3(0f, bottom + 0.004f, 0f), baseMat);
+                Renderer egg = Primitive(go.transform, PrimitiveType.Sphere, "Egg", new Vector3(0.05f, 0.066f, 0.05f), new Vector3(0f, bottom + 0.008f + 0.033f, 0f), eggMat);
+                hatchery = go.AddComponent<GatorHatchery>();
+                WhistleSetup.SetRef(hatchery, "egg", egg);
+                Undo.RegisterCreatedObjectUndo(go, "Create GatorHatchery");
+            }
+            Transform old = hatchery.transform.Find("NextButton");             // the first egg's "next type" button
+            if (old != null) Undo.DestroyObjectImmediate(old.gameObject);
+            BuildPicker(hatchery);
             return hatchery;
+        }
+
+        // Picker child with three buttons (colliders + visuals); GatorHatchery adds the panel and text at runtime.
+        static void BuildPicker(GatorHatchery hatchery)
+        {
+            Transform root = hatchery.transform;
+            GameObject picker = WhistleSetup.Child(root, "Picker");
+            picker.transform.localPosition = Vector3.up * PickerHeight;
+            Material baseMat = WhistleSetup.LoadOrCreateMaterial(BaseMaterialPath, new Color(0.16f, 0.17f, 0.2f));
+            Material capMat = WhistleSetup.LoadOrCreateMaterial(HatMaterialPath, new Color(1f, 0.62f, 0.15f));
+            BoxCollider prev = Button(picker.transform, "Prev", new Vector3(-0.25f, 0.05f, 0f), ArrowSize, baseMat, out _);
+            BoxCollider next = Button(picker.transform, "Next", new Vector3(0.25f, 0.05f, 0f), ArrowSize, baseMat, out _);
+            BoxCollider hatch = Button(picker.transform, "Hatch", new Vector3(0f, -0.075f, 0f), HatchSize, capMat, out Renderer hatchVisual);
+            WhistleSetup.SetRef(hatchery, "picker", picker.transform);
+            WhistleSetup.SetRef(hatchery, "prevButton", prev);
+            WhistleSetup.SetRef(hatchery, "nextButton", next);
+            WhistleSetup.SetRef(hatchery, "hatchButton", hatch);
+            WhistleSetup.SetRef(hatchery, "hatchVisual", hatchVisual);
+        }
+
+        static BoxCollider Button(Transform parent, string name, Vector3 localPos, Vector3 size, Material mat, out Renderer visual)
+        {
+            GameObject go = WhistleSetup.Child(parent, name);
+            go.transform.localPosition = localPos;
+            var box = go.GetComponent<BoxCollider>();
+            if (box == null) box = Undo.AddComponent<BoxCollider>(go);
+            box.size = new Vector3(size.x, size.y, 0.02f);
+            box.isTrigger = true;
+            Transform v = go.transform.Find("Visual");
+            visual = v != null ? v.GetComponent<Renderer>() : Primitive(go.transform, PrimitiveType.Cube, "Visual", size, Vector3.zero, mat);
+            return box;
         }
 
         static Renderer Primitive(Transform parent, PrimitiveType shape, string name, Vector3 scale, Vector3 localPos, Material mat)
@@ -134,20 +157,34 @@ namespace Forge.Pet.Editor
             Type wrapper = WhistleSetup.FindType("Oculus.Interaction.InteractableUnityEventWrapper");
             if (wrapper == null || WhistleSetup.FindType("Oculus.Interaction.PokeInteractable") == null)
             {
-                Debug.LogWarning("[CrewSetup] Meta Interaction SDK types not found; the egg works with mouse / N only.");
+                Debug.LogWarning("[CrewSetup] Meta Interaction SDK types not found; the egg and picker work with the mouse only.");
                 return "no Interaction SDK";
             }
             Transform root = egg.transform;
             float eggTop = -EggCollider.y * 0.5f + 0.008f + 0.066f;
-            PokeAndRay(root, root.GetComponent<BoxCollider>(), eggTop, 0.05f, egg.Hatch, egg.HoverOn, egg.HoverOff);
-            Transform next = root.Find("NextButton");
-            if (next != null) PokeAndRay(next, next.GetComponent<BoxCollider>(), 0.004f, 0.03f, egg.NextType, null, null);
+            PokeAndRay(root, root.GetComponent<BoxCollider>(), new Vector3(0f, eggTop, 0f), Quaternion.Euler(90f, 0f, 0f), 0.05f,
+                       egg, egg.TogglePicker, egg.HoverOn, egg.HoverOff);
+            Transform picker = root.Find("Picker");
+            if (picker != null)
+            {
+                // Vertical buttons facing the user (PlaneSurface normal = -Z, toward the viewer; the picker's +Z points away).
+                Wire(picker, "Prev", 0.045f, egg, egg.Previous);
+                Wire(picker, "Next", 0.045f, egg, egg.Next);
+                Wire(picker, "Hatch", 0.1f, egg, egg.Confirm);
+            }
             return "poke + ray";
+        }
+
+        static void Wire(Transform picker, string button, float size, GatorHatchery egg, UnityAction select)
+        {
+            Transform b = picker.Find(button);
+            if (b != null) PokeAndRay(b, b.GetComponent<BoxCollider>(), new Vector3(0f, 0f, -0.005f), Quaternion.identity, size, egg, select, null, null);
         }
 
         // Same shape as WhistleSetup.AddInteractionSdk: Poke = PokeInteractable on a clipped plane facing up at faceY,
         // Ray = RayInteractable on the collider; both through an InteractableUnityEventWrapper.
-        static void PokeAndRay(Transform root, BoxCollider col, float faceY, float pokeSize, UnityAction select, UnityAction hover, UnityAction unhover)
+        static void PokeAndRay(Transform root, BoxCollider col, Vector3 facePos, Quaternion faceRot, float pokeSize, GatorHatchery owner,
+                               UnityAction select, UnityAction hover, UnityAction unhover)
         {
             Type poke = WhistleSetup.FindType("Oculus.Interaction.PokeInteractable");
             Type ray = WhistleSetup.FindType("Oculus.Interaction.RayInteractable");
@@ -160,8 +197,8 @@ namespace Forge.Pet.Editor
 
             GameObject pokeGo = WhistleSetup.Child(root, "Poke");
             GameObject surfaceGo = WhistleSetup.Child(pokeGo.transform, "Surface");
-            surfaceGo.transform.localPosition = new Vector3(0f, faceY, 0f);
-            surfaceGo.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            surfaceGo.transform.localPosition = facePos;
+            surfaceGo.transform.localRotation = faceRot;
             Component planeC = WhistleSetup.Ensure(surfaceGo, plane);
             Component clipperC = WhistleSetup.Ensure(surfaceGo, clipper);
             Component clippedC = WhistleSetup.Ensure(surfaceGo, clipped);
@@ -179,23 +216,33 @@ namespace Forge.Pet.Editor
             clippedSo.ApplyModifiedProperties();
             Component pokeC = WhistleSetup.Ensure(pokeGo, poke);
             WhistleSetup.SetRef(pokeC, "_surfacePatch", clippedC);
-            Wire(WhistleSetup.Ensure(pokeGo, wrapper), pokeC, select, hover, unhover);
+            Wire(WhistleSetup.Ensure(pokeGo, wrapper), pokeC, owner, select, hover, unhover);
 
             GameObject rayGo = WhistleSetup.Child(root, "Ray");
             Component colliderSurfaceC = WhistleSetup.Ensure(rayGo, colliderSurface);
             WhistleSetup.SetRef(colliderSurfaceC, "_collider", col);
             Component rayC = WhistleSetup.Ensure(rayGo, ray);
             WhistleSetup.SetRef(rayC, "_surface", colliderSurfaceC);
-            Wire(WhistleSetup.Ensure(rayGo, wrapper), rayC, select, hover, unhover);
+            Wire(WhistleSetup.Ensure(rayGo, wrapper), rayC, owner, select, hover, unhover);
         }
 
-        static void Wire(Component wrapper, Component interactable, UnityAction select, UnityAction hover, UnityAction unhover)
+        static void Wire(Component wrapper, Component interactable, GatorHatchery owner, UnityAction select, UnityAction hover, UnityAction unhover)
         {
             WhistleSetup.SetRef(wrapper, "_interactableView", interactable);
+            foreach (string f in new[] { "_whenSelect", "_whenHover", "_whenUnhover" }) ClearListeners(wrapper, f, owner);   // e.g. the old Hatch()
             WhistleSetup.AddListener(wrapper, "_whenSelect", select);
             if (hover != null) WhistleSetup.AddListener(wrapper, "_whenHover", hover);
             if (unhover != null) WhistleSetup.AddListener(wrapper, "_whenUnhover", unhover);
             EditorUtility.SetDirty(wrapper);
+        }
+
+        static void ClearListeners(Component wrapper, string fieldName, Object target)
+        {
+            var field = wrapper.GetType().GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (field == null || !(field.GetValue(wrapper) is UnityEvent evt)) return;
+            Undo.RecordObject(wrapper, "Rewire crew egg");
+            for (int i = evt.GetPersistentEventCount() - 1; i >= 0; i--)
+                if (evt.GetPersistentTarget(i) == target) UnityEditor.Events.UnityEventTools.RemovePersistentListener(evt, i);
         }
     }
 }

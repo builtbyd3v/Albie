@@ -35,9 +35,11 @@ namespace Forge.Pet
         public string PetId => _crewPetId ?? (Config != null ? Config.petId : "bit");
         /// <summary>An ask is awaiting its answer or a code task is running.</summary>
         public bool TaskInProgress => _awaitingAnswer || _taskRunning;
+        /// <summary>Working on something, incl. turns the hub started on its own (a crew task Bit assigned).</summary>
+        public bool Busy => TaskInProgress || _hubBusy;
 
         ITextToSpeech _tts;
-        bool _awaitingAnswer, _taskRunning;
+        bool _awaitingAnswer, _taskRunning, _hubBusy;
         string _pendingAsk, _pendingMode;
         string _crewPetId;                   // set for crew gators: events / asks use this pet_id
         GatorAgentBridge _sharedFrom;        // crew: Bit's bridge, whose Source we borrow (never connect / disconnect it)
@@ -142,6 +144,7 @@ namespace Forge.Pet
             if (e == null || string.IsNullOrEmpty(e.type)) return;
             string pid = e.GetString("pet_id");
             if (!string.IsNullOrEmpty(pid) && pid != PetId) return;   // another gator's event
+            TrackBusy(e);
             switch (e.type)
             {
                 case "stt.partial":
@@ -219,6 +222,23 @@ namespace Forge.Pet
 
                 default:
                     if (_unknownLogged.Add(e.type)) Debug.Log("[GatorAgentBridge] Ignoring event type '" + e.type + "' (logged once).");
+                    break;
+            }
+        }
+
+        void TrackBusy(PetEvent e)
+        {
+            switch (e.type)
+            {
+                case "agent.thinking": case "agent.partial_answer": case "agent.task_started": case "agent.task_progress":
+                case "agent.tool_call":
+                    _hubBusy = true; break;
+                case "agent.answer_done": case "agent.task_complete": case "agent.error":
+                    _hubBusy = false; break;
+                case "pet.state":
+                    string mode = e.GetString("mode");
+                    if (mode == "idle") _hubBusy = false;
+                    else if (mode == "thinking" || mode == "working") _hubBusy = true;
                     break;
             }
         }
