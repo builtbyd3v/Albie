@@ -12,8 +12,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchRequest, ProjectRequest,
-                     RelabelRequest, ReplayRequest, RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest,
-                     TrainResponse, TypeRequest, VizCard)
+                     GitHubImportRequest, GitHubImportResponse, GitHubTrainRequest, RelabelRequest, ReplayRequest,
+                     RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest, TrainResponse, TypeRequest, VizCard)
+from .github_import import GitHubImportError
 from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
@@ -83,6 +84,23 @@ def get_runs(request: Request) -> list[RunInfo]:
 @router.post("/train")
 def train(req: TrainRequest, request: Request) -> TrainResponse:
     run_id = _call(_svc(request).start_training, req.epochs, str(request.base_url))
+    return TrainResponse(run_id=run_id)
+
+
+@router.post("/github/import", response_model=GitHubImportResponse)
+def import_github(req: GitHubImportRequest, request: Request) -> GitHubImportResponse:
+    """Inspect a public repository's Contents API files against the supported static PyTorch format."""
+    try:
+        result = _svc(request).import_github(req.url)
+    except GitHubImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return GitHubImportResponse(**result)
+
+
+@router.post("/github/train", response_model=TrainResponse)
+def train_github(req: GitHubTrainRequest, request: Request) -> TrainResponse:
+    """Run the approved local CIFAR-10/SmallCNN worker for a supported GitHub import."""
+    run_id = _call(_svc(request).start_github_training, req.import_id, req.epochs, str(request.base_url))
     return TrainResponse(run_id=run_id)
 
 

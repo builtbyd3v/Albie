@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .archetypes import ARCHETYPES, layout
+from .github_import import inspect_repository
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -57,6 +58,7 @@ class MLService:
         self.train_proc: subprocess.Popen | None = None
         self.train_run_id: str | None = None
         self.project: dict[str, Any] = {"path": str(self.repo), "status": "idle"}
+        self.github_imports: dict[str, dict[str, Any]] = {}
 
     # --- layout -------------------------------------------------------------------------------
     @property
@@ -387,6 +389,49 @@ class MLService:
         self.forge_dir.mkdir(parents=True, exist_ok=True)
         log = open(self.forge_dir / f"train-{run_id}.log", "w")  # noqa: SIM115 - the child process owns it
         self.train_proc = subprocess.Popen(argv, cwd=self.repo, env=env, stdout=log, stderr=subprocess.STDOUT)
+        self.train_run_id = run_id
+        return run_id
+
+    def import_github(self, url: str) -> dict[str, Any]:
+        """Inspect a public GitHub URL. Source files are only statically inspected, never executed."""
+        result = inspect_repository(url)
+        if result.get("supported") and self.training_active():
+            raise Conflict(f"run {self.train_run_id} is still training; import after it finishes")
+        self.github_imports[result["import_id"]] = result
+        if result.get("supported"):
+            self.repo = (ROOT / "ml-examples" / "cifar10").resolve()
+            self.project = {"path": str(self.repo), "status": "ready", "source": result["url"],
+                            "repository": result["repository"], "archetype": "image_classification",
+                            "format": result["format"]}
+        return result
+
+    def start_github_training(self, import_id: str, epochs: int, hub_url: str) -> str:
+        """Train only the checked-in CIFAR-10/SmallCNN implementation for a supported import."""
+        if self.training_active():
+            raise Conflict(f"run {self.train_run_id} is still training")
+        imported = self.github_imports.get(import_id)
+        if imported is None:
+            raise NotFound(f"no GitHub import {import_id!r}; import the repository again")
+        if not imported.get("supported") or imported.get("format") != "cifar10-smallcnn-v1":
+            raise Conflict("this GitHub repository does not match a supported PyTorch training format")
+        if not 5 <= epochs <= 10:
+            raise Conflict("GitHub training is limited to 5–10 epochs")
+
+        # The GitHub files are not imported or executed. This known format maps to our reviewed local dataset/model.
+        approved_repo = ROOT / "ml-examples" / "cifar10"
+        self.repo = approved_repo.resolve()
+        self.project = {"path": str(self.repo), "status": "ready", "source": imported["url"],
+                        "repository": imported["repository"], "archetype": "image_classification",
+                        "format": imported["format"]}
+        run_id = uuid.uuid4().hex[:8]
+        env = {k: v for k, v in os.environ.items() if k not in ("FORGE_OFFLINE", "FORGE_RUN_DIR")}
+        env.update(FORGE_HUB=hub_url.rstrip("/"), FORGE_RUN_ID=run_id, FORGE_RUN_DIR=str(self.runs_dir),
+                   PYTHONPATH=os.pathsep.join(filter(None, [str(FORGE_SDK), os.environ.get("PYTHONPATH")])))
+        self.forge_dir.mkdir(parents=True, exist_ok=True)
+        log = open(self.forge_dir / f"train-{run_id}.log", "w")  # noqa: SIM115 - the child process owns it
+        worker = ROOT / "hub" / "ml" / "training_worker.py"
+        argv = [self.python(), str(worker), "--dataset", "cifar10", "--model", "smallcnn", "--epochs", str(epochs)]
+        self.train_proc = subprocess.Popen(argv, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
         self.train_run_id = run_id
         return run_id
 

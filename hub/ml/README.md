@@ -4,9 +4,9 @@ The ML endpoints: PROJECT_CONTEXT section 7 plus ML_PLAN 7.4. Serves one project
 
 ```bash
 # from hub/, in an env that has the repo's packages (for CIFAR: conda activate gatorhack-dubz)
-uvicorn ml.dev_server:app --port 8000                  # /ml + /ws, until the router is mounted in main.py
+uvicorn main:app --host 0.0.0.0 --port 8000
 python -m ml.make_mocks                                # .data/mocks/ml/{image_classification,regression}
-FORGE_ML_REPO=.data/mocks/ml/image_classification uvicorn ml.dev_server:app --port 8000   # mock mode
+FORGE_ML_REPO=.data/mocks/ml/image_classification uvicorn main:app --host 0.0.0.0 --port 8000   # mock mode
 pytest ml/tests
 ```
 
@@ -17,11 +17,20 @@ pytest ml/tests
 | `GET /ml/sample/{id}` | detail card: metadata + latest prediction |
 | `GET /ml/runs`, `/ml/results/{run}`, `/ml/confusion/{run}`, `/ml/summary/{run}` | results reflect relabel/remove (`relabeled`, `removed`, recomputed `correct`) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running |
+| `POST /ml/github/import {url}` | inspect a public GitHub repo through the Contents API; supports the root-level CIFAR-10 + SmallCNN format only |
+| `POST /ml/github/train {import_id, epochs}` | runs the approved local CIFAR-10/SmallCNN worker for 5–10 epochs; GitHub source is never executed |
 | `POST /ml/samples/{id}/relabel {label_idx}`, `/remove` | write `.forge/labels_override.json`, broadcast `ml.sample_updated` |
 | `POST /ml/ingest {run_id, events}` | forge SDK → `/ws`, `ml.*` only |
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
-**Mounting in `hub/main.py` (Person 5):** `from ml.router import router as ml_router` and `app.include_router(ml_router)`. It uses `app.state.bus`, which main.py already sets, and creates its service on first use.
+The Training panel accepts a public GitHub URL. Import inspects `train.py`, `model.py`, `data.py`, and
+`requirements.txt` from the repository root and statically checks for the supported `SmallCNN` + CIFAR-10
+structure. It does not clone, import, or run repository code. A supported import selects the reviewed local
+`ml-examples/cifar10` trainer and dataset. That worker records epoch, train/validation loss and accuracy, and
+learning rate through Forge SDK; the SDK streams `ml.metrics`, `ml.class_acc`, and `ml.probe` events to the hub.
+Set optional `GITHUB_TOKEN` in the hub environment to raise GitHub API rate limits for public repository reads.
+
+**Mounted in `hub/main.py`:** the ML router uses `app.state.bus`, which main.py sets, and creates its service on first use.
 
 ## Open any ML repo (A5, ML_PLAN 6)
 

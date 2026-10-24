@@ -10,8 +10,9 @@ namespace Forge.ML
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
-        [Tooltip("Epochs for the Train button (POST /ml/train).")] public int trainEpochs = 10;
+        [Tooltip("Epochs for the Train button (5–10 for imported GitHub repositories).")][Range(5, 10)] public int trainEpochs = 10;
         TMP_Text status, warning;
+        TMP_InputField githubUrl;
         Image progress;
         MLCurve loss, accuracy;
         RectTransform summary;
@@ -30,10 +31,12 @@ namespace Forge.ML
             MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
             MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
             loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
-            warning = MLUI.Text(root, "", 8, 175, 530, 28, 14); warning.color = new Color(1,.6f,.25f);
+            githubUrl = MLUI.Input(root, "Public GitHub repository", "https://github.com/owner/repository", 8, 174, 420, 28);
+            MLUI.Button(root, "Import", 434, 172, 100, 28, () => session.ImportGitHub(githubUrl.text));
+            warning = MLUI.Text(root, "", 8, 202, 740, 24, 12); warning.color = new Color(1,.6f,.25f);
             MLUI.Button(root, "Train", 550, 172, 90, 28, () => session.Train(trainEpochs));
             MLUI.Button(root, "Replay", 650, 172, 90, 28, session.Restart);
-            summary = MLUI.Rect("Evaluation", root, 8, 210, 740, 300);
+            summary = MLUI.Rect("Evaluation", root, 8, 230, 740, 280);
             session.Changed += Refresh;
             session.Reloaded += OnSessionReloaded;
             session.Metrics += OnMetrics;

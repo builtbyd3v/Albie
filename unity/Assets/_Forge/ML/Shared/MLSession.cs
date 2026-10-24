@@ -19,6 +19,13 @@ namespace Forge.ML
     [Serializable] public class MLProbePayload { public string run_id; public int epoch; public MLProbeSample[] samples; }
     [Serializable] public class MLClassAccuracyPayload { public string run_id; public int epoch; public float?[] per_class; }
     public class MLRunInfo { public string run_id, status; public int? epochs; }
+    [Serializable] public class MLTrainResponse { public string run_id; }
+    [Serializable] public class MLGitHubImport
+    {
+        public string import_id, repository, url, @ref, format, model, dataset, reason;
+        public bool supported;
+        public string[] files;
+    }
     // GET /ml/metrics/{run_id}: a finished run's curves, so panels opened after training still show them.
     public class MLMetricsHistory
     {
@@ -53,6 +60,7 @@ namespace Forge.ML
         public bool IsLive => useLiveEvents && ForgeNet.Status == ForgeNetStatus.Live;
         public bool HubData { get; private set; }
         public string RunId { get; private set; }
+        public string GitHubImportId { get; private set; }
         // One line for the Training panel: why there's no live data, or what Train is doing.
         public string Notice { get; private set; }
         public event Action Changed;
@@ -205,8 +213,35 @@ namespace Forge.ML
                 return;
             }
             Notice = "Starting training..."; Changed?.Invoke();
+            if (!string.IsNullOrEmpty(GitHubImportId))
+            {
+                ForgeNet.Post<MLTrainResponse>("/ml/github/train", new { import_id = GitHubImportId, epochs }, response =>
+                {
+                    if (response != null) { RunId = response.run_id; LoadFromHub(RunId); }
+                }, e => { Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+                return;
+            }
             ForgeNet.Post("/ml/train", new { epochs }, _ => { },
                 e => { Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+        }
+        public void ImportGitHub(string url)
+        {
+            if (!IsLive)
+            {
+                Notice = "GitHub import needs the hub: start it on the laptop and set ForgeNet's Hub Url.";
+                Changed?.Invoke(); return;
+            }
+            if (string.IsNullOrWhiteSpace(url)) { Notice = "Paste a public GitHub repository URL first."; Changed?.Invoke(); return; }
+            Notice = "Inspecting public GitHub repository..."; Changed?.Invoke();
+            ForgeNet.Post<MLGitHubImport>("/ml/github/import", new { url = url.Trim() }, result =>
+            {
+                GitHubImportId = result != null && result.supported ? result.import_id : null;
+                Notice = result == null ? "GitHub import returned no result." : result.supported
+                    ? $"Supported: {result.repository} · {result.model} on {result.dataset}. Train is ready."
+                    : $"Unsupported repository: {result.reason}";
+                if (GitHubImportId != null) LoadFromHub(null);
+                Changed?.Invoke();
+            }, error => { GitHubImportId = null; Notice = "GitHub import failed: " + error; Changed?.Invoke(); });
         }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
