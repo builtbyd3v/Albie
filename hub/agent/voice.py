@@ -6,8 +6,8 @@ VOICE_PROVIDER (env):
 * ``fake``  canned reply from a bundled PCM file, no key, no network (Unity testing).
 
 Grok handles conversation itself. Quick actions (CAD params, VS Code highlight/open) are direct tools from
-agent/tools.py. ``delegate`` sends anything about the repo, runs or a code change to the Claude runner (the "brain"), whose answer is then spoken verbatim with
-``force_message``. Push-to-talk is a manual turn:
+agent/tools.py. ``delegate`` sends anything about the repo, runs or a code change to the Claude runner
+(the "brain"), whose answer is then spoken verbatim with ``force_message``. Push-to-talk is a manual turn:
 
     Unity stt.start     -> begin_turn()   (barge-in: cancel speech, clear the input buffer)
     Unity binary PCM16  -> feed()         (16 kHz mono, forwarded as input_audio_buffer.append)
