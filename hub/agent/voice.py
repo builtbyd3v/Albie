@@ -35,6 +35,7 @@ import base64
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -100,6 +101,12 @@ DELEGATE_TOOL = {
         "required": ["task"],
     },
 }
+# Bit's own vocabulary first in grok-transcribe's hints ("fins" came back as "Fizz" in a live test).
+ROCKET_TERMS = ["Bit", "fins", "fin", "nose cone", "body tube", "static margin", "apogee", "center of pressure",
+                "center of gravity", "calibers", "Estes", "ogive", "fin span", "fin sweep"]
+# "Stop" over Bit should just stop him, not start a reply ("Okay, quiet!").
+STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind"}
+STOP_FILLER = {"bit", "okay", "ok", "please", "hey", "be", "that", "it", "never", "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
 
@@ -200,6 +207,8 @@ class GrokVoiceSession(_Base):
         self._pending_outputs: list[dict[str, Any]] = []  # function_call_output items sent after response.done
         self._jobs: set[asyncio.Task[None]] = set()
         self._suppress_transcript = False  # next response speaks a delegate answer the runner already captioned
+        self._drop_reply = False  # the turn was only "stop": cancel Grok's reply to it, play and run nothing
+        self._dropping = False  # that reply is being cancelled (until its response.done)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
         self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))
@@ -294,6 +303,7 @@ class GrokVoiceSession(_Base):
         await self.stop_speech("barge_in")
         await self._send({"type": "input_audio_buffer.clear"})
         self._fed = 0
+        self._drop_reply = False
         self._open_turn()
 
     async def feed(self, pcm16: bytes) -> None:
@@ -403,6 +413,12 @@ class GrokVoiceSession(_Base):
         elif t == "response.created":
             if self._partial:
                 await self._final()  # no .completed yet: the last cumulative transcript is final
+            if self._drop_reply:
+                self._drop_reply = False
+                self._response_active, self._response_requested, self._forwarding = True, False, False
+                self._dropping = True
+                await self._send({"type": "response.cancel"})
+                return
             self._utt = uuid.uuid4().hex[:12]
             self._audio_started = False
             self._answer, self._answer_done = "", False
@@ -421,6 +437,9 @@ class GrokVoiceSession(_Base):
         elif t in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
             if self._forwarding and not self._response_suppressed:
                 await self._answer_finished(msg.get("transcript") or self._answer)
+        elif t == "response.done" and self._dropping:
+            self._dropping = self._response_active = False
+            self._pending_outputs.clear()
         elif t == "response.done":
             if self._forwarding:
                 if self._audio_started and self._utt is not None:
@@ -458,6 +477,8 @@ class GrokVoiceSession(_Base):
 
     # ------------------------------------------------------------ tools
     async def _on_function_call(self, name: str, call_id: str, arguments: str) -> None:
+        if self._dropping:
+            return  # the reply to a "stop" turn is cancelled: run nothing
         try:
             args = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
         except (json.JSONDecodeError, TypeError, ValueError):
@@ -502,6 +523,13 @@ class GrokVoiceSession(_Base):
         await self._send({"type": "conversation.item.create", "item": {
             "type": "force_message", "role": "assistant", "interruptible": True,
             "content": [{"type": "output_text", "text": text}]}})
+
+    async def _final(self, text: str | None = None) -> None:
+        final = (text if text is not None else self._partial).strip()
+        if not self._final_sent and is_stop(final):
+            self._drop_reply = True
+            text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
+        await super()._final(text)
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
@@ -621,10 +649,20 @@ def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, s
             log.warning("VOICE_PROVIDER=grok but XAI_API_KEY is empty: voice off")
             return None
         return GrokVoiceSession(pet_id=pet_id, sample_rate=pick_out_rate(client_rate), send_event=send_event,
-                                send_bytes=send_bytes, emit=emit, keyterms=vocab_terms(repo), delegate=delegate)
+                                send_bytes=send_bytes, emit=emit, keyterms=keyterms_for(repo), delegate=delegate)
     if p != "none":
         log.warning("unknown VOICE_PROVIDER=%r: voice off", p)
     return None
+
+
+def is_stop(text: str) -> bool:
+    """Only stop words and filler ("Wait, stop, Bit.", "Never mind."): the user wants silence, not an answer."""
+    words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
+    return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
+
+
+def keyterms_for(repo: Path | None) -> list[str]:
+    return list(dict.fromkeys(ROCKET_TERMS + vocab_terms(repo)))[:100]
 
 
 def vocab_terms(repo: Path | None, limit: int = 100) -> list[str]:
