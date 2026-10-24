@@ -29,6 +29,7 @@ from forge import atlas, client, evaluation, graph
 CLASSIFICATION = ("image_classification", "text_classification")
 KIND = {"image_classification": "image", "text_classification": "text", "regression": "row"}
 PREDICT_BATCH = 64
+FULL_IMAGE_MAX = 512
 
 
 def _write(path: Path, data: Any) -> None:
@@ -72,6 +73,12 @@ def run_dataset(ad: forge_adapter.Adapter, out: Path, split: str = "val", limit:
         out.mkdir(parents=True, exist_ok=True)
         image.save(out / "atlas.png")
         _write(out / "atlas.json", atlas_meta)
+        # Full-size images for the detail card (GET /ml/image/{id}); the atlas only has 64 px thumbnails.
+        (out / "images").mkdir(exist_ok=True)
+        for s in samples:
+            full = atlas.to_pil(s.item)
+            full.thumbnail((FULL_IMAGE_MAX, FULL_IMAGE_MAX))
+            full.save(out / "images" / f"{s.id}.png")
     elif kind == "row":
         items = [{"id": s.id, "name": s.name, "kind": "row", "y": float(s.label)} for s in samples]
     else:

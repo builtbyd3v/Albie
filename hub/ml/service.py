@@ -1,0 +1,307 @@
+"""ML state behind the /ml endpoints: one project repo, its .forge/project/ and .forge/runs/.
+
+The hub never imports torch (ML_PLAN 11). Graph and dataset files are produced by the forge runners,
+which run as subprocesses with the repo's own Python; training is the repo's own train command.
+
+Env: FORGE_ML_REPO (default ml-examples/cifar10). Point it at hub/.data/mocks/ml/<archetype> for mock mode.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
+FORGE_SDK = ROOT / "forge-sdk"
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+RUNNER_TIMEOUT_S = 180
+RUNNER_JOBS = {"graph.json": "graph", "dataset.json": "dataset", "atlas.json": "dataset", "atlas.png": "dataset",
+               "samples.json": "dataset"}
+
+
+class NotFound(Exception):
+    pass
+
+
+class Conflict(Exception):
+    pass
+
+
+def safe_id(value: str, what: str = "id") -> str:
+    """Ids end up in file paths: allow only plain names (no slashes, no `..`)."""
+    if not SAFE_ID.match(value) or ".." in value:
+        raise NotFound(f"bad {what}: {value!r}")
+    return value
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text())
+
+
+class MLService:
+    def __init__(self, repo: str | Path | None = None) -> None:
+        self.repo = Path(repo or os.environ.get("FORGE_ML_REPO") or DEFAULT_REPO).resolve()
+        self.train_proc: subprocess.Popen | None = None
+        self.train_run_id: str | None = None
+
+    # --- layout -------------------------------------------------------------------------------
+    @property
+    def forge_dir(self) -> Path:
+        return self.repo / ".forge"
+
+    @property
+    def project_dir(self) -> Path:
+        return self.forge_dir / "project"
+
+    @property
+    def runs_dir(self) -> Path:
+        return self.forge_dir / "runs"
+
+    @property
+    def overrides_path(self) -> Path:
+        return self.forge_dir / "labels_override.json"
+
+    def profile(self) -> dict:
+        path = self.forge_dir / "profile.json"
+        return _read_json(path) if path.exists() else {}
+
+    def python(self) -> str:
+        """The repo's interpreter (profile.python), so torch never has to be in the hub's env."""
+        configured = self.profile().get("python") or "python"
+        candidate = self.repo / configured
+        if candidate.exists():
+            return str(candidate)
+        return shutil.which(configured) or sys.executable
+
+    # --- runs ---------------------------------------------------------------------------------
+    def _run_dirs(self) -> list[Path]:
+        if not self.runs_dir.is_dir():
+            return []
+        return sorted((p for p in self.runs_dir.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime)
+
+    def run_dir(self, run_id: str) -> Path:
+        path = self.runs_dir / safe_id(run_id, "run id")
+        if not path.is_dir():
+            raise NotFound(f"no run {run_id!r} in {self.runs_dir}")
+        return path
+
+    def latest_run(self, with_file: str) -> Path | None:
+        for path in reversed(self._run_dirs()):
+            if (path / with_file).exists():
+                return path
+        return None
+
+    def runs(self) -> list[dict]:
+        out = []
+        for path in reversed(self._run_dirs()):
+            info = _read_json(path / "run.json") if (path / "run.json").exists() else {}
+            summary = _read_json(path / "summary.json") if (path / "summary.json").exists() else {}
+            if (path / "results.json").exists():
+                status = "done"
+            elif self.training_active() and path.name == self.train_run_id:
+                status = "training"
+            else:
+                status = "incomplete"
+            best = summary.get("best_val_acc") or summary.get("accuracy") or summary.get("r2")
+            out.append({"run_id": path.name, "started_at": info.get("started_at"), "status": status,
+                        "epochs": info.get("total_epochs"), "best_metric": best})
+        return out
+
+    def run_file(self, run_id: str, name: str) -> Any:
+        path = self.run_dir(run_id) / name
+        if not path.exists():
+            raise NotFound(f"run {run_id} has no {name} yet")
+        return _read_json(path)
+
+    # --- project files (graph, dataset, atlas): runner output, else the latest run's copy ------
+    def project_path(self, name: str, compute: bool = True) -> Path:
+        path = self.project_dir / name
+        if path.exists():
+            return path
+        run = self.latest_run(name)
+        if run is not None:
+            return run / name
+        if compute and name in RUNNER_JOBS and (self.forge_dir / "adapter.py").exists():
+            self.run_runner(RUNNER_JOBS[name])
+            if path.exists():
+                return path
+        raise NotFound(f"no {name} for {self.repo.name}: train once, or run "
+                       f"`python -m forge.run {RUNNER_JOBS.get(name, 'dataset')} --repo {self.repo}`")
+
+    def run_runner(self, job: str) -> None:
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(FORGE_SDK), os.environ.get("PYTHONPATH")]))}
+        proc = subprocess.run([self.python(), "-m", "forge.run", job, "--repo", str(self.repo)], cwd=self.repo,
+                              env=env, capture_output=True, text=True, timeout=RUNNER_TIMEOUT_S)
+        if proc.returncode != 0:
+            raise RuntimeError(f"forge.run {job} failed:\n{proc.stderr[-2000:]}")
+
+    def classes(self) -> list[str]:
+        try:
+            return _read_json(self.project_path("classes.json", compute=False))
+        except NotFound:
+            if self.profile().get("classes"):
+                return self.profile()["classes"]
+            raise
+
+    def graph(self) -> dict:
+        return _read_json(self.project_path("graph.json"))
+
+    def atlas(self) -> dict:
+        meta = _read_json(self.project_path("atlas.json"))
+        png = self.project_path("atlas.png")
+        return {"atlas_url": f"/ml/files/atlas.png?v={int(png.stat().st_mtime)}", **meta}
+
+    def atlas_png(self) -> Path:
+        return self.project_path("atlas.png")
+
+    def dataset(self) -> list[dict]:
+        relabel, remove = self.overrides()
+        items = []
+        for item in _read_json(self.project_path("dataset.json")):
+            sid = item["id"]
+            if sid in relabel:
+                item["label_idx"] = relabel[sid]
+            item["removed"] = sid in remove
+            if item.get("kind") == "image":
+                item["thumb_url"] = f"/ml/image/{sid}"
+            items.append(item)
+        return items
+
+    def image(self, sample_id: str) -> bytes | Path:
+        """The full-size image if the dataset runner saved one, else its cell cropped out of the atlas."""
+        safe_id(sample_id, "sample id")
+        full = self.project_dir / "images" / f"{sample_id}.png"
+        if full.exists():
+            return full
+        meta = _read_json(self.project_path("atlas.json"))
+        if sample_id not in meta["index"]:
+            raise NotFound(f"no sample {sample_id!r}")
+        from io import BytesIO
+
+        from PIL import Image  # pillow ships with the hub env (matplotlib, via rocketpy)
+
+        cell, cols, i = meta["cell"][0], meta["cols"], meta["index"][sample_id]
+        x, y = (i % cols) * cell, (i // cols) * cell
+        with Image.open(self.project_path("atlas.png")) as atlas:
+            crop = atlas.crop((x, y, x + cell, y + cell))
+        buf = BytesIO()
+        crop.save(buf, format="PNG")
+        return buf.getvalue()
+
+    # --- results with relabel/remove applied ----------------------------------------------------
+    def results(self, run_id: str) -> dict:
+        results = self.run_file(run_id, "results.json")
+        relabel, remove = self.overrides()
+        for s in results["samples"]:
+            if "true_idx" not in s:  # regression: nothing to relabel
+                continue
+            if s["id"] in relabel:
+                s["true_idx"], s["relabeled"] = relabel[s["id"]], True
+                s["correct"] = s["pred_idx"] == s["true_idx"]
+            s["removed"] = s["id"] in remove
+        return results
+
+    def sample(self, sample_id: str) -> dict:
+        safe_id(sample_id, "sample id")
+        try:
+            samples = _read_json(self.project_path("samples.json", compute=False))
+        except NotFound:
+            samples = {}
+        detail = samples.get(sample_id)
+        if detail is None:
+            item = next((d for d in self.dataset() if d["id"] == sample_id), None)
+            if item is None:
+                raise NotFound(f"no sample {sample_id!r}")
+            detail = {"id": sample_id, "name": item.get("name", sample_id), "split": "val",
+                      "label_idx": item.get("label_idx"), "y": item.get("y"), "meta": {}}
+        relabel, remove = self.overrides()
+        if sample_id in relabel:
+            detail["label_idx"], detail["relabeled"] = relabel[sample_id], True
+        detail["removed"] = sample_id in remove
+        run = self.latest_run("results.json")
+        if run is not None:
+            pred = next((s for s in _read_json(run / "results.json")["samples"] if s["id"] == sample_id), None)
+            if pred and "pred_idx" in pred:
+                detail.update(pred_idx=pred["pred_idx"], probs=pred["probs"])
+        return detail
+
+    # --- relabel / remove -> .forge/labels_override.json (applied by the repo's data code) -------
+    def overrides(self) -> tuple[dict[str, int], set[str]]:
+        if not self.overrides_path.exists():
+            return {}, set()
+        data = _read_json(self.overrides_path)
+        return {k: int(v) for k, v in data.get("relabel", {}).items()}, set(data.get("remove", []))
+
+    def _write_overrides(self, relabel: dict[str, int], remove: set[str]) -> None:
+        self.forge_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.overrides_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"relabel": relabel, "remove": sorted(remove)}, indent=1))
+        tmp.replace(self.overrides_path)  # atomic: a crash never leaves a half-written file
+
+    def _current_label(self, sample_id: str) -> int:
+        item = next((d for d in self.dataset() if d["id"] == sample_id), None)
+        if item is None:
+            raise NotFound(f"no sample {sample_id!r}")
+        return int(item.get("label_idx") if item.get("label_idx") is not None else -1)
+
+    def relabel(self, sample_id: str, label_idx: int) -> dict:
+        safe_id(sample_id, "sample id")
+        n = len(self.classes())
+        if not 0 <= label_idx < n:
+            raise Conflict(f"label_idx {label_idx} out of range (0..{n - 1})")
+        self._current_label(sample_id)  # 404 for unknown ids
+        relabel, remove = self.overrides()
+        relabel[sample_id] = label_idx
+        self._write_overrides(relabel, remove)
+        return {"id": sample_id, "label_idx": label_idx, "removed": sample_id in remove}
+
+    def remove(self, sample_id: str) -> dict:
+        safe_id(sample_id, "sample id")
+        label = self._current_label(sample_id)
+        relabel, remove = self.overrides()
+        remove.add(sample_id)
+        self._write_overrides(relabel, remove)
+        return {"id": sample_id, "label_idx": label, "removed": True}
+
+    # --- training -------------------------------------------------------------------------------
+    def training_active(self) -> bool:
+        return self.train_proc is not None and self.train_proc.poll() is None
+
+    def start_training(self, epochs: int, hub_url: str) -> str:
+        if self.training_active():
+            raise Conflict(f"run {self.train_run_id} is still training")
+        cmd = self.profile().get("train_cmd")
+        if not cmd:
+            raise Conflict(f"no train_cmd in {self.forge_dir / 'profile.json'}")
+        argv = shlex.split(cmd)
+        if argv[0] in ("python", "python3"):
+            argv[0] = self.python()
+        if "--epochs" in argv:
+            argv[argv.index("--epochs") + 1] = str(epochs)
+        else:
+            argv += ["--epochs", str(epochs)]
+        run_id = uuid.uuid4().hex[:8]
+        env = {k: v for k, v in os.environ.items() if k not in ("FORGE_OFFLINE", "FORGE_RUN_DIR")}
+        env.update(FORGE_HUB=hub_url.rstrip("/"), FORGE_RUN_ID=run_id,
+                   PYTHONPATH=os.pathsep.join(filter(None, [str(FORGE_SDK), os.environ.get("PYTHONPATH")])))
+        self.forge_dir.mkdir(parents=True, exist_ok=True)
+        log = open(self.forge_dir / f"train-{run_id}.log", "w")  # noqa: SIM115 - the child process owns it
+        self.train_proc = subprocess.Popen(argv, cwd=self.repo, env=env, stdout=log, stderr=subprocess.STDOUT)
+        self.train_run_id = run_id
+        return run_id
+
+    def replay_events(self, run_id: str) -> list[dict]:
+        path = self.run_dir(run_id) / "events.jsonl"
+        if not path.exists():
+            raise NotFound(f"run {run_id} has no events.jsonl")
+        events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        return sorted(events, key=lambda e: e.get("t", 0.0))

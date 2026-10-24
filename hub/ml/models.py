@@ -16,6 +16,7 @@ class DatasetItem(BaseModel):
     y: float | None = None            # regression target
     thumb_url: str | None = None      # images; the hub adds it
     text: str | None = None           # text
+    removed: bool = False             # proposed: marked Remove (stays listed so the dot keeps its marker)
 
 
 class Atlas(BaseModel):
@@ -51,6 +52,8 @@ class Sample(BaseModel):
     pred_idx: int
     probs: list[float]
     correct: bool
+    relabeled: bool = False           # proposed: true_idx comes from a Relabel; correct is recomputed
+    removed: bool = False             # proposed: marked Remove
 
 
 class Results(BaseModel):
@@ -123,3 +126,38 @@ class IngestRequest(BaseModel):
     """POST /ml/ingest (ML_PLAN 7.4): a batch of events from the forge SDK or forge.replay."""
     run_id: str
     events: list[IngestEvent]
+
+
+class RunInfo(BaseModel):
+    """GET /ml/runs item (ML_PLAN 7.4)."""
+    run_id: str
+    started_at: float | None = None
+    status: str                       # training | done | incomplete
+    epochs: int | None = None
+    best_metric: float | None = None  # best val acc (classification) or R2 (regression)
+
+
+class SampleDetail(BaseModel):
+    """GET /ml/sample/{id} (ML_PLAN 7.4): the picked-image / detail card."""
+    id: str
+    name: str
+    split: str
+    label_idx: int | None = None
+    y: float | None = None
+    meta: dict[str, Any] = {}
+    pred_idx: int | None = None
+    probs: list[float] | None = None
+    relabeled: bool = False
+    removed: bool = False
+
+
+class ReplayRequest(BaseModel):
+    run_id: str
+    speed: float = 1.0
+
+
+class SampleUpdated(BaseModel):
+    """ml.sample_updated event (PROJECT_CONTEXT section 7)."""
+    id: str
+    label_idx: int
+    removed: bool

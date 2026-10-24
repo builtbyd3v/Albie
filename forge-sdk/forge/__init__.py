@@ -57,8 +57,9 @@ def _run_root(run_dir: str | os.PathLike | None) -> Path:
 
 
 def _start_run(total_epochs: int = 0, run_dir: str | os.PathLike | None = None) -> _Run:
+    """FORGE_RUN_ID (set by the hub's POST /ml/train) names the first run, so the hub knows it up front."""
     global _run
-    run_id = uuid.uuid4().hex[:8]
+    run_id = os.environ.pop("FORGE_RUN_ID", None) or uuid.uuid4().hex[:8]
     path = _run_root(run_dir) / run_id
     path.mkdir(parents=True, exist_ok=True)
     _run = _Run(run_id, path, total_epochs)
