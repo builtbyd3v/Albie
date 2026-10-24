@@ -216,6 +216,7 @@ public class CadUpdate
     public CadModelUpdated info;
     public byte[] glb;
     public string metadata;
+    public int generation;  // CadSession.Generation when it was published: a mock's v1 and the hub's v1 differ
 }
 
 /// <summary>

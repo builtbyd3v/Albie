@@ -247,7 +247,8 @@ public class CadViewer : MonoBehaviour
     float cgFrom, cgTo, cpFrom, cpTo, markerT = 1f;
     bool collarData;     // the version has the rocket's CG / CP (markers_gltf + a body diameter)
     string focusId, highlighted, highlightedParam;
-    int loadToken;
+    int loadToken, shownGeneration = -1;
+    bool goingHome, quitting;
     bool fitted;
     string part, title;  // the design shown; a different one is fitted afresh
     Bounds assembled;    // the current model in holder space, assembled (before explode or take apart)
@@ -359,7 +360,9 @@ public class CadViewer : MonoBehaviour
 
     async void OnModelChanged(CadUpdate update)
     {
-        if (current != null && current.Version == update.info.version) return;
+        // The same version again (a replay to a late subscriber) is skipped; the same number from another source
+        // (the hub after the mocks) is another model.
+        if (current != null && current.Version == update.info.version && shownGeneration == update.generation) return;
         int token = ++loadToken;
         CadModel model;
         try
@@ -375,6 +378,7 @@ public class CadViewer : MonoBehaviour
         }
         if (token != loadToken) { model.Dispose(); return; }  // a newer version arrived while this one loaded
         if (apart != null) apart.Release(instant: true);      // parts back on before the swap, glow and ghost
+        shownGeneration = update.generation;
         Swap(model, update.info);
     }
 
@@ -438,10 +442,14 @@ public class CadViewer : MonoBehaviour
             var c = ghostColor;
             c.a *= 1f - Smooth(ghostT);
             block.SetColor(ColorId, c);
-            for (int i = 0; i < ghostRenderers.Count; i++) ghostRenderers[i].SetPropertyBlock(block);
+            for (int i = 0; i < ghostRenderers.Count; i++)
+            {
+                var r = ghostRenderers[i];
+                if (r != null) r.SetPropertyBlock(block);  // destroyed meanwhile: skip it, don't stop the rest
+            }
             if (ghostT >= 1f) DropGhost();
         }
-        if (glowLayers.Count > 0)
+        if (glowLayers.Count > 0 && glowInstance != null)
         {
             glowT += dt / glowSeconds;
             float pulse = 0.65f + 0.35f * Mathf.Sin(glowT * 18f);
@@ -558,7 +566,7 @@ public class CadViewer : MonoBehaviour
 
     void OnInspectChanged()
     {
-        if (session.Inspecting == onStage) return;  // also raised when the number of parts off changes
+        if (goingHome || session.Inspecting == onStage) return;  // also raised when the number of parts off changes
         player.Stop(instant: true);  // a demo moves the holder; so does the trip
         if (session.Inspecting) GoToStage();
         else GoHome(animate: true);
@@ -585,20 +593,29 @@ public class CadViewer : MonoBehaviour
 
     void GoHome(bool animate)
     {
-        if (!onStage) return;
+        if (!onStage || goingHome) return;
         onStage = false;
-        if (stageSettled)
+        goingHome = true;
+        try
         {
-            stageSettled = false;
-            if (session != null) session.SetMeasuring(measureBeforeStage);  // dimensions as they were before the stage
+            // The session first: putting parts back (Release) raises InspectChanged, which mustn't send it up again.
+            if (session != null) session.SetInspecting(false);
+            if (stageSettled)
+            {
+                stageSettled = false;
+                if (session != null) session.SetMeasuring(measureBeforeStage);  // dimensions as they were before the stage
+            }
+            // Leaving Play (or the scene unloading): nothing to fly home to, and no re-parenting into a dying volume.
+            if (quitting || !gameObject.scene.isLoaded || holder == null || volume.ContentRoot == null) return;
+            StepAside(false);
+            exploder.SetLiftWeight(1f, animate ? inspectSeconds : 0f);  // on the desk: lift off the base
+            if (apart != null) apart.Release(instant: !animate);
+            FlyTo(volume.ContentRoot, Vector3.zero, Quaternion.identity, 1f, animate ? inspectSeconds : 0f);
         }
-        if (holder == null || volume.ContentRoot == null) return;  // leaving Play: the scene is being torn down
-        StepAside(false);
-        exploder.SetLiftWeight(1f, animate ? inspectSeconds : 0f);  // on the desk: lift off the base
-        if (apart != null) apart.Release(instant: !animate);
-        FlyTo(volume.ContentRoot, Vector3.zero, Quaternion.identity, 1f, animate ? inspectSeconds : 0f);
-        if (session != null) session.SetInspecting(false);
+        finally { goingHome = false; }
     }
+
+    void OnApplicationQuit() => quitting = true;
 
     // Settled on the stage: dimensions come on (until it goes home), the lid turns to glass (LateUpdate).
     void ArriveOnStage()
@@ -772,6 +789,8 @@ public class CadViewer : MonoBehaviour
         keep.UnionWith(info.removedIds);
         foreach (var r in old.Root.GetComponentsInChildren<Renderer>(true))
         {
+            // The old model's outline layers (glow, hover, parameter) were just sent to Destroy by Swap: leave them be.
+            if (IsLayer(r)) continue;
             var part = r.GetComponentInParent<CadPart>();
             if (ghostMaterial == null || part == null || !keep.Contains(part.id)) { r.enabled = false; continue; }
             var materials = new Material[r.sharedMaterials.Length];

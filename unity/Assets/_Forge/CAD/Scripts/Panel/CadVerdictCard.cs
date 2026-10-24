@@ -74,7 +74,7 @@ public sealed class CadVerdictCard
         CadUi.Stretch(instrumentShape.rectTransform, 0f, 0f, 0f, 0f);
 
         busyline = CadUi.Text(Card, "Busy", CadUi.Body, CadUi.BusyText);
-        cardScan = CadUi.Shape(Card, "Scan", s => Scan(s, Corner));
+        cardScan = CadUi.LayerShape(Card, "Scan", s => Scan(s, Corner));  // redrawn every frame while building
         CadUi.Stretch(cardScan.rectTransform, 0f, 0f, 0f, 0f);
 
         // ---- The strip: the same verdict in one line; a press opens Overview ----
@@ -85,7 +85,7 @@ public sealed class CadVerdictCard
         stripDetail = CadUi.Text(Strip.transform, "Detail", CadUi.Body, CadUi.White(0.6f));
         stripBar = CadUi.Shape(Strip.transform, "Bar", s => CadPanelDraw.BandBar(s, metric, 0f, 7f, BarW, 6f, 3f, 16f, 5f, 2f));
         CadUi.PlaceRight(stripBar.rectTransform, 14f, (StripH - 20f) * 0.5f, BarW, 20f);
-        stripScan = CadUi.Shape(Strip.transform, "Scan", s => Scan(s, StripCorner));
+        stripScan = CadUi.LayerShape(Strip.transform, "Scan", s => Scan(s, StripCorner));
         CadUi.Stretch(stripScan.rectTransform, 0f, 0f, 0f, 0f);
     }
 

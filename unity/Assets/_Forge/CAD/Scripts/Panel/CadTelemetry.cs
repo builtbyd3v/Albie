@@ -63,7 +63,9 @@ public sealed class CadTelemetry
 
     public CadTelemetry(RectTransform parent)
     {
-        Root = CadUi.Rect(parent, "Telemetry");
+        // Its own canvas: the numbers, the curve, the cursor and the dial hands move every frame of a demo, and only this
+        // card should re-batch for it (nothing here takes the pointer).
+        Root = CadUi.Layer(parent, "Telemetry");
         var fill = CadUi.Surface(Root, "Fill", CadUi.White(0.045f), Corner, 0.07f);
         CadUi.Stretch(fill.rectTransform, 0f, 0f, 0f, 0f);
         var wash = CadUi.Shape(Root, "Wash", s =>

@@ -90,7 +90,10 @@ public sealed class CadDemoPlayer
     float clock, prepClock, endStart;
     bool partsWereOff;
     CadDemoFrame frame;
-    string formatKey;  // what the readout's format string was built for
+    string formatKey;    // what the readout's text was built for (landed, the hover title)
+    string formatPhase;  // in flight: the phase the readout's format string was built for...
+    bool formatFast;     // ...and whether the descent was sped up
+    bool simulatingShown;
 
     // The holder's rest pose in its parent, and the model's axes (holder space).
     Transform restParent;
@@ -197,6 +200,7 @@ public sealed class CadDemoPlayer
         flightFailed = false;
         stage = Stage.Prep;
         prepClock = 0f;
+        simulatingShown = false;
         partsWereOff = session.PartsOff > 0;
         if (session.View.explode == true) session.SetView(false, session.View.focusId);
         if (partsWereOff) session.Reassemble();
@@ -293,8 +297,12 @@ public sealed class CadDemoPlayer
         }
         if (kind == Launch && flight == null && prepClock > 0.25f)
         {
-            readout.SetText("Simulating the flight…");
-            readout.SetAnchor(1);
+            if (!simulatingShown)
+            {
+                simulatingShown = true;  // set once: SetText builds its rich text, so not every frame of the wait
+                readout.SetText("Simulating the flight…");
+                readout.SetAnchor(1);
+            }
             readout.MoveTo(holder.TransformPoint(assembled.center) + Right(eye, holder.position) * (HalfWidth() + 0.03f), eye, dt);
             readout.SetAlpha(Mathf.Clamp01((prepClock - 0.25f) / 0.3f));
             chips.Begin();
@@ -318,6 +326,7 @@ public sealed class CadDemoPlayer
         for (int i = 0; i < 8; i++) tipAlong = Mathf.Max(tipAlong, Vector3.Dot(Corner(assembled, i) - axisOrigin, axisDir));
         clock = 0f;
         formatKey = null;
+        formatPhase = null;
         HideLabels();
         RevealLift = RevealGlass = 0f;
         stage = Stage.Run;
@@ -735,11 +744,14 @@ public sealed class CadDemoPlayer
         }
         else if (flying)
         {
-            string key = frame.phase + (playback > 1f ? "x" : "");
-            bool changed = key != formatKey;
+            // Keyed on the phase and whether the descent is sped up: no string built per frame.
+            bool fast = playback > 1f;
+            bool changed = frame.phase != formatPhase || fast != formatFast;
             if (changed)
             {
-                formatKey = key;
+                formatPhase = frame.phase;
+                formatFast = fast;
+                formatKey = null;
                 readoutFormat = "<b>{0:0} m  ·  {1:0} m/s</b>\n<size=75%><alpha=#A3>" + frame.phase +
                                 (playback > 1f ? "  ·  descent ×" + Mathf.RoundToInt(playback) : "") + "  ·  T+{2:1} s";
             }

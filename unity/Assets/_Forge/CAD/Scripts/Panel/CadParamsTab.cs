@@ -18,6 +18,9 @@ public sealed class CadParamsTab : CadPanelTab
 {
     const float RowH = 44f, LabelW = 112f, StepW = 28f, ValueW = 74f, ColGap = 7f, PadX = 4f, TrackH = 32f;
     const float PresetH = 32f, Gap = 8f, HeadingH = 16f, NoteH = 30f, Debounce = 0.4f, HelpDelay = 0.35f;
+    // A row stays lit this long after the pointer leaves its last hit area: crossing from its background to a stepper
+    // or the track is an exit then an enter, and must not flicker the row, its help or the model's highlight.
+    const float HoverGrace = 0.12f;
 
     sealed class Row
     {
@@ -26,12 +29,14 @@ public sealed class CadParamsTab : CadPanelTab
         public RectTransform root;
         public ForgeSurface bg, changedDot;
         public TextMeshProUGUI label;
-        public bool isSlider, isSegments, isInfo, integer, changed, hot;
+        public bool isSlider, isSegments, isInfo, integer, changed, hot, cooling;
         public int hovers;
+        public float coolTimer;
         public float y, height = RowH;
         // Slider rows.
         public CadButton minus, plus;
         public Slider slider;
+        public CadSliderRelease grip;  // pressed / let go: a refresh leaves a held knob alone
         public RectTransform knob;
         public ForgeSurface tick, ghostRing;
         public TextMeshProUGUI value, unit, was;
@@ -135,7 +140,7 @@ public sealed class CadParamsTab : CadPanelTab
                 for (int i = 0; i < r.segs.Count; i++) r.segs[i].On = CadOverviewTab.Same(r.segValues[i], now);
                 continue;
             }
-            if (r.debounce > 0f) continue;  // the user's taps win until they're sent
+            if (r.debounce > 0f || (r.grip != null && r.grip.Held)) continue;  // the user's taps or drag win until sent
             double v = pending && s.pendingValue != null ? ToDouble(s.pendingValue, q.Number) : q.Number;
             r.committed = q.Number;
             SetShown(r, v);
@@ -286,7 +291,8 @@ public sealed class CadParamsTab : CadPanelTab
         r.slider.maxValue = (float)Math.Round((q.max ?? Math.Max(1, q.Number * 2)) / r.step);
         r.knob.sizeDelta = new Vector2(16f, 0f);
         r.slider.onValueChanged.AddListener(v => Dragged(r, v));
-        track.gameObject.AddComponent<CadSliderRelease>().released += () => Released(r);
+        r.grip = track.gameObject.AddComponent<CadSliderRelease>();
+        r.grip.released += () => Released(r);
         Hover(r, track.gameObject);
 
         r.value = CadUi.Text(r.root, "Value", CadUi.Value, Color.white, bold: true, align: TextAlignmentOptions.Right);
@@ -522,8 +528,9 @@ public sealed class CadParamsTab : CadPanelTab
     void Released(Row r)
     {
         double v = Math.Round(r.slider.value) * r.step;
-        if (Math.Abs(v - r.committed) < r.step * 0.5)
+        if (locked || Math.Abs(v - r.committed) < r.step * 0.5)
         {
+            if (locked) SetShown(r, r.committed);
             r.value.color = r.changed ? CadUi.PeachLight : Color.white;
             return;
         }
@@ -554,6 +561,7 @@ public sealed class CadParamsTab : CadPanelTab
 
     void Send(Row r, double v)
     {
+        if (locked) return;
         object value = r.integer ? (object)(long)Math.Round(v) : v;
         string unit = string.IsNullOrEmpty(r.param.unit) ? "" : " " + CadUi.Clean(r.param.unit);
         r.value.color = CadUi.Hue;
@@ -569,8 +577,19 @@ public sealed class CadParamsTab : CadPanelTab
             r.debounce -= dt;
             if (r.debounce > 0f) continue;
             r.debounce = 0f;
-            if (Math.Abs(r.shown - r.committed) >= r.step * 0.5) Send(r, r.shown);
-            else r.value.color = r.changed ? CadUi.PeachLight : Color.white;  // tapped back to where it was
+            if (!locked && Math.Abs(r.shown - r.committed) >= r.step * 0.5) Send(r, r.shown);
+            else
+            {
+                if (locked) SetShown(r, r.committed);  // a demo started meanwhile: nothing is sent
+                r.value.color = r.changed ? CadUi.PeachLight : Color.white;  // (or tapped back to where it was)
+            }
+        }
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            if (!r.cooling) continue;
+            if (r.hovers > 0 && !locked) r.cooling = false;
+            else if ((r.coolTimer -= dt) <= 0f) Cool(r, tell: true);
         }
         if (helpRow != null && !help.gameObject.activeSelf)
         {
@@ -590,25 +609,37 @@ public sealed class CadParamsTab : CadPanelTab
     void Hovered(Row r, int delta)
     {
         r.hovers = Mathf.Max(0, r.hovers + delta);
-        bool hot = r.hovers > 0 && !locked;
-        if (hot == r.hot) return;
-        r.hot = hot;
-        r.bg.color = CadUi.White(hot ? 0.05f : 0f);
-        if (hot)
+        if (r.hovers > 0 && !locked)
         {
+            r.cooling = false;  // back before it went cold: nothing changes
+            if (r.hot) return;
+            if (hotRow != null && hotRow != r) Cool(hotRow, tell: false);  // the new row takes the highlight straight over
+            r.hot = true;
+            r.bg.color = CadUi.White(0.05f);
             hotRow = r;
             helpRow = r;
             helpTimer = HelpDelay;
             help.gameObject.SetActive(false);
             owner.PointAt(r.name);
         }
-        else if (hotRow == r)
+        else if (r.hot && !r.cooling)
         {
-            hotRow = null;
-            helpRow = null;
-            help.gameObject.SetActive(false);
-            owner.PointAt(null);
+            r.cooling = true;  // gone cold unless the pointer turns up on another of its hit areas within the grace
+            r.coolTimer = HoverGrace;
         }
+    }
+
+    void Cool(Row r, bool tell)
+    {
+        r.cooling = false;
+        if (!r.hot) return;
+        r.hot = false;
+        r.bg.color = CadUi.White(0f);
+        if (hotRow != r) return;
+        hotRow = null;
+        helpRow = null;
+        help.gameObject.SetActive(false);
+        if (tell) owner.PointAt(null);
     }
 
     void PlaceHelp()
@@ -625,6 +656,7 @@ public sealed class CadParamsTab : CadPanelTab
         foreach (var r in rows)
         {
             r.hovers = 0;
+            r.cooling = false;
             if (r.hot)
             {
                 r.hot = false;

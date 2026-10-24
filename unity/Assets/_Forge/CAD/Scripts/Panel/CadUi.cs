@@ -220,6 +220,33 @@ public static class CadUi
         return s;
     }
 
+    /// <summary>
+    /// A rect with its own nested canvas, for what changes every frame (the telemetry card, a pulsing dot, the building
+    /// scan): only it re-batches, not the whole panel. Made before its graphics, with the panel canvas's shader channels
+    /// plus the ones ForgeSurface and CadShape need (uv1, uv2). Display only: it has no raycaster, so nothing under it
+    /// takes the pointer (keep buttons out of it).
+    /// </summary>
+    public static RectTransform Layer(Transform parent, string name)
+    {
+        var rt = Rect(parent, name);
+        var canvas = rt.gameObject.AddComponent<Canvas>();
+        var above = parent != null ? parent.GetComponentInParent<Canvas>() : null;
+        var channels = AdditionalCanvasShaderChannels.TexCoord1 | AdditionalCanvasShaderChannels.TexCoord2;
+        if (above != null) channels |= above.additionalShaderChannels;
+        canvas.additionalShaderChannels = channels;
+        return rt;
+    }
+
+    /// <summary>A <see cref="CadShape"/> on its own nested canvas (<see cref="Layer"/>): redrawn every frame cheaply.</summary>
+    public static CadShape LayerShape(Transform parent, string name, System.Action<CadShape> paint)
+    {
+        var rt = Layer(parent, name);
+        var s = rt.gameObject.AddComponent<CadShape>();
+        s.raycastTarget = false;
+        s.paint = paint;
+        return s;
+    }
+
     public static CadHitArea Hit(Transform parent, string name)
     {
         var rt = Rect(parent, name);

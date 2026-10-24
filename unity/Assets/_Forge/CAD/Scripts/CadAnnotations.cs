@@ -90,6 +90,16 @@ public sealed class CadAnnotations
     int awaySide = -1;
     bool built, shown, labelling;
 
+    // What the meshes were last drawn for: they're rebuilt only when one of these changes (and for a moment after, while
+    // labels ease into place), not every frame. The eyes count after 1 cm.
+    const float EyeStep = 0.01f, SettleSeconds = 0.75f;
+    Matrix4x4 drawnHolder;
+    Vector3 drawnEye, drawnParts;
+    Vector4 drawnFades = new Vector4(-1f, -1f, -1f, -1f);
+    float drawnMargin = -1f, settle;
+    int drawnState;
+    string drawnDemo, drawnFocus;
+
     public CadAnnotations(Transform overlayRoot)
     {
         root = overlayRoot;
@@ -100,6 +110,7 @@ public sealed class CadAnnotations
     /// <summary>Read a newly shown version: markers, dimensions, part kinds, prop discs (CadViewer, after the exploder).</summary>
     public void Build(CadModel model, CadModelUpdated info, CadExploder parts, Transform holderTransform, Bounds assembled)
     {
+        drawnFades.x = -1f;  // draw the new version on the next Tick
         holder = holderTransform;
         exploder = parts;
         centreLocal = assembled.center;
@@ -281,6 +292,13 @@ public sealed class CadAnnotations
             return;
         }
         shown = true;
+        // Nothing it shows has moved since the last draw (and labels have settled): keep the meshes as they are.
+        if (Unchanged(eye, s))
+        {
+            if (settle <= 0f) return;
+            settle -= dt;
+        }
+        else settle = SettleSeconds;
 
         // The model's centre and the eyes' view of it: label columns stand beside it, in the plane through it.
         Vector3 centre = holder.TransformPoint(centreLocal);
@@ -335,9 +353,52 @@ public sealed class CadAnnotations
         chips.End();
     }
 
+    // True when the eyes (within 1 cm), the model, its parts, the fades and the state are as they were last drawn;
+    // otherwise remembers them and says so.
+    bool Unchanged(Vector3 eye, State s)
+    {
+        var fades = new Vector4(markerFade, measureFade, namesFade, focusFade);
+        var m = holder.localToWorldMatrix;
+        Vector3 parts = Vector3.zero;
+        if (exploder != null)
+            for (int i = 0; i < exploder.Count; i++)
+            {
+                var t = exploder[i].transform;
+                if (t != null) parts += t.position;
+            }
+        if (s.cgCollar != null) parts += s.cgCollar.position;
+        if (s.cpCollar != null) parts += s.cpCollar.position * 2f;
+        int state = (s.markers ? 1 : 0) | (s.measure ? 2 : 0) | (s.names ? 4 : 0) | (s.stage ? 8 : 0) |
+                    (s.cgCollar != null ? 16 : 0) | (s.cpCollar != null ? 32 : 0) | (labelling ? 64 : 0);
+        bool same = fades == drawnFades && Mathf.Approximately(marginFade, drawnMargin) && state == drawnState &&
+                    s.demo == drawnDemo && focusId == drawnFocus && (eye - drawnEye).sqrMagnitude <= EyeStep * EyeStep &&
+                    (parts - drawnParts).sqrMagnitude < 1e-10f && Mathf.Approximately(s.floorY, drawnFloor) && SameMatrix(m, drawnHolder);
+        if (same) return true;
+        drawnFades = fades;
+        drawnMargin = marginFade;
+        drawnState = state;
+        drawnDemo = s.demo;
+        drawnFocus = focusId;
+        drawnEye = eye;
+        drawnParts = parts;
+        drawnFloor = s.floorY;
+        drawnHolder = m;
+        return false;
+    }
+
+    float drawnFloor;
+
+    static bool SameMatrix(Matrix4x4 a, Matrix4x4 b)
+    {
+        for (int i = 0; i < 16; i++)
+            if (Mathf.Abs(a[i] - b[i]) > 1e-6f) return false;
+        return true;
+    }
+
     public void HideAll()
     {
         shown = false;
+        drawnFades.x = -1f;  // shown again: draw at once
         lines.Hide();
         chips.Hide();
         for (int i = 0; i < poolUsed; i++) pool[i].Hide();

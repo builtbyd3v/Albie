@@ -26,10 +26,14 @@ All of them find or create one shared `CadSession`, so they work wherever they'r
   version closest to what you asked for, after a pretend 0.6 s build (`mockBuildSeconds`, 0 = at once) so the panel's
   building state shows; if none is closer, a toast says so and the slider snaps back. History goes to any stored version.
 - **Building / failed**: `Building` and `BuildingWhat` from a change's request until its version lands (or fails);
+  every build request still out counts (two quick changes: building until the second lands; a failed undo or view
+  request doesn't end it), and the hub's answer names the version to wait for;
   `Failure` (the last `cad.regen_failed`, or a refused POST's body) until it's dismissed or a good build arrives;
   `Notice` for toasts. `GetVersions` (`GET /cad/versions`, or the stored versions with their analyses) and
   `GoToVersion` (mock: that stored version; hub: its values posted as a change, so it comes back as a new version).
-  The last 16 flights are cached by version (`TryGetFlight`).
+  The last 16 flights are cached by version (`TryGetFlight`). `Generation` goes up when the source changes (mock to
+  hub): the same version number from the other source is another model, so the viewer, the drawing panel and the
+  design panel load it afresh.
 - Hub address: ForgeNet's `hubUrl` (on the Quest, the laptop's LAN IP). One setting for every module.
 - The CAD event payload classes (`CadModelUpdated`, `CadAnalysis`, `CadRegenFailed`, `CadView`) live in
   `Core/Net/ForgeEvents.cs` with the other hub events; `Scripts/CadData.cs` keeps the REST shapes and `CadMetric`.
@@ -153,7 +157,8 @@ panel can use either and both stay in sync:
 
 ## Expand: the model up big (`CadViewer`; "Inspect" in code and the session)
 
-- **Expand** (panel, the ring of light on the desk at the base's front right, or key **I**): the model springs off the
+- **Expand** (panel, the ring of light on the desk at the base's front right (mouse, rays, or a fingertip pressing
+  into it), or key **I**): the model springs off the
   desk to a stage 0.6 m in front of the eyes (toward the desk, not where you're looking) and 0.1 m below them
   (position and turn critically damped, omega 9, along an arc rising 0.14 m; scale omega 10 with a gentle 8% pop).
   Turned 30° to show a corner (a Run design faces you square on); tipped back 25°, 40° if it's flat, 0° if it's tall.

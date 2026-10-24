@@ -12,8 +12,9 @@ using UnityEngine.Rendering;
 /// out (Expand) or in (Back to desk). Pressing it raises <see cref="Pressed"/>; CadViewer toggles the stage. The first
 /// time it shows, an "Expand" tip comes up beside it for a few seconds.
 /// Input: a mouse (DesktopRig, the sandbox's input module) through <see cref="CadPartRaycaster"/>; controller and hand
-/// rays through a RayInteractable on its collider. Not pokeable. Its hit box rises just above the volume's base grab
-/// box, so pointing at the ring presses the ring rather than moving the volume. CadViewer makes it at runtime.
+/// rays through a RayInteractable on its collider; a fingertip (any PokeInteractor) pressing down into the ring, like the
+/// dock's rings. Its hit box rises just above the volume's base grab box, so pointing at the ring presses the ring rather
+/// than moving the volume. CadViewer makes it at runtime.
 /// </summary>
 public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
 {
@@ -28,6 +29,23 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
     static readonly int ImprintId = Shader.PropertyToID("_Imprint");
     static bool tipShown;
 
+    // Pokes: a fingertip within the ring's 24 mm and under 10 mm above the desk presses it once; lifting it 20 mm (or
+    // leaving the ring) arms it again; within 60 mm above it lights the ring like a hover. The hands' poke interactors
+    // are looked up every few seconds, not every frame.
+    const float PokeRadius = 0.024f, PokeDown = 0.01f, PokeUp = 0.02f, PokeHover = 0.06f, PokeRefresh = 3f;
+    static PokeInteractor[] pokes = new PokeInteractor[0];
+    static float pokesFound = -100f;
+
+    // This project enters Play mode without a domain reload: statics would carry over from the last session.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        tipShown = false;
+        active.Clear();
+        pokes = new PokeInteractor[0];
+        pokesFound = -100f;
+    }
+
     public event Action Pressed;
 
     BoxCollider box;
@@ -39,11 +57,16 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
     CadLabel tip;
     int mouseHovers;
     float hover, selected, enable = 1f, tipStart = -1f;
-    bool expanded, interactable = true, tipSaysBack;
+    bool expanded, interactable = true, tipSaysBack, pokeNear, pokeArmed = true;
     Vector4 shown = new Vector4(-1f, -1f, -1f, -1f);
+    // What the arrows were last drawn for: they're rebuilt only when these change (the eyes after 1 cm).
+    Matrix4x4 drawnPose;
+    Vector3 drawnEye;
+    float drawnEnable = -1f;
+    bool drawnExpanded;
 
     public static int Count => active.Count;
-    public bool Hovered => mouseHovers > 0 || (ray != null && (ray.State == InteractableState.Hover || ray.State == InteractableState.Select));
+    public bool Hovered => mouseHovers > 0 || pokeNear || (ray != null && (ray.State == InteractableState.Hover || ray.State == InteractableState.Select));
 
     /// <summary>Nearest Expand ring the ray hits within <paramref name="maxDistance"/>.</summary>
     public static bool Raycast(Ray r, float maxDistance, out RaycastHit hit, out CadExpandButton button)
@@ -122,6 +145,8 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
     {
         active.Add(this);
         tipStart = -1f;
+        drawnEnable = -1f;  // arrows were hidden while disabled: draw them again
+        pokeArmed = true;
     }
 
     void OnDisable()
@@ -152,9 +177,39 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
         if (interactable) Pressed?.Invoke();
     }
 
+    // A fingertip pressing down into the ring presses it (once per push).
+    void Pokes()
+    {
+        if (Time.unscaledTime - pokesFound > PokeRefresh || Time.unscaledTime < pokesFound)
+        {
+            pokesFound = Time.unscaledTime;
+            pokes = FindObjectsByType<PokeInteractor>();
+        }
+        bool near = false, down = false, clear = true;
+        for (int i = 0; i < pokes.Length; i++)
+        {
+            var poke = pokes[i];
+            if (poke == null || !poke.isActiveAndEnabled || poke.State == InteractorState.Disabled) continue;
+            Vector3 local = transform.InverseTransformPoint(poke.Origin);
+            float radial = Mathf.Sqrt(local.x * local.x + local.z * local.z);
+            if (radial > PokeRadius * 1.25f || local.y < -0.03f) continue;  // beside it, or under the desk
+            if (local.y < PokeHover) near = true;
+            if (radial <= PokeRadius && local.y < PokeDown) down = true;
+            if (local.y < PokeUp) clear = false;
+        }
+        pokeNear = near && interactable;
+        if (down && pokeArmed)
+        {
+            pokeArmed = false;
+            Press();
+        }
+        else if (clear) pokeArmed = true;
+    }
+
     void LateUpdate()
     {
         if (ring == null) return;
+        Pokes();
         float dt = Time.deltaTime;
         hover = Mathf.MoveTowards(hover, interactable && Hovered ? 1f : 0f, dt / ForgeTheme.HoverFade);
         selected = Mathf.MoveTowards(selected, expanded ? 1f : 0f, dt / ForgeTheme.SelectFade);
@@ -190,12 +245,21 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
 
         var cam = Camera.main;
         Vector3 eye = cam != null ? cam.transform.position : transform.position + Vector3.up;
-        // Two small arrows lying on the desk inside the ring: out to expand, in to come back.
-        arrows.Begin(eye);
-        Color line = CadLook.Alpha(Color.white, 0.95f * Mathf.Lerp(0.4f, 1f, enable));
-        Arrow(1f, 1f, line);
-        Arrow(-1f, -1f, line);
-        arrows.End();
+        // Two small arrows lying on the desk inside the ring: out to expand, in to come back. Rebuilt only when the
+        // ring moved, its state changed or the eyes moved over 1 cm (the lines face them), not every frame.
+        var pose = transform.localToWorldMatrix;
+        if (expanded != drawnExpanded || Mathf.Abs(enable - drawnEnable) > 1e-4f || (eye - drawnEye).sqrMagnitude > 1e-4f || !SameMatrix(pose, drawnPose))
+        {
+            drawnExpanded = expanded;
+            drawnEnable = enable;
+            drawnEye = eye;
+            drawnPose = pose;
+            arrows.Begin(eye);
+            Color line = CadLook.Alpha(Color.white, 0.95f * Mathf.Lerp(0.4f, 1f, enable));
+            Arrow(1f, 1f, line);
+            Arrow(-1f, -1f, line);
+            arrows.End();
+        }
 
         // The first time it shows: "Expand" beside it for a few seconds.
         if (!tipShown && tipStart < 0f) tipStart = Time.time;
@@ -223,6 +287,13 @@ public class CadExpandButton : MonoBehaviour, IPointerEnterHandler, IPointerExit
             tip.Hide();
             chips.Hide();
         }
+    }
+
+    static bool SameMatrix(Matrix4x4 a, Matrix4x4 b)
+    {
+        for (int i = 0; i < 16; i++)
+            if (Mathf.Abs(a[i] - b[i]) > 1e-6f) return false;
+        return true;
     }
 
     void Arrow(float dx, float dz, Color color)

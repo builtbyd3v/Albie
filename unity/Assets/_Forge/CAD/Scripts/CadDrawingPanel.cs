@@ -22,7 +22,7 @@ public class CadDrawingPanel : MonoBehaviour, IPointerClickHandler
 
     CadSession session;
     Texture2D texture;
-    int shown = -1, wanted = -1;
+    int shown = -1, wanted = -1, generation = -1;  // generation: CadSession's source when these were asked for
     bool loading, zoomed;
 
     void OnEnable()
@@ -48,6 +48,12 @@ public class CadDrawingPanel : MonoBehaviour, IPointerClickHandler
 
     void Want(int version)
     {
+        // The hub after the mocks: its v1 isn't theirs, so what's shown or asked for no longer counts.
+        if (session.Generation != generation)
+        {
+            generation = session.Generation;
+            shown = wanted = -1;
+        }
         if (version == shown || version == wanted) return;
         wanted = version;
         status.text = $"Drawing v{version}...";
@@ -57,13 +63,20 @@ public class CadDrawingPanel : MonoBehaviour, IPointerClickHandler
     void Request(int version)
     {
         loading = true;
-        session.GetDrawing(version, png => Loaded(version, png));
+        int asked = generation;
+        session.GetDrawing(version, png => Loaded(version, png, asked));
     }
 
-    void Loaded(int version, byte[] png)
+    void Loaded(int version, byte[] png, int asked)
     {
         if (this == null) return;
         loading = false;
+        if (asked != generation)
+        {
+            // Drawn for the other source: ask again for this one.
+            if (wanted >= 0) Request(wanted);
+            return;
+        }
         if (version == wanted) wanted = -1;
         Show(version, png);
         if (wanted < 0) return;

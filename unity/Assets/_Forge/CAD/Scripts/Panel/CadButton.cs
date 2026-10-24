@@ -87,6 +87,14 @@ public class CadButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
     static readonly List<CadButton> moving = new List<CadButton>();
     static int tickedFrame = -1;
 
+    // Play mode starts without a domain reload here: don't carry last session's buttons or frame over.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        moving.Clear();
+        tickedFrame = -1;
+    }
+
     Look look;
     bool on, active, interactable = true, pressed, animating;
     int hovers;

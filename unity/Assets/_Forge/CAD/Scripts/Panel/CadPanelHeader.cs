@@ -26,6 +26,7 @@ public sealed class CadPanelHeader
     CadButton titleButton;
     CadShape chevron;
     ForgeSurface hubDot;
+    RectTransform hubDotLayer;  // its own canvas: the busy pulse changes it every frame
     RectTransform menu, blocker;
     readonly List<CadButton> menuItems = new List<CadButton>();
     readonly List<string> menuGlyphs = new List<string>();
@@ -80,7 +81,9 @@ public sealed class CadPanelHeader
         // The title is the Designs button: an invisible pill over Core's title and subtitle, lit when pointed at.
         titleButton = CadButton.Create(overlay, "TitleButton", CadButton.Ghost, 12f, owner.ToggleMenu);
         chevron = CadUi.Shape(overlay, "Chevron", s => CadIcons.Chevron(s, 0f, 0f, ChevronSize, CadUi.White(0.55f)));
-        hubDot = CadUi.Pill(overlay, "HubDot", CadUi.HubLive, glow: 0.45f);
+        hubDotLayer = CadUi.Layer(overlay, "HubDot");
+        hubDot = CadUi.Pill(hubDotLayer, "Dot", CadUi.HubLive, glow: 0.45f);
+        CadUi.Stretch(hubDot.rectTransform, 0f, 0f, 0f, 0f);
 
         // Designs menu (and a catcher behind it: a press anywhere else closes it).
         var blockHit = CadUi.Hit(overlay, "MenuBlocker");
@@ -152,7 +155,7 @@ public sealed class CadPanelHeader
         float right = Mathf.Min(maxWidth, Mathf.Max(titleWidth + 6f + ChevronSize, subWidth));
         CadUi.Place(titleButton.Rect, left - 8f, 10f, right + 16f, 44f);
         CadUi.Place(chevron.rectTransform, left + titleWidth + 6f, 25f - ChevronSize * 0.5f + 1f, ChevronSize, ChevronSize);
-        CadUi.Place(hubDot.rectTransform, left + 0.5f, 44f - DotSize * 0.5f, DotSize, DotSize);
+        CadUi.Place(hubDotLayer, left + 0.5f, 44f - DotSize * 0.5f, DotSize, DotSize);
     }
 
     /// <summary>The busy dot's pulse (1 s, ease in-out).</summary>

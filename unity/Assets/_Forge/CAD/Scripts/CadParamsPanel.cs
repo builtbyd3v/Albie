@@ -50,6 +50,7 @@ public class CadParamsPanel : MonoBehaviour
     string pointed;
     readonly Dictionary<int, CadModelUpdated> seen = new Dictionary<int, CadModelUpdated>();
     string seenPart, versionsKey, flightKey;
+    int seenGeneration = -1;  // CadSession.Generation the caches above are for (the hub's v1 isn't the mocks')
     int versionsAsked;
 
     void Awake()
@@ -203,8 +204,20 @@ public class CadParamsPanel : MonoBehaviour
 
     void OnModel(CadUpdate update)
     {
+        if (update != null) NewSource(update.generation);
         Remember(update?.info);
         dataDirty = true;
+    }
+
+    // Another source (the hub after the mocks): versions with the same numbers are other models; forget what was seen.
+    void NewSource(int generation)
+    {
+        if (generation == seenGeneration) return;
+        seenGeneration = generation;
+        seen.Clear();
+        seenPart = null;
+        versionsKey = flightKey = null;
+        state?.versions.Clear();
     }
 
     void OnParts()
@@ -249,7 +262,8 @@ public class CadParamsPanel : MonoBehaviour
         if (toastTimer > 0f)
         {
             toastTimer -= dt;
-            toastGroup.alpha = Mathf.Clamp01(toastTimer / 0.3f);
+            float a = Mathf.Clamp01(toastTimer / 0.3f);
+            if (!Mathf.Approximately(toastGroup.alpha, a)) toastGroup.alpha = a;  // set only while it fades: no re-batch otherwise
             if (toastTimer <= 0f) toast.gameObject.SetActive(false);
         }
     }
@@ -266,6 +280,7 @@ public class CadParamsPanel : MonoBehaviour
     void Refresh()
     {
         dataDirty = false;
+        NewSource(session.Generation);
         var s = state;
         var latest = session.Latest;
         s.p = session.Params;
@@ -367,7 +382,7 @@ public class CadParamsPanel : MonoBehaviour
         var demo = state.demo;
         bool flies = demo?.kind == CadDemoPlayer.Launch || (state.p != null && state.p.Has("flight"));
         if (!flies || state.version <= 0) return;
-        string key = state.p?.part + "/" + state.version;
+        string key = state.p?.part + "/" + state.version + "/" + session.Generation;
         if (key == flightKey) return;
         flightKey = key;
         if (session.TryGetFlight(state.version, out _)) return;
