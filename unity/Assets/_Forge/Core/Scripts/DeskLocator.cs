@@ -116,26 +116,26 @@ public struct DeskTop
     /// The edge facing a viewer at <paramref name="viewer"/>: its midpoint, the direction into the desk
     /// (away from the viewer), the edge length, and how deep the desk is from that edge.
     /// </summary>
-    public void FacingEdge(Vector3 viewer, out Vector3 midpoint, out Vector3 inward, out float edgeLength, out float deskDepth)
+    public void FacingEdge(Vector3 viewer, out Vector3 midpoint, out Vector3 inward, out float edgeLength, out float deskDepth) =>
+        Edge(FacingEdgeIndex(viewer), out midpoint, out inward, out edgeLength, out deskDepth);
+
+    /// <summary>Which edge faces the viewer: 0 = +right, 1 = -right, 2 = +depth, 3 = -depth.</summary>
+    public int FacingEdgeIndex(Vector3 viewer)
     {
         Vector3 d = viewer - center;
         float u = Vector3.Dot(d, right) / Mathf.Max(width * 0.5f, 0.01f);
         float v = Vector3.Dot(d, depth) / Mathf.Max(depthSize * 0.5f, 0.01f);
-        if (Mathf.Abs(u) > Mathf.Abs(v))
-        {
-            Vector3 outward = right * Mathf.Sign(u);
-            midpoint = center + outward * width * 0.5f;
-            inward = -outward;
-            edgeLength = depthSize;
-            deskDepth = width;
-        }
-        else
-        {
-            Vector3 outward = depth * Mathf.Sign(v);
-            midpoint = center + outward * depthSize * 0.5f;
-            inward = -outward;
-            edgeLength = width;
-            deskDepth = depthSize;
-        }
+        if (Mathf.Abs(u) > Mathf.Abs(v)) return u > 0f ? 0 : 1;
+        return v > 0f ? 2 : 3;
+    }
+
+    public void Edge(int index, out Vector3 midpoint, out Vector3 inward, out float edgeLength, out float deskDepth)
+    {
+        bool side = index < 2;
+        Vector3 outward = (side ? right : depth) * (index % 2 == 0 ? 1f : -1f);
+        midpoint = center + outward * (side ? width : depthSize) * 0.5f;
+        inward = -outward;
+        edgeLength = side ? depthSize : width;
+        deskDepth = side ? width : depthSize;
     }
 }

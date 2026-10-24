@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-sdk"
+version = "0.1.0"
+description = "Stream a PyTorch training run to the Forge hub for XR visualization."
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.4",
+    "numpy",
+    "pillow",
+    "httpx",
+]
+
+[project.optional-dependencies]
+demo = ["torchvision"]
+hub = ["fastapi", "uvicorn[standard]", "pydantic>=2"]
+dev = ["pytest"]
+
+[project.scripts]
+forge = "forge.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["forge"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

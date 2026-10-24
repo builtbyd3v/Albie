@@ -17,7 +17,8 @@ public static class ForgePrefabBuilder
     public const string PanelPath = Dir + "/ForgePanel.prefab";
     public const string DockPath = Dir + "/DeskDock.prefab";
     public const string VolumePath = Dir + "/ForgeVolume.prefab";
-    const string MaterialDir = "Assets/_Forge/Core/Materials";
+    public const string DesktopRigPath = Dir + "/DesktopRig.prefab";
+    public const string MaterialDir = "Assets/_Forge/Core/Materials";
 
     static readonly Color PanelBackground = new Color(0.07f, 0.09f, 0.13f, 0.85f);
     static readonly Color TitleBar = new Color(0.16f, 0.45f, 0.85f, 0.95f);
@@ -35,7 +36,8 @@ public static class ForgePrefabBuilder
     public static bool Exist() =>
         AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath) != null &&
         AssetDatabase.LoadAssetAtPath<GameObject>(DockPath) != null &&
-        AssetDatabase.LoadAssetAtPath<GameObject>(VolumePath) != null;
+        AssetDatabase.LoadAssetAtPath<GameObject>(VolumePath) != null &&
+        AssetDatabase.LoadAssetAtPath<GameObject>(DesktopRigPath) != null;
 
     /// <summary>Builds in a throwaway scene (the SDK wizards work on scene objects). Replaces the open scene.</summary>
     public static void BuildAll()
@@ -46,8 +48,62 @@ public static class ForgePrefabBuilder
         BuildPanel();
         BuildDock();
         BuildVolume();
+        BuildDesktopRig();
         AssetDatabase.SaveAssets();
-        Debug.Log("[ForgePrefabBuilder] Built ForgePanel, DeskDock and ForgeVolume in " + Dir);
+        Debug.Log("[ForgePrefabBuilder] Built ForgePanel, DeskDock, ForgeVolume and DesktopRig in " + Dir);
+    }
+
+    static void BuildDesktopRig()
+    {
+        var root = new GameObject("DesktopRig");
+        var body = root.AddComponent<CharacterController>();
+        body.height = 1.8f;
+        body.radius = 0.25f;
+        body.center = new Vector3(0f, 0.9f, 0f);
+        body.stepOffset = 0.3f;
+
+        var head = new GameObject("Head", typeof(Camera), typeof(AudioListener));
+        head.tag = "MainCamera";
+        head.transform.SetParent(root.transform, false);
+        var cam = head.GetComponent<Camera>();
+        cam.nearClipPlane = 0.03f;
+        cam.fieldOfView = 70f;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.08f, 0.09f, 0.11f);
+
+        var hud = new GameObject("HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        hud.transform.SetParent(root.transform, false);
+        hud.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        var scaler = hud.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+        var crosshair = NewImage("Crosshair", hud.transform, Knob(), new Color(1f, 1f, 1f, 0.9f));
+        crosshair.type = Image.Type.Simple;
+        crosshair.raycastTarget = false;
+        crosshair.rectTransform.sizeDelta = new Vector2(10f, 10f);
+
+        var hint = NewText("Hint", hud.transform, "", 30f, TextAlignmentOptions.BottomLeft);
+        hint.color = new Color(1f, 1f, 1f, 0.8f);
+        Stretch(hint.rectTransform, 24f, 18f, 24f, 0f);
+
+        var rig = root.AddComponent<DesktopRig>();
+        SetRefs(rig, ("cam", cam), ("crosshair", crosshair.gameObject), ("hint", hint));
+        Save(root, DesktopRigPath);
+    }
+
+    /// <summary>Plain lit material (Materials/Room{name}.mat) for drawing the room in desktop mode.</summary>
+    public static Material RoomMaterial(string name, Color color)
+    {
+        string path = $"{MaterialDir}/Room{name}.mat";
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat != null) return mat;
+        EnsureFolder(MaterialDir);
+        mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+        mat.SetColor("_BaseColor", color);
+        mat.SetFloat("_Smoothness", 0.15f);
+        AssetDatabase.CreateAsset(mat, path);
+        return mat;
     }
 
     static void BuildPanel()
