@@ -9,5 +9,6 @@ rocketpy==1.13.0  # flight sim (GET /cad/flight); also cross-checks our Barrowma
 claude-agent-sdk==0.2.173
 PyYAML==6.0.3
 python-dotenv==1.2.4
+websockets==17.3  # Grok Voice client (VOICE_PROVIDER=grok); uvicorn[standard] pulls it too
 # Optional speech-to-text (STT_PROVIDER=whisper):
 # faster-whisper>=1.0

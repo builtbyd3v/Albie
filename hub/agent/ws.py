@@ -8,8 +8,9 @@ Mount it from any FastAPI app:
 
 Per socket: hello -> (pet_id, project_id); agent.ask -> background turn streaming
 events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.stop
--> stt.partial / stt.final. Unknown message types are ignored (other modules may
-share the socket) and logged.
+-> stt.partial / stt.final. With VOICE_PROVIDER=grok|fake the same stt.* frames drive a
+voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
+Unknown message types are ignored (other modules may share the socket) and logged.
 """
 
 from __future__ import annotations
@@ -25,10 +26,11 @@ from pydantic import ValidationError
 from . import events as ev
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
-from .events import AgentAsk, AgentCancel, Event, Hello, SttStart, SttStop
+from .events import AgentAsk, AgentCancel, Event, Hello, SttStart, SttStop, TtsStopRequest
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
+from .voice import VoiceSession, make_voice
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ class Session:
     control: TurnControl | None = None
     stt: SpeechToText | None = None
     stt_busy: bool = False
+    voice: VoiceSession | None = None
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def spawn(self, coro) -> None:  # fire-and-forget helper that keeps a reference
@@ -75,6 +78,8 @@ async def handle_socket(ws: WebSocket) -> None:
         pass
     finally:
         bus.remove(ws)
+        if s.voice is not None:
+            await s.voice.close()
         # Drop a running Q&A (nobody is listening), but let a code task finish on its
         # branch: a flaky Quest Wi-Fi reconnect must not abort half-done edits.
         if s.turn and not s.turn.done() and s.turn_mode != "code":
@@ -94,6 +99,7 @@ async def _on_text(s: Session, raw: str) -> None:
             h = Hello.model_validate(event.payload)
             s.pet_id, s.project_id = h.pet_id, h.project_id
             log.info("hello client=%s pet=%s project=%s", h.client, h.pet_id, h.project_id)
+            await _open_voice(s, h)
         elif event.type == "agent.ask":
             await _on_ask(s, AgentAsk.model_validate(event.payload))
         elif event.type == "agent.cancel":
@@ -103,10 +109,20 @@ async def _on_text(s: Session, raw: str) -> None:
             start = SttStart.model_validate(event.payload)
             if start.sample_rate != 16000:
                 log.warning("stt.start sample_rate=%s; expected 16000", start.sample_rate)
-            s.stt = await asyncio.to_thread(make_stt, _project_path(s))
+            if s.voice is not None:
+                await _voice_call(s, s.voice.begin_turn)
+            else:
+                s.stt = await asyncio.to_thread(make_stt, _project_path(s))
         elif event.type == "stt.stop":
             SttStop.model_validate(event.payload)
-            await _on_stt_stop(s)
+            if s.voice is not None:
+                await _voice_call(s, s.voice.commit_turn)
+            else:
+                await _on_stt_stop(s)
+        elif event.type == "tts.stop":
+            TtsStopRequest.model_validate(event.payload)
+            if s.voice is not None:
+                await _voice_call(s, s.voice.stop_speech)
         else:
             log.debug("ignoring ws message type %s", event.type)
     except ValidationError as exc:
@@ -125,6 +141,9 @@ async def _on_ask(s: Session, ask: AgentAsk) -> None:
     pet_id = ask.pet_id or s.pet_id
     if not ask.text.strip():
         await s.reply_error("I didn't catch that.", pet_id)
+        return
+    if s.voice is not None and s.voice.is_echo(ask.text):
+        log.info("ignoring agent.ask that repeats the voice transcript (voice answers it)")
         return
     if s.turn and not s.turn.done():
         if s.turn_mode == "code":
@@ -176,8 +195,46 @@ async def _cancel(s: Session, announce: bool = True) -> None:
         await bus.broadcast(ev.pet_state(s.pet_id, "idle"))
 
 
+# ------------------------------------------------------------------ voice
+async def _open_voice(s: Session, h: Hello) -> None:
+    """Create the voice session for VOICE_PROVIDER (once per socket), pre-warm it, announce voice.ready."""
+    if s.voice is not None:
+        return
+    ws = s.ws
+
+    async def send_event(event: Event) -> None:
+        await bus.send(ws, event)
+
+    async def send_bytes(data: bytes) -> None:
+        await bus.send_bytes(ws, data)
+
+    voice = make_voice(pet_id=s.pet_id, client_rate=h.audio_out_rate, send_event=send_event,
+                       send_bytes=send_bytes, emit=Emitter(s.pet_id), repo=_project_path(s))
+    if voice is None:
+        return
+    s.voice = voice
+    await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))
+    s.spawn(_voice_call(s, voice.start))
+
+
+async def _voice_call(s: Session, fn) -> None:
+    """Run a voice-session call; on failure fall back to the stt.py path for this socket."""
+    voice = s.voice
+    try:
+        await fn()
+    except Exception as exc:
+        log.exception("voice session failed")
+        if s.voice is voice and voice is not None:
+            s.voice = None
+            await voice.close()
+            await s.reply_error(f"Voice is offline ({exc}). Push-to-talk still works without it.")
+
+
 # ------------------------------------------------------------------ audio / STT
 async def _on_audio(s: Session, chunk: bytes) -> None:
+    if s.voice is not None:
+        await _voice_call(s, lambda: s.voice.feed(chunk))
+        return
     if s.stt is None:  # tolerate audio without stt.start
         s.stt = await asyncio.to_thread(make_stt, _project_path(s))
     s.stt.feed(chunk)

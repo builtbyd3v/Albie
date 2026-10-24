@@ -49,6 +49,20 @@ class Bus:
             self.remove(ws)
             return False
 
+    async def send_bytes(self, ws: WebSocket, data: bytes) -> bool:
+        """Binary frame to one socket (speech audio is never broadcast), same per-socket lock."""
+        lock = self._sockets.get(ws)
+        if lock is None:
+            return False
+        try:
+            async with lock:
+                await asyncio.wait_for(ws.send_bytes(data), SEND_TIMEOUT_S)
+            return True
+        except Exception as exc:
+            log.info("dropping socket after binary send failure: %s", exc)
+            self.remove(ws)
+            return False
+
     async def broadcast(self, event: Event) -> None:
         log.debug("bus -> %s %s", event.type, event.payload)
         for ws in list(self._sockets):

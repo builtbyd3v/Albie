@@ -5,7 +5,10 @@ Source of truth: docs/PET_AGENT_CONTRACT.md. Every frame is
 
 Hub -> client events come in two flavours:
 * existing contract: ``pet.state``, ``pet.say``
-* proposed (hub/agent): ``stt.*`` and ``agent.*``
+* proposed (hub/agent): ``stt.*``, ``agent.*``, ``tts.*`` and ``voice.ready``
+
+Speech audio (``tts.start`` -> binary PCM16 frames -> ``tts.end``) goes only to the
+socket that owns the voice session, never broadcast (see agent/voice.py).
 
 Every proposed ``agent.*`` event is preceded by a companion ``pet.state``
 (see ``PET_STATE_FOR_EVENT``) so the pet still animates if the proposed events
@@ -43,6 +46,7 @@ class Hello(_Payload):
     client: str = "unity"
     pet_id: str = "bit"
     project_id: str | None = None
+    audio_out_rate: int | None = None  # proposed: the client's output sample rate (voice mode)
 
 
 class AgentAsk(_Payload):
@@ -66,12 +70,17 @@ class SttStop(_Payload):
     pet_id: str | None = None
 
 
+class TtsStopRequest(_Payload):  # client -> hub: stop the current utterance
+    pet_id: str | None = None
+
+
 CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "hello": Hello,
     "agent.ask": AgentAsk,
     "agent.cancel": AgentCancel,
     "stt.start": SttStart,
     "stt.stop": SttStop,
+    "tts.stop": TtsStopRequest,
 }
 
 
@@ -102,6 +111,7 @@ class PetSay(_Payload):
 class SttText(_Payload):  # stt.partial / stt.final
     pet_id: str
     text: str
+    voice: bool | None = None  # stt.final only: true = the voice session answers this turn, don't agent.ask it
 
 
 class AgentThinking(_Payload):
@@ -138,6 +148,31 @@ class AgentError(_Payload):
     message: str
 
 
+class VoiceReady(_Payload):  # hub -> owning socket after hello when VOICE_PROVIDER != none
+    pet_id: str
+    provider: str
+    sample_rate: int
+
+
+class TtsStart(_Payload):
+    pet_id: str
+    utterance_id: str
+    sample_rate: int
+    encoding: Literal["pcm16"] = "pcm16"
+    channels: int = 1
+
+
+class TtsEnd(_Payload):
+    pet_id: str
+    utterance_id: str
+
+
+class TtsStop(_Payload):
+    pet_id: str
+    utterance_id: str
+    reason: Literal["barge_in", "cancel", "error"] = "cancel"
+
+
 HUB_MESSAGES: dict[str, type[_Payload]] = {
     "pet.state": PetState,
     "pet.say": PetSay,
@@ -150,6 +185,15 @@ HUB_MESSAGES: dict[str, type[_Payload]] = {
     "agent.task_progress": TaskProgress,
     "agent.task_complete": TaskComplete,
     "agent.error": AgentError,
+}
+
+# Sent to the voice session's own socket only (bus.send, not the Emitter), so no pet.state companion:
+# the agent.* events that accompany speech already carry it.
+VOICE_MESSAGES: dict[str, type[_Payload]] = {
+    "voice.ready": VoiceReady,
+    "tts.start": TtsStart,
+    "tts.end": TtsEnd,
+    "tts.stop": TtsStop,
 }
 
 # Companion pet.state mode for each proposed event (existing-contract fallback).
@@ -173,7 +217,7 @@ def make(type_: str, payload: _Payload) -> Event:
 
 def parse_payload(event: Event) -> _Payload:
     """Validate an incoming or outgoing event against its payload model."""
-    model = CLIENT_MESSAGES.get(event.type) or HUB_MESSAGES.get(event.type)
+    model = CLIENT_MESSAGES.get(event.type) or HUB_MESSAGES.get(event.type) or VOICE_MESSAGES.get(event.type)
     if model is None:
         raise ValueError(f"unknown event type: {event.type}")
     return model.model_validate(event.payload)
@@ -192,8 +236,8 @@ def stt_partial(pet_id: str, text: str) -> Event:
     return make("stt.partial", SttText(pet_id=pet_id, text=text))
 
 
-def stt_final(pet_id: str, text: str) -> Event:
-    return make("stt.final", SttText(pet_id=pet_id, text=text))
+def stt_final(pet_id: str, text: str, voice: bool | None = None) -> Event:
+    return make("stt.final", SttText(pet_id=pet_id, text=text, voice=voice))
 
 
 def thinking(pet_id: str) -> Event:
@@ -227,3 +271,19 @@ def task_complete(pet_id: str, task_id: str, summary: str, branch: str | None = 
 
 def error(pet_id: str, message: str) -> Event:
     return make("agent.error", AgentError(pet_id=pet_id, message=message))
+
+
+def voice_ready(pet_id: str, provider: str, sample_rate: int) -> Event:
+    return make("voice.ready", VoiceReady(pet_id=pet_id, provider=provider, sample_rate=sample_rate))
+
+
+def tts_start(pet_id: str, utterance_id: str, sample_rate: int) -> Event:
+    return make("tts.start", TtsStart(pet_id=pet_id, utterance_id=utterance_id, sample_rate=sample_rate))
+
+
+def tts_end(pet_id: str, utterance_id: str) -> Event:
+    return make("tts.end", TtsEnd(pet_id=pet_id, utterance_id=utterance_id))
+
+
+def tts_stop(pet_id: str, utterance_id: str, reason: str = "cancel") -> Event:
+    return make("tts.stop", TtsStop(pet_id=pet_id, utterance_id=utterance_id, reason=reason))

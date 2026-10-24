@@ -77,6 +77,8 @@ agent/
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
   stt.py      SpeechToText: NoneSTT, WhisperSTT (faster-whisper, optional)
+  voice.py    VOICE_PROVIDER=grok|fake: one speech-to-speech session per socket (stt.* in, tts.* + PCM out)
+  assets/     fake_voice_24k.pcm (regenerate: scripts/make_fake_voice.py)
   tts.py      TextToSpeech protocol + NullTTS stub
 config/projects.yaml   project_id -> repo path (paths never leave the server)
 tests/agent/           pytest, fake mode, never imports main.py
@@ -120,6 +122,25 @@ Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
 - **auto**: imperative verb first (fix/add/change/make/refactor/...) → code, else qa. No `mode` → the project's `default_mode`.
 - Start the hub from a normal terminal, **not inside a Claude Code session** (inherited `CLAUDECODE` /
   `ANTHROPIC_BASE_URL` make the SDK's CLI subprocess hang). No `--reload` in real mode either.
+
+### Voice (Grok speech-to-speech)
+
+`VOICE_PROVIDER=grok` + `XAI_API_KEY` gives each Unity socket its own Grok Voice session
+(`grok-voice-3.0`, raw websockets). Unity keeps sending what it already sends; the hub answers with speech:
+
+- `hello { audio_out_rate? }` -> `voice.ready { provider, sample_rate }` (owner socket only); the Grok socket is pre-warmed
+- `stt.start` -> barge-in (stop speech) + new turn; binary PCM16 16 kHz -> Grok; `stt.stop` -> commit + `response.create`
+- user transcript -> `stt.partial` / `stt.final { voice: true }` (Unity must not `agent.ask` it; the hub also ignores an echo)
+- speech -> `tts.start { utterance_id, sample_rate, encoding: "pcm16" }` -> binary frames -> `tts.end` (or `tts.stop` on barge-in)
+- spoken text -> `agent.partial_answer` / `agent.answer_done`, so captions work unchanged
+- `tts.stop` from the client stops the current reply
+
+Conversational only for now (no tools, no `delegate`). `VOICE_PROVIDER=fake` speaks a canned reply from
+`agent/assets/fake_voice_24k.pcm` with no key, for Unity testing:
+
+```bash
+VOICE_PROVIDER=fake FAKE_AGENT=1 .venv/bin/python -m agent
+```
 
 ### Test
 
