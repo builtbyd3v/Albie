@@ -4,7 +4,8 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>
-    /// World-space caption bubble above the gator. Creates its own TextMeshPro + dark backing quad
+    /// World-space speech bubble above the gator: rounded pastel-green bubble with a green outline and green text in a
+    /// rounded font (Fredoka, loaded from Resources/PetFonts as a dynamic TMP font). Creates its own TextMeshPro + bubble
     /// if no text is assigned, billboards toward PetUser.Head every LateUpdate, auto-hides final text.
     /// </summary>
     [DisallowMultipleComponent]
@@ -23,13 +24,19 @@ namespace Forge.Pet
         float wrapWidth = 0.6f;
         [SerializeField, Tooltip("TMP font size for a 3D text (0.35 ~ 3.5 cm cap height).")]
         float fontSize = 0.35f;
-        [SerializeField] Color textColor = Color.white;
-        [SerializeField, Tooltip("Draw a semi-transparent quad behind the text (readable on passthrough).")]
+        [SerializeField, Tooltip("Text colour (same green as the outline by default).")]
+        Color bubbleTextColor = new Color(0.13f, 0.48f, 0.24f);
+        [SerializeField, Tooltip("Bubble outline colour.")]
+        Color outlineColor = new Color(0.13f, 0.48f, 0.24f);
+        [SerializeField, Tooltip("Bubble fill colour (pastel green; alpha < 1 lets passthrough show a little).")]
+        Color fillColor = new Color(0.86f, 0.96f, 0.87f, 0.96f);
+        [SerializeField, Tooltip("Font for the bubble. Empty = Fredoka (Resources/PetFonts/Fredoka-Medium) as a dynamic TMP font.")]
+        TMP_FontAsset font;
+        [SerializeField, Tooltip("Draw the rounded bubble behind the text (readable on passthrough).")]
         bool showBackground = true;
-        [SerializeField] Color backgroundColor = new Color(0f, 0f, 0f, 0.6f);
-        [SerializeField, Tooltip("Optional background material. Empty = Sprites/Default tinted with backgroundColor.")]
-        Material backgroundMaterial;
-        [SerializeField, Tooltip("Background padding around the text (m).")]
+        [SerializeField, Tooltip("Bubble corner radius and outline width (m).")]
+        float cornerRadius = 0.02f, outlineWidth = 0.0025f;
+        [SerializeField, Tooltip("Bubble padding around the text (m).")]
         Vector2 padding = new Vector2(0.03f, 0.02f);
 
         [Header("Behaviour")]
@@ -38,8 +45,12 @@ namespace Forge.Pet
         [SerializeField, Range(0f, 1f), Tooltip("Alpha of partial (still-updating) text.")]
         float partialAlpha = 0.7f;
 
+        const string DefaultFontPath = "PetFonts/Fredoka-Medium";
+        const int BubbleTexSize = 64, BubbleRadiusPx = 24;
+        static TMP_FontAsset s_defaultFont;
+
         Transform root;          // the object we position/billboard and show/hide
-        Transform background;
+        SpriteRenderer background;
         float hideAt = -1f;
         bool built;
 
@@ -54,7 +65,7 @@ namespace Forge.Pet
             root.gameObject.SetActive(true);
             text.text = value;
             text.fontStyle = partial ? FontStyles.Italic : FontStyles.Normal;
-            Color c = textColor;
+            Color c = bubbleTextColor;
             c.a *= partial ? partialAlpha : 1f;
             text.color = c;
             hideAt = (!partial && autoHideSeconds > 0f) ? Time.time + autoHideSeconds : -1f;
@@ -92,42 +103,75 @@ namespace Forge.Pet
                 text.overflowMode = TextOverflowModes.Overflow;
                 text.fontSize = fontSize;
                 text.richText = false;                                  // agent text may contain '<'
-                text.color = textColor;
+                text.color = bubbleTextColor;
             }
+            TMP_FontAsset f = font != null ? font : DefaultFont();
+            if (f != null) text.font = f;
             root = text.transform;
 
             if (showBackground) BuildBackground();
             root.gameObject.SetActive(false);
         }
 
+        // Rounded bubble: a small generated texture (fill + outline baked in, from the serialized colours), 9-sliced so
+        // the corners keep their radius at any text size. Built once per caption.
         void BuildBackground()
         {
-            Material mat = backgroundMaterial;
-            if (mat == null)
-            {
-                Shader sh = Shader.Find("Sprites/Default");
-                if (sh == null) return;
-                mat = new Material(sh) { color = backgroundColor, renderQueue = 2990 };  // draw before TMP (3000)
-            }
-            GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            quad.name = "CaptionBackground";
-            DestroyImmediate(quad.GetComponent<Collider>());   // must not block poke/click raycasts
-            var mr = quad.GetComponent<MeshRenderer>();
-            mr.sharedMaterial = mat;
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-            background = quad.transform;
-            background.SetParent(root, false);
+            Shader sh = Shader.Find("Sprites/Default");
+            if (sh == null) return;
+            var go = new GameObject("CaptionBubble");
+            go.transform.SetParent(root, false);
+            background = go.AddComponent<SpriteRenderer>();
+            background.sprite = BuildBubbleSprite();
+            background.drawMode = SpriteDrawMode.Sliced;
+            background.sharedMaterial = new Material(sh) { renderQueue = 2990 };   // draw before TMP (3000)
+            background.sortingOrder = -1;
+            background.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            background.receiveShadows = false;
         }
 
-        // Fit the quad to the rendered text bounds (called only when text changes).
+        Sprite BuildBubbleSprite()
+        {
+            int n = BubbleTexSize, r = BubbleRadiusPx;
+            float ppu = r / Mathf.Max(0.001f, cornerRadius);                  // texture pixels per metre
+            float border = Mathf.Max(1f, outlineWidth * ppu);
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            var px = new Color32[n * n];
+            Color clear = new Color(outlineColor.r, outlineColor.g, outlineColor.b, 0f);
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    // Signed distance (px) to the rounded square's edge; negative inside.
+                    float cx = Mathf.Max(Mathf.Abs(x + 0.5f - n * 0.5f) - (n * 0.5f - r), 0f);
+                    float cy = Mathf.Max(Mathf.Abs(y + 0.5f - n * 0.5f) - (n * 0.5f - r), 0f);
+                    float d = Mathf.Sqrt(cx * cx + cy * cy) - r;
+                    Color c = Color.Lerp(fillColor, outlineColor, Mathf.Clamp01(d + border + 0.5f));   // fill → outline
+                    px[y * n + x] = Color.Lerp(c, clear, Mathf.Clamp01(d + 0.5f));                     // anti-aliased edge
+                }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            return Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), ppu, 0, SpriteMeshType.FullRect, new Vector4(r, r, r, r));
+        }
+
+        // Fit the bubble to the rendered text bounds (called only when text changes).
         void UpdateBackground()
         {
             if (background == null) return;
             text.ForceMeshUpdate();
             Bounds b = text.textBounds;
-            background.localPosition = new Vector3(b.center.x, b.center.y, 0.005f);   // just behind the text
-            background.localScale = new Vector3(b.size.x + padding.x * 2f, b.size.y + padding.y * 2f, 1f);
+            background.transform.localPosition = new Vector3(b.center.x, b.center.y, 0.005f);   // just behind the text
+            float min = 2f * cornerRadius;
+            background.size = new Vector2(Mathf.Max(min, b.size.x + padding.x * 2f), Mathf.Max(min, b.size.y + padding.y * 2f));
+        }
+
+        static TMP_FontAsset DefaultFont()
+        {
+            if (s_defaultFont != null) return s_defaultFont;
+            Font ttf = Resources.Load<Font>(DefaultFontPath);
+            if (ttf == null) { Debug.LogWarning("[GatorCaption] Font Resources/" + DefaultFontPath + " missing; using the TMP default."); return null; }
+            s_defaultFont = TMP_FontAsset.CreateFontAsset(ttf);            // dynamic SDF atlas, glyphs added on demand
+            if (s_defaultFont != null) s_defaultFont.name = "Fredoka-Medium (dynamic)";
+            return s_defaultFont;
         }
 
         void LateUpdate()

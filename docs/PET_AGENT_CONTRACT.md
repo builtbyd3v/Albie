@@ -250,3 +250,23 @@ Bridge mapping additions: `tts.start` → Answering; `tts.end` / `tts.stop` / `v
 Editor: **Forge/Pet/6. Add Whistle To Open Scene** (`Editor/WhistleSetup.cs`) adds Voice + GatorTalkAnimator + GatorSummon to the
 gator and a WhistleButton with Poke/Ray interactables to the open scene (idempotent, doesn't save). Hand/controller presses need
 `OVRComprehensiveInteractionRig` in the scene's camera rig.
+
+## Addendum C (2026-10-23): one socket through ForgeNet, per-table whistles, follow-up, bubble
+
+- **Transport:** Unity talks to the hub only through Core's `ForgeNet` (team rule, PROJECT_CONTEXT §12). `AgentClient` now sits on
+  ForgeNet's `/ws` socket: `ForgeNet.On(type)` per agent event type, `ForgeNet.Send` for JSON, `ForgeNet.SendBinary` for mic audio,
+  `ForgeNet.BinaryReceived` for speech (the Send/SendBinary/BinaryReceived additions are their own PR, `core/forgenet-send`).
+  `hello` is re-sent whenever ForgeNet goes Live. The hub's `/ws` runs the agent session on every socket while the CAD `EventBus`
+  keeps publishing to it; `/ws/agent` remains the agent-only endpoint (same protocol). The hub address is ForgeNet's
+  (`hubUrl` on the ForgeNet object / PlayerPrefs `Forge.HubUrl`); `pet_config.json` `hubUrl` is unused. `pet.state` / `pet.say`
+  published on `/ws` by anyone now reach the gator too.
+- **Delegate:** Grok's only tool. `agent.tool_call { pet_id, call_id, name, args }` (proposed, broadcast, companion `pet.state thinking`);
+  the bridge maps it to Thinking. The runner's answer is spoken with `force_message` and not re-captioned.
+- **Whistles:** `GatorMrukAdapter.whistleTemplate` is cloned onto every MRUK `TABLE` (`WhistleButton.SetTable`); each sits on its table's
+  near-right corner and re-places when the user walks up from another side. Pressing one makes that table the desk (keep-out baked)
+  before `GatorSummon` (subscribed to the static `WhistleButton.AnyPressed`) hops the gator there.
+- **Follow-up:** `GatorFollowUp` keeps listening hands-free 15 s after an answer (`PushToTalk.BeginHandsFree(15)`); no reply →
+  `GatorController.WanderAway()` (back turned, walks to a far wander point, idles). A whistle summon that ends without a question does the same.
+- **Bubble:** `GatorCaption` draws a rounded pastel-green bubble with a green outline and green text in Fredoka
+  (`Resources/PetFonts/Fredoka-Medium.ttf`, OFL, dynamic TMP font).
+- **Cartoon voice:** `StreamedPcmTextToSpeech.pitch` (default 1.2) plays speech higher and faster; hub `GROK_VOICE_SPEED` ≈ 1/pitch keeps the pace.

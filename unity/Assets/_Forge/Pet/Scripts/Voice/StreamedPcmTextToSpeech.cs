@@ -12,6 +12,10 @@ namespace Forge.Pet
     /// thread drains it, outputting silence on underrun. Playback starts after prebufferSeconds of audio (or at
     /// tts.end for very short replies) and SpeechEnded fires once the ring has drained after tts.end.
     ///
+    /// Cartoon pitch: playback runs pitch× faster than the stream (resampling raises pitch and formants together, the
+    /// classic cartoon-voice trick). Grok has no pitch control, so set GROK_VOICE_SPEED ≈ 1/pitch on the hub to keep
+    /// the tempo natural; the pre-buffer absorbs the faster drain.
+    ///
     /// Spatial trick: the AudioSource loops a constant 1.0 "carrier" clip and the filter multiplies it by our
     /// samples, so Unity's 3D panning/attenuation applies whether it runs before or after the filter.
     ///
@@ -27,8 +31,10 @@ namespace Forge.Pet
         AgentClient client;
         [SerializeField, Tooltip("Ring buffer length (s). The hub can stream faster than real time, so keep a whole reply.")]
         float ringSeconds = 30f;
-        [SerializeField, Tooltip("Audio buffered before playback starts (s): absorbs network jitter.")]
-        float prebufferSeconds = 0.12f;
+        [SerializeField, Tooltip("Audio buffered before playback starts (s): absorbs network jitter and the pitch-up drain.")]
+        float prebufferSeconds = 0.2f;
+        [SerializeField, Range(0.75f, 1.6f), Tooltip("Cartoon pitch: >1 = higher (and faster). Pair with GROK_VOICE_SPEED ≈ 1/pitch.")]
+        float pitch = 1.2f;
         [SerializeField, Range(0f, 1f), Tooltip("0 = 2D, 1 = fully 3D from this object.")]
         float spatialBlend = 1f;
         [SerializeField, Range(0f, 2f)]
@@ -66,6 +72,7 @@ namespace Forge.Pet
 
         // producer-side resampler
         int _inRate;
+        bool _pitched;
         double _step, _t;
         float _prev;
         bool _havePrev;
@@ -173,7 +180,7 @@ namespace Forge.Pet
             for (int i = 0; i < n; i++)
             {
                 float x = (short)(data[2 * i] | (data[2 * i + 1] << 8)) / 32768f;
-                if (_inRate == _outRate) { Put(ref w, r, x); continue; }
+                if (_inRate == _outRate && !_pitched) { Put(ref w, r, x); continue; }
                 if (!_havePrev) { _prev = x; _havePrev = true; continue; }
                 while (_t <= 1.0)
                 {
@@ -201,7 +208,8 @@ namespace Forge.Pet
         {
             if (rate <= 0) rate = _outRate;
             _inRate = rate;
-            _step = (double)rate / _outRate;   // input samples per output sample
+            _step = (double)rate * Mathf.Clamp(pitch, 0.5f, 2f) / _outRate;   // input samples per output sample
+            _pitched = !Mathf.Approximately(pitch, 1f);
             _t = 0.0;
             _havePrev = false;
         }

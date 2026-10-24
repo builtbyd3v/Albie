@@ -15,6 +15,7 @@ namespace Forge.Pet
     [Serializable]
     public class PetConfig
     {
+        // Unused since AgentClient rides on ForgeNet: set the hub address on the ForgeNet object (or PlayerPrefs Forge.HubUrl).
         public string hubUrl = "ws://127.0.0.1:8000/ws/agent";
         public string petId = "bit";
         public string projectId = "gatorhack";
