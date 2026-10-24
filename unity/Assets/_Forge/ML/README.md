@@ -10,8 +10,9 @@ click buttons, scroll the mistakes gallery, and scroll or drag over the dataset
 stack. Hover the stack to scrub with a gamepad left stick or XR right controller
 thumbstick. The inherited ForgePanel ray/poke canvas handles XR interaction.
 Desktop camera mode is the default. To test through the standalone Meta XR
-Simulator, select **Forge > ML > Use OpenXR Simulator**, then restart Play mode;
-the menu toggle is session-only. Saved XR settings are unchanged.
+Simulator, activate it (Window > Meta > Meta XR Simulator > Activate), select
+**Forge > ML > Use OpenXR Simulator**, then restart Play mode; the toggle is
+remembered per machine. Saved XR settings are unchanged.
 
 - **DataStack:** atlas-backed GPU-instanced quads, fanning around the scrub position.
   Click a card or select Inspect to open a larger metadata card to its right. It
@@ -98,9 +99,17 @@ These are module-local DTOs and events, not a replacement for Core ForgeEvents.
 Keep networking in the Core/hub adapter and call the view methods on Unity's main
 thread. The local fixture groups REST-shaped records into one file for replay.
 
-- `MLSession` consumes Core's `ml.run_state`, `ml.metrics`, `ml.overfit_alert`,
-  and `ml.sample_updated` events automatically after ForgeNet reaches Live. It
-  remains mock-first until then; set `useLiveEvents = false` to force replay.
+- `MLSession` is mock-first. When ForgeNet reaches Live it loads the hub's
+  classes, dataset, atlas, graph and the latest finished run's results and
+  confusion (`LoadFromHub`), raises `Reloaded` (panels rebind the atlas, Model3D
+  rebuilds), and reloads on `ml.results_ready` / `ml.graph_ready`. It follows
+  `ml.run_state`, `ml.metrics`, `ml.overfit_alert`, `ml.sample_updated` and
+  `ml.epoch_preds` (live dot wall: each epoch's predictions recolor the dots;
+  grey = not predicted yet). Set `useLiveEvents = false` to force replay.
+- Live Relabel / Remove POST `/ml/samples/{id}/relabel|remove`; the hub's
+  `ml.sample_updated` echo applies them, so they persist in `labels_override.json`.
+- VizCard swaps its mock cards for `GET /ml/viz` when Live, refetches on
+  `ml.results_ready`, takes single `ml.viz` cards, and downloads image cards' PNGs.
 - `MLSession.ApplyMetrics(MLMetrics)` also remains available for direct adapters.
 - `SetRunState(status, totalEpochs)` controls completion.
 - `ApplySampleUpdate(id, label_idx, removed)` applies acknowledged sample edits.
@@ -118,10 +127,15 @@ reload. `MLWorkspaceBridge` assigns Resources prefabs to Workspace's ML mode bef
 it starts and rebuilds that mode when a layout event arrives. The prefab builder
 creates the runtime-loadable Resources copies.
 
-Live dataset/atlas fetching, Core WS
-subscriptions, and persistent edits are future adapter work. The mock atlas has
-metadata-driven UVs; a live loader must supply the same atlas metadata and
-ID mapping together with the texture.
+Both mock and hub atlases use metadata-driven UVs (`/ml/atlas` supplies the same
+cell/cols/index mapping as the mock). Hub data is not saved into the scene;
+exiting Play returns to the mocks.
+
+**XR:** the sandbox has Main's rig (OVRCameraRig with passthrough + Interaction SDK
+hands/controllers, floor collider). `MLSandboxRig` uses it when an XR runtime is
+running and the desktop camera otherwise. **Forge > ML > Use OpenXR Simulator** is
+remembered per machine; also activate the simulator (Window > Meta > Meta XR
+Simulator > Activate). `MLSandboxBuilder.BuildScene()` rebuilds only the scene.
 
 ## Verification checklist
 

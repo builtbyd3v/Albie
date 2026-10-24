@@ -6,8 +6,8 @@ using UnityEditor;
 
 namespace Forge.ML
 {
-    // Desktop-only sandbox: replace the in-memory settings instance before XR's
-    // AfterAssembliesLoaded initializer. The saved XR settings asset is untouched.
+    // Desktop sandbox unless Forge > ML > Use OpenXR Simulator is on (remembered per machine): replace the
+    // in-memory settings instance before XR's AfterAssembliesLoaded initializer. The saved XR settings asset is untouched.
     public static class MLDesktopSandbox
     {
         const string SmokeKey = "Forge.ML.Smoke";
@@ -18,8 +18,8 @@ namespace Forge.ML
         [MenuItem(SimulatorMenu)]
         static void ToggleSimulator()
         {
-            bool enabled = !SessionState.GetBool(SimulatorKey, false);
-            SessionState.SetBool(SimulatorKey, enabled);
+            bool enabled = !EditorPrefs.GetBool(SimulatorKey, false);
+            EditorPrefs.SetBool(SimulatorKey, enabled);
             Menu.SetChecked(SimulatorMenu, enabled);
             Debug.Log(enabled
                 ? "[ML] OpenXR Simulator enabled for MLSandbox. Restart Play mode to connect."
@@ -29,7 +29,7 @@ namespace Forge.ML
         [MenuItem(SimulatorMenu, true)]
         static bool ValidateSimulatorMenu()
         {
-            Menu.SetChecked(SimulatorMenu, SessionState.GetBool(SimulatorKey, false));
+            Menu.SetChecked(SimulatorMenu, EditorPrefs.GetBool(SimulatorKey, false));
             return true;
         }
 
@@ -37,7 +37,7 @@ namespace Forge.ML
         static void SkipXRForSandbox()
         {
             if (SceneManager.GetActiveScene().path != "Assets/_Forge/ML/MLSandbox.unity") return;
-            if (!SessionState.GetBool(SmokeKey, false) && SessionState.GetBool(SimulatorKey, false)) return;
+            if (!SessionState.GetBool(SmokeKey, false) && EditorPrefs.GetBool(SimulatorKey, false)) return;
             var settings = XRGeneralSettings.Instance;
             if (settings == null) return;
             original = settings;

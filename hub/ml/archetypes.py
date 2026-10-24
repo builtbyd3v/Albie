@@ -24,7 +24,7 @@ ARCHETYPES: dict[str, dict] = {
     "generic": {
         "title": "ML project",
         "panels": ["ml-model3d", "ml-training", "ml-viz"],
-        "viz_ids": [],
+        "viz_ids": ["final_metrics"],
     },
 }
 

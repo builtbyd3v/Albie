@@ -62,7 +62,7 @@ def main() -> None:
         val_loss, val_acc = run_epoch(model, val_loader, None, device)
         print(f"epoch {epoch}/{args.epochs}  train {train_loss:.3f} / {train_acc:.3f}  val {val_loss:.3f} / {val_acc:.3f}")
         forge.log(epoch=epoch, train_loss=train_loss, train_acc=train_acc, val_loss=val_loss,  # forge
-                  val_acc=val_acc, lr=opt.param_groups[0]["lr"])  # forge
+                  val_acc=val_acc, lr=opt.param_groups[0]["lr"], model=model)  # forge
         if val_acc > best_acc:
             best_acc = val_acc
             CHECKPOINT.parent.mkdir(exist_ok=True)

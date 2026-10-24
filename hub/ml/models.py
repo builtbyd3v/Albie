@@ -113,6 +113,41 @@ class Confusion(BaseModel):
     matrix: list[list[int]]
 
 
+class VizSeries(BaseModel):
+    name: str
+    y: list[float]
+
+
+class VizPoint(BaseModel):
+    x: float
+    y: float
+    id: str | None = None
+    color_idx: int | None = None
+
+
+class VizCard(BaseModel):
+    """One chart card (ML_PLAN 7.6); Unity's VizCard prefab draws every kind. Keep each under ~50 KB."""
+    viz_id: str
+    run_id: str | None = None
+    title: str
+    subtitle: str | None = None
+    panel: Literal["ml-viz", "ml-training"] = "ml-viz"
+    kind: Literal["line", "bar", "heatmap", "scatter", "table", "image", "text"]
+    x: list[str | float] | None = None
+    series: list[VizSeries] | None = None
+    cells: list[list[float]] | None = None
+    x_labels: list[str] | None = None
+    y_labels: list[str] | None = None
+    points: list[VizPoint] | None = None
+    x_label: str | None = None
+    y_label: str | None = None
+    columns: list[str] | None = None
+    rows: list[list[str | float]] | None = None
+    png_url: str | None = None
+    alt: str | None = None
+    text: str | None = None
+
+
 class RelabelRequest(BaseModel):
     label_idx: int
 

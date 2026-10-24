@@ -48,7 +48,15 @@ namespace Forge.ML
             label = MLUI.Text(preview, "", 8, 165, 265, 24, 15);
             metadata = MLUI.Text(preview, "", 8, 192, 265, 88, 12);
             MLUI.Button(preview, "Put back  (X / B)", 8, 270, 145, 26, PutBack); preview.gameObject.SetActive(false);
-            session.SamplesChanged += Refresh; Refresh();
+            session.SamplesChanged += Refresh; session.Reloaded += OnReloaded; Refresh();
+        }
+        void OnReloaded()
+        {
+            material.mainTexture = session.Atlas; image.texture = session.Atlas;
+            int last = session.Data.samples.Length - 1;
+            target = Mathf.Clamp(target, 0, last); position = Mathf.Clamp(position, 0, last); focus = Mathf.Clamp(focus, 0, last);
+            if (selected > last) { selected = -1; preview.gameObject.SetActive(false); }
+            else if (selected >= 0) image.uvRect = session.UV(selected);
         }
         public void Scrub(float delta) { if (session != null) target = Mathf.Clamp(target + delta, 0, session.Data.samples.Length - 1); }
         void Refresh()
@@ -62,8 +70,8 @@ namespace Forge.ML
                 int pred = Mathf.Clamp(picked.pred_idx, 0, session.Data.classes.Length - 1);
                 float confidence = picked.probs != null && pred < picked.probs.Length ? picked.probs[pred] : 0;
                 label.text = string.IsNullOrEmpty(picked.name) ? picked.id : picked.name;
-                string path = string.IsNullOrEmpty(picked.path) ? "Not supplied by mock" : picked.path;
-                string bytes = picked.file_size > 0 ? $"{picked.file_size:N0} bytes" : "Not supplied by mock";
+                string path = string.IsNullOrEmpty(picked.path) ? "Not available" : picked.path;
+                string bytes = picked.file_size > 0 ? $"{picked.file_size:N0} bytes" : "Not available";
                 metadata.text = $"Path: {path}\nClass: {session.Data.classes[picked.label_idx]} · {picked.split ?? "val"}\nImage: {picked.width} × {picked.height} · {picked.channels} channels\nFile size: {bytes}\nPrediction: {session.Data.classes[pred]} · {confidence:P1}";
             }
         }

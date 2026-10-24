@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 
 from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchRequest, ProjectRequest,
                      RelabelRequest, ReplayRequest, RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest,
-                     TrainResponse, TypeRequest)
+                     TrainResponse, TypeRequest, VizCard)
 from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
@@ -101,6 +101,17 @@ def get_confusion(run_id: str, request: Request) -> Confusion:
 def get_summary(run_id: str, request: Request) -> Summary:
     """Proposed: results panel data (accuracy, per-class, confused pairs, confident mistakes)."""
     return _call(_svc(request).run_file, run_id, "summary.json")
+
+
+@router.get("/viz")
+def get_viz(request: Request, run_id: str | None = None) -> list[VizCard]:
+    """Chart cards for a run (default: the latest with results). ML_PLAN 7.6."""
+    return _call(_svc(request).viz, run_id)
+
+
+@router.get("/viz/{run_id}/{viz_id}.png")
+def get_viz_png(run_id: str, viz_id: str, request: Request) -> FileResponse:
+    return FileResponse(_call(_svc(request).viz_png, run_id, viz_id), media_type="image/png")
 
 
 async def _publish_sample(request: Request, update: dict) -> SampleUpdated:

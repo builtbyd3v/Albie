@@ -21,7 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .archetypes import layout
+from .archetypes import ARCHETYPES, layout
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -238,6 +238,92 @@ class MLService:
             if pred and "pred_idx" in pred:
                 detail.update(pred_idx=pred["pred_idx"], probs=pred["probs"])
         return detail
+
+    # --- chart cards (ML_PLAN 7.6): this archetype's viz_ids from the run files, plus runs/<id>/viz/*.png ---
+    def viz(self, run_id: str | None = None) -> list[dict]:
+        if run_id is None:
+            latest = self.latest_run("summary.json")
+            if latest is None:
+                return []
+            run_id = latest.name
+        run = self.run_dir(run_id)
+        summary = _read_json(run / "summary.json") if (run / "summary.json").exists() else {}
+        archetype = summary.get("archetype") or self.profile().get("archetype") or "generic"
+        wanted = list(ARCHETYPES.get(archetype, ARCHETYPES["generic"])["viz_ids"])
+        wanted += [v["viz_id"] for v in self.profile().get("extra_viz", []) if v.get("viz_id") not in wanted]
+        cards = []
+        for viz_id in wanted:
+            build = getattr(self, f"_viz_{viz_id}", None)
+            card = build(run, summary) if build else None
+            if card:
+                cards.append({"viz_id": viz_id, "run_id": run_id, "panel": "ml-viz", **card})
+        pngs = sorted((run / "viz").glob("*.png")) if (run / "viz").is_dir() else []
+        for png in pngs:
+            if SAFE_ID.match(png.stem) and png.stem not in {c["viz_id"] for c in cards}:
+                cards.append({"viz_id": png.stem, "run_id": run_id, "panel": "ml-viz", "kind": "image",
+                              "title": png.stem.replace("_", " ").capitalize(), "png_url": f"/ml/viz/{run_id}/{png.stem}.png",
+                              "alt": png.stem.replace("_", " ")})
+        return cards
+
+    def viz_png(self, run_id: str, viz_id: str) -> Path:
+        path = self.run_dir(run_id) / "viz" / f"{safe_id(viz_id, 'viz id')}.png"
+        if not path.exists():
+            raise NotFound(f"run {run_id} has no chart {viz_id!r}")
+        return path
+
+    def _viz_per_class_accuracy(self, run: Path, summary: dict) -> dict | None:
+        per_class = summary.get("per_class") or []
+        if not per_class:
+            return None
+        return {"title": "Accuracy per class", "subtitle": f"overall {summary.get('accuracy', 0):.1%}", "kind": "bar",
+                "x": [c["name"] for c in per_class], "series": [{"name": "accuracy", "y": [c["accuracy"] for c in per_class]}]}
+
+    def _viz_confusion_matrix(self, run: Path, summary: dict) -> dict | None:
+        if not (run / "confusion.json").exists():
+            return None
+        confusion = _read_json(run / "confusion.json")
+        return {"title": "Confusion matrix", "subtitle": "rows: true, columns: predicted", "kind": "heatmap",
+                "cells": confusion["matrix"], "x_labels": confusion["labels"], "y_labels": confusion["labels"]}
+
+    def _regression_samples(self, run: Path) -> list[dict]:
+        if not (run / "results.json").exists():
+            return []
+        return [s for s in _read_json(run / "results.json").get("samples", []) if "y_pred" in s]
+
+    def _viz_pred_vs_actual(self, run: Path, summary: dict) -> dict | None:
+        samples = self._regression_samples(run)[:1000]
+        if not samples:
+            return None
+        r2 = summary.get("r2")
+        return {"title": "Predicted vs actual", "subtitle": f"R² {r2:.3f}" if r2 is not None else None, "kind": "scatter",
+                "points": [{"x": s["y_true"], "y": s["y_pred"], "id": s["id"]} for s in samples],
+                "x_label": "actual", "y_label": "predicted"}
+
+    def _viz_residual_hist(self, run: Path, summary: dict) -> dict | None:
+        residuals = [s.get("residual", s["y_pred"] - s["y_true"]) for s in self._regression_samples(run)]
+        if not residuals:
+            return None
+        lo, hi, bins = min(residuals), max(residuals), 12
+        width = (hi - lo) / bins or 1.0
+        counts = [0] * bins
+        for r in residuals:
+            counts[min(bins - 1, int((r - lo) / width))] += 1
+        mae = summary.get("mae")
+        return {"title": "Residuals", "subtitle": f"MAE {mae:.3g}" if mae is not None else None, "kind": "bar",
+                "x": [f"{lo + (i + .5) * width:.3g}" for i in range(bins)], "series": [{"name": "count", "y": counts}]}
+
+    def _viz_feature_importance(self, run: Path, summary: dict) -> dict | None:
+        features = summary.get("feature_importance") or []  # [{name, value}] when the eval runner provides it
+        if not features:
+            return None
+        features = sorted(features, key=lambda f: abs(f["value"]), reverse=True)[:12]
+        return {"title": "Feature importance", "kind": "bar", "x": [f["name"] for f in features],
+                "series": [{"name": "importance", "y": [f["value"] for f in features]}]}
+
+    def _viz_final_metrics(self, run: Path, summary: dict) -> dict | None:
+        rows = [[k.replace("_", " "), round(v, 4) if isinstance(v, float) else v] for k, v in summary.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        return {"title": "Final metrics", "kind": "table", "columns": ["metric", "value"], "rows": rows} if rows else None
 
     # --- relabel / remove -> .forge/labels_override.json (applied by the repo's data code) -------
     def overrides(self) -> tuple[dict[str, int], set[str]]:

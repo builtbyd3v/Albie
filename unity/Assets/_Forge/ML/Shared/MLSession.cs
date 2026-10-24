@@ -15,9 +15,10 @@ namespace Forge.ML
     [Serializable] public class MLLayer { public string name, type; public int[] in_shape, out_shape; public int @params; }
     [Serializable] public class MLMetrics { public string run_id; public int epoch, step; public float train_loss, train_acc, val_loss, val_acc, lr; }
     [Serializable] public class MLFixture { public string[] classes; public MLSample[] samples; public MLLayer[] layers; public MLMetrics[] metrics; [NonSerialized] public int[][] confusion; }
+    public class MLRunInfo { public string run_id, status; public int? epochs; }
 
-    // Local presentation state. A hub adapter can replace replay by calling ApplyMetrics,
-    // ApplySampleUpdate and SetRunState on the Unity main thread; these are not Core events.
+    // Local presentation state. Starts on the generated mocks; once ForgeNet is Live it loads the hub's dataset,
+    // atlas, graph and latest results (LoadFromHub) and follows Core's ml.* events.
     public class MLSession : MonoBehaviour
     {
         public TextAsset mock;
@@ -36,7 +37,12 @@ namespace Forge.ML
         public string OverfitReason { get; private set; }
         public string RunStatus { get; private set; } = "idle";
         public bool UsesGeneratedMocks => timeline != null;
+        public bool IsLive => useLiveEvents && ForgeNet.Status == ForgeNetStatus.Live;
+        public bool HubData { get; private set; }
+        public string RunId { get; private set; }
         public event Action Changed;
+        // Data and Atlas were replaced from the hub: rebind textures, rebuild anything built from Data at Start.
+        public event Action Reloaded;
         public event Action SamplesChanged;
         public event Action<MLMetrics> Metrics;
         public event Action<int, int> PairSelected;
@@ -47,7 +53,9 @@ namespace Forge.ML
         MLReplayEvent[] timeline;
         int[] atlasCells;
         int nextEvent;
-        bool ownsAtlas;
+        bool ownsAtlas, loading, reloadQueued;
+        string atlasUrl;
+        IDisposable epochPreds;
         public const int AtlasColumns = 8;
 
         public static MLSession Resolve(MLSession assigned)
@@ -65,15 +73,23 @@ namespace Forge.ML
             ForgeEvents.OnMlMetrics += OnLiveMetrics;
             ForgeEvents.OnMlOverfitAlert += OnLiveOverfit;
             ForgeEvents.OnMlSampleUpdated += OnLiveSampleUpdated;
+            ForgeEvents.OnMlResultsReady += OnLiveResultsReady;
+            ForgeEvents.OnMlGraphReady += OnLiveGraphReady;
             ForgeNet.StatusChanged += OnNetStatus;
+            // ML_PLAN 7.5 live dot wall; not a Core ForgeEvents type, so subscribed by name.
+            epochPreds = ForgeNet.On("ml.epoch_preds", OnLiveEpochPreds);
         }
+        void Start() { if (IsLive) OnNetStatus(ForgeNetStatus.Live); }
         void OnDisable()
         {
             ForgeEvents.OnMlRunState -= OnLiveRunState;
             ForgeEvents.OnMlMetrics -= OnLiveMetrics;
             ForgeEvents.OnMlOverfitAlert -= OnLiveOverfit;
             ForgeEvents.OnMlSampleUpdated -= OnLiveSampleUpdated;
+            ForgeEvents.OnMlResultsReady -= OnLiveResultsReady;
+            ForgeEvents.OnMlGraphReady -= OnLiveGraphReady;
             ForgeNet.StatusChanged -= OnNetStatus;
+            epochPreds?.Dispose(); epochPreds = null;
         }
         public void EnsureLoaded()
         {
@@ -129,7 +145,7 @@ namespace Forge.ML
             if (metricIndex >= Data.metrics.Length) Array.Resize(ref Data.metrics, metricIndex + 1);
             EpochIndex = metricIndex;
             Data.metrics[EpochIndex] = tick;
-            if (EpochIndex >= 2)
+            if (EpochIndex >= 2 && Data.metrics[EpochIndex - 2] != null && Data.metrics[EpochIndex - 1] != null)
             {
                 var a = Data.metrics[EpochIndex - 2]; var b = Data.metrics[EpochIndex - 1];
                 Overfit |= tick.val_loss > b.val_loss && b.val_loss > a.val_loss && tick.train_loss < b.train_loss && b.train_loss < a.train_loss;
@@ -142,13 +158,16 @@ namespace Forge.ML
         }
         public void Restart() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
+        // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
         public void Relabel(MLSample sample, int label)
         {
+            if (HubData && IsLive) { ForgeNet.Post($"/ml/samples/{sample.id}/relabel", new { label_idx = label }, null, e => Debug.LogWarning("[ML] Relabel failed: " + e)); return; }
             if (!replay) { RelabelRequested?.Invoke(sample.id, label); return; }
             ApplySampleUpdate(sample.id, label, false);
         }
         public void Remove(MLSample sample)
         {
+            if (HubData && IsLive) { ForgeNet.Post($"/ml/samples/{sample.id}/remove", null, null, e => Debug.LogWarning("[ML] Remove failed: " + e)); return; }
             if (!replay) { RemoveRequested?.Invoke(sample.id); return; }
             ApplySampleUpdate(sample.id, sample.true_idx, true);
         }
@@ -189,12 +208,110 @@ namespace Forge.ML
         }
         void OnNetStatus(ForgeNetStatus status)
         {
-            if (useLiveEvents && status == ForgeNetStatus.Live) replay = false;
+            if (!useLiveEvents || status != ForgeNetStatus.Live) return;
+            replay = false; LoadFromHub(null);
         }
         void OnLiveRunState(global::MlRunState state)
         {
-            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || state == null) return;
-            replay = false; SetRunState(state.status, state.totalEpochs);
+            if (!IsLive || state == null) return;
+            replay = false;
+            bool newRun = !string.IsNullOrEmpty(state.runId) && state.runId != RunId;
+            if (newRun || (state.status == "training" && state.epoch <= 0))
+            {
+                // A new run, or a replay of the current one: start the curves over.
+                if (newRun) RunId = state.runId;
+                Data.metrics = new MLMetrics[0]; EpochIndex = -1; Done = Overfit = false; OverfitReason = null;
+            }
+            SetRunState(state.status, state.totalEpochs);
+        }
+        // ml.epoch_preds {run_id, epoch, pred_idx[]} in /ml/dataset order: red dots turn green as it learns.
+        // Probabilities arrive only with the final results, so the stale ones are dropped until then.
+        void OnLiveEpochPreds(Newtonsoft.Json.Linq.JToken payload)
+        {
+            if (!IsLive || !HubData || payload == null || !(payload["pred_idx"] is Newtonsoft.Json.Linq.JArray preds)) return;
+            int n = Mathf.Min(preds.Count, Data.samples.Length);
+            for (int i = 0; i < n; i++)
+            {
+                var s = Data.samples[i];
+                s.pred_idx = (int)preds[i]; s.probs = null; s.correct = s.pred_idx == s.true_idx;
+            }
+            SamplesChanged?.Invoke(); Changed?.Invoke();
+        }
+        void OnLiveResultsReady(global::MlResultsReady ready) { if (IsLive && ready != null) LoadFromHub(ready.runId); }
+        void OnLiveGraphReady(global::MlGraphReady _) { if (IsLive) LoadFromHub(RunId); }
+
+        // Fetches the hub's classes, dataset, atlas, graph and the results of runId (or the latest finished run),
+        // then swaps them in. On any failure the current data stays.
+        public void LoadFromHub(string runId)
+        {
+            if (loading) { reloadQueued = true; return; }
+            StartCoroutine(LoadRoutine(runId));
+        }
+        System.Collections.IEnumerator LoadRoutine(string runId)
+        {
+            loading = true;
+            string error = null;
+            Action<string> fail = e => error ??= e;
+            string[] classes = null; MLDatasetEntry[] entries = null; MLAtlasMetadata meta = null; MLGraph graph = null;
+            MLRunInfo[] runs = null; MLResults results = null; MLConfusion confusion = null; byte[] png = null;
+            yield return ForgeNet.Get<string[]>("/ml/classes", v => classes = v, fail);
+            yield return ForgeNet.Get<MLDatasetEntry[]>("/ml/dataset?split=val", v => entries = v, fail);
+            yield return ForgeNet.Get<MLAtlasMetadata>("/ml/atlas?split=val", v => meta = v, fail);
+            yield return ForgeNet.Get<MLGraph>("/ml/graph", v => graph = v, _ => { });  // optional: keep the current model
+            if (string.IsNullOrEmpty(runId))
+            {
+                yield return ForgeNet.Get<MLRunInfo[]>("/ml/runs", v => runs = v, _ => { });
+                if (runs != null) foreach (var run in runs) if (run.status == "done") { runId = run.run_id; break; }
+            }
+            if (!string.IsNullOrEmpty(runId))
+            {
+                yield return ForgeNet.Get<MLResults>($"/ml/results/{runId}", v => results = v, _ => { });
+                yield return ForgeNet.Get<MLConfusion>($"/ml/confusion/{runId}", v => confusion = v, _ => { });
+            }
+            if (error == null && meta != null && meta.atlas_url != atlasUrl) yield return ForgeNet.GetBytes(meta.atlas_url, v => png = v, fail);
+            loading = false;
+            if (error != null || classes == null || entries == null || meta == null || entries.Length == 0)
+                Debug.LogWarning("[ML] Hub data unavailable, keeping the current data: " + (error ?? "empty dataset"));
+            else ApplyHubData(classes, entries, meta, graph, runId, results, confusion, png);
+            if (reloadQueued) { reloadQueued = false; LoadFromHub(RunId); }
+        }
+        void ApplyHubData(string[] classes, MLDatasetEntry[] entries, MLAtlasMetadata meta, MLGraph graph, string runId,
+                          MLResults results, MLConfusion confusion, byte[] png)
+        {
+            if (png != null)
+            {
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "Hub image atlas", filterMode = FilterMode.Point };
+                if (!texture.LoadImage(png, true)) { Destroy(texture); Debug.LogWarning("[ML] Hub atlas is not a valid PNG."); return; }
+                if (ownsAtlas && Atlas != null) Destroy(Atlas);
+                Atlas = texture; ownsAtlas = true; atlasUrl = meta.atlas_url;
+            }
+            var byId = new System.Collections.Generic.Dictionary<string, MLSample>();
+            if (results?.samples != null) foreach (var s in results.samples) byId[s.id] = s;
+            var samples = new MLSample[entries.Length]; var cells = new int[entries.Length];
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var entry = entries[i];
+                // No results yet: the sample shows as its own label with no prediction.
+                var sample = byId.TryGetValue(entry.id, out var r) ? r : new MLSample { id = entry.id, true_idx = entry.label_idx, pred_idx = -1 };
+                sample.label_idx = sample.true_idx = entry.label_idx;
+                sample.removed = entry.removed;
+                sample.correct = sample.pred_idx == entry.label_idx;
+                sample.name = string.IsNullOrEmpty(entry.name) ? entry.id : entry.name;
+                sample.path = entry.path; sample.split = string.IsNullOrEmpty(entry.split) ? "val" : entry.split;
+                sample.width = entry.width > 0 ? entry.width : 32; sample.height = entry.height > 0 ? entry.height : 32;
+                sample.channels = entry.channels > 0 ? entry.channels : 3; sample.file_size = entry.file_size;
+                samples[i] = sample; cells[i] = meta.index != null && meta.index.TryGetValue(entry.id, out int cell) ? cell : 0;
+            }
+            if (runId != RunId) { RunId = runId; Data.metrics = new MLMetrics[0]; EpochIndex = -1; Overfit = false; OverfitReason = null; }
+            Data = new MLFixture
+            {
+                classes = classes, samples = samples, layers = graph?.layers ?? Data.layers, metrics = Data.metrics,
+                confusion = confusion?.matrix ?? Data.confusion
+            };
+            atlasMetadata = meta; atlasCells = cells; timeline = null; HubData = true;
+            if (results != null) { Done = true; RunStatus = "done"; }
+            Debug.Log($"[ML] Loaded {samples.Length} samples from the hub" + (runId != null ? $", results of run {runId}" : ", no results yet"));
+            Reloaded?.Invoke(); SamplesChanged?.Invoke(); Changed?.Invoke();
         }
         void OnLiveMetrics(global::MlMetrics tick)
         {

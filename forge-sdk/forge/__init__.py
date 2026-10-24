@@ -3,8 +3,11 @@
     import forge
     forge.watch(model, val_dataset, classes=CLASSES)
     for epoch ...:
-        forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=...)
+        forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=..., model=model)
     forge.evaluate(model, val_loader)
+
+`model=model` on `log` adds the live visuals (ML_PLAN 8): one no_grad pass over the watched val samples
+per epoch, sent as ml.epoch_preds so the dot wall fills in while it trains. Leave it off for curves only.
 
 Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `<run dir>/<run_id>/`:
 the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
@@ -39,6 +42,8 @@ class _Run:
     alerted: bool = False
     best_epoch: int | None = None
     best_val_acc: float | None = None
+    val_data: Any = None    # the dataset given to watch, for the live per-epoch predictions
+    n_samples: int = 1000   # how many of them the atlas (and so the dot wall) holds
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
@@ -108,12 +113,14 @@ def watch(
         return None
     run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
     run.classes = [str(c) for c in classes]
+    run.val_data = val_dataset
     _attempt("classes", lambda: run.write_json("classes.json", run.classes))
 
     def save_atlas() -> None:
         from forge import atlas
 
         image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
+        run.n_samples = len(items)
         image.save(run.dir / "atlas.png")
         run.write_json("atlas.json", atlas_meta)
         run.write_json("dataset.json", items)
@@ -139,12 +146,14 @@ def log(
     val_acc: float | None = None,
     lr: float | None = None,
     step: int = 0,
+    model: Any = None,
     **extra: float,
 ) -> None:
     """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting.
 
     Any metric can be left out (None). Other numeric metrics (e.g. val_sharpe=1.2) go in `extra`, so a
     script without loss/accuracy still logs what it has, and no keyword ever raises into training.
+    With `model` (and a `watch` earlier in the run) it also sends ml.epoch_preds for the live dot wall.
     """
 
     def send() -> None:
@@ -161,8 +170,22 @@ def log(
             run.best_epoch, run.best_val_acc = metrics["epoch"], metrics["val_acc"]
         if metrics["train_loss"] is not None and metrics["val_loss"] is not None:
             _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+        if model is not None and run.val_data is not None:
+            _attempt("live predictions", lambda: _send_epoch_preds(run, model, metrics["epoch"]))
 
     _attempt("log", send)
+
+
+def _send_epoch_preds(run: _Run, model: Any, epoch: int) -> None:
+    """ml.epoch_preds {run_id, epoch, pred_idx}: the predicted class of each watched val sample, in
+    /ml/dataset order (ML_PLAN 7.5, live dot wall). Eval mode and no_grad, like evaluate."""
+    from torch.utils.data import Subset
+
+    data = run.val_data
+    if len(data) > run.n_samples:
+        data = Subset(data, range(run.n_samples))
+    _, _, probs = _predict_all(model, data)
+    run.emit("ml.epoch_preds", {"run_id": run.run_id, "epoch": epoch, "pred_idx": probs.argmax(axis=1).tolist()})
 
 
 def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) -> None:
