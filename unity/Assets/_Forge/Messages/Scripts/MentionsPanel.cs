@@ -5,7 +5,7 @@ using UnityEngine;
 
 /// <summary>
 /// "Mentions & notifications" (MentionsPanel.prefab: a ForgePanel variant, panel id <c>messages-mentions</c>, slot Left
-/// of the MSG mode): unread messages across conversations as <see cref="MessageCard"/>s, newest first, capped at
+/// of the MSG mode): unread DMs and mentions across conversations as <see cref="MessageCard"/>s, newest first, capped at
 /// <see cref="MaxRows"/> with a "+N more" line. Rows come from <see cref="SlackStore"/>: the conversations with unread
 /// counts (notify.channels) and the recent messages known for them (history, notify.message, the digest); a conversation
 /// with unread but no known messages shows its last line. Tapping a row opens that conversation in its provider panel
@@ -136,7 +136,9 @@ public class MentionsPanel : MonoBehaviour
         }
     }
 
-    // Unread DMs, channel notifications and mentions, newest first; conversations without loaded rows use their last line.
+    // Unread DMs and mentions, newest first: for each conversation with unread, its newest known messages (as many as
+    // are unread) that are DMs or mention the user; none known -> one row with the conversation's last line. Group
+    // chats and channels without a mention stay out, so a busy inbox doesn't flood the panel.
     void Collect()
     {
         var channels = SlackStore.Channels;
@@ -145,6 +147,7 @@ public class MentionsPanel : MonoBehaviour
             var ch = channels[c];
             if (ch.unread <= 0) continue;
             bool dm = SlackText.IsDmKind(ch.kind);
+            if (!dm && ch.mentions <= 0) continue;
             int found = 0;
             var recent = SlackStore.Recent;
             for (int i = 0; i < recent.Count && found < ch.unread; i++)
@@ -152,7 +155,7 @@ public class MentionsPanel : MonoBehaviour
                 var m = recent[i];
                 if (m.channel != ch.id || m.isMe) continue;
                 found++;
-                InsertNewestFirst(m);
+                if (dm || m.mentionsMe) InsertNewestFirst(m);
             }
             if (found == 0 && !string.IsNullOrEmpty(ch.lastTs)) InsertNewestFirst(Stub(ch));
         }

@@ -64,6 +64,11 @@ class IMessageService:
                     self.last_rowid = max(self.last_rowid, int(row["rowid"]))
                 row = db.execute("SELECT COALESCE(MAX(ROWID), 0) FROM message").fetchone()
                 self.last_rowid = max(self.last_rowid, int(row[0] or 0))
+            # First time the hub sees a chat, its backlog counts as read: otherwise 30 days of texts land as unread.
+            # Chats with a seen mark keep it, so texts that arrived while the hub was off still show as new.
+            for channel in self.store.channels():
+                if channel.startswith("im:") and channel not in self.store.seen:
+                    self.store.mark_seen(channel)
             self.available, self.status, self.error = True, "available", None
             if self.channels_changed is not None:
                 self.channels_changed()
@@ -118,19 +123,29 @@ class IMessageService:
 
     async def history(self, channel: str, limit: int = 50, before: str | None = None
                       ) -> tuple[str, str, str, list[SlackMessage], bool]:
+        """The newest `limit` messages of one chat. No paging into older texts: `before` returns nothing, has_more is
+        always False (so the panel shows no "Load earlier")."""
         guid = await self.resolve_channel(channel)
         with closing(connect(self.settings.db_path)) as db:
             chat = db.execute("SELECT display_name, chat_identifier, style FROM chat WHERE guid = ? LIMIT 1", (guid,)).fetchone()
-            fetched = rows(db, limit=1000, chat_guid=guid)
+            fetched = [] if before else rows(db, limit=limit, chat_guid=guid)
         if chat is None:
             raise LookupError(f"No iMessage conversation {channel!r}")
-        chat_name = self.chat_names.get(guid) or str(chat[0] or chat[1] or channel)
         messages = [self._message(row) for row in reversed(fetched)]
         for message in messages:
             self.store.add(message)
-        messages = [m for m in messages if not before or _ts(m.ts) < _ts(before)]
-        has_more = len(messages) > limit
-        return f"im:{guid}", chat_name, "dm" if int(chat[2] or 0) == 45 else "group-dm", messages[-limit:], has_more
+        return f"im:{guid}", self._chat_label(guid, chat), "dm" if int(chat[2] or 0) == 45 else "group-dm", messages, False
+
+    def _chat_label(self, guid: str, chat: Any) -> str:
+        return self.chat_names.get(guid) or str(chat[0] or chat[1] or f"im:{guid}")
+
+    def chat_name(self, guid: str) -> str:
+        """A chat's display name without reading its messages (drafts need only the name)."""
+        with closing(connect(self.settings.db_path)) as db:
+            chat = db.execute("SELECT display_name, chat_identifier FROM chat WHERE guid = ? LIMIT 1", (guid,)).fetchone()
+        if chat is None:
+            raise LookupError(f"No iMessage conversation im:{guid}")
+        return self._chat_label(guid, chat)
 
     async def resolve_channel(self, value: str | None) -> str:
         if not value:
@@ -167,7 +182,7 @@ class IMessageService:
         if reply_to is not None and channel is None:
             channel = reply_to.channel
         guid = await self.resolve_channel(channel)
-        _, name, _, _, _ = await self.history(f"im:{guid}", 1)
+        name = self.chat_name(guid)
         await self._clear_draft("superseded")
         draft = Draft(draft_id=f"im-{uuid.uuid4().hex[:8]}", channel=f"im:{guid}", channel_name=name,
                       text=text, thread_ts=None, reply_to=reply_to, source="imessage")
@@ -187,7 +202,7 @@ class IMessageService:
             update["text"] = text
         if changes.get("channel"):
             guid = await self.resolve_channel(str(changes["channel"]))
-            _, name, _, _, _ = await self.history(f"im:{guid}", 1)
+            name = self.chat_name(guid)
             update.update(channel=f"im:{guid}", channel_name=name, thread_ts=None)
         if self.open_draft is not draft:
             raise DraftError(f"Draft {draft_id} closed while updating")

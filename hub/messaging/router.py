@@ -270,10 +270,15 @@ async def focus(req: FocusRequest, request: Request, svc: SlackService = Depends
         if imessage is None or not imessage.available:
             raise HTTPException(503, "iMessage is unavailable on this Mac")
         msg = await imessage.focus(req.channel, req.ts, req.pet_id)
+        if msg is not None:
+            svc.focused = None  # one message in focus across both providers
     else:
         msg = await svc.focus(req.channel, req.ts, req.pet_id)
+        imessage = getattr(request.app.state, "imessage", None)
+        if msg is not None and imessage is not None:
+            imessage.focused = None
     if msg is None:
-        raise HTTPException(404, f"No message {req.ts} in {req.channel} (only the last 200 per conversation are kept)")
+        raise HTTPException(404, f"No message {req.ts} in {req.channel} (only the last 500 per conversation are kept)")
     return msg
 
 

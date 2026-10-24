@@ -63,11 +63,15 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
         async def messages_focus(session, payload):
             channel = str(payload.get("channel") or "")
+            # One message in focus across both providers: a bare "reply to that" answers the last one tapped.
             if channel.startswith("im:") and imessage is not None:
-                await imessage.focus(channel, str(payload.get("ts") or ""),
-                                     str(payload.get("pet_id") or getattr(session, "pet_id", "bit")))
+                if await imessage.focus(channel, str(payload.get("ts") or ""),
+                                        str(payload.get("pet_id") or getattr(session, "pet_id", "bit"))):
+                    slack.focused = None
             else:
                 await slack.focus_from_ws(session, payload)
+                if imessage is not None and slack.focused is not None and slack.focused.channel == channel:
+                    imessage.focused = None
 
         agent_ws.client_handlers["messages.focus"] = messages_focus  # reply flow from either provider
         agent_tools.register(messaging_tools.TOOLS,
