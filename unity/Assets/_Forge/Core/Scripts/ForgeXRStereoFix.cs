@@ -13,7 +13,8 @@ using UnityEngine.Rendering.Universal;
 /// from the light quads and models, drift as the head moves, and are missing from the right eye.
 /// For each single-pass XR camera this binds a constant buffer named UnityStereoGlobals with URP's per-eye matrices,
 /// right after the camera setup; a globally bound buffer of that name takes the engine's place. Installs itself in
-/// every scene; desktop and multi-pass cameras are untouched.
+/// every scene; desktop and multi-pass cameras are untouched. Keep OpenXR late latching off (it is): only URP's own
+/// arrays get late-latched, so this copy would lag the head a frame behind them.
 /// </summary>
 public static class ForgeXRStereoFix
 {
@@ -35,6 +36,15 @@ public static class ForgeXRStereoFix
     static Matrix4x4[] p, v, invV, vp, cameraP, cameraInvP;
     static Vector4[] cameraPos;
 
+    // This project enters Play mode without a domain reload, so statics outlive a session, while SRP core makes new
+    // per-eye arrays for every session: find them again each time, or the UI draws from the last session's head pose.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics()
+    {
+        p = null;
+        Enabled = true;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Install()
     {
@@ -50,10 +60,13 @@ public static class ForgeXRStereoFix
         if (data != null && data.scriptableRenderer != null) data.scriptableRenderer.EnqueuePass(pass);
     }
 
+    static FieldInfo projField;
+
     static bool FindUrpArrays()
     {
         T Field<T>(string name) where T : class =>
             typeof(XRBuiltinShaderConstants).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null) as T;
+        projField = typeof(XRBuiltinShaderConstants).GetField("s_projMatrix", BindingFlags.NonPublic | BindingFlags.Static);
         p = Field<Matrix4x4[]>("s_projMatrix");
         v = Field<Matrix4x4[]>("s_viewMatrix");
         invV = Field<Matrix4x4[]>("s_invViewMatrix");
@@ -69,7 +82,8 @@ public static class ForgeXRStereoFix
 
     static void Restore(UnsafeCommandBuffer cmd)
     {
-        if (p == null && !FindUrpArrays()) return;
+        // Still URP's live arrays? (It replaces them when a Play session starts.)
+        if ((p == null || !ReferenceEquals(projField.GetValue(null), p)) && !FindUrpArrays()) return;
         var flipZ = Matrix4x4.Scale(new Vector3(1f, 1f, -1f));  // unity_WorldToCamera's handedness, as the engine sets it
         globals.p0 = p[0]; globals.p1 = p[1];
         globals.v0 = v[0]; globals.v1 = v[1];

@@ -7,6 +7,17 @@
 
 ## 0. Status (update this as you go)
 
+**2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
+- **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).
+- **Done: polish.**
+  - The dock's hover comet runs around the rim, and the hub status shows in words beside the corner light.
+  - Modes unfold out of the ring you pressed, on springs, and fold back into it. Flat / Curve / Reset spring into place.
+  - Panels stay out of the room's walls (`RoomFit`, from MRUK).
+  - The panel badge is legible. The frame lights up when pointed at and lifts while held.
+  - Placeholder panels and volumes show proper empty states.
+  - Volumes show a hint line (`ForgeVolume.SetHint` / `SetCaption`; `Title` is never rewritten).
+  - The desktop hint toast fades.
+
 **2026-10-23, Hudson (Core):**
 - **Done:** Unity project pushed in `unity/` (6000.6.7f1, Meta XR SDK 207.0.1, OpenXR 1.18.0, all Meta setup fixes applied). Teammates: clone and open it, see 6.1; no SDK setup needed.
 - **Done:** `Assets/_Forge/Core/Main.unity`: passthrough camera rig + Interaction SDK hands/controllers (ray + poke) + MRUK room. Floor-level tracking origin.
