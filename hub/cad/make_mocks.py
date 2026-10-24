@@ -4,7 +4,7 @@
 
 parts.json is GET /cad/parts. Per state <part>/vN/: model.glb, metadata.json, analysis.json, params.json
 (GET /cad/params), model_updated.json (the /ws message), drawing.png (GET /cad/drawing.png; changed parts in
-orange) and, for the rocket, flight.json (GET /cad/flight).
+orange) and, for the rocket, flight.json (GET /cad/flight); for the humanoid, motion.json (GET /cad/motion).
 Version numbers run on across designs, as on the hub. Plus regen_failed.json.
 Copy the folder to Assets/_Forge/Mocks/cad/ (see the CAD README).
 """
@@ -38,6 +38,12 @@ STATES = {
     "gearbox": [("baseline", {}, "Defaults"),
                 ("high_reduction", {"pinion_teeth": 12, "gear_teeth": 72}, "High reduction"),
                 ("heavy_duty", {"module": 2.5, "face_width": 18, "shaft_diameter": 12}, "Heavy duty")],
+    # Green, then a squat so deep the ankles run out of range and it tips back (red), arms forward to balance it
+    # (green), then 5 kg held with the forearms out: the wrists work at 90% (amber). Four states: ~4.8 MB GLB each.
+    "humanoid": [("baseline", {}, "Defaults"),
+                 ("deep_squat", {"squat": 150}, "Squat down as low as you can"),
+                 ("arms_forward", {"squat": 130, "arms_forward": 70, "elbow": 10}, "Reach your arms forward"),
+                 ("carry", {"squat": 0, "arms_forward": 0, "elbow": 80, "grip": 100, "carry": 5}, "Carry 5 kg")],
 }
 
 
@@ -66,6 +72,10 @@ def main(out: Path) -> None:
                 flight = run_job({"op": "flight", "script": script, "params": params, "out_dir": str(vdir)})
                 if not flight["ok"]:
                     raise SystemExit(f"{part} {name} flight: {flight['error']}")
+            if "motion" in result["features"]:
+                motion = run_job({"op": "motion", "script": script, "params": params, "out_dir": str(vdir)})
+                if not motion["ok"]:
+                    raise SystemExit(f"{part} {name} motion: {motion['error']}")
             changed = removed = []
             if previous:
                 changed = [i for i, f in result["fingerprints"].items() if previous.get(i) != f]

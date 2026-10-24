@@ -1,0 +1,1014 @@
+{
+ "source": {
+  "repo": "https://github.com/unitreerobotics/unitree_ros",
+  "commit": "15ebe53f4cd77e7d745ae83b9d7ff90e685e8998",
+  "folder": "robots/g1_description",
+  "urdf": "g1_29dof_with_hand_rev_1_0.urdf",
+  "colours": "g1_29dof_with_hand_rev_1_0.xml",
+  "license": "BSD-3-Clause"
+ },
+ "units": "mm, each link's own frame (URDF visual origin applied)",
+ "dropped": [
+  "logo_link"
+ ],
+ "crease_deg": 32.0,
+ "triangles": {
+  "source": 624548,
+  "display": 204906,
+  "outline": 83037
+ },
+ "links": {
+  "pelvis": {
+   "name": "pelvis",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "pelvis",
+     "area_mm2": 80047.3,
+     "tris": 6577,
+     "outline_tris": 1572,
+     "source_tris": 21218,
+     "share": 1.0
+    }
+   ]
+  },
+  "pelvis_contour_link": {
+   "name": "pelvis_cover",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "pelvis_cover",
+     "area_mm2": 39595.3,
+     "tris": 3880,
+     "outline_tris": 3728,
+     "source_tris": 17302,
+     "share": 0.50294
+    },
+    {
+     "key": "pelvis_cover_2",
+     "area_mm2": 39133.1,
+     "tris": 4872,
+     "outline_tris": 4872,
+     "source_tris": 18800,
+     "share": 0.49706
+    }
+   ]
+  },
+  "left_hip_pitch_link": {
+   "name": "left_hip_pitch_motor",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "left_hip_pitch_motor",
+     "area_mm2": 36870.6,
+     "tris": 2084,
+     "outline_tris": 878,
+     "source_tris": 2084,
+     "share": 0.6968
+    },
+    {
+     "key": "left_hip_pitch_motor_2",
+     "area_mm2": 16043.9,
+     "tris": 1548,
+     "outline_tris": 470,
+     "source_tris": 1548,
+     "share": 0.3032
+    }
+   ]
+  },
+  "left_hip_roll_link": {
+   "name": "left_hip_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_hip_roll_motor",
+     "area_mm2": 64591.4,
+     "tris": 2876,
+     "outline_tris": 1338,
+     "source_tris": 2876,
+     "share": 0.83128
+    },
+    {
+     "key": "left_hip_roll_motor_2",
+     "area_mm2": 13109.4,
+     "tris": 966,
+     "outline_tris": 404,
+     "source_tris": 966,
+     "share": 0.16872
+    }
+   ]
+  },
+  "left_hip_yaw_link": {
+   "name": "left_thigh",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_thigh",
+     "area_mm2": 74640.4,
+     "tris": 3766,
+     "outline_tris": 1490,
+     "source_tris": 3766,
+     "share": 0.54751
+    },
+    {
+     "key": "left_thigh_2",
+     "area_mm2": 28560.4,
+     "tris": 1174,
+     "outline_tris": 724,
+     "source_tris": 1174,
+     "share": 0.2095
+    },
+    {
+     "key": "left_thigh_3",
+     "area_mm2": 11159.6,
+     "tris": 310,
+     "outline_tris": 310,
+     "source_tris": 310,
+     "share": 0.08186
+    },
+    {
+     "key": "left_thigh_4",
+     "area_mm2": 11076.7,
+     "tris": 280,
+     "outline_tris": 280,
+     "source_tris": 280,
+     "share": 0.08125
+    },
+    {
+     "key": "left_thigh_5",
+     "area_mm2": 10888.8,
+     "tris": 406,
+     "outline_tris": 352,
+     "source_tris": 406,
+     "share": 0.07987
+    }
+   ]
+  },
+  "left_knee_link": {
+   "name": "left_shin",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_shin",
+     "area_mm2": 118174.1,
+     "tris": 8810,
+     "outline_tris": 2104,
+     "source_tris": 11476,
+     "share": 0.67396
+    },
+    {
+     "key": "left_shin_2",
+     "area_mm2": 30617.6,
+     "tris": 2704,
+     "outline_tris": 764,
+     "source_tris": 2704,
+     "share": 0.17462
+    },
+    {
+     "key": "left_shin_3",
+     "area_mm2": 16422.8,
+     "tris": 1364,
+     "outline_tris": 478,
+     "source_tris": 1364,
+     "share": 0.09366
+    },
+    {
+     "key": "left_shin_4",
+     "area_mm2": 10128.0,
+     "tris": 1394,
+     "outline_tris": 500,
+     "source_tris": 1552,
+     "share": 0.05776
+    }
+   ]
+  },
+  "left_ankle_pitch_link": {
+   "name": "left_ankle",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_ankle",
+     "area_mm2": 3951.2,
+     "tris": 687,
+     "outline_tris": 164,
+     "source_tris": 1424,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_ankle_roll_link": {
+   "name": "left_foot",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "left_foot",
+     "area_mm2": 35325.5,
+     "tris": 3562,
+     "outline_tris": 850,
+     "source_tris": 4442,
+     "share": 0.38718
+    },
+    {
+     "key": "left_foot_2",
+     "area_mm2": 28664.9,
+     "tris": 1654,
+     "outline_tris": 726,
+     "source_tris": 1654,
+     "share": 0.31418
+    },
+    {
+     "key": "left_foot_3",
+     "area_mm2": 27247.5,
+     "tris": 2930,
+     "outline_tris": 700,
+     "source_tris": 6978,
+     "share": 0.29864
+    }
+   ]
+  },
+  "right_hip_pitch_link": {
+   "name": "right_hip_pitch_motor",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "right_hip_pitch_motor",
+     "area_mm2": 36870.2,
+     "tris": 2082,
+     "outline_tris": 878,
+     "source_tris": 2082,
+     "share": 0.6968
+    },
+    {
+     "key": "right_hip_pitch_motor_2",
+     "area_mm2": 16043.6,
+     "tris": 1542,
+     "outline_tris": 470,
+     "source_tris": 1542,
+     "share": 0.3032
+    }
+   ]
+  },
+  "right_hip_roll_link": {
+   "name": "right_hip_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_hip_roll_motor",
+     "area_mm2": 64590.8,
+     "tris": 2880,
+     "outline_tris": 1338,
+     "source_tris": 2880,
+     "share": 0.83128
+    },
+    {
+     "key": "right_hip_roll_motor_2",
+     "area_mm2": 13109.4,
+     "tris": 972,
+     "outline_tris": 404,
+     "source_tris": 972,
+     "share": 0.16872
+    }
+   ]
+  },
+  "right_hip_yaw_link": {
+   "name": "right_thigh",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_thigh",
+     "area_mm2": 74639.8,
+     "tris": 3772,
+     "outline_tris": 1490,
+     "source_tris": 3772,
+     "share": 0.54751
+    },
+    {
+     "key": "right_thigh_2",
+     "area_mm2": 28560.4,
+     "tris": 1174,
+     "outline_tris": 724,
+     "source_tris": 1174,
+     "share": 0.2095
+    },
+    {
+     "key": "right_thigh_3",
+     "area_mm2": 11159.6,
+     "tris": 310,
+     "outline_tris": 310,
+     "source_tris": 310,
+     "share": 0.08186
+    },
+    {
+     "key": "right_thigh_4",
+     "area_mm2": 11076.8,
+     "tris": 280,
+     "outline_tris": 280,
+     "source_tris": 280,
+     "share": 0.08125
+    },
+    {
+     "key": "right_thigh_5",
+     "area_mm2": 10888.3,
+     "tris": 400,
+     "outline_tris": 352,
+     "source_tris": 400,
+     "share": 0.07987
+    }
+   ]
+  },
+  "right_knee_link": {
+   "name": "right_shin",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_shin",
+     "area_mm2": 118172.9,
+     "tris": 8810,
+     "outline_tris": 2104,
+     "source_tris": 11428,
+     "share": 0.67395
+    },
+    {
+     "key": "right_shin_2",
+     "area_mm2": 30619.2,
+     "tris": 2710,
+     "outline_tris": 762,
+     "source_tris": 2710,
+     "share": 0.17462
+    },
+    {
+     "key": "right_shin_3",
+     "area_mm2": 16422.8,
+     "tris": 1364,
+     "outline_tris": 478,
+     "source_tris": 1364,
+     "share": 0.09366
+    },
+    {
+     "key": "right_shin_4",
+     "area_mm2": 10128.1,
+     "tris": 1394,
+     "outline_tris": 524,
+     "source_tris": 1542,
+     "share": 0.05776
+    }
+   ]
+  },
+  "right_ankle_pitch_link": {
+   "name": "right_ankle",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_ankle",
+     "area_mm2": 3951.2,
+     "tris": 687,
+     "outline_tris": 164,
+     "source_tris": 1424,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_ankle_roll_link": {
+   "name": "right_foot",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "right_foot",
+     "area_mm2": 35323.3,
+     "tris": 3560,
+     "outline_tris": 850,
+     "source_tris": 4442,
+     "share": 0.38715
+    },
+    {
+     "key": "right_foot_2",
+     "area_mm2": 28668.3,
+     "tris": 1660,
+     "outline_tris": 726,
+     "source_tris": 1660,
+     "share": 0.31421
+    },
+    {
+     "key": "right_foot_3",
+     "area_mm2": 27247.9,
+     "tris": 2930,
+     "outline_tris": 700,
+     "source_tris": 6980,
+     "share": 0.29864
+    }
+   ]
+  },
+  "waist_yaw_link": {
+   "name": "waist_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "waist_motor",
+     "area_mm2": 16278.8,
+     "tris": 1992,
+     "outline_tris": 476,
+     "source_tris": 3146,
+     "share": 0.3172
+    },
+    {
+     "key": "waist_motor_2",
+     "area_mm2": 14643.5,
+     "tris": 1840,
+     "outline_tris": 438,
+     "source_tris": 3322,
+     "share": 0.28534
+    },
+    {
+     "key": "waist_motor_3",
+     "area_mm2": 8868.6,
+     "tris": 1262,
+     "outline_tris": 300,
+     "source_tris": 2592,
+     "share": 0.17281
+    },
+    {
+     "key": "waist_motor_4",
+     "area_mm2": 8868.6,
+     "tris": 1263,
+     "outline_tris": 300,
+     "source_tris": 2592,
+     "share": 0.17281
+    },
+    {
+     "key": "waist_motor_5",
+     "area_mm2": 2660.1,
+     "tris": 512,
+     "outline_tris": 122,
+     "source_tris": 752,
+     "share": 0.05183
+    }
+   ]
+  },
+  "waist_roll_link": {
+   "name": "waist_bracket",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "waist_bracket",
+     "area_mm2": 3079.4,
+     "tris": 570,
+     "outline_tris": 134,
+     "source_tris": 1716,
+     "share": 1.0
+    }
+   ]
+  },
+  "torso_link": {
+   "name": "torso",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "torso",
+     "area_mm2": 440488.0,
+     "tris": 23636,
+     "outline_tris": 5647,
+     "source_tris": 35818,
+     "share": 0.58507
+    },
+    {
+     "key": "torso_2",
+     "area_mm2": 123724.8,
+     "tris": 4192,
+     "outline_tris": 2178,
+     "source_tris": 4192,
+     "share": 0.16433
+    },
+    {
+     "key": "torso_3",
+     "area_mm2": 119541.4,
+     "tris": 3778,
+     "outline_tris": 2122,
+     "source_tris": 3778,
+     "share": 0.15878
+    },
+    {
+     "key": "torso_4",
+     "area_mm2": 69129.6,
+     "tris": 5892,
+     "outline_tris": 1408,
+     "source_tris": 7622,
+     "share": 0.09182
+    }
+   ]
+  },
+  "head_link": {
+   "name": "head",
+   "tone": "dark",
+   "pieces": [
+    {
+     "key": "head",
+     "area_mm2": 98794.9,
+     "tris": 7702,
+     "outline_tris": 1840,
+     "source_tris": 18654,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_shoulder_pitch_link": {
+   "name": "left_shoulder",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_shoulder",
+     "area_mm2": 25204.7,
+     "tris": 2764,
+     "outline_tris": 660,
+     "source_tris": 3536,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_shoulder_roll_link": {
+   "name": "left_shoulder_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_shoulder_roll_motor",
+     "area_mm2": 49256.2,
+     "tris": 4570,
+     "outline_tris": 1090,
+     "source_tris": 8004,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_shoulder_yaw_link": {
+   "name": "left_upper_arm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_upper_arm",
+     "area_mm2": 33058.4,
+     "tris": 1602,
+     "outline_tris": 808,
+     "source_tris": 1602,
+     "share": 0.50059
+    },
+    {
+     "key": "left_upper_arm_2",
+     "area_mm2": 24317.3,
+     "tris": 1432,
+     "outline_tris": 642,
+     "source_tris": 1432,
+     "share": 0.36823
+    },
+    {
+     "key": "left_upper_arm_3",
+     "area_mm2": 8662.7,
+     "tris": 1240,
+     "outline_tris": 296,
+     "source_tris": 1952,
+     "share": 0.13118
+    }
+   ]
+  },
+  "left_elbow_link": {
+   "name": "left_forearm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_forearm",
+     "area_mm2": 26654.3,
+     "tris": 1780,
+     "outline_tris": 688,
+     "source_tris": 1780,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_wrist_roll_link": {
+   "name": "left_wrist_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_wrist_roll_motor",
+     "area_mm2": 16381.0,
+     "tris": 2000,
+     "outline_tris": 478,
+     "source_tris": 7122,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_wrist_pitch_link": {
+   "name": "left_wrist_pitch_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_wrist_pitch_motor",
+     "area_mm2": 20433.0,
+     "tris": 1718,
+     "outline_tris": 564,
+     "source_tris": 1718,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_wrist_yaw_link": {
+   "name": "left_wrist",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_wrist",
+     "area_mm2": 16123.1,
+     "tris": 1976,
+     "outline_tris": 472,
+     "source_tris": 6372,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_palm_link": {
+   "name": "left_palm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_palm",
+     "area_mm2": 43599.7,
+     "tris": 5466,
+     "outline_tris": 5466,
+     "source_tris": 42802,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_thumb_0_link": {
+   "name": "left_thumb_base",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_thumb_base",
+     "area_mm2": 2966.7,
+     "tris": 176,
+     "outline_tris": 132,
+     "source_tris": 176,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_thumb_1_link": {
+   "name": "left_thumb",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_thumb",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_thumb_2_link": {
+   "name": "left_thumb_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_thumb_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "left_thumb_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  },
+  "left_hand_middle_0_link": {
+   "name": "left_middle_finger",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_middle_finger",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_middle_1_link": {
+   "name": "left_middle_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_middle_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "left_middle_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  },
+  "left_hand_index_0_link": {
+   "name": "left_index_finger",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_index_finger",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "left_hand_index_1_link": {
+   "name": "left_index_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "left_index_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "left_index_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  },
+  "right_shoulder_pitch_link": {
+   "name": "right_shoulder",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_shoulder",
+     "area_mm2": 25204.6,
+     "tris": 2764,
+     "outline_tris": 660,
+     "source_tris": 3536,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_shoulder_roll_link": {
+   "name": "right_shoulder_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_shoulder_roll_motor",
+     "area_mm2": 49256.5,
+     "tris": 4570,
+     "outline_tris": 1092,
+     "source_tris": 8036,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_shoulder_yaw_link": {
+   "name": "right_upper_arm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_upper_arm",
+     "area_mm2": 33058.2,
+     "tris": 1600,
+     "outline_tris": 808,
+     "source_tris": 1600,
+     "share": 0.50059
+    },
+    {
+     "key": "right_upper_arm_2",
+     "area_mm2": 24317.0,
+     "tris": 1432,
+     "outline_tris": 642,
+     "source_tris": 1432,
+     "share": 0.36823
+    },
+    {
+     "key": "right_upper_arm_3",
+     "area_mm2": 8662.7,
+     "tris": 1240,
+     "outline_tris": 294,
+     "source_tris": 1970,
+     "share": 0.13118
+    }
+   ]
+  },
+  "right_elbow_link": {
+   "name": "right_forearm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_forearm",
+     "area_mm2": 26642.5,
+     "tris": 1774,
+     "outline_tris": 688,
+     "source_tris": 1774,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_wrist_roll_link": {
+   "name": "right_wrist_roll_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_wrist_roll_motor",
+     "area_mm2": 16380.9,
+     "tris": 2000,
+     "outline_tris": 476,
+     "source_tris": 7120,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_wrist_pitch_link": {
+   "name": "right_wrist_pitch_motor",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_wrist_pitch_motor",
+     "area_mm2": 20432.8,
+     "tris": 1590,
+     "outline_tris": 562,
+     "source_tris": 1590,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_wrist_yaw_link": {
+   "name": "right_wrist",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_wrist",
+     "area_mm2": 16124.5,
+     "tris": 1976,
+     "outline_tris": 470,
+     "source_tris": 6834,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_palm_link": {
+   "name": "right_palm",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_palm",
+     "area_mm2": 43599.7,
+     "tris": 5542,
+     "outline_tris": 5542,
+     "source_tris": 42802,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_thumb_0_link": {
+   "name": "right_thumb_base",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_thumb_base",
+     "area_mm2": 2966.7,
+     "tris": 176,
+     "outline_tris": 132,
+     "source_tris": 176,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_thumb_1_link": {
+   "name": "right_thumb",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_thumb",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_thumb_2_link": {
+   "name": "right_thumb_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_thumb_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "right_thumb_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  },
+  "right_hand_middle_0_link": {
+   "name": "right_middle_finger",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_middle_finger",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_middle_1_link": {
+   "name": "right_middle_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_middle_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "right_middle_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  },
+  "right_hand_index_0_link": {
+   "name": "right_index_finger",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_index_finger",
+     "area_mm2": 6489.8,
+     "tris": 998,
+     "outline_tris": 586,
+     "source_tris": 9518,
+     "share": 1.0
+    }
+   ]
+  },
+  "right_hand_index_1_link": {
+   "name": "right_index_tip",
+   "tone": "light",
+   "pieces": [
+    {
+     "key": "right_index_tip",
+     "area_mm2": 4217.9,
+     "tris": 722,
+     "outline_tris": 408,
+     "source_tris": 7888,
+     "share": 0.62948
+    },
+    {
+     "key": "right_index_tip_2",
+     "area_mm2": 2482.7,
+     "tris": 698,
+     "outline_tris": 698,
+     "source_tris": 22546,
+     "share": 0.37052
+    }
+   ]
+  }
+ }
+}
