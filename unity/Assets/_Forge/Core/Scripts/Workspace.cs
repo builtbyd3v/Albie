@@ -47,6 +47,7 @@ public class WorkspaceMode
 /// mode for the session, so reopening a mode puts things back; <see cref="ResetLayout"/> forgets it.
 /// Pet / voice: call <see cref="Open"/>, <see cref="Toggle"/> or <see cref="Close"/> with a mode id; <see cref="Current"/>
 /// is the scene's workspace and <see cref="TryGetItemTransform"/> finds an open panel or volume by item id.
+/// <see cref="HoldDock"/> keeps the dock hidden through the pet's first-arrival greeting (it shows on release).
 /// </summary>
 public class Workspace : MonoBehaviour
 {
@@ -110,6 +111,9 @@ public class Workspace : MonoBehaviour
     /// <summary>The scene's workspace (one per scene), for modules that would otherwise FindAnyObjectByType.</summary>
     public static Workspace Current { get; private set; }
 
+    /// <summary>While held, arriving at the desk doesn't show the dock (<see cref="Open"/> still works). Cleared on Away.</summary>
+    public bool DockHeld { get; private set; }
+
     void Reset() => modes = DefaultModes();
 
     void Awake() => Current = this;
@@ -138,10 +142,11 @@ public class Workspace : MonoBehaviour
     {
         if (state == DeskState.Away)
         {
+            DockHeld = false;
             Close();
             dock.Hide();
         }
-        else if (!dock.IsShown)
+        else if (!dock.IsShown && !DockHeld)
         {
             dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
         }
@@ -151,6 +156,17 @@ public class Workspace : MonoBehaviour
     void OnFrameChanged()
     {
         if (dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
+    }
+
+    /// <summary>
+    /// Hold the dock back (the pet's greeting owns the arrival until START) or let it go: releasing while at the desk
+    /// shows it right away, coming in as <paramref name="entrance"/>.
+    /// </summary>
+    public void HoldDock(bool hold, DockEntrance entrance = DockEntrance.Pop)
+    {
+        if (DockHeld == hold) return;
+        DockHeld = hold;
+        if (!hold && presence.AtDesk && !dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth, entrance);
     }
 
     public void Toggle(string modeId)
