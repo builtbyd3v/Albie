@@ -3,8 +3,38 @@
 > Single source of truth for the hackathon. Every human and every coding agent reads this first.
 > "Forge" (project) and "Bit" (pet) are placeholder names. Rename freely.
 > v2: switched to Unity + Meta XR SDK. Laptop-first until the Quest 3 arrives.
+> v3 (2026-10-24): messaging switched from WhatsApp Cloud API to Slack (Bolt for Python, Socket Mode). No tunnel, no allowlist, no 24-hour window. Section 10 (team split) is stale; the real split lives in chat.
 
 ## 0. Status (update this as you go)
+
+**2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
+- **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).
+- **Done: polish.**
+  - The dock's hover comet runs around the rim, and the hub status shows in words beside the corner light.
+  - Modes unfold out of the ring you pressed, on springs, and fold back into it. Flat / Curve / Reset spring into place.
+  - Panels stay out of the room's walls (`RoomFit`, from MRUK).
+  - The panel badge is legible. The frame lights up when pointed at and lifts while held.
+  - Placeholder panels and volumes show proper empty states.
+  - Volumes show a hint line (`ForgeVolume.SetHint` / `SetCaption`; `Title` is never rewritten).
+  - The desktop hint toast fades.
+
+**2026-10-24, CAD experience (branch `ui/cad-experience`, PR #35, stacked on #29):**
+- **Done: CAD round 4, for every design (rocket, quadcopter, gearbox, and any new part file).**
+  - **Hub (additive, `CAD_PLAN.md` section 5 "Round 4"):**
+    - per-version `analysis`: explode vectors, demo (launch / hover / spin), markers, dimensions, mass breakdown, verdict, constants
+    - flight samples and events on `/cad/flight`
+    - parameter groups, help, defaults and the parts each one shapes; version labels
+  - **Viewer:**
+    - Explode springs each part out along its own direction, with labels and leaders.
+    - Fly launches the rocket along its simulated trajectory, scaled to the room. Hover lifts the quad. Run turns the gearbox at its true ratio.
+    - Markers and dimensions sit on the model.
+    - Expand brings it up big, from the panel or from a ring on the desk.
+  - **Panel:**
+    - Tabs Overview · Parameters · Analysis · History.
+    - A verdict card ("Will it fly?") with a dial and a to-scale view, and live telemetry while it flies.
+    - Grouped parameters with steppers, analysis gauges and mass bars, version history.
+  - Mocks cover all of it, so it works with the hub off.
+  - Mockups: the design canvas row "CAD: the design panel and the viewer".
 
 **2026-10-23, Hudson (Core):**
 - **Done:** Unity project pushed in `unity/` (6000.6.7f1, Meta XR SDK 207.0.1, OpenXR 1.18.0, all Meta setup fixes applied). Teammates: clone and open it, see 6.1; no SDK setup needed.
@@ -18,9 +48,11 @@
 - **Done: desktop mode.** Press Play with the simulator off (or tick **Forge > Desktop Mode (skip XR)**) and you get a first-person player instead of the VR rig: WASD walk, mouse look, click buttons under the crosshair, E to sit at the desk. The room is a JSON copy of the simulator's living room (`Core/Rooms/SimLivingRoom.json`) drawn as blocks, so the desk is in the same place. Same scene, same panels; build and test UI here, check the XR feel in the simulator. See 6.1.
 - **Done: `ForgeNet` (hub connection).** In `Main` (and created automatically in any sandbox that uses it). Subscribe with `ForgeEvents.OnCadModelUpdated += ...` (one static event per section 7 type, classes in `Core/Net/ForgeEvents.cs`) or `ForgeNet.On("any.type", ...)`; call REST with `ForgeNet.Get/GetBytes/Post`, or `ForgeNet.Url(path)` for glTFast. Send on the socket with `ForgeNet.Send(type, payload)` (JSON event) or `ForgeNet.SendBinary(bytes, offset, count)`; binary frames from the hub arrive as `ForgeNet.BinaryReceived` (main thread, in order with events). Both drop while not Live. Pass `replayLast: true` to `On` to get the latest event right away (panels spawn after the hub sent the current state). No hub running: after 3 s it switches to mock mode, REST reads `Resources/Mocks/<path>.json` (or `ForgeNet.MockRest`), and a `ForgeMockPlayer` in your sandbox plays a JSON list of events. The desk dock's corner light shows green live / amber mock / grey connecting. Hub address: `hubUrl` on the ForgeNet object (Quest: the laptop's LAN IP).
 - **Done: move, resize and turn panels and volumes** (mouse in desktop mode, controller/hand rays in XR; verified in both). Point at a panel and its handles fade in: drag the **title bar** to carry it (it stays on the end of your pointer; scroll wheel / thumbstick / reaching out pushes it back or pulls it in), drag a **bottom corner bracket** to resize, drag a **side bar** to turn it or the **bottom bar** to tilt it (snaps to straight / facing you), or press **Face me** / **Straight** in the title bar. Volumes: drag the **label/base** to slide it on the desk, drag the **model** to spin and tilt it, scroll to raise it (base) or scale it (model). The desk dock has **Flat / Curve** (panels in one straight row like a monitor wall, or the arc) and **Reset**. Each mode remembers what you moved for the session. Module owners: users can now resize your panel, so anchor your UI to stretch with `Content` (or scroll) instead of a fixed layout; resize through `ForgePanel.SizeMeters`, never the transform's scale. Not tested yet: hand pinch-ray and finger poke (same code path as the controller ray, should work), thumbstick push (no stick in the CLI-driven simulator).
+- **Done: new look (2026-10-24, branch `core/ui-restyle`), verified in desktop mode and the simulator.** The desk dock is light drawn on the desk: one glowing frame line, mode buttons as neon rings that brighten as a pointer comes near, run a comet of light on hover, and spring up on a light column toward your head when their mode is open (mode hues: ML `#4D8DFF`, CAD `#FF8A3D`, SCR `#22CF86`, MSG `#A77BFF`). Panels are graphite with a 64 mm header (mode badge, title, optional subtitle), Horizon-style Straight / Face me pills and glowing white handles; volume bases are rings of light tinted with the mode hue. Core text is Inter (modules keep their own fonts). The dock's outer buttons (ML, Reset) now work with rays and pokes too. Module owners: `ForgePanel.Content` insets changed (18 mm sides, 16 mm bottom, 78 mm top), so check your panel still fits; `ForgePanel.Subtitle` gives the header a second line, and `ForgePanel.Accent` / `ForgeTheme` (`Core/Scripts/ForgeTheme.cs`) have the mode colors if you want to match. Your prefab variants picked the look up automatically (the base prefabs were restyled in place: **Forge > Restyle Panel Prefab / Restyle Volume Prefab**, never Rebuild Core Prefabs). The Screen Bridge web pages match too.
 - **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
 - **CAD Unity done (phase 2):** `Assets/_Forge/CAD/Prefabs/CadViewer.prefab` (ForgeVolume variant, slot `cad-viewer`) and `CadParamsPanel.prefab` (ForgePanel variant, slot `cad-params`) work from mocks (`CADSandbox.unity`) and live against the hub. **Integrated into Main:** CAD mode on the desk now unfolds the real rocket and parameters panel (slotted by `MainSceneBuilder`), and `CadSession` gets changes from ForgeNet's `/ws` events instead of polling and uses ForgeNet's hub address (on the Quest, set `hubUrl` on the ForgeNet object to the laptop's IP). Still to do for player builds: include glTFast's shader graph (see "Notes for Core" in `Assets/_Forge/CAD/README.md`).
 - **CAD model library (2026-10-24):** more than the rocket. The hub has a library of designs (rocket, quadcopter, gearbox; a new file in `hub/cad/parts/` is a new design, copy `_template.py`), each with its own history, presets and metrics. The right panel works for any design: a **Designs** menu to switch, presets, a gauge per metric with a range (the rocket's margin, the drone's prop clearance), scrolling rows, Fly only for the rocket. `cad.model_updated` gained `part`, `title` and `analysis.metrics` (`events.py` + `ForgeEvents.cs`). Details: `CAD_PLAN.md` section 5, `hub/README.md` "Designs".
+- **CAD Inspect, take apart, drawing (2026-10-24):** **Inspect** on the design panel (or key I) brings the model up big in front of you; there you can pull parts off with the mouse or a controller / hand ray, turn them, snap them back or Reassemble (a card shows each part's name, material, mass). The hub draws every version as an engineering sheet (`GET /cad/drawing.png`), shown by `CadDrawingPanel.prefab` (slot `cad-drawing`, tap to zoom). **Hudson:** slot `cad-drawing` in place of `cad-timeline` on the left (2 lines, see "Notes for Core" in the CAD README). Core change made: `VolumeManipulator.ModelAway`.
 - **ML plan written: `ML_PLAN.md`.** Open any ML repo: an LLM classifier reads the code and picks its type (image classifier, regression, ...), each type has a fixed list of visuals, and a second step writes the glue code into `.forge/`. ML A + ML B: start with its section 0 (pick and clean your repos); the image classification layout is its section 5.3. Open: which LLM and which live training graphs (the ML team decides), and how VS Code connects (ML_PLAN section 3, doesn't block ML work).
 
 ---
@@ -33,7 +65,7 @@ Meta just announced its VR Glasses (Project Phoenix) at Connect 2026: a lightwei
 
 - An ML engineer sees their data, their model, and their training run as physical objects they can grab, inspect, and fix.
 - A mechanical engineer sees their CAD part next to them and changes it by talking.
-- An AI pet (your always-on agent) follows you around, sits on your desk while you work, dives into your screens to investigate, and handles life admin (WhatsApp messages).
+- An AI pet (your always-on agent) follows you around, sits on your desk while you work, dives into your screens to investigate, and handles the interruptions (Slack messages) so you never leave the flow.
 
 **One-liner:** Jarvis for engineers. The future of engineering productivity in XR.
 
@@ -56,7 +88,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
    - Confusion matrix appears automatically when training finishes.
 4. **Ask the pet.** "Hey Bit, why is my model so bad at cats?" Bit says "one sec," morphs into a glowing blob, leaps into the results panel, the cat row lights up in the confusion matrix, then Bit pops back out with an answer card and suggested actions.
 5. **CAD mode.** A model rocket appears with a parameter panel. "Bit, make the body tube 20% longer and add a fourth fin." Bit walks to the rocket, tinkers, the rocket regenerates on the spot.
-6. **Life admin.** A WhatsApp message arrives. Bit perks up: "Your mom says dinner in 30, will you be ready?" User: "Yeah, tell her I'll be there." Bit confirms, sends it, the reply lands on the teammate's real phone.
+6. **Team admin.** A Slack message arrives. Bit perks up: "Hudson in #forge-team asks if the demo build will be ready by 3, want me to answer?" User: "Yeah, tell him yes and I'll ping him when it's pushed." Bit writes the reply, a card pops up beside it with the exact text and Send / Cancel; the user taps Send (or says "send it"), and the message lands in the thread **under the user's own name** and buzzes the teammate's phone. (Sender and text are placeholders; "mom says dinner in 30" works just as well as a Slack DM.) Earlier, in step 2, Bit already greeted the user with the unread digest, see 8.8. Tested live against the real workspace, no fake path.
 7. **Close:** "Every engineer gets a desk that understands their work and a teammate that never sleeps."
 
 ---
@@ -75,7 +107,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
 | SolidWorks / Fusion / AutoCAD integration | **No** | Closed and slow. Time sink. |
 | AI-editable CAD | **Yes: code-CAD** | Default: **build123d** (Python, OpenCascade). Part = parametric script. Hub regenerates and exports GLB; Unity loads it at runtime with **glTFast**. Candidate repos Hudson is sending may replace or augment this; the Unity side (load GLB on update) does not change. |
 | Voice conversation with tools | **Yes** | Grok Voice Agent API (speech to speech, function calling) as the pet's ears and mouth, with a `delegate` tool to a stronger reasoning model for heavy tasks. See section 11. |
-| Real WhatsApp messages | **Yes, with the official Cloud API, with limits** | The pet gets its own WhatsApp number (Meta test number). It can only message up to 5 verified numbers, and free-form replies only within 24 hours of the other person messaging it. It cannot read your personal WhatsApp. Perfect for the demo: "mom" is a teammate's phone on the allowlist. |
+| Real Slack messages, as you | **Yes, Slack app + the user's own token** | One Slack app ("Bit") installed in the team workspace with both bot and **user** scopes. Over Socket Mode (outbound WebSocket, no tunnel) the hub receives every DM and channel message the user can see, and it posts with the user's token, so replies appear under the user's name on everyone's phone. The bot user is only the app's identity. No sandbox limits. |
 | Pet morphs into a blob and dives into a screen | **Yes, animation** | Swap to a blob mesh (noise shader), squash/stretch, DOTween arc into the panel, panel glows. |
 | Multiple pets | **Data model yes, demo 1** | Pet = persona + tool set + prefab. |
 | Kitchen counter context trigger | Stretch | Same MRUK labels, different anchor. |
@@ -100,7 +132,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
 
 **Pet brain heavy lifting:** a strong reasoning model (Claude or Grok reasoning) called through the `delegate` tool.
 
-**Messaging:** WhatsApp Cloud API webhook into the hub, exposed with a `cloudflared` or `ngrok` HTTPS tunnel.
+**Messaging:** Slack app via `slack-bolt` (async) + `slack-sdk` in **Socket Mode** inside the hub process. `hub/.env`: bot token (`xoxb-`, the app's identity), app-level token (`xapp-`, the socket), and the **user token** (`xoxp-`, read the user's inbox and post as them). The user's id is derived from the user token. No tunnel.
 
 **Assets:** pet from Quaternius "Ultimate Animated Animals" (CC0, comes animated) or an animated Sketchfab CC-BY model. Room/desk from Kenney/Quaternius or primitives.
 
@@ -122,7 +154,7 @@ Everything we build serves this 3 to 4 minute script. If a feature is not in the
  │  ├─ ml        ◄──────────────────────┼───────────────►│                                         │
  │  ├─ cad (build123d → GLB)            │                └─────────────────────────────────────────┘
  │  ├─ agent (Grok voice + delegate)    │
- │  ├─ messaging (WhatsApp webhook)  ◄──┼── cloudflared tunnel ◄── WhatsApp Cloud API
+ │  ├─ messaging (Slack Socket Mode) ◄──┼──► Slack (outbound WSS, no tunnel)
  │  └─ /ws event bus                    │
  └──────────────────────────────────────┘
 ```
@@ -221,7 +253,11 @@ POST /cad/params  { name: value, ...} -> { version }
 GET  /cad/model.glb?v={version}
 
 POST /agent/text  { pet_id, text }    -> { reply }        (typed fallback)
-POST /dev/fake_message { from, text } (demo safety net)
+GET  /messages/latest?n=5            -> [SlackMessage]   SlackMessage = { channel, channel_name, is_dm, user, user_name, text, ts, thread_ts?, mentions_me }
+POST /messages/drafts { channel?, text, thread_ts? } -> Draft   (Bit WRITES the reply; nothing is posted. Same as the messages_send tool)
+POST /messages/drafts/{id}/send      -> { ts }   (the card's Send button, or "yes, send it" through messages_confirm; posts under the USER's own name)
+POST /messages/drafts/{id}/cancel    -> { ok }
+POST /messages/digest                 -> { count, mentions, line, messages: SlackMessage[] }   (Unity calls it when the user sits down; marks everything seen; see 8.8)
 ```
 
 ### WebSocket events (`/ws`, JSON `{ "type": ..., "payload": {...} }`)
@@ -240,11 +276,14 @@ pet.state        { pet_id, mode: "follow"|"idle"|"listening"|"thinking"|"working
 pet.say          { pet_id, text, card?: { title, bullets: string[], actions?: [{ label, action_id }] } }
 ui.highlight     { panel, item_ids?: string[], class_idx? }
 
-notify.message   { from, text, thread_id }
-notify.sent      { to, text }
+notify.message   SlackMessage (above; `ts` is the reply thread key)
+notify.draft     Draft = { draft_id, channel, channel_name, text, thread_ts?, reply_to?: SlackMessage }   (Unity pops the Send / Cancel card)
+notify.sent      { draft_id?, channel, channel_name, text, ts }
+notify.draft_cancelled { draft_id, reason: "cancelled"|"superseded"|"expired" }
+notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest first, at most 4; `line` is the spoken sentence, empty when count is 0)
 ```
 
-Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`.
+Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`.
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 
@@ -315,19 +354,29 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - Name tag and soft glow so it reads on passthrough.
 - Works standalone in `PetSandbox.unity` with a keyboard to trigger each state.
 
-### 8.7 Pet brain, voice, WhatsApp (person 5)
+### 8.7 Pet brain, voice, Slack
 - Voice: Grok Voice Agent session in the hub. Push-to-talk (spacebar on desktop, trigger/pinch-hold in XR) to start; server VAD ends the turn.
-- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_send` (confirms with the user first).
+- **Fast tools** on the voice model (answer in under a second): `ml_get_run_summary`, `ml_relabel`, `ml_remove`, `ml_start_training`, `cad_get_params`, `cad_set_params`, `ui_highlight`, `pet_go_to`, `messages_read_latest`, `messages_send` (writes a **draft** and returns `awaiting_confirmation`; Bit says what it wrote and asks you to hit Send or say so), `messages_confirm` (`send: true|false` on the open draft, for "send it" / "never mind"). There is no tool that posts directly.
 - **`delegate(task)` tool** for anything that needs real analysis ("why is it bad at cats?", "suggest a design change"): the hub runs a reasoning model with read access to run results / CAD script, returns a card. While it runs, emit `pet.state working` (blob dive) and have the voice model say "give me a sec."
 - Every tool call also emits `pet.state` so the body animates.
 - Persona: short, cute, competent. 1 to 3 spoken sentences, details go in the card.
-- WhatsApp: Meta app + Cloud API test number, add teammate phones to the allowlist, webhook through the tunnel -> `notify.message`. Replies via the Cloud API within the 24-hour window. `/dev/fake_message` as backup.
+- Slack: one app ("Bit", `hub/manifest.json`) with bot scopes and **user scopes** (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, ...) and matching `bot_events` + `user_events`. `hub/messaging/` runs Bolt's `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task. Inbound `message` events (bot or user subscription, deduped by `(channel, ts)`) -> `notify.message` on `/ws` and a ring buffer (last 50) behind `messages_read_latest` and the digest. Skipped: the user's own messages, anything with `bot_id`, the bot itself. `is_dm` from `conversations.info`, `mentions_me` = DM or `<@user_id>` in the text. **Sending is always two steps:** `messages_send` / `POST /messages/drafts` writes a `Draft` and emits `notify.draft`; only `POST /messages/drafts/{id}/send` (card button) or `messages_confirm` (voice) posts it, with the user token, then `notify.sent`. A new draft supersedes the open one (`notify.draft_cancelled`, reason `superseded`); drafts expire after 2 minutes. Without `SLACK_USER_TOKEN` the hub falls back to the bot identity (reads only invited channels, posts as Bit) and logs a warning. Tokens all missing -> module disabled, hub still boots. No fake or mock mode.
+  - Tools register through `agent/tools.py` like CAD and VS Code do (`messages_` prefix -> panel `messages`).
+  - **Setup (5 min, Slack CLI):** `hub/manifest.json` is the app and `hub/.slack/` is the CLI project. Install the CLI (https://docs.slack.dev/tools/slack-cli), `slack login` to the team workspace, then from `hub/`: `slack install -E local` (creates and installs "Bit (local)" with bot + user scopes), `slack run` once (the start hook writes `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` into `hub/.env` and exits). The CLI never hands out the user token, so once: `slack app settings` > OAuth & Permissions > copy **User OAuth Token** (`xoxp-`) into `SLACK_USER_TOKEN`. Scope or event changes: edit `manifest.json`, `slack run` again, re-copy the user token if user scopes changed. Other checkouts: `slack app link -E local`. Manual path (api.slack.com/apps, same manifest) still works.
+  - Teammates install the Slack mobile app and turn on notifications so the on-stage reply visibly buzzes a phone.
+
+### 8.8 Messages: arrival digest + cards (Unity `messages` panel, hub `messaging`)
+- **Trigger:** when `DeskPresence` goes Seated, Unity calls `POST /messages/digest`. The hub answers with the digest, emits `notify.digest`, and emits `pet.say` with `line` so Bit greets you with it (spoken through the voice session when it is live). Everything counted is then marked seen, so the next sit-down only reports what arrived since.
+- **Wording:** one short sentence, built in the hub, correct plurals, nothing more. `count == 0` -> no line, Bit stays quiet. Examples: "You have 1 new message." / "You have 3 new messages, 1 mentions you." / "You have 2 new messages, both mention you." Any new message that arrives while seated still comes in as `notify.message` and gets its own perk-up (demo step 6).
+- **Cards:** `MessagesPanel.prefab` (ForgePanel variant, slot `messages`, already in the `MSG` mode item list) renders `messages` newest first, **capped at 4**; older ones collapse into a "+N more" footer. The cards also appear on the digest without opening MSG mode, floating as a small stack beside Bit on the desk, and fold away after ~20 s or when dismissed. Card = sender initial bubble + name + channel + first line of text + relative time; mentions get a thin accent border.
+- **Look:** slightly translucent (frame alpha about 0.8, text fully opaque), soft shadow, rounded. Hover (mouse crosshair on desktop, Interaction SDK ray hover in XR) lifts the card ~1 cm, fades it to opaque and expands it to the full text. Click/poke = "Reply with Bit": starts a voice turn with that message as context, so `messages_send` replies in-thread.
+- **Confirm card (sending):** on `notify.draft` a `DraftCard` pops up where the digest stack lives (or docked under the open `MessagesPanel`): channel or recipient, the full reply text, **Send** and **Cancel**. Same translucent look, Send is the accent color. Send -> `POST /messages/drafts/{id}/send`; Cancel -> `.../cancel`. The card also closes itself on `notify.sent` or `notify.draft_cancelled`, so saying "send it" to Bit (the `messages_confirm` tool) dismisses it too. One card at a time; a new draft replaces it. Dictation flow: you tell Bit what to say, Bit phrases it, the card shows the exact words, nothing leaves until you confirm.
 
 ---
 
 ## 9. Scope tiers
 
-**MUST:** desktop mode end to end; sit flow + unfold; one streamed VS Code screen; all four ML panels with a real or replayed run; relabel/remove; pet follow/idle/blob/speak; voice (or typed) Q&A with ML tools; CAD rocket changed by voice; one WhatsApp round trip.
+**MUST:** desktop mode end to end; sit flow + unfold; one streamed VS Code screen; all four ML panels with a real or replayed run; relabel/remove; pet follow/idle/blob/speak; voice (or typed) Q&A with ML tools; CAD rocket changed by voice; one Slack round trip (arrival digest on sit-down, inbound message spoken by the pet, reply posted in-thread).
 
 **SHOULD:** runs in Meta XR Simulator; Quest 3 build with passthrough + MRUK table detection; multiple screens; confusion matrix click filtering; overfit alert.
 
@@ -343,7 +392,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 | **ML A** | `forge-sdk` + hub `ml` router + replay; co-owns TrainingDash | Contracts + mock JSON committed; CIFAR-10 script training with `forge.log` printing events | Live run streaming to Unity; fallback run recorded |
 | **ML B** | Unity ML panels: DataStack, Model3D, ResultsWall (+ TrainingDash with A) | DataStack and ResultsWall rendering from mocks in sandbox | All four panels live against hub |
 | **Adrian** | Pet body (model, animations, follow, desk hop, blob, speech bubble, cards) | Pet in `PetSandbox` following a DesktopRig, keyboard-triggered states | Driven by `pet.state` / `pet.say` from the hub |
-| **Person 5** | Hub skeleton + agent brain + voice + WhatsApp + CAD backend until CAD gets an owner | Hub running with `/ws` broadcasting mock events; Grok voice round trip from laptop mic | Tools wired to ML + CAD endpoints; WhatsApp round trip |
+| **Person 5** | Hub skeleton + agent brain + voice + Slack + CAD backend until CAD gets an owner | Hub running with `/ws` broadcasting mock events; Grok voice round trip from laptop mic | Tools wired to ML + CAD endpoints; Slack round trip |
 
 Hand-offs: Hudson publishes `ForgePanel` + `ForgeNet` within ~2 hours; until then everyone uses a plain world-space canvas and a local mock loader. CAD Unity viewer goes to whoever frees up first (likely Hudson after integration).
 
@@ -355,7 +404,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 
 1. **Engine:** Unity 6 + Meta XR SDK. Decided.
 2. **Voice:** Grok Voice Agent API (`grok-voice-think-fast-1.0`) + `delegate` to a reasoning model. ElevenLabs Agents is the fallback if Grok's voices don't fit the pet's personality.
-3. **Messaging:** WhatsApp Cloud API with test number. Decided.
+3. **Messaging:** Slack (Bolt for Python, Socket Mode) in the team workspace, with the **user's own token** so Bit reads the user's inbox and posts as the user, and a **draft -> confirm card -> send** flow so nothing is sent without a tap or a spoken yes. Decided (v3, 2026-10-24). Replaces WhatsApp Cloud API: no tunnel, no allowlist, no 24-hour window, and a work message fits the "Jarvis for engineers" pitch.
 4. **CAD engine:** build123d 0.13 (hub) + cad-vision's GLB/metadata loader and shaders (Unity). Decided, see `CAD_PLAN.md`.
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
 6. **Unity version:** `6000.6.7f1` (Unity 6.6), Meta XR SDK 207.0.1, OpenXR 1.18.0, simulator v207.1. Decided.

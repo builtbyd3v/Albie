@@ -164,7 +164,8 @@ namespace Forge.Pet
             background.size = new Vector2(Mathf.Max(min, b.size.x + padding.x * 2f), Mathf.Max(min, b.size.y + padding.y * 2f));
         }
 
-        static TMP_FontAsset DefaultFont()
+        /// <summary>Fredoka as a dynamic TMP font (shared with other pet labels, e.g. GatorHatchery).</summary>
+        public static TMP_FontAsset DefaultFont()
         {
             if (s_defaultFont != null) return s_defaultFont;
             Font ttf = Resources.Load<Font>(DefaultFontPath);

@@ -34,12 +34,19 @@ TOOLS: list[dict[str, Any]] = [
                     "the new metrics: if one went bad, tell the user and suggest a fix.",
      "parameters": {"type": "object", "properties": {
          "changes": {"type": "object", "description": "parameter name -> new value, e.g. {\"fin_count\": 4}",
-                     "additionalProperties": {"type": ["number", "string"]}}},
+                     "additionalProperties": {"type": ["number", "string"]}},
+         "request": {"type": "string", "description": "What the user asked for, in a few of their words, e.g. "
+                                                       "\"Make the fins smaller\"; it names the version in the "
+                                                       "design's history."}},
          "required": ["changes"]}},
     {"name": "cad_apply_preset",
      "description": "Apply one of the open design's named presets (from cad_get_params), on top of its current "
                     "values. Returns the new metrics, like cad_set_params.",
-     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "request": {"type": "string", "description": "What the user asked for, in a few of their words (for the "
+                                                       "history; the preset's name if left out)."}},
+         "required": ["name"]}},
     {"name": "cad_undo", "description": "Undo the last change to the open design.", "parameters": NO_ARGS},
     {"name": "cad_reset", "description": "Put the open design back to its defaults (undo still works afterwards).",
      "parameters": NO_ARGS},
@@ -50,9 +57,10 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "explode": {"type": "boolean"}, "focus_id": {"type": "string"}}}},
     {"name": "cad_simulate_flight",
-     "description": "Rocket designs only: simulate a launch on an Estes C6: apogee in metres, time to apogee, "
-                    "speeds, and a trajectory Unity draws as an arc. Takes about a second (longer the first time). "
-                    "If the result has a warning, mention it.",
+     "description": "Rocket designs only: simulate a flight on an Estes C6-5: apogee in metres, time to apogee, "
+                    "speeds, when the parachute opens, descent rate and landing time and distance (events), and a "
+                    "trajectory Unity draws as an arc. Takes about a second (longer the first time). If the result has "
+                    "a warning, mention it.",
      "parameters": NO_ARGS},
     {"name": "cad_get_context",
      "description": "For deeper reasoning (delegate): the open design's parameters, analysis, recent version "
@@ -61,15 +69,27 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+def _brief(analysis: dict[str, Any]) -> dict[str, Any]:
+    """The analysis for the voice model: what Unity draws by coordinates (explode vectors, marker positions, the
+    demo's spin axes, dimension end points) left out; the numbers stay."""
+    out = {k: v for k, v in analysis.items() if k not in ("explode", "markers")}
+    if "dimensions" in out:
+        out["dimensions"] = [{k: d.get(k) for k in ("id", "label", "value_mm")} for d in out["dimensions"]]
+    if isinstance(out.get("demo"), dict):
+        out["demo"] = {k: v for k, v in out["demo"].items() if k not in ("spin_parts", "axis")}
+    return out
+
+
 def _design(cad: CadService) -> dict[str, Any]:
     r = cad.current
-    return {"part": r.part, "title": r.title, "version": r.version, "params": r.param_schema,
-            "presets": list(r.presets), "analysis": r.analysis, "part_ids": sorted(r.fingerprints)}
+    params = [{k: v for k, v in p.items() if k != "parts"} for p in r.param_schema]   # part lists are for Unity
+    return {"part": r.part, "title": r.title, "version": r.version, "params": params,
+            "presets": list(r.presets), "analysis": _brief(r.analysis), "part_ids": sorted(r.fingerprints)}
 
 
 def _changed(cad: CadService, r) -> dict[str, Any]:
-    return {"part": r.part, "version": r.version, "params": r.params, "clamped": r.clamped, "analysis": r.analysis,
-            "changed_ids": cad.diff(r.parent, r.version)[0]}
+    return {"part": r.part, "version": r.version, "params": r.params, "clamped": r.clamped,
+            "analysis": _brief(r.analysis), "changed_ids": cad.diff(r.parent, r.version)[0]}
 
 
 async def call_tool(name: str, args: dict[str, Any], cad: CadService, bus: EventBus) -> dict[str, Any]:
@@ -85,9 +105,11 @@ async def call_tool(name: str, args: dict[str, Any], cad: CadService, bus: Event
         if name == "cad_get_params":
             return _design(cad)
         if name == "cad_set_params":
-            return _changed(cad, await cad.set_params(args.get("changes") or {}, source="pet"))
+            return _changed(cad, await cad.set_params(args.get("changes") or {}, source="pet",
+                                                      label=args.get("request") or None))
         if name == "cad_apply_preset":
-            return _changed(cad, await cad.apply_preset(str(args.get("name", "")), source="pet"))
+            return _changed(cad, await cad.apply_preset(str(args.get("name", "")), source="pet",
+                                                        label=args.get("request") or None))
         if name == "cad_undo":
             await cad.undo()
             return _design(cad)
@@ -102,7 +124,7 @@ async def call_tool(name: str, args: dict[str, Any], cad: CadService, bus: Event
             return {"ok": True}
         if name == "cad_simulate_flight":
             flight = await cad.flight(None)
-            return {k: v for k, v in flight.items() if k != "trajectory_m"}  # the arc is for Unity, not the model
+            return {k: v for k, v in flight.items() if k not in ("trajectory_m", "samples")}  # for Unity, not the model
         if name == "cad_get_context":
             history = [{"version": r.version, "source": r.source, "params": r.params,
                         "metrics": {m["id"]: m["display"] for m in r.analysis.get("metrics", [])}}

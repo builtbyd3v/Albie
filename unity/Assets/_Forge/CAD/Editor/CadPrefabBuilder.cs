@@ -17,8 +17,9 @@ using UnityEngine.UI;
 /// - Mocks/cad/CadMocks.asset from Mocks/cad/parts.json + Mocks/cad/&lt;part&gt;/vN/ (refresh those with
 ///   hub: python -m cad.make_mocks, then copy; see the CAD README)
 /// - CadViewer.prefab: ForgeVolume variant + CadViewer (the open design on the desk, slot cad-viewer)
-/// - CadParamsPanel.prefab: ForgePanel variant, UI under Content (slot cad-params), for any design
-/// - CADSandbox.unity: both prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
+/// - CadParamsPanel.prefab: ForgePanel variant + CadParamsPanel, which builds its UI at runtime (slot cad-params)
+/// - CadDrawingPanel.prefab: ForgePanel variant, the version's engineering drawing (slot cad-drawing)
+/// - CADSandbox.unity: the prefabs on a desk, mouse UI, hub-off mocks, keyboard shortcuts
 /// Builds in an additive scratch scene, so whatever scene is open is left alone. GUIDs are kept on rebuild.
 /// </summary>
 public static class CadPrefabBuilder
@@ -29,13 +30,13 @@ public static class CadPrefabBuilder
     const string MockDir = "Assets/_Forge/Mocks/cad";
     public const string ViewerPath = PrefabDir + "/CadViewer.prefab";
     public const string PanelPath = PrefabDir + "/CadParamsPanel.prefab";
+    public const string DrawingPath = PrefabDir + "/CadDrawingPanel.prefab";
     public const string SandboxPath = Root + "/CADSandbox.unity";
     const string MockSetPath = MockDir + "/CadMocks.asset";
 
     static readonly Color RowBackground = new Color(1f, 1f, 1f, 0.05f);
     static readonly Color ButtonColor = new Color(0.16f, 0.45f, 0.85f, 0.95f);
     static readonly Color Muted = new Color(1f, 1f, 1f, 0.6f);
-    static readonly Color PresetColor = new Color(1f, 1f, 1f, 0.12f);
 
     [MenuItem("Forge/CAD/Build CAD Prefabs and Sandbox")]
     public static void BuildAll()
@@ -54,7 +55,8 @@ public static class CadPrefabBuilder
         {
             var viewer = BuildViewer(mocks);
             var panel = BuildPanel(mocks);
-            FillSandbox(scene, viewer, panel, mocks);
+            var drawing = BuildDrawingPanel(mocks);
+            FillSandbox(scene, viewer, panel, drawing, mocks);
             EditorSceneManager.SaveScene(scene, SandboxPath);
         }
         finally
@@ -66,7 +68,7 @@ public static class CadPrefabBuilder
             }
         }
         AssetDatabase.SaveAssets();
-        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {SandboxPath} (mocks: " +
+        Debug.Log($"[CadPrefabBuilder] Built {ViewerPath}, {PanelPath}, {DrawingPath}, {SandboxPath} (mocks: " +
                   string.Join(", ", mocks.parts.Select(p => $"{p.part} x{p.versions.Count}")) + ")");
     }
 
@@ -103,6 +105,7 @@ public static class CadPrefabBuilder
                     parameters = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/params.json"),
                     modelUpdated = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/model_updated.json"),
                     flight = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/flight.json"),
+                    drawing = AssetDatabase.LoadAssetAtPath<TextAsset>(folder + "/drawing.png.bytes"),
                 };
                 if (v.glb == null || v.metadata == null || v.parameters == null || v.modelUpdated == null)
                     Debug.LogError($"[CadPrefabBuilder] Mock {v.label} is missing files in {folder}");
@@ -137,6 +140,7 @@ public static class CadPrefabBuilder
         });
         viewer.cgMaterial = GetMaterial("CadMarkerCG", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.25f, 0.6f, 1f)));
         viewer.cpMaterial = GetMaterial("CadMarkerCP", "Universal Render Pipeline/Unlit", m => m.SetColor("_BaseColor", new Color(0.95f, 0.3f, 0.25f)));
+        go.AddComponent<CadTakeApart>();  // Inspect view: take parts off and put them back
         PrefabUtility.SaveAsPrefabAsset(go, ViewerPath);
         Object.DestroyImmediate(go);
         return AssetDatabase.LoadAssetAtPath<GameObject>(ViewerPath);
@@ -153,89 +157,57 @@ public static class CadPrefabBuilder
         panel.Title = "Design";
         panel.SizeMeters = new Vector2(0.48f, 0.6f);  // taller pokes through the wall in desktop mode's corner desk
         if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
+        var placeholder = panel.Content.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        // CadParamsPanel builds its UI at runtime under Content (CAD UX spec section 2: header, tabs, verdict, tabs'
+        // content, footer), so the prefab is the panel and the component.
+        var component = go.AddComponent<CadParamsPanel>();
+        component.mocks = mocks;
+        PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
+        Object.DestroyImmediate(go);
+        return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);
+    }
+
+    // Drawing panel
+
+    static GameObject BuildDrawingPanel(CadMockSet mocks)
+    {
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.PanelPath));
+        go.name = "CadDrawingPanel";
+        var panel = go.GetComponent<ForgePanel>();
+        panel.panelId = "cad-drawing";
+        panel.Title = "Drawing";
+        panel.SizeMeters = new Vector2(0.64f, 0.54f);  // an A3 sheet (1.41 : 1) under the title bar, plus a status line
+        if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig, sandbox)
         var content = panel.Content;
         var placeholder = content.Find("Placeholder");
         if (placeholder != null) placeholder.gameObject.SetActive(false);
 
-        var ui = NewRect("CadUI", content);
-        Stretch(ui, 0f, 0f, 0f, 0f);
-        var column = ui.gameObject.AddComponent<VerticalLayoutGroup>();
-        column.spacing = 8f;
-        column.childControlWidth = column.childControlHeight = true;
-        column.childForceExpandWidth = true;
-        column.childForceExpandHeight = false;
+        // The sheet keeps its shape inside the frame however the panel is resized.
+        var frame = NewRect("Frame", content);
+        Stretch(frame, 0f, 30f, 0f, 0f);
+        var sheet = new GameObject("Sheet", typeof(RectTransform), typeof(RawImage), typeof(AspectRatioFitter));
+        sheet.transform.SetParent(frame, false);
+        var fitter = sheet.GetComponent<AspectRatioFitter>();
+        fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+        fitter.aspectRatio = 2048f / 1448f;
 
-        // Header: "Model rocket v3" + the Designs menu button
-        var headerRow = Row("Header", ui, 40f);
-        headerRow.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var header = NewText("Title", headerRow, "Design", 24f, TextAlignmentOptions.MidlineLeft);
-        header.fontStyle = FontStyles.Bold;
-        header.textWrappingMode = TextWrappingModes.NoWrap;
-        header.overflowMode = TextOverflowModes.Ellipsis;
-        Flexible(header.gameObject);
-        var designs = NewButton("Designs", headerRow, "Designs", 120f);
-
-        // Presets: one button each, built at runtime
-        var presets = Row("Presets", ui, 32f);
-        presets.GetComponent<HorizontalLayoutGroup>().spacing = 6f;
-        presets.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = true;
-        var presetTemplate = NewButton("PresetTemplate", presets, "Preset", -1f);
-        Flexible(presetTemplate.gameObject, 32f);
-        presetTemplate.GetComponent<Image>().color = PresetColor;
-        var presetLabel = presetTemplate.GetComponentInChildren<TMP_Text>();
-        presetLabel.fontStyle = FontStyles.Normal;
-        presetLabel.textWrappingMode = TextWrappingModes.NoWrap;
-        presetLabel.enableAutoSizing = true;  // long names shrink to fit their button instead of wrapping
-        presetLabel.fontSizeMin = 10f;
-        presetLabel.fontSizeMax = 15f;
-        Stretch(presetLabel.rectTransform, 4f, 0f, 4f, 0f);
-        presetTemplate.gameObject.SetActive(false);
-
-        // Metrics: gauges for the ones with a range, then a wrapping stats line
-        var gauges = NewRect("Gauges", ui);
-        var gaugeLayout = gauges.gameObject.AddComponent<VerticalLayoutGroup>();
-        gaugeLayout.spacing = 6f;
-        gaugeLayout.childControlWidth = gaugeLayout.childControlHeight = true;
-        gaugeLayout.childForceExpandWidth = true;
-        gaugeLayout.childForceExpandHeight = false;
-        var gaugeTemplate = BuildGaugeTemplate(gauges);
-
-        // The stats line and the parameter rows (built at runtime from GET /cad/params) scroll together, so a
-        // panel resized small still fits everything.
-        var scroll = BuildScroll(ui, out var rows);
-        var stats = NewText("Stats", rows, "", 16f, TextAlignmentOptions.TopLeft);
-        stats.textWrappingMode = TextWrappingModes.Normal;
-        var rowTemplate = BuildRowTemplate(rows);
-
-        // Buttons
-        var buttons = Row("Buttons", ui, 48f);
-        buttons.GetComponent<HorizontalLayoutGroup>().spacing = 8f;
-        var prev = NewButton("Prev", buttons, "<", 44f);
-        var undo = NewButton("Undo", buttons, "Undo", -1f);
-        var reset = NewButton("Reset", buttons, "Reset", -1f);
-        var explode = NewButton("Explode", buttons, "Explode", -1f);
-        var fly = NewButton("Fly", buttons, "Fly", -1f);
-        var next = NewButton("Next", buttons, ">", 44f);
-
-        var status = NewText("Status", ui, "", 15f, TextAlignmentOptions.TopLeft);
+        var status = NewText("Status", content, "", 16f, TextAlignmentOptions.MidlineLeft);
         status.color = Muted;
-        status.textWrappingMode = TextWrappingModes.Normal;
-        status.overflowMode = TextOverflowModes.Ellipsis;
-        Fixed(status.gameObject, -1f, 38f);
+        var rt = status.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(0.5f, 0f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = new Vector2(0f, 26f);
 
-        var picker = BuildPicker(ui, out var pickerEntry);
-
-        var component = go.AddComponent<CadParamsPanel>();
+        var component = go.AddComponent<CadDrawingPanel>();
         component.mocks = mocks;
-        SetRefs(component, ("header", header), ("designsButton", designs), ("picker", picker),
-            ("pickerEntry", pickerEntry), ("presetRow", presets), ("presetTemplate", presetTemplate),
-            ("gauges", gauges), ("gaugeTemplate", gaugeTemplate), ("stats", stats), ("scroll", scroll),
-            ("rows", rows), ("rowTemplate", rowTemplate), ("undoButton", undo), ("resetButton", reset),
-            ("explodeButton", explode), ("flyButton", fly), ("prevButton", prev), ("nextButton", next),
-            ("explodeLabel", explode.GetComponentInChildren<TMP_Text>()), ("status", status));
-        PrefabUtility.SaveAsPrefabAsset(go, PanelPath);
+        SetRefs(component, ("sheet", sheet.GetComponent<RawImage>()), ("status", status));
+        PrefabUtility.SaveAsPrefabAsset(go, DrawingPath);
         Object.DestroyImmediate(go);
-        return AssetDatabase.LoadAssetAtPath<GameObject>(PanelPath);
+        return AssetDatabase.LoadAssetAtPath<GameObject>(DrawingPath);
     }
 
     static CadParamRow BuildRowTemplate(RectTransform parent)
@@ -395,7 +367,7 @@ public static class CadPrefabBuilder
 
     // Sandbox
 
-    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, CadMockSet mocks)
+    static void FillSandbox(Scene scene, GameObject viewerPrefab, GameObject panelPrefab, GameObject drawingPrefab, CadMockSet mocks)
     {
         var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener)).GetComponent<Camera>();
         camera.tag = "MainCamera";
@@ -425,6 +397,9 @@ public static class CadPrefabBuilder
         // doesn't record that override on a prefab instance, so set the serialized value directly.
         ((RectTransform)panel.transform).anchoredPosition3D = new Vector3(0.36f, 1.12f, 0.32f);
         panel.transform.rotation = Quaternion.Euler(0f, 20f, 0f);
+        var drawing = (GameObject)PrefabUtility.InstantiatePrefab(drawingPrefab, scene);
+        ((RectTransform)drawing.transform).anchoredPosition3D = new Vector3(-0.45f, 1.1f, 0.42f);
+        drawing.transform.rotation = Quaternion.Euler(0f, -18f, 0f);
 
         // Mouse UI. ForgePanel's ray/poke canvas asserts a PointableCanvasModule exists (as in Main), but adding one
         // in the Editor turns on its exclusive mode (Reset), which disables every other input module at Start.

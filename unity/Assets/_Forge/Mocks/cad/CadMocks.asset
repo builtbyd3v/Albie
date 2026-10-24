@@ -22,24 +22,28 @@ MonoBehaviour:
       parameters: {fileID: 4900000, guid: 9167f11fda2bd2d45b0bbcefc8337b00, type: 3}
       modelUpdated: {fileID: 4900000, guid: b6beed838327db94db49ba9d8da90d10, type: 3}
       flight: {fileID: 4900000, guid: ecd91d8feb6d73c43a715c55fd32fe6a, type: 3}
+      drawing: {fileID: 4900000, guid: bc116eb711b261541b6ff084809b2e8b, type: 3}
     - label: rocket/v2
       glb: {fileID: 4900000, guid: 2aa058864347daa4eaf1decc5431788a, type: 3}
       metadata: {fileID: 4900000, guid: c120a3e5e3696454cad3b2e3741bff76, type: 3}
       parameters: {fileID: 4900000, guid: c312a34a59ee39e4998abf03a64d6c71, type: 3}
       modelUpdated: {fileID: 4900000, guid: ce2243a484b404d4fb4d872ec7cc8c0e, type: 3}
       flight: {fileID: 4900000, guid: 099507f84c927984ea771bff5276e2af, type: 3}
+      drawing: {fileID: 4900000, guid: a7bcc000adb15f84db1aef6a2f340e29, type: 3}
     - label: rocket/v3
       glb: {fileID: 4900000, guid: 41994380537f32b4c8d9ab1e9f362b99, type: 3}
       metadata: {fileID: 4900000, guid: 96988a8fca4483940ba73f67507d298c, type: 3}
       parameters: {fileID: 4900000, guid: f66c58fbcbe886e4bba15ca65441ceaa, type: 3}
       modelUpdated: {fileID: 4900000, guid: e2ce29138f9f7f741b3e5d3c5ceb6dd8, type: 3}
       flight: {fileID: 4900000, guid: 02ba44e1b27e32747bd118bf60d25da0, type: 3}
+      drawing: {fileID: 4900000, guid: 6a06cdc2d21d8d1488dc3f6244b8ca5e, type: 3}
     - label: rocket/v4
       glb: {fileID: 4900000, guid: 9364f46a54f5f5249b656df5c8a03640, type: 3}
       metadata: {fileID: 4900000, guid: 56b45c17083e4eb4fab81f3909324f29, type: 3}
       parameters: {fileID: 4900000, guid: 72f93d46016d85a49870ae34d4cf8518, type: 3}
       modelUpdated: {fileID: 4900000, guid: 24c95ed826033bd4a84e0eac0f542b34, type: 3}
       flight: {fileID: 4900000, guid: 7d82bbd5262790341aa9411f72cf3532, type: 3}
+      drawing: {fileID: 4900000, guid: 2b24bd9d4139dc94097abbbfe8e0e212, type: 3}
   - part: quadcopter
     versions:
     - label: quadcopter/v5
@@ -48,18 +52,21 @@ MonoBehaviour:
       parameters: {fileID: 4900000, guid: bc9e57ba49461e147ae60da1a3974009, type: 3}
       modelUpdated: {fileID: 4900000, guid: 748669a08b5149e43a02ae524a568dd0, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: c96192e755b3c3d499ade4329ad163a1, type: 3}
     - label: quadcopter/v6
       glb: {fileID: 4900000, guid: 4986821bab928d949b66df0532207d6b, type: 3}
       metadata: {fileID: 4900000, guid: 93e734ff46abc6c488d8516f4cdd6c34, type: 3}
       parameters: {fileID: 4900000, guid: 86ec257658208e64cbd52e661b1bce44, type: 3}
       modelUpdated: {fileID: 4900000, guid: 3c39c1b09d3872a4382c43590542870a, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: 561cf8f824184c44889607f1b0a8a8e9, type: 3}
     - label: quadcopter/v7
       glb: {fileID: 4900000, guid: a7e05604a431a3146bed5f5329b93260, type: 3}
       metadata: {fileID: 4900000, guid: 137bbb8bc96a85447b9d2189aa149536, type: 3}
       parameters: {fileID: 4900000, guid: 51902ea33b00bd6429ba75f5f18022c6, type: 3}
       modelUpdated: {fileID: 4900000, guid: 84f0efbf0262c3240aefabbe5c088366, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: ce22653b9b207fa42b53dbe2e7d025d7, type: 3}
   - part: gearbox
     versions:
     - label: gearbox/v8
@@ -68,16 +75,19 @@ MonoBehaviour:
       parameters: {fileID: 4900000, guid: 27c8a368100e7ba408ffeb0daa1e2277, type: 3}
       modelUpdated: {fileID: 4900000, guid: e65159a6fd24b8447bd8d771fdc63400, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: 196583189fafd0948882171c6c0563de, type: 3}
     - label: gearbox/v9
       glb: {fileID: 4900000, guid: 3bd6a6a7f00ea7648b4b10b6583be0e5, type: 3}
       metadata: {fileID: 4900000, guid: d0220cc0d51680d4790b9ba4e0b369c2, type: 3}
       parameters: {fileID: 4900000, guid: f046d8522f6030d45835e91e593381aa, type: 3}
       modelUpdated: {fileID: 4900000, guid: 32838001766bffc49a04f51698d0958e, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: e63ba2ed49d306f42b83eeac94c53a4e, type: 3}
     - label: gearbox/v10
       glb: {fileID: 4900000, guid: 406d3a2cdcaf15e408e284e195825b6f, type: 3}
       metadata: {fileID: 4900000, guid: 456345f287ca9834da861ab10ce68347, type: 3}
       parameters: {fileID: 4900000, guid: 1feb07e114218d6499eb9f49eaf182f4, type: 3}
       modelUpdated: {fileID: 4900000, guid: 800808ca088f63b42b037877fa6f2231, type: 3}
       flight: {fileID: 0}
+      drawing: {fileID: 4900000, guid: 75602f4eb8481d148a98cc5fc2a438a5, type: 3}
   regenFailed: {fileID: 4900000, guid: b46073553a8965e4bbe6005d6efb345f, type: 3}

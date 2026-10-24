@@ -43,6 +43,7 @@ async def run_turn(
     *,
     pet_id: str,
     control: TurnControl | None = None,
+    agent: object | None = None,  # crew member's AgentType (ignored: same script for everyone)
 ) -> str:
     concrete = classify_mode(text, mode)
     log.info("fake turn pet=%s project=%s mode=%s", pet_id, project.id, concrete)

@@ -150,6 +150,7 @@ namespace Forge.Pet
 
         bool TryPickWanderPoint(out Vector3 point)
         {
+            if (HasTerritory && OnTerritorySurface) return TryPickTerritoryPoint(out point);
             if (CurrentSurface != null && CurrentSurface.IsBuilt) return TryPickSurfacePoint(CurrentSurface, out point);
             Transform head = PetUser.Head;
             Vector3 center = wanderCenter != null ? wanderCenter.position
