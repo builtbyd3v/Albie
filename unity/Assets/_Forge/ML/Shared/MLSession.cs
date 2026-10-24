@@ -16,6 +16,8 @@ namespace Forge.ML
         public MLMockAssets mockAssets;
         public float replaySpeed = 1f;
         public bool replay = true;
+        [Tooltip("When ForgeNet reaches a live hub, consume Core ml.* events instead of local replay.")]
+        public bool useLiveEvents = true;
         public float secondsPerEpoch = 1.5f;
         public MLFixture Data { get; private set; }
         public Texture2D Atlas { get; private set; }
@@ -49,6 +51,22 @@ namespace Forge.ML
             return session;
         }
         void Awake() => EnsureLoaded();
+        void OnEnable()
+        {
+            ForgeEvents.OnMlRunState += OnLiveRunState;
+            ForgeEvents.OnMlMetrics += OnLiveMetrics;
+            ForgeEvents.OnMlOverfitAlert += OnLiveOverfit;
+            ForgeEvents.OnMlSampleUpdated += OnLiveSampleUpdated;
+            ForgeNet.StatusChanged += OnNetStatus;
+        }
+        void OnDisable()
+        {
+            ForgeEvents.OnMlRunState -= OnLiveRunState;
+            ForgeEvents.OnMlMetrics -= OnLiveMetrics;
+            ForgeEvents.OnMlOverfitAlert -= OnLiveOverfit;
+            ForgeEvents.OnMlSampleUpdated -= OnLiveSampleUpdated;
+            ForgeNet.StatusChanged -= OnNetStatus;
+        }
         public void EnsureLoaded()
         {
             if (Data != null) return;
@@ -99,7 +117,9 @@ namespace Forge.ML
 
         public void ApplyMetrics(MLMetrics tick)
         {
-            EpochIndex = Mathf.Clamp(tick.epoch - 1, 0, Data.metrics.Length - 1);
+            int metricIndex = Mathf.Max(0, tick.epoch - 1);
+            if (metricIndex >= Data.metrics.Length) Array.Resize(ref Data.metrics, metricIndex + 1);
+            EpochIndex = metricIndex;
             Data.metrics[EpochIndex] = tick;
             if (EpochIndex >= 2)
             {
@@ -108,7 +128,10 @@ namespace Forge.ML
             }
             Metrics?.Invoke(tick); Changed?.Invoke();
         }
-        public void SetRunState(string status, int totalEpochs) { TotalEpochs = totalEpochs; RunStatus = status; Done = status == "done"; Changed?.Invoke(); }
+        public void SetRunState(string status, int totalEpochs)
+        {
+            TotalEpochs = totalEpochs > 0 ? totalEpochs : Data.metrics.Length; RunStatus = status; Done = status == "done"; Changed?.Invoke();
+        }
         public void Restart() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         public void Relabel(MLSample sample, int label)
@@ -155,6 +178,31 @@ namespace Forge.ML
                 }
             }
             Atlas.Apply(false, true);
+        }
+        void OnNetStatus(ForgeNetStatus status)
+        {
+            if (useLiveEvents && status == ForgeNetStatus.Live) replay = false;
+        }
+        void OnLiveRunState(global::MlRunState state)
+        {
+            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || state == null) return;
+            replay = false; SetRunState(state.status, state.totalEpochs);
+        }
+        void OnLiveMetrics(global::MlMetrics tick)
+        {
+            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || tick == null) return;
+            replay = false;
+            ApplyMetrics(new MLMetrics { run_id = tick.runId, epoch = tick.epoch, step = tick.step, train_loss = tick.trainLoss, train_acc = tick.trainAcc, val_loss = tick.valLoss, val_acc = tick.valAcc, lr = tick.lr });
+        }
+        void OnLiveOverfit(global::MlOverfitAlert alert)
+        {
+            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || alert == null) return;
+            replay = false; Overfit = true; OverfitReason = alert.reason; Changed?.Invoke();
+        }
+        void OnLiveSampleUpdated(global::MlSampleUpdated sample)
+        {
+            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || sample == null) return;
+            replay = false; ApplySampleUpdate(sample.id, sample.labelIdx, sample.removed);
         }
         void OnDestroy() { if (ownsAtlas && Atlas != null) Destroy(Atlas); }
     }

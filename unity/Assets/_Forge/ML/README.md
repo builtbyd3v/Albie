@@ -88,7 +88,10 @@ These are module-local DTOs and events, not a replacement for Core ForgeEvents.
 Keep networking in the Core/hub adapter and call the view methods on Unity's main
 thread. The local fixture groups REST-shaped records into one file for replay.
 
-- `MLSession.ApplyMetrics(MLMetrics)` consumes section 7 metric fields.
+- `MLSession` consumes Core's `ml.run_state`, `ml.metrics`, `ml.overfit_alert`,
+  and `ml.sample_updated` events automatically after ForgeNet reaches Live. It
+  remains mock-first until then; set `useLiveEvents = false` to force replay.
+- `MLSession.ApplyMetrics(MLMetrics)` also remains available for direct adapters.
 - `SetRunState(status, totalEpochs)` controls completion.
 - `ApplySampleUpdate(id, label_idx, removed)` applies acknowledged sample edits.
 - `SelectPair(true_idx, pred_idx)` connects matrix selection to ResultsWall.
