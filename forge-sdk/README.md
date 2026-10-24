@@ -12,7 +12,7 @@ pip install -e "forge-sdk[demo,hub,dev]"
 pytest forge-sdk/tests
 
 # demo script, printing events instead of sending (FORGE_OFFLINE=1)
-FORGE_OFFLINE=1 python forge-sdk/examples/cifar10/train.py --epochs 2
+cd ml-examples/cifar10 && FORGE_OFFLINE=1 python train.py --epochs 2 && cd -
 
 # ML router dev server (until hub/main.py is pushed)
 cd hub && uvicorn ml.dev_server:app --reload --port 8000
@@ -39,7 +39,7 @@ Regenerate with `python forge-sdk/tools/make_ml_mocks.py` (deterministic, stable
 
 ## Run folder (`forge.watch`)
 
-Each `forge.watch(...)` starts a run and writes to `<run_dir>/<run_id>/` (`run_dir` argument, else `$FORGE_RUN_DIR`, else `./forge_runs`; the demo script uses the git-ignored `forge-sdk/runs`):
+Each `forge.watch(...)` starts a run and writes to `<run_dir>/<run_id>/` (`run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` when run inside a repo with a `.forge/` folder like `ml-examples/cifar10`, else `./forge_runs`):
 
 | File | Feeds |
 |---|---|

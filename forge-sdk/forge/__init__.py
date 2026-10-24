@@ -6,8 +6,9 @@
         forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=...)
     forge.evaluate(model, val_loader)
 
-Each run's artifacts (graph, atlas, dataset, ...) are written to `$FORGE_RUN_DIR/<run_id>/`
-(default `./forge_runs`). Events are printed as JSON lines until the hub ingest lands.
+Each run's artifacts (graph, atlas, dataset, ...) are written to `<run dir>/<run_id>/`: the `run_dir`
+argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else `./forge_runs`.
+Events are printed as JSON lines until the hub ingest lands.
 """
 
 from __future__ import annotations
@@ -35,6 +36,12 @@ def _ensure_run() -> str:
     return _run_id
 
 
+def _run_root(run_dir: str | os.PathLike | None) -> Path:
+    if run_dir or os.environ.get("FORGE_RUN_DIR"):
+        return Path(run_dir or os.environ["FORGE_RUN_DIR"])
+    return Path(".forge/runs") if Path(".forge").is_dir() else Path("forge_runs")
+
+
 def _write_json(name: str, data: Any) -> None:
     assert _run_dir is not None
     (_run_dir / name).write_text(json.dumps(data))
@@ -52,7 +59,7 @@ def watch(
     global _run_id, _run_dir, _total_epochs
     _run_id = uuid.uuid4().hex[:8]
     _total_epochs = epochs
-    _run_dir = Path(run_dir or os.environ.get("FORGE_RUN_DIR", "forge_runs")) / _run_id
+    _run_dir = _run_root(run_dir) / _run_id
     _run_dir.mkdir(parents=True, exist_ok=True)
 
     image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)

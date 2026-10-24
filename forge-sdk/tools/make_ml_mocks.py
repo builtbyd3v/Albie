@@ -1,9 +1,9 @@
 """Generate the ML mock JSON (PROJECT_CONTEXT section 7) for the Unity panels.
 
-Real CIFAR-10 val images and real SmallCNN layer shapes; simulated metrics and
-predictions shaped to the demo script (overfit alert, weak "cat" class, ~3%
-label noise the model disagrees with). Deterministic: rerunning gives the same
-files and the same Unity GUIDs.
+Real CIFAR-10 val images, the real ml-examples/cifar10 model graph and its real
+noisy labels (noise.json); simulated metrics and predictions shaped to the demo
+script (overfit alert, weak "cat" class, the noisy labels as confident misses).
+Deterministic: rerunning gives the same files and the same Unity GUIDs.
 
 Run from repo root: python forge-sdk/tools/make_ml_mocks.py
 """
@@ -26,14 +26,14 @@ from forge import atlas as forge_atlas
 from forge import graph as forge_graph
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "forge-sdk" / "examples" / "cifar10"))
-from train import CLASSES, VAL_SIZE, SmallCNN  # noqa: E402
-from torch.utils.data import Subset  # noqa: E402
+CIFAR = ROOT / "ml-examples" / "cifar10"
+sys.path.insert(0, str(CIFAR))
+from data import CLASSES, NOISE_RATE, SEED as NOISE_SEED, VAL_SIZE, flip_labels, get_dataset  # noqa: E402
+from model import SmallCNN  # noqa: E402
 
 OUT = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ml"
 RUN_ID = "mock0001"
 EPOCHS = 15
-NOISE_RATE = 0.03
 SEED = 7
 
 # Per-class accuracy on clean labels; cat is the class the pet gets asked about.
@@ -133,14 +133,10 @@ def wrong_class(true: int, rng: random.Random) -> int:
     return rng.choices(choices, [weights.get(CLASSES[k], 1) for k in choices])[0]
 
 
-def make_results(clean_labels: list[int], rng: random.Random) -> tuple[list[dict], list[dict]]:
-    noisy_idx = sorted(rng.sample(range(VAL_SIZE), round(VAL_SIZE * NOISE_RATE)))
-    noise = []
-    labels = list(clean_labels)
-    for i in noisy_idx:
-        labels[i] = wrong_class(clean_labels[i], rng)
-        noise.append({"id": sample_id(i), "clean_idx": clean_labels[i], "noisy_idx": labels[i]})
-    noisy = set(noisy_idx)
+def make_results(clean_labels: list[int], noise: dict[int, int], rng: random.Random) -> list[dict]:
+    """noise: {val index: noisy label}, the same flips the real repo trains with."""
+    labels = [noise.get(i, label) for i, label in enumerate(clean_labels)]
+    noisy = set(noise)
 
     samples = []
     for i in range(VAL_SIZE):
@@ -154,7 +150,7 @@ def make_results(clean_labels: list[int], rng: random.Random) -> tuple[list[dict
             pred, conf = wrong_class(clean, rng), rng.uniform(0.35, 0.8)
         samples.append({"id": sample_id(i), "true_idx": labels[i], "pred_idx": pred,
                         "probs": probs_for(pred, conf, rng), "correct": pred == labels[i]})
-    return samples, noise
+    return samples
 
 
 def make_events(final_val_acc: float, rng: random.Random) -> list[dict]:
@@ -201,32 +197,35 @@ def make_events(final_val_acc: float, rng: random.Random) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default=str(ROOT / "forge-sdk" / "data"))
+    parser.add_argument("--data", default=str(CIFAR / "data"))
     args = parser.parse_args()
 
     rng = random.Random(SEED)
     OUT.mkdir(parents=True, exist_ok=True)
     write_meta(OUT, FOLDER_META)
 
-    val = torchvision.datasets.CIFAR10(args.data, train=False, download=True)
-    clean_labels = [int(val.targets[i]) for i in range(VAL_SIZE)]
+    clean_labels = [int(t) for t in torchvision.datasets.CIFAR10(args.data, train=False, download=True).targets]
+    noise = flip_labels(clean_labels, "val")
+    # No overrides file: mocks show the repo's labels before any relabel/remove.
+    val = get_dataset("val", args.data, overrides=None)
 
     write_json("ml_classes.json", CLASSES)
     # Same code paths forge.watch uses, so mocks and live runs can't drift apart.
-    write_json("ml_graph.json", forge_graph.describe(SmallCNN(), torch.zeros(3, 32, 32)))
+    write_json("ml_graph.json", forge_graph.describe(SmallCNN(len(CLASSES)), torch.zeros(3, 32, 32)))
 
-    image, atlas_meta, _ = forge_atlas.build(Subset(val, range(VAL_SIZE)))
+    image, atlas_meta, _ = forge_atlas.build(val)
     atlas_path = OUT / "ml_atlas_val.png"
     image.save(atlas_path)
     write_meta(atlas_path, TEXTURE_META)
     write_json("ml_atlas_val.json", {"atlas_url": "/ml/files/ml_atlas_val.png", **atlas_meta})
 
-    samples, noise = make_results(clean_labels, rng)
+    samples = make_results(clean_labels[:VAL_SIZE], noise, rng)
     # Dataset shows the (possibly noisy) labels the model was trained against.
     write_json("ml_dataset_val.json", [{"id": s["id"], "label_idx": s["true_idx"],
                                         "thumb_url": f"/ml/image/{s['id']}"} for s in samples])
     write_json("ml_results.json", {"samples": samples})
-    write_json("ml_noise.json", {"seed": SEED, "rate": NOISE_RATE, "flipped": noise})
+    flipped = [{"id": sample_id(i), "clean_idx": clean_labels[i], "noisy_idx": n} for i, n in noise.items()]
+    write_json("ml_noise.json", {"seed": NOISE_SEED, "rate": NOISE_RATE, "flipped": flipped})
 
     matrix = np.zeros((len(CLASSES), len(CLASSES)), dtype=int)
     for s in samples:

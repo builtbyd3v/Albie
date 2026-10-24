@@ -12,8 +12,8 @@ from torch.utils.data import Dataset, Subset
 import forge
 from forge import atlas, graph
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples" / "cifar10"))
-from train import SmallCNN  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ml-examples" / "cifar10"))
+from model import SmallCNN  # noqa: E402
 
 
 class FakeVision(Dataset):
@@ -37,7 +37,7 @@ def test_graph_has_shapes_without_batch_dim_and_keeps_train_mode():
     model = SmallCNN().train()
     layers = graph.describe(model, torch.zeros(3, 32, 32))["layers"]
     assert model.training
-    assert layers[0] == {"name": "net.0", "type": "conv", "in_shape": [3, 32, 32], "out_shape": [32, 32, 32],
+    assert layers[0] == {"name": "features.0", "type": "conv", "in_shape": [3, 32, 32], "out_shape": [32, 32, 32],
                          "params": 896}
     assert layers[-1]["out_shape"] == [10]
     assert {l["type"] for l in layers} == {"conv", "norm", "activation", "pool", "reshape", "linear"}
