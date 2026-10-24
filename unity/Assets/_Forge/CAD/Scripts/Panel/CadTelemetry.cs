@@ -289,7 +289,7 @@ public sealed class CadTelemetry
                     break;
                 case 2:
                     lineText.text = flight.deploys
-                        ? "Under the chute at " + CadUi.F(fl.descentRateMps, "0.0") + " m/s · descent shown ×" + CadUi.F(Mathf.Max(1f, f.playback), "0")
+                        ? "Under the chute at " + CadUi.F(fl.descentRateMps, "0.0") + " m/s"  // the time chip says how fast it plays
                         : "Coming down without a parachute";
                     break;
                 default:
