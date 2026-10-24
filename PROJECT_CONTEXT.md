@@ -8,18 +8,18 @@
 ## 0. Status (update this as you go)
 
 **2026-10-24, Hudson (Bit runs the workspace, branch `agent/bit-control`):**
-- **Done: hub side.** From the desk with nothing open, by voice alone: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Rephrase it. Send it."
+- **Done: hub and Unity, play-tested end to end** (desktop mode, real hub and CAD worker, Slack on stubs). From the desk with nothing open, by voice alone: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Rephrase it. Send it."
   - Bit opens views himself: the `ui_open_view` tool, `ui.mode` out, Unity's `workspace.mode` back. CAD tools open the CAD view on their own.
   - New CAD tools: expand / markers / dimensions / tab (`cad_view`), the design's demo (`cad_demo`: Fly, Hover, Run), versions and go-back, and supplier files.
   - Supplier files per version (`GET /cad/files`): STEP, STL, drawing PDF, parts CSV.
   - Slack drafts can carry those files (`messages_send attach`); `messages_edit_draft` rewords a draft and keeps the files; sending uploads text and files in one go, as you.
   - Tests: `hub/tests/test_bit_script.py` runs the whole script.
   - Contract: `docs/PET_AGENT_CONTRACT.md` Addendum H.
-- **Setup:** Slack needs `files:write` + `files:read` (added to `hub/manifest.json`). Run `slack run` in `hub/`, then re-copy the User OAuth Token.
-- **Next: Unity** (Addendum H, "Unity"):
-  - Core: a `ui.mode` handler that answers with `workspace.mode`.
-  - CAD: `cad.action` → Expand / demo / overlays / tab, queued until that version has loaded.
-  - Messages: attachment chips on the draft card and in the composer.
+- **Unity:**
+  - Core: `WorkspaceRemote` (installs itself) opens the view and answers with `workspace.mode`, or "not at the desk".
+  - CAD: `cad.action` → Expand / demo / overlays / tab / Reassemble, each one held until that version is on screen.
+  - Messages: the draft's files as one line on the draft card and in the composer, and the composer now shows Bit's rewording.
+- **Setup:** sending files needs `files:write` (and `files:read`) on the Slack token: both are in `hub/manifest.json`. If a token predates them, run `slack run` in `hub/` and re-copy the User OAuth Token; until then Bit says exactly that and the draft stays open.
 
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
 - **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).

@@ -419,9 +419,9 @@ float diameterMm, UnityAction onClick)` (+ the static `Layer` / `Label` / `SetLo
 
 All **proposed**, additive; old clients ignore the new types and fields. Goal: from the desk with nothing open,
 "Bit, open the quadcopter, expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to
-Adrian with all the files for the supplier. Rephrase it. Send it." works by voice alone. Hub side done
-(`hub/agent/workspace.py`, `hub/cad/tools.py`, `hub/cad/package.py`, `hub/messaging/`; `hub/tests/test_bit_script.py`
-runs that script); Unity side below is still to build.
+Adrian with all the files for the supplier. Rephrase it. Send it." works by voice alone. Hub: `hub/agent/workspace.py`,
+`hub/cad/tools.py`, `hub/cad/package.py`, `hub/messaging/`; `hub/tests/test_bit_script.py` runs that script. Unity:
+below; play-tested in desktop mode against the real hub (CAD worker, Slack on stubs), every step of the script.
 
 | direction | type | payload |
 |---|---|---|
@@ -458,18 +458,21 @@ runs that script); Unity side below is still to build.
 * Send failures keep the draft open (same id, fresh expiry), so the card's Send works again once the cause is fixed;
   drafts expire after 5 minutes (was 2).
 
-**Unity (to build; Core = Hudson, CAD, Messages):**
-* Core: a `ui.mode` handler (one component next to `Workspace`, in Main and sandboxes): `""` → `Close()`, a known mode →
-  `Open(mode)` (not `Toggle`: asking for the open view keeps it open); then send `workspace.mode {pet_id, mode:
-  ActiveMode ?? "", reason}` right away, with `reason: "not_at_desk"` when `presence.AtDesk` is false, `"unknown_mode"`
-  for an id `modes` doesn't have. (`ArrivalDirector` still sends its own `workspace.mode` on every change; the duplicate
-  is harmless.) `ForgeEvents.cs`: `UiMode`, `CadAction`, `DraftAttachment` + `NotifyDraft.attachments`, `WorkspaceMode.reason`.
-* CAD: `CadSession` subscribes to `cad.action` and routes it to what the buttons call today: `expand` →
-  `CadViewer.SetInspecting(on)`, `demo` → `RequestDemo` / stop, `markers` / `dimensions` → the Analysis toggles (keys
-  M / N), `tab` → `SetTab`, `reassemble` → the Reassemble pill. Apply it only for the open `part`, and only once the
-  loaded version is `>= version` (queue it until then: a `cad_set_params` + `cad_demo` pair must fly the new rocket).
-  `CadSession` is created by the CAD prefabs when CAD mode first opens, which can be a moment after the hub's
-  `cad.action`: on start, apply `ForgeNet`'s last `cad.action` once if it arrived within the last ~3 s and its `seq`
-  is newer than any applied.
-* Messages: `DraftCard` and `SlackComposer` show `attachments` as chips (kind icon, name, size) under the text.
-  Nothing else changes: Send / Cancel / PATCH are the same calls.
+**Unity (done; no scene or prefab changes):**
+* Core: `Core/Scripts/WorkspaceRemote.cs` installs itself on the scene's `Workspace` when Play starts (a scene without
+  one gets nothing). `ui.mode`: `""` → `Close()`, a known mode → `Open(mode)` (not `Toggle`: asking for the open view
+  keeps it open); then it sends `workspace.mode {pet_id, mode: ActiveMode ?? "", reason?}` at once, `reason:
+  "not_at_desk"` when `presence.AtDesk` is false, `"unknown_mode"` for an id `modes` doesn't have. (`ArrivalDirector`
+  still sends its own `workspace.mode` on every change; the duplicate is harmless.) `ForgeEvents.cs`: `UiMode`,
+  `CadAction`, `DraftAttachment` + `NotifyDraft.attachments`, `OnUiMode`, `OnCadAction`.
+* CAD: `CadSession` routes `cad.action` to what the buttons call: `expand` → `SetInspecting(on)`, `demo` →
+  `RequestDemo(on)`, `reassemble` → `Reassemble()`, `tab` → `TabRequested` (the panel's `SetTab`), and at once (session
+  state, any version) `markers` → `SetMarkersShown`, `dimensions` → `SetMeasuring`. The others wait, in order, until the
+  viewer shows that `part` at `>= version` (`CadViewer` reports every swap with `CadSession.ReportShown`; a demo started
+  on the old model would stop at the swap), and are dropped after 15 s if it never shows. A static listener keeps the
+  last `cad.action`, so a session the CAD prefabs create just after it (Bit opened the view and pressed in one breath)
+  applies it on start if it came within 4 s.
+* Messages: `DraftCard` and the Slack panel's composer show the draft's files as one line ("4 files · STEP, STL, Drawing
+  PDF, Parts list · 1.2 MB", `SlackText.Attachments`), made at runtime; the composer grows by the line. The composer now
+  takes Bit's rewording of the open draft (an edited `notify.draft` whose text differs from the field); before, it only
+  expected its own PATCH echo and kept the old text on screen. Send / Cancel / PATCH are the same calls.

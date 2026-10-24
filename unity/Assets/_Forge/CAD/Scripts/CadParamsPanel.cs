@@ -77,6 +77,7 @@ public class CadParamsPanel : MonoBehaviour
         session.OverlaysChanged += MarkData;
         session.ModelChanged += OnModel;
         session.Notice += ShowToast;
+        session.TabRequested += SetTab;  // Bit: "show me the analysis"
         ForgeNet.StatusChanged += OnNet;
         if (session.Latest != null) Remember(session.Latest.info);
         dataDirty = layoutDirty = true;
@@ -99,6 +100,7 @@ public class CadParamsPanel : MonoBehaviour
             session.OverlaysChanged -= MarkData;
             session.ModelChanged -= OnModel;
             session.Notice -= ShowToast;
+            session.TabRequested -= SetTab;
         }
         ForgeNet.StatusChanged -= OnNet;
         if (tabs != null) tabs[tab].Hidden();

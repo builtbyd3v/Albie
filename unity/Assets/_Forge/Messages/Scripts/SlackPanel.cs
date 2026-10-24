@@ -437,7 +437,7 @@ public class SlackPanel : MonoBehaviour
         // Right column: header, messages, composer.
         SlackUi.Place(headName.rectTransform, x0 + 4f, 0f, rw - 8f, 24f);
         SlackUi.Place(headTopic.rectTransform, x0 + 4f, 24f, rw - 8f, 16f);
-        float composerY = h - SlackComposer.Height;
+        float composerY = h - composer.CurrentHeight;  // taller while Bit's draft lists its files
         float listY = HeaderH, listH = Mathf.Max(20f, composerY - 10f - listY);
         SlackUi.Place((RectTransform)msgScroll.transform, x0, listY, rw, listH);
         y = 0f;

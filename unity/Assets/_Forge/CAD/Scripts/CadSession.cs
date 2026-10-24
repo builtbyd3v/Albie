@@ -87,6 +87,24 @@ public class CadSession : MonoBehaviour
     public event Action DemoChanged;             // DemoRunning changed
     public event Action<CadDemoFrame> DemoFrame; // every frame while a demo runs: phase and live readouts
 
+    /// <summary>The version the viewer has on screen (CadViewer reports every swap); null until one shows.</summary>
+    public CadModelUpdated ShownInfo { get; private set; }
+    /// <summary>Bit picked a tab of the design panel: an index into Overview, Parameters, Analysis, History.</summary>
+    public event Action<int> TabRequested;
+
+    // Bit's buttons (cad.action, docs/PET_AGENT_CONTRACT.md Addendum H). Each is for a version of a design: it waits until
+    // the viewer shows that version (a demo started on the old model would stop at the swap), keeps the order they came
+    // in, and is dropped after ActionTimeout if that version never shows. Overlays are session state and apply at once.
+    const float ActionTimeout = 15f, LateActionSeconds = 4f;
+    static readonly string[] TabIds = { "overview", "parameters", "analysis", "history" };  // CadParamsPanel's tabs, in order
+    readonly List<CadAction> pendingActions = new List<CadAction>();
+    readonly List<float> pendingSince = new List<float>();
+    CadAction handledAction;
+    // Bit can open the CAD view and press a button in one breath: the press may land before this session exists (the CAD
+    // prefabs create it as the view unfolds). A static listener keeps the last one so StartHub can still apply it.
+    static CadAction lastAction;
+    static float lastActionAt = -100f;
+
     int mockPart = -1, mockIndex = -1;
     readonly Dictionary<int, CadFlight> flights = new Dictionary<int, CadFlight>();  // by version, the last few
     readonly Dictionary<int, List<Action<CadFlight>>> flightWaiters = new Dictionary<int, List<Action<CadFlight>>>();
@@ -130,6 +148,7 @@ public class CadSession : MonoBehaviour
         ForgeEvents.OnCadModelUpdated += OnModelUpdated;
         ForgeEvents.OnCadView += OnViewEvent;
         ForgeEvents.OnCadRegenFailed += OnRegenFailed;
+        ForgeEvents.OnCadAction += OnCadAction;
         ForgeNet.StatusChanged += OnNetStatus;
     }
 
@@ -138,7 +157,24 @@ public class CadSession : MonoBehaviour
         ForgeEvents.OnCadModelUpdated -= OnModelUpdated;
         ForgeEvents.OnCadView -= OnViewEvent;
         ForgeEvents.OnCadRegenFailed -= OnRegenFailed;
+        ForgeEvents.OnCadAction -= OnCadAction;
         ForgeNet.StatusChanged -= OnNetStatus;
+    }
+
+    // This project enters Play mode without a domain reload: statics, and static subscriptions, outlive a session.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ListenForActions()
+    {
+        ForgeEvents.OnCadAction -= RememberAction;
+        ForgeEvents.OnCadAction += RememberAction;
+        lastAction = null;
+        lastActionAt = -100f;
+    }
+
+    static void RememberAction(CadAction a)
+    {
+        lastAction = a;
+        lastActionAt = Time.realtimeSinceStartup;
     }
 
     IEnumerator Start()
@@ -179,6 +215,7 @@ public class CadSession : MonoBehaviour
         if (ForgeNet.TryGetLast<CadView>(ForgeEvents.CadViewType, out var view) && view != null) ApplyView(view);
         if (ForgeNet.TryGetLast<CadModelUpdated>(ForgeEvents.CadModelUpdatedType, out var info) && info != null) OnModelUpdated(info);
         else StartCoroutine(FetchLatest());
+        if (lastAction != null && Time.realtimeSinceStartup - lastActionAt < LateActionSeconds) OnCadAction(lastAction);
     }
 
     // Commands (the same ones Bit's tools call on the hub)
@@ -375,6 +412,60 @@ public class CadSession : MonoBehaviour
 
     /// <summary>CadViewer: this frame of the running demo.</summary>
     public void PublishDemoFrame(CadDemoFrame frame) => DemoFrame?.Invoke(frame);
+
+    /// <summary>CadViewer: <paramref name="info"/> is on screen now, swapped in for <paramref name="shownGeneration"/>.</summary>
+    public void ReportShown(CadModelUpdated info, int shownGeneration)
+    {
+        ShownInfo = shownGeneration == generation ? info : null;  // a mock model doesn't count for the hub's versions
+        FlushActions();
+    }
+
+    void OnCadAction(CadAction a)
+    {
+        if (a == null || ReferenceEquals(a, handledAction)) return;  // the static listener's copy, seen already
+        handledAction = a;
+        switch (a.action)
+        {
+            case "markers": SetMarkersShown(a.on ?? true); return;
+            case "dimensions": SetMeasuring(a.on ?? true); return;
+        }
+        pendingActions.Add(a);
+        pendingSince.Add(Time.unscaledTime);
+        FlushActions();
+    }
+
+    void FlushActions()
+    {
+        while (pendingActions.Count > 0)
+        {
+            var a = pendingActions[0];
+            if (Time.unscaledTime - pendingSince[0] > ActionTimeout)
+                Debug.LogWarning($"[CadSession] Bit's '{a.action}' for {a.part} v{a.version} never had its model on screen; dropped.");
+            else if (!Shows(a)) return;  // the ones behind it wait too: they came later
+            else ApplyAction(a);
+            pendingActions.RemoveAt(0);
+            pendingSince.RemoveAt(0);
+        }
+    }
+
+    bool Shows(CadAction a) =>
+        ShownInfo != null && (string.IsNullOrEmpty(a.part) || ShownInfo.part == a.part)
+        && (!a.version.HasValue || ShownInfo.version >= a.version.Value);
+
+    void ApplyAction(CadAction a)
+    {
+        switch (a.action)
+        {
+            case "expand": SetInspecting(a.on ?? true); break;
+            case "demo": RequestDemo(a.on ?? true); break;
+            case "reassemble": Reassemble(); break;
+            case "tab":
+                int index = Array.IndexOf(TabIds, (a.tab ?? "").ToLowerInvariant());
+                if (index >= 0) TabRequested?.Invoke(index);
+                break;
+            default: Debug.LogWarning($"[CadSession] Unknown cad.action '{a.action}'."); break;
+        }
+    }
 
     public void RequestFlight()
     {
@@ -868,6 +959,7 @@ public class CadSession : MonoBehaviour
             awaitVersion = -1;
             UpdateBuilding();
         }
+        if (pendingActions.Count > 0) FlushActions();  // times out the ones whose model never came
     }
 
     void Publish(CadUpdate update)

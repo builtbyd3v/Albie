@@ -27,6 +27,7 @@ public class DraftCard : MonoBehaviour
     [SerializeField] TMP_Text status;      // "Sending…", "Sent", "Cancelled", errors
     [SerializeField] Button send;
     [SerializeField] Button cancel;
+    TMP_Text files;                        // the draft's attachments (see ShowFiles); null until a draft has some
 
     public NotifyDraft Draft { get; private set; }
     /// <summary>Sent or cancelled; the card is on its way out.</summary>
@@ -73,8 +74,33 @@ public class DraftCard : MonoBehaviour
         if (hasReply) replying.text = $"Replying to {SlackText.SenderName(to)}: {FirstLine(to.text)}";
 
         body.text = d.text ?? "";
+        ShowFiles(SlackText.Attachments(d.attachments));
         status.text = d.edited ? "Edited by Bit" : "Bit wrote this";
         SetButtons(true);
+    }
+
+    // The draft's files (Addendum H), one line above the buttons: "4 files · STEP, STL, Drawing PDF, Parts list · 1.2 MB".
+    // Made here rather than in the prefab, which predates attachments; the body gives up the line's height while it shows.
+    const float FilesBottom = 40f, FilesH = 18f, BodyInset = 50f;
+
+    void ShowFiles(string line)
+    {
+        if (files == null && line.Length > 0)
+        {
+            files = SlackUi.Text(body.transform.parent, "Files", SlackUi.Small, SlackUi.AccentA(0.95f));
+            files.overflowMode = TextOverflowModes.Ellipsis;
+            var rt = files.rectTransform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = new Vector2(1f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.offsetMin = new Vector2(14f, FilesBottom);
+            rt.offsetMax = new Vector2(-14f, FilesBottom + FilesH);
+        }
+        if (files == null) return;
+        files.text = line;
+        files.gameObject.SetActive(line.Length > 0);
+        body.rectTransform.offsetMin = new Vector2(body.rectTransform.offsetMin.x,
+            line.Length > 0 ? FilesBottom + FilesH + 4f : BodyInset);
     }
 
     public void Send()
