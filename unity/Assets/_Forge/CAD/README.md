@@ -41,8 +41,10 @@ importing a prefab), and rebuild.
 
 ## Notes for Core
 
-- `PointableCanvasModule` turns on **exclusive mode** when added in the Editor (its `Reset()`), which disables every
-  other input module at Start. For mouse UI next to it (DesktopRig), set `ExclusiveMode = false`, as the sandbox does.
+- Mouse: DesktopRig drives uGUI itself (EventSystem raycast + ExecuteEvents), which the panel supports, including
+  slider drag and release (that release triggers the regen). If you ever add a standard uGUI input module instead:
+  `PointableCanvasModule` turns on **exclusive mode** when added in the Editor (its `Reset()`) and disables other
+  input modules at Start; set `ExclusiveMode = false`, as the sandbox does.
 - Player builds: glTFast's shader graph (`Shader Graphs/glTF-pbrMetallicRoughness`) must be in the build, or the
   rocket renders magenta. Add it to Always Included Shaders, or record the variants (play the sandbox, then
   Project Settings > Graphics > Shader Preloading > save to asset) and add that to Preloaded Shaders. See glTFast's

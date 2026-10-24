@@ -288,7 +288,9 @@ public static class CadPrefabBuilder
         var viewer = (GameObject)PrefabUtility.InstantiatePrefab(viewerPrefab, scene);
         viewer.transform.position = new Vector3(-0.12f, 0.75f, 0.25f);
         var panel = (GameObject)PrefabUtility.InstantiatePrefab(panelPrefab, scene);
-        panel.transform.position = new Vector3(0.36f, 1.12f, 0.32f);
+        // A root RectTransform's x/y are serialized as m_AnchoredPosition; setting .position moves it live but
+        // doesn't record that override on a prefab instance, so set the serialized value directly.
+        ((RectTransform)panel.transform).anchoredPosition3D = new Vector3(0.36f, 1.12f, 0.32f);
         panel.transform.rotation = Quaternion.Euler(0f, 20f, 0f);
 
         // Mouse UI. ForgePanel's ray/poke canvas asserts a PointableCanvasModule exists (as in Main), but adding one
