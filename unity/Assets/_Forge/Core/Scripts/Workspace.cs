@@ -45,7 +45,8 @@ public class WorkspaceMode
 /// desk), so they follow whichever table is used; side slots are spaced by the panels' real widths.
 /// Every panel gets a <see cref="PanelManipulator"/> (move, resize, turn). What the user changes is remembered per
 /// mode for the session, so reopening a mode puts things back; <see cref="ResetLayout"/> forgets it.
-/// Pet / voice: call <see cref="Open"/>, <see cref="Toggle"/> or <see cref="Close"/> with a mode id.
+/// Pet / voice: call <see cref="Open"/>, <see cref="Toggle"/> or <see cref="Close"/> with a mode id; <see cref="Current"/>
+/// is the scene's workspace and <see cref="TryGetItemTransform"/> finds an open panel or volume by item id.
 /// </summary>
 public class Workspace : MonoBehaviour
 {
@@ -103,18 +104,26 @@ public class Workspace : MonoBehaviour
     readonly List<OpenItem> openItems = new List<OpenItem>();
     readonly Dictionary<string, SavedPose> saved = new Dictionary<string, SavedPose>();  // "mode/item"
 
+    /// <summary>Id of the open mode, or null when everything is folded.</summary>
     public string ActiveMode { get; private set; }
+
+    /// <summary>The scene's workspace (one per scene), for modules that would otherwise FindAnyObjectByType.</summary>
+    public static Workspace Current { get; private set; }
 
     void Reset() => modes = DefaultModes();
 
+    void Awake() => Current = this;
+
     void OnEnable()
     {
+        Current = this;
         presence.stateChanged.AddListener(OnDeskState);
         presence.frameChanged.AddListener(OnFrameChanged);
     }
 
     void OnDisable()
     {
+        if (Current == this) Current = null;
         presence.stateChanged.RemoveListener(OnDeskState);
         presence.frameChanged.RemoveListener(OnFrameChanged);
     }
@@ -195,6 +204,23 @@ public class Workspace : MonoBehaviour
         presence.lockFrame = false;
         dock.SetActiveMode(null);
         modeChanged?.Invoke(null);
+    }
+
+    /// <summary>
+    /// The root transform of an open item (panel or volume) by item id, e.g. for the pet to walk to a panel.
+    /// False when no mode is open or the open mode has no such item. Items count as open from the moment
+    /// <see cref="Open"/> spawns them, while they are still unfolding.
+    /// </summary>
+    public bool TryGetItemTransform(string itemId, out Transform t)
+    {
+        foreach (var o in openItems)
+        {
+            if (o.go == null || o.item.id != itemId) continue;
+            t = o.go.transform;
+            return true;
+        }
+        t = null;
+        return false;
     }
 
     /// <summary>Switch between the curved arc and the flat row. Re-lays out the open mode (keeps panel sizes).</summary>
@@ -748,8 +774,9 @@ public class Workspace : MonoBehaviour
             {
                 new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main),
                 new WorkspaceItem("ml-training", "Training", WorkspaceSlot.Above),
-                new WorkspaceItem("ml-dataset", "Dataset", WorkspaceSlot.FarLeft, WorkspaceItemKind.Volume),
-                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left, WorkspaceItemKind.Volume),
+                // Panels, like the ML prefabs (ML/Resources/MLPanels, all ForgePanel variants); ids per section 7.
+                new WorkspaceItem("ml-datastack", "Dataset", WorkspaceSlot.FarLeft),
+                new WorkspaceItem("ml-model3d", "Model", WorkspaceSlot.Left),
                 new WorkspaceItem("ml-results", "Results", WorkspaceSlot.Right),
             },
         },
@@ -764,15 +791,11 @@ public class Workspace : MonoBehaviour
                 new WorkspaceItem("cad-timeline", "Versions", WorkspaceSlot.Left),
             },
         },
+        // The landing mode: just the editor. The pet opens it after the sit-down digest.
         new WorkspaceMode
         {
-            id = "screens", label = "SCR", color = ForgeTheme.Screens,
-            items =
-            {
-                new WorkspaceItem("screen-main", "Screen 1", WorkspaceSlot.Main),
-                new WorkspaceItem("screen-left", "Screen 2", WorkspaceSlot.Left),
-                new WorkspaceItem("screen-right", "Screen 3", WorkspaceSlot.Right),
-            },
+            id = "code", label = "CODE", color = ForgeTheme.Code,
+            items = { new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main) },
         },
         new WorkspaceMode
         {
