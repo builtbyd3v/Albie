@@ -64,7 +64,11 @@ public sealed class CadModel : IDisposable
 
     public void Dispose()
     {
-        if (Root != null) UnityEngine.Object.Destroy(Root);
+        if (Root != null)
+        {
+            Root.SetActive(false);  // Destroy waits for the end of the frame; a fit this frame mustn't measure it
+            UnityEngine.Object.Destroy(Root);
+        }
         Root = null;
         import?.Dispose();
         import = null;

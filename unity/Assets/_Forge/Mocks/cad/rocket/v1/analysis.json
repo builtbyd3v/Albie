@@ -1,0 +1,173 @@
+{
+  "mass_g": 79.0,
+  "cg_gltf": [
+    0.0,
+    0.14384,
+    0.0
+  ],
+  "size_mm": [
+    121.4,
+    140.2,
+    390.0
+  ],
+  "part_count": 8,
+  "breakdown": [
+    {
+      "id": "NOSE_CONE",
+      "mass_g": 12.22
+    },
+    {
+      "id": "BODY_TUBE",
+      "mass_g": 20.69
+    },
+    {
+      "id": "MOUNT_TUBE",
+      "mass_g": 1.57
+    },
+    {
+      "id": "CENTERING_RING_AFT",
+      "mass_g": 1.77
+    },
+    {
+      "id": "CENTERING_RING_FWD",
+      "mass_g": 1.77
+    },
+    {
+      "id": "FIN_1",
+      "mass_g": 1.61
+    },
+    {
+      "id": "FIN_2",
+      "mass_g": 1.61
+    },
+    {
+      "id": "FIN_3",
+      "mass_g": 1.61
+    },
+    {
+      "name": "Estes C6 (loaded)",
+      "mass_g": 24.1
+    },
+    {
+      "name": "recovery (parachute, shock cord, wadding)",
+      "mass_g": 12.0
+    }
+  ],
+  "length_mm": 390.0,
+  "diameter_mm": 40.0,
+  "cg_mm": 246.2,
+  "cp_mm": 308.8,
+  "margin_cal": 1.57,
+  "stable": true,
+  "stability": "stable",
+  "cna_per_rad": 15.21,
+  "motor": "Estes C6",
+  "markers_gltf": {
+    "cg": [
+      0.0,
+      0.14384,
+      0.0
+    ],
+    "cp": [
+      0.0,
+      0.08123,
+      0.0
+    ]
+  },
+  "assumptions": [
+    "Barrowman static CP: subsonic, zero angle of attack, body tube adds no lift.",
+    "CG at liftoff with a loaded motor (the least stable moment of a normal flight).",
+    "Masses from part geometry and the densities in the part script; glue and paint ignored."
+  ],
+  "metrics": [
+    {
+      "id": "margin",
+      "label": "Static margin",
+      "value": 1.5652,
+      "unit": "cal",
+      "display": "1.57 cal",
+      "status": "ok",
+      "min": 0.0,
+      "max": 3.0,
+      "bands": [
+        {
+          "to": 1.0,
+          "status": "bad"
+        },
+        {
+          "to": 1.5,
+          "status": "warn"
+        },
+        {
+          "to": 2.5,
+          "status": "ok"
+        },
+        {
+          "to": 3.0,
+          "status": "warn"
+        }
+      ],
+      "note": "stable"
+    },
+    {
+      "id": "cg",
+      "label": "CG from tip",
+      "value": 246.1622,
+      "unit": "mm",
+      "display": "246 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "cp",
+      "label": "CP from tip",
+      "value": 308.7706,
+      "unit": "mm",
+      "display": "309 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "mass",
+      "label": "Mass",
+      "value": 78.9533,
+      "unit": "g",
+      "display": "79 g",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "size",
+      "label": "Size",
+      "value": 390.0,
+      "unit": "mm",
+      "display": "121 x 140 x 390 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "parts",
+      "label": "Parts",
+      "value": 8.0,
+      "unit": "",
+      "display": "8",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    }
+  ]
+}

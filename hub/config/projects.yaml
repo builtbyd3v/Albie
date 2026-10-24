@@ -1,0 +1,6 @@
+# project_id -> repo the pet can read (qa) or edit on a pet/* branch (code).
+# Paths are expanded (~) server-side and never sent to clients.
+projects:
+  gatorhack:
+    path: "~/Documents/gatorhack-dubz"
+    default_mode: "qa"

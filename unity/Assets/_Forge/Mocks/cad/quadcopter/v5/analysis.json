@@ -1,0 +1,208 @@
+{
+  "mass_g": 389.2,
+  "cg_gltf": [
+    0.0,
+    0.02776,
+    0.0
+  ],
+  "size_mm": [
+    249.1,
+    249.1,
+    64.0
+  ],
+  "part_count": 20,
+  "breakdown": [
+    {
+      "id": "BOTTOM_PLATE",
+      "mass_g": 22.15
+    },
+    {
+      "id": "TOP_PLATE",
+      "mass_g": 14.77
+    },
+    {
+      "id": "STANDOFF_1",
+      "mass_g": 1.33
+    },
+    {
+      "id": "STANDOFF_2",
+      "mass_g": 1.33
+    },
+    {
+      "id": "STANDOFF_3",
+      "mass_g": 1.33
+    },
+    {
+      "id": "STANDOFF_4",
+      "mass_g": 1.33
+    },
+    {
+      "id": "ARM_1",
+      "mass_g": 10.34
+    },
+    {
+      "id": "ARM_2",
+      "mass_g": 10.34
+    },
+    {
+      "id": "ARM_3",
+      "mass_g": 10.34
+    },
+    {
+      "id": "ARM_4",
+      "mass_g": 10.34
+    },
+    {
+      "id": "MOTOR_1",
+      "mass_g": 33.48
+    },
+    {
+      "id": "MOTOR_2",
+      "mass_g": 33.48
+    },
+    {
+      "id": "MOTOR_3",
+      "mass_g": 33.48
+    },
+    {
+      "id": "MOTOR_4",
+      "mass_g": 33.48
+    },
+    {
+      "id": "PROP_1",
+      "mass_g": 4.16
+    },
+    {
+      "id": "PROP_2",
+      "mass_g": 4.16
+    },
+    {
+      "id": "PROP_3",
+      "mass_g": 4.16
+    },
+    {
+      "id": "PROP_4",
+      "mass_g": 4.16
+    },
+    {
+      "id": "FLIGHT_CONTROLLER",
+      "mass_g": 5.4
+    },
+    {
+      "id": "BATTERY",
+      "mass_g": 149.62
+    }
+  ],
+  "metrics": [
+    {
+      "id": "clearance",
+      "label": "Prop clearance",
+      "value": 28.5635,
+      "unit": "mm",
+      "display": "29 mm",
+      "status": "ok",
+      "min": -40.0,
+      "max": 60.0,
+      "bands": [
+        {
+          "to": 0.0,
+          "status": "bad"
+        },
+        {
+          "to": 5.0,
+          "status": "warn"
+        },
+        {
+          "to": 60.0,
+          "status": "ok"
+        }
+      ],
+      "note": "clear"
+    },
+    {
+      "id": "twr",
+      "label": "Thrust to weight",
+      "value": 14.1321,
+      "unit": "",
+      "display": "14.1 : 1",
+      "status": "ok",
+      "min": 0.0,
+      "max": 16.0,
+      "bands": [
+        {
+          "to": 2.0,
+          "status": "bad"
+        },
+        {
+          "to": 4.0,
+          "status": "warn"
+        },
+        {
+          "to": 16.0,
+          "status": "ok"
+        }
+      ],
+      "note": "agile"
+    },
+    {
+      "id": "hover",
+      "label": "Hover time",
+      "value": 10.9047,
+      "unit": "min",
+      "display": "10.9 min",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "thrust",
+      "label": "Thrust per motor",
+      "value": 1375.0,
+      "unit": "g",
+      "display": "1375 g",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "mass",
+      "label": "Mass",
+      "value": 389.1842,
+      "unit": "g",
+      "display": "389 g",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "size",
+      "label": "Size",
+      "value": 249.1,
+      "unit": "mm",
+      "display": "249 x 249 x 64 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "parts",
+      "label": "Parts",
+      "value": 20.0,
+      "unit": "",
+      "display": "20",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    }
+  ]
+}

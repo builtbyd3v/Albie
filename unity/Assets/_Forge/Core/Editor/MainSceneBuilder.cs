@@ -26,6 +26,7 @@ public static class MainSceneBuilder
     {
         ("cad-viewer", "Assets/_Forge/CAD/Prefabs/CadViewer.prefab"),
         ("cad-params", "Assets/_Forge/CAD/Prefabs/CadParamsPanel.prefab"),
+        ("screen-main", "Assets/_Forge/Screens/ScreenForgePanel.prefab"),
     };
 
     [MenuItem("Forge/Build Main Scene")]

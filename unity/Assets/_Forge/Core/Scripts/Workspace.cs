@@ -5,6 +5,8 @@ using UnityEngine.Events;
 
 public enum WorkspaceSlot { Main, Left, Right, FarLeft, FarRight, Above, DeskCenter, DeskLeft, DeskRight }
 public enum WorkspaceItemKind { Panel, Volume }
+/// <summary>Curved: panels in an arc, each facing the eyes. Flat: one straight row, like a wall of monitors.</summary>
+public enum WorkspaceLayout { Curved, Flat }
 
 /// <summary>One thing that unfolds in a mode: a flat panel or a 3D volume at a slot.</summary>
 [Serializable]
@@ -38,8 +40,11 @@ public class WorkspaceMode
 
 /// <summary>
 /// The desk workspace. When the user is at a desk (<see cref="DeskPresence"/>) the dock shows mode buttons on
-/// the desk; opening a mode unfolds its panels in an arc around the user's eyes and its volumes on the desk.
-/// Slots are laid out in the desk frame (front edge, +Z into the desk), so they follow whichever table is used.
+/// the desk; opening a mode unfolds its panels in an arc around the user's eyes (or a flat row, see
+/// <see cref="layout"/>) and its volumes on the desk. Slots are laid out in the desk frame (front edge, +Z into the
+/// desk), so they follow whichever table is used; side slots are spaced by the panels' real widths.
+/// Every panel gets a <see cref="PanelManipulator"/> (move, resize, turn). What the user changes is remembered per
+/// mode for the session, so reopening a mode puts things back; <see cref="ResetLayout"/> forgets it.
 /// Pet / voice: call <see cref="Open"/>, <see cref="Toggle"/> or <see cref="Close"/> with a mode id.
 /// </summary>
 public class Workspace : MonoBehaviour
@@ -51,13 +56,46 @@ public class Workspace : MonoBehaviour
     public List<WorkspaceMode> modes = new List<WorkspaceMode>();
 
     public UnityEvent<string> modeChanged = new UnityEvent<string>();
+    public UnityEvent<WorkspaceLayout> layoutChanged = new UnityEvent<WorkspaceLayout>();
 
     [Header("Layout (m)")]
+    public WorkspaceLayout layout = WorkspaceLayout.Curved;
     public float panelRadius = 0.8f;
     public float sideAngle = 48f;
     public float farAngle = 90f;
+    [Tooltip("Space between neighbouring panels (m).")]
+    public float panelGap = 0.05f;
 
-    readonly List<GameObject> openItems = new List<GameObject>();
+    // One unfolded item: its object, and the pose the layout gives it (desk frame).
+    class OpenItem
+    {
+        public WorkspaceItem item;
+        public GameObject go;
+        public ForgePanel panel;          // panels only
+        public PanelManipulator handles;  // panels only
+        public ForgeVolume volume;        // volumes only
+        public VolumeManipulator grips;   // volumes only
+        public Vector2 defaultSize;
+        public float defaultScale = 1f;
+        public Vector3 position;
+        public Quaternion rotation;
+        public PanelFacing facing;
+    }
+
+    // Where the user left a panel or volume, in the desk frame.
+    struct SavedPose
+    {
+        public Vector3 position;
+        public Quaternion rotation;
+        public Vector2 size;         // panels
+        public PanelFacing facing;   // panels
+        public float scale;          // volumes
+        public bool turned;          // volumes: the user turned the model (else it keeps its turntable)
+        public float viewYaw, viewTilt;
+    }
+
+    readonly List<OpenItem> openItems = new List<OpenItem>();
+    readonly Dictionary<string, SavedPose> saved = new Dictionary<string, SavedPose>();  // "mode/item"
 
     public string ActiveMode { get; private set; }
 
@@ -121,9 +159,17 @@ public class Workspace : MonoBehaviour
         }
 
         FoldAll();
-        Vector3 eye = ClampEye(presence.EyeInFrame());
-        for (int i = 0; i < mode.items.Count; i++)
-            openItems.Add(Unfold(mode.items[i], eye, i * 0.08f));
+        foreach (var item in mode.items) openItems.Add(Spawn(item));
+        LayOut(ClampEye(presence.EyeInFrame()));
+        for (int i = 0; i < openItems.Count; i++)
+        {
+            var o = openItems[i];
+            bool restored = saved.TryGetValue(Key(modeId, o.item.id), out SavedPose pose);
+            if (restored) Restore(o, pose);
+            if (o.handles != null) o.handles.SetPlacement(o.facing, byUser: restored);
+            if (o.grips != null) o.grips.SetPlacement(byUser: restored);
+            Unfold(o, i * 0.08f);
+        }
 
         ActiveMode = modeId;
         presence.lockFrame = true;
@@ -142,13 +188,55 @@ public class Workspace : MonoBehaviour
         modeChanged?.Invoke(null);
     }
 
-    GameObject Unfold(WorkspaceItem item, Vector3 eye, float delay)
+    /// <summary>Switch between the curved arc and the flat row. Re-lays out the open mode (keeps panel sizes).</summary>
+    public void SetLayout(WorkspaceLayout next)
     {
-        GameObject go = Spawn(item);
-        Transform t = go.transform;
-        t.SetParent(presence.Frame, false);
+        layout = next;
+        Rearrange(resetSizes: false);
+        layoutChanged?.Invoke(layout);
+    }
 
-        SlotPose(item.slot, item.kind, eye, out Vector3 pos, out Quaternion rot);
+    public void ToggleLayout() => SetLayout(layout == WorkspaceLayout.Curved ? WorkspaceLayout.Flat : WorkspaceLayout.Curved);
+
+    /// <summary>Put the open mode's panels and volumes back where and how big they started.</summary>
+    public void ResetLayout() => Rearrange(resetSizes: true);
+
+    // Forget the open mode's saved poses and animate every item to its slot in the current layout.
+    void Rearrange(bool resetSizes)
+    {
+        if (ActiveMode == null) return;
+        foreach (var o in openItems) saved.Remove(Key(ActiveMode, o.item.id));
+        if (resetSizes)
+            foreach (var o in openItems)
+            {
+                if (o.panel != null) o.panel.SizeMeters = o.defaultSize;
+                if (o.volume != null) o.go.transform.localScale = Vector3.one * o.defaultScale;
+            }
+        LayOut(ClampEye(presence.EyeInFrame()));
+        foreach (var o in openItems)
+        {
+            if (o.go == null) continue;
+            Transform t = o.go.transform;
+            Vector3 p0 = t.localPosition, p1 = o.position;
+            Quaternion r0 = t.localRotation, r1 = o.rotation;
+            if (o.handles != null) o.handles.SetPlacement(o.facing, byUser: false);
+            if (o.grips != null) o.grips.SetPlacement(byUser: false);
+            SetBusy(o, true);
+            StartCoroutine(ForgeTween.Run(0.35f, 0f, k =>
+            {
+                if (t == null) return;
+                float e = ForgeTween.EaseOutCubic(k);
+                t.localPosition = Vector3.LerpUnclamped(p0, p1, e);
+                t.localRotation = Quaternion.SlerpUnclamped(r0, r1, e);
+            }, () => SetBusy(o, false)));
+        }
+    }
+
+    void Unfold(OpenItem o, float delay)
+    {
+        Transform t = o.go.transform;
+        Vector3 pos = o.position;
+        Quaternion rot = o.rotation;
         // Rise out of the desk, near the front edge, lying flat.
         Vector3 startPos = new Vector3(Mathf.Clamp(pos.x * 0.3f, -0.25f, 0.25f), 0.02f, 0.12f);
         Quaternion startRot = Quaternion.LookRotation(Vector3.down, Vector3.forward);
@@ -157,6 +245,7 @@ public class Workspace : MonoBehaviour
         t.localPosition = startPos;
         t.localRotation = startRot;
         t.localScale = endScale * 0.02f;
+        SetBusy(o, true);
         StartCoroutine(ForgeTween.Run(0.45f, delay, k =>
         {
             if (t == null) return;
@@ -164,15 +253,22 @@ public class Workspace : MonoBehaviour
             t.localPosition = Vector3.LerpUnclamped(startPos, pos, e);
             t.localRotation = Quaternion.SlerpUnclamped(startRot, rot, e);
             t.localScale = endScale * Mathf.Max(0.02f, ForgeTween.EaseOutBack(k));
-        }));
-        return go;
+        }, () => SetBusy(o, false)));
     }
 
     void FoldAll()
     {
-        foreach (var go in openItems)
+        foreach (var o in openItems)
         {
-            if (go == null) continue;
+            if (o.go == null) continue;
+            // Remember what the user moved, resized or turned, to put it back next time this mode opens.
+            bool placed = (o.handles != null && o.handles.UserPlaced) || (o.grips != null && o.grips.UserPlaced);
+            if (ActiveMode != null && placed) saved[Key(ActiveMode, o.item.id)] = Capture(o);
+            if (o.handles != null) o.handles.Cancel();
+            if (o.grips != null) o.grips.Cancel();
+            SetBusy(o, true);
+
+            GameObject go = o.go;
             Transform t = go.transform;
             Vector3 p0 = t.localPosition, s0 = t.localScale;
             Vector3 p1 = new Vector3(Mathf.Clamp(p0.x * 0.3f, -0.25f, 0.25f), 0.02f, 0.12f);
@@ -187,79 +283,209 @@ public class Workspace : MonoBehaviour
         openItems.Clear();
     }
 
-    GameObject Spawn(WorkspaceItem item)
+    OpenItem Spawn(WorkspaceItem item)
     {
+        var o = new OpenItem { item = item };
         string title = string.IsNullOrEmpty(item.title) ? item.id : item.title;
         if (item.prefab != null)
         {
-            var custom = Instantiate(item.prefab);
-            var p = custom.GetComponentInChildren<ForgePanel>();
-            if (p != null && !string.IsNullOrEmpty(item.title)) p.Title = item.title;
-            var v = custom.GetComponentInChildren<ForgeVolume>();
-            if (v != null && !string.IsNullOrEmpty(item.title)) v.Title = item.title;
-            return custom;
+            o.go = Instantiate(item.prefab);
+            o.panel = o.go.GetComponentInChildren<ForgePanel>();
+            if (o.panel != null && !string.IsNullOrEmpty(item.title)) o.panel.Title = item.title;
+            o.volume = o.go.GetComponentInChildren<ForgeVolume>();
+            if (o.volume != null && !string.IsNullOrEmpty(item.title)) o.volume.Title = item.title;
+            // Handles move the panel's own transform, so only a panel at the prefab's root can have them.
+            if (o.panel != null && o.panel.gameObject != o.go)
+            {
+                Debug.LogWarning($"[Workspace] {item.id}: ForgePanel isn't the prefab root, so it can't be moved or resized.");
+                o.panel = null;
+            }
         }
-
-        if (item.kind == WorkspaceItemKind.Panel)
+        else if (item.kind == WorkspaceItemKind.Panel)
         {
-            var panel = Instantiate(panelPrefab);
-            panel.panelId = item.id;
-            panel.Title = title;
-            panel.SizeMeters = PanelSize(item.slot);
-            panel.name = $"Panel {item.id}";
-            return panel.gameObject;
-        }
-
-        var volume = Instantiate(volumePrefab);
-        volume.volumeId = item.id;
-        volume.Title = title;
-        volume.name = $"Volume {item.id}";
-        float s = IsDeskSlot(item.slot) ? 0.22f : 0.3f;
-        volume.SetSize(new Vector3(s, s, s));
-        // Placeholder content until the module's prefab is assigned.
-        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        Destroy(cube.GetComponent<Collider>());
-        cube.transform.localRotation = Quaternion.Euler(20f, 30f, 10f);
-        volume.SetContent(cube);
-        volume.turntable = true;
-        return volume.gameObject;
-    }
-
-    void SlotPose(WorkspaceSlot slot, WorkspaceItemKind kind, Vector3 eye, out Vector3 pos, out Quaternion rot)
-    {
-        if (IsDeskSlot(slot))
-        {
-            float x = Mathf.Min(0.3f, Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.12f));
-            float z = Mathf.Clamp(presence.FrameDepth * 0.5f, 0.12f, 0.3f);
-            pos = new Vector3(slot == WorkspaceSlot.DeskLeft ? -x : slot == WorkspaceSlot.DeskRight ? x : 0f, 0f, z);
-            rot = Quaternion.LookRotation(Flat(pos - eye), Vector3.up);
-            return;
-        }
-
-        float angle = 0f, up = -0.08f, radius = panelRadius;
-        switch (slot)
-        {
-            case WorkspaceSlot.Left: angle = -sideAngle; break;
-            case WorkspaceSlot.Right: angle = sideAngle; break;
-            case WorkspaceSlot.FarLeft: angle = -farAngle; break;
-            case WorkspaceSlot.FarRight: angle = farAngle; break;
-            case WorkspaceSlot.Above: up = 0.36f; radius += 0.05f; break;
-        }
-        float a = angle * Mathf.Deg2Rad;
-        pos = eye + new Vector3(Mathf.Sin(a) * radius, up, Mathf.Cos(a) * radius);
-
-        if (kind == WorkspaceItemKind.Volume)
-        {
-            // Floating volume: base below the slot center, turned to face the user.
-            pos.y -= 0.15f;
-            rot = Quaternion.LookRotation(Flat(pos - eye), Vector3.up);
+            o.panel = Instantiate(panelPrefab);
+            o.panel.panelId = item.id;
+            o.panel.Title = title;
+            o.panel.SizeMeters = PanelSize(item.slot);
+            o.panel.name = $"Panel {item.id}";
+            o.go = o.panel.gameObject;
         }
         else
         {
-            // Panel faces the eyes (a canvas reads correctly when its +Z points away from the viewer).
-            rot = Quaternion.LookRotation(pos - eye, Vector3.up);
+            var volume = Instantiate(volumePrefab);
+            volume.volumeId = item.id;
+            volume.Title = title;
+            volume.name = $"Volume {item.id}";
+            float s = IsDeskSlot(item.slot) ? 0.22f : 0.3f;
+            volume.SetSize(new Vector3(s, s, s));
+            // Placeholder content until the module's prefab is assigned.
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(cube.GetComponent<Collider>());
+            cube.transform.localRotation = Quaternion.Euler(20f, 30f, 10f);
+            volume.SetContent(cube);
+            volume.turntable = true;
+            o.volume = volume;
+            o.go = volume.gameObject;
+        }
+
+        o.go.transform.SetParent(presence.Frame, false);
+        if (o.panel != null)
+        {
+            o.defaultSize = o.panel.SizeMeters;
+            o.handles = o.panel.GetComponent<PanelManipulator>();
+            if (o.handles == null) o.handles = o.panel.gameObject.AddComponent<PanelManipulator>();
+            o.handles.Init(presence.head, presence.Frame);
+        }
+        else if (o.volume != null && o.volume.gameObject == o.go)
+        {
+            o.defaultScale = o.go.transform.localScale.x;
+            o.grips = o.go.GetComponent<VolumeManipulator>();
+            if (o.grips == null) o.grips = o.go.AddComponent<VolumeManipulator>();
+            o.grips.Init(presence.head, presence.Frame);
+        }
+        return o;
+    }
+
+    // Grabs wait while the workspace animates an item.
+    static void SetBusy(OpenItem o, bool busy)
+    {
+        if (o.handles != null) o.handles.Busy = busy;
+        if (o.grips != null) o.grips.Busy = busy;
+    }
+
+    static SavedPose Capture(OpenItem o)
+    {
+        Transform t = o.go.transform;
+        var pose = new SavedPose { position = t.localPosition, rotation = t.localRotation, scale = t.localScale.x };
+        if (o.panel != null)
+        {
+            pose.size = o.panel.SizeMeters;
+            pose.facing = o.handles.Facing;
+        }
+        if (o.volume != null)
+        {
+            pose.turned = !o.volume.turntable;
+            pose.viewYaw = o.volume.ViewYaw;
+            pose.viewTilt = o.volume.ViewTilt;
+        }
+        return pose;
+    }
+
+    static void Restore(OpenItem o, SavedPose pose)
+    {
+        o.position = pose.position;
+        o.rotation = pose.rotation;
+        if (o.panel != null)
+        {
+            o.panel.SizeMeters = pose.size;
+            o.facing = pose.facing;
+        }
+        if (o.volume != null)
+        {
+            o.go.transform.localScale = Vector3.one * pose.scale;
+            if (pose.turned) o.volume.SetView(pose.viewYaw, pose.viewTilt);
         }
     }
+
+    // Default poses for every open item. Side slots go outward from Main in order (Right then FarRight, Left then
+    // FarLeft), each at least at its nominal angle and far enough out not to overlap its neighbour.
+    void LayOut(Vector3 eye)
+    {
+        OpenItem main = Find(WorkspaceSlot.Main);
+        float mainY = 0f;
+        if (main != null) mainY = PlaceInRow(main, eye, 0f, -0.08f);
+        PlaceSide(eye, main, +1, WorkspaceSlot.Right, WorkspaceSlot.FarRight);
+        PlaceSide(eye, main, -1, WorkspaceSlot.Left, WorkspaceSlot.FarLeft);
+
+        foreach (var o in openItems)
+        {
+            if (o.item.slot == WorkspaceSlot.Above)
+            {
+                // Clear of the main panel's top edge.
+                float up = 0.36f;
+                if (main != null) up = Mathf.Max(up, mainY - eye.y + Size(main).y * 0.5f + panelGap + Size(o).y * 0.5f);
+                PlaceInRow(o, eye, 0f, up, layout == WorkspaceLayout.Curved ? 0.05f : 0f);
+            }
+            else if (IsDeskSlot(o.item.slot))
+            {
+                WorkspaceSlot slot = o.item.slot;
+                float x = Mathf.Min(0.3f, Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.12f));
+                float z = Mathf.Clamp(presence.FrameDepth * 0.5f, 0.12f, 0.3f);
+                o.position = new Vector3(slot == WorkspaceSlot.DeskLeft ? -x : slot == WorkspaceSlot.DeskRight ? x : 0f, 0f, z);
+                o.rotation = Quaternion.LookRotation(Flat(o.position - eye), Vector3.up);
+                o.facing = PanelFacing.FaceMe;
+            }
+        }
+    }
+
+    void PlaceSide(Vector3 eye, OpenItem main, int side, WorkspaceSlot near, WorkspaceSlot far)
+    {
+        float r = panelRadius;
+        bool curved = layout == WorkspaceLayout.Curved;
+        float mainHalf = main != null ? Size(main).x * 0.5f : 0f;
+        // Curved: angle (deg) of the outer edge placed so far; flat: its x offset (m).
+        float edge = curved ? Mathf.Atan2(mainHalf, r) * Mathf.Rad2Deg : mainHalf;
+        float gap = curved ? panelGap / r * Mathf.Rad2Deg : panelGap;
+        for (int i = 0; i < 2; i++)
+        {
+            OpenItem o = Find(i == 0 ? near : far);
+            if (o == null) continue;
+            float half = curved ? Mathf.Atan2(Size(o).x * 0.5f, r) * Mathf.Rad2Deg : Size(o).x * 0.5f;
+            float along = edge + gap + half;
+            if (curved) along = Mathf.Max(i == 0 ? sideAngle : farAngle, along);
+            PlaceInRow(o, eye, along * side, -0.08f);
+            edge = along + half;
+        }
+    }
+
+    // Place an item in the row around the eyes: `along` is an angle (deg, curved) or an x offset (m, flat), `up`
+    // is the height above the eyes. Panels stay clear of the desk top. Returns the item's height in the desk frame.
+    float PlaceInRow(OpenItem o, Vector3 eye, float along, float up, float extraRadius = 0f)
+    {
+        float r = panelRadius + extraRadius;
+        bool curved = layout == WorkspaceLayout.Curved;
+        Vector3 pos;
+        if (curved)
+        {
+            float a = along * Mathf.Deg2Rad;
+            pos = eye + new Vector3(Mathf.Sin(a) * r, up, Mathf.Cos(a) * r);
+        }
+        else
+        {
+            pos = eye + new Vector3(along, up, r);
+        }
+
+        if (o.panel == null)
+        {
+            // Floating volume: base below the slot center, turned to face the user (curved) or straight (flat).
+            pos.y = Mathf.Max(pos.y - 0.15f, 0.02f);
+            o.rotation = curved ? Quaternion.LookRotation(Flat(pos - eye), Vector3.up) : Quaternion.identity;
+        }
+        else
+        {
+            pos.y = Mathf.Max(pos.y, Size(o).y * 0.5f + 0.03f);
+            // Panel faces the eyes (a canvas reads correctly when its +Z points away from the viewer).
+            o.rotation = curved ? Quaternion.LookRotation(pos - eye, Vector3.up) : Quaternion.identity;
+        }
+        o.position = pos;
+        o.facing = curved ? PanelFacing.FaceMe : PanelFacing.Straight;
+        return pos.y;
+    }
+
+    OpenItem Find(WorkspaceSlot slot)
+    {
+        foreach (var o in openItems) if (o.item.slot == slot) return o;
+        return null;
+    }
+
+    static Vector2 Size(OpenItem o)
+    {
+        if (o.panel != null) return o.panel.SizeMeters;
+        if (o.volume != null) return new Vector2(o.volume.size.x, o.volume.size.y);
+        return new Vector2(0.3f, 0.3f);
+    }
+
+    static string Key(string modeId, string itemId) => modeId + "/" + itemId;
 
     static Vector2 PanelSize(WorkspaceSlot slot)
     {

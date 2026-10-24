@@ -1,0 +1,220 @@
+{
+  "type": "cad.model_updated",
+  "payload": {
+    "version": 9,
+    "part": "gearbox",
+    "title": "Gearbox",
+    "params": {
+      "pinion_teeth": 12,
+      "gear_teeth": 72,
+      "module": 1.5,
+      "face_width": 10.0,
+      "shaft_diameter": 8.0
+    },
+    "previous_version": 8,
+    "changed_ids": [
+      "HOUSING_BOTTOM",
+      "HOUSING_TOP",
+      "INPUT_SHAFT",
+      "PINION",
+      "BEARING_IN_FRONT",
+      "BEARING_IN_BACK",
+      "OUTPUT_SHAFT",
+      "GEAR",
+      "BEARING_OUT_FRONT",
+      "BEARING_OUT_BACK"
+    ],
+    "removed_ids": [],
+    "source": "mock",
+    "analysis": {
+      "mass_g": 1947.1,
+      "cg_gltf": [
+        0.02434,
+        0.068,
+        -5e-05
+      ],
+      "size_mm": [
+        154.0,
+        90.0,
+        136.0
+      ],
+      "part_count": 10,
+      "metrics": [
+        {
+          "id": "rim",
+          "label": "Pinion rim",
+          "value": 3.125,
+          "unit": "mm",
+          "display": "3.1 mm",
+          "status": "warn",
+          "min": 0.0,
+          "max": 12.0,
+          "bands": [
+            {
+              "to": 1.7999999999999998,
+              "status": "bad"
+            },
+            {
+              "to": 3.75,
+              "status": "warn"
+            },
+            {
+              "to": 12.0,
+              "status": "ok"
+            }
+          ],
+          "note": "thin"
+        },
+        {
+          "id": "ratio",
+          "label": "Ratio",
+          "value": 6.0,
+          "unit": "",
+          "display": "6.00 : 1",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "speed",
+          "label": "Output speed",
+          "value": 500.0,
+          "unit": "rpm",
+          "display": "500 rpm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "torque",
+          "label": "Output torque",
+          "value": 2.94,
+          "unit": "N m",
+          "display": "2.94 N m",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "centre",
+          "label": "Centre distance",
+          "value": 63.0,
+          "unit": "mm",
+          "display": "63.0 mm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "pinion",
+          "label": "Pinion teeth",
+          "value": 12.0,
+          "unit": "",
+          "display": "12 (undercut)",
+          "status": "warn",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "mass",
+          "label": "Mass",
+          "value": 1947.1028,
+          "unit": "g",
+          "display": "1.95 kg",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "size",
+          "label": "Size",
+          "value": 154.0,
+          "unit": "mm",
+          "display": "154 x 90 x 136 mm",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        },
+        {
+          "id": "parts",
+          "label": "Parts",
+          "value": 10.0,
+          "unit": "",
+          "display": "10",
+          "status": "ok",
+          "min": null,
+          "max": null,
+          "bands": [],
+          "note": ""
+        }
+      ],
+      "length_mm": null,
+      "diameter_mm": null,
+      "cg_mm": null,
+      "cp_mm": null,
+      "margin_cal": null,
+      "stable": null,
+      "stability": null,
+      "cna_per_rad": null,
+      "motor": null,
+      "markers_gltf": null,
+      "breakdown": [
+        {
+          "id": "HOUSING_BOTTOM",
+          "mass_g": 548.42
+        },
+        {
+          "id": "HOUSING_TOP",
+          "mass_g": 548.42
+        },
+        {
+          "id": "INPUT_SHAFT",
+          "mass_g": 23.68
+        },
+        {
+          "id": "PINION",
+          "mass_g": 16.35
+        },
+        {
+          "id": "BEARING_IN_FRONT",
+          "mass_g": 18.13
+        },
+        {
+          "id": "BEARING_IN_BACK",
+          "mass_g": 18.13
+        },
+        {
+          "id": "OUTPUT_SHAFT",
+          "mass_g": 25.65
+        },
+        {
+          "id": "GEAR",
+          "mass_g": 712.08
+        },
+        {
+          "id": "BEARING_OUT_FRONT",
+          "mass_g": 18.13
+        },
+        {
+          "id": "BEARING_OUT_BACK",
+          "mass_g": 18.13
+        }
+      ],
+      "assumptions": []
+    }
+  }
+}

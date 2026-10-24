@@ -11,7 +11,7 @@ using UnityEngine;
 /// </summary>
 public class JpegScreenReceiver : MonoBehaviour
 {
-    [Tooltip("screen-bridge/stream.py. On the Quest over USB, localhost works (adb reverse).")]
+    [Tooltip("screen-bridge/stream.py. localhost means: the laptop in ForgeNet's hubUrl.")]
     public string streamUrl = "ws://localhost:8765";
 
     ClientWebSocket ws;
@@ -31,8 +31,9 @@ public class JpegScreenReceiver : MonoBehaviour
             {
                 try
                 {
-                    await ws.ConnectAsync(new Uri(streamUrl), default);
-                    Debug.Log("[JpegScreenReceiver] Connected to " + streamUrl);
+                    var url = ScreenReceiver.OnHubHost(streamUrl);
+                    await ws.ConnectAsync(new Uri(url), default);
+                    Debug.Log("[JpegScreenReceiver] Connected to " + url);
                     await ReceiveLoop();
                 }
                 catch (Exception e)

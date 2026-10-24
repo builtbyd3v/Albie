@@ -23,6 +23,11 @@ def built(params=None):
     return values, result
 
 
+def rocket_analysis(params):
+    module, _, _, result = build_part(ROCKET, params)
+    return analyze(result, mass_properties(result), module.analyze)
+
+
 def test_fin_geometry_matches_the_aero_description():
     """The stability math must describe the fins that are actually drawn (sweep = root LE to tip LE)."""
     values, result = built({"fin_sweep": 30, "fin_root": 70, "fin_tip": 25, "fin_span": 50})
@@ -59,8 +64,10 @@ def test_barrowman_matches_rocketpy():
 def test_demo_story_stability():
     """CAD_PLAN section 10: green -> 'smaller fins' red -> 'fourth fin' amber -> '20% longer' green."""
     def stability(name):
-        _, result = built(DEMO[name])
-        return analyze(result, mass_properties(result))["stability"]
+        a = rocket_analysis(DEMO[name])
+        margin = next(m for m in a["metrics"] if m["id"] == "margin")  # the panel's gauge says the same thing
+        assert margin["note"] == a["stability"] and margin["value"] == pytest.approx(a["margin_cal"], abs=0.01)
+        return a["stability"]
     assert stability("baseline") == "stable"
     assert stability("smaller_fins") == "unstable"
     assert stability("four_fins") == "marginal"
