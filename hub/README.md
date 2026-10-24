@@ -278,8 +278,8 @@ SLACK_USER_ID=U...              # optional, derived from the user token; only ne
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```
 
-Bot + app tokens empty = messaging disabled (one warning at startup, `/messages/latest` and `/drafts*` answer 503,
-`/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, open_draft}`.
+Bot + app tokens empty = messaging disabled (one warning at startup, every `/messages/*` endpoint but `/digest` answers
+503; `/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, channels, open_draft}`.
 
 Live check without Unity:
 
@@ -288,33 +288,55 @@ Live check without Unity:
 .venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hi"   # write a draft, post nothing (notify.draft)
 .venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hi"   # dev shortcut: draft + send with no confirmation
 .venv/bin/python scripts/slack_smoke.py --digest                     # what Bit would say on sit-down
+.venv/bin/python scripts/slack_smoke.py --channels                   # the panel's channel list (names, kinds, unread)
+.venv/bin/python scripts/slack_smoke.py --history "#forge-team" 10   # the last 10 top-level messages of one conversation
 ```
 
+**The panel.** Unity's Slack-like panel is a channel list (`GET /messages/channels` once, then `notify.channels`, which
+is sticky and pushed whenever a count or `last_ts` changes), the selected conversation's history
+(`GET /messages/history?channel=&limit=&before=` for the page, `notify.message` for what arrives, `POST
+/messages/channels/{id}/seen` when it is open) and the composer (the draft below). The hub keeps the last 200 messages
+of every conversation and a seen mark per conversation, so a second open is instant and the unread counts survive a restart.
+
 **Sending is always two steps.** `messages_send` (tool) or `POST /messages/drafts` writes a `Draft` and emits
-`notify.draft`; Unity shows it as a Send / Cancel card. Only `POST /messages/drafts/{id}/send` (the button) or the
-`messages_confirm` tool ("send it") posts it, with your token, then `notify.sent`. One open draft at a time: a new
-one supersedes it (`notify.draft_cancelled`, reason `superseded`); unsent drafts expire after 120 s (`expired`);
-Cancel gives `cancelled`. The card closes on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed.
+`notify.draft`; Unity shows it in the composer with Send / Cancel. The user may edit it there: `PATCH
+/messages/drafts/{id}` re-emits `notify.draft` with the same `draft_id` and `edited: true`. Only `POST
+/messages/drafts/{id}/send` (the button) or the `messages_confirm` tool ("send it") posts it, with your token, then
+`notify.sent`. One open draft at a time: a new one supersedes it (`notify.draft_cancelled`, reason `superseded`);
+unsent drafts expire after 120 s (`expired`, an edit restarts the clock); Cancel gives `cancelled`. The composer
+clears on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed. A draft's `channel` is an id, a `#name`,
+or a person's name: "tell Hudson ..." drafts into their DM (opened with `conversations.open` if there is none yet).
 
 | | |
 |---|---|
-| `GET /messages/latest?n=5` | newest inbox messages (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me) |
-| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id or `#name`, omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `GET /messages/channels` | `{channels: ChannelSummary[]}`: every conversation you are in (`id, name, kind: channel\|private\|dm\|group-dm, unread, mentions, last_ts, last_text, topic, is_default`), DMs / group DMs with unread first, then by `last_ts` desc. `name` is `#forge-team`, the person (dm) or the people (group-dm). |
+| `GET /messages/history?channel=&limit=50&before=` | `{channel, channel_name, kind, messages: SlackMessage[], has_more}`: the conversation's top-level messages oldest -> newest (limit max 100; `before` = a ts, pages backwards). Threaded messages carry `reply_count`; your own posts are there with `is_me`. From the store when it has the page, else `conversations.history` merged into it. |
+| `POST /messages/channels/{id}/seen` | the conversation is open in the panel -> `{ok, unread: 0}`; `notify.channels` follows |
+| `GET /messages/users/me` | `{user_id, name, display_name}`: who the hub posts as |
+| `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me, reply_count, edited, is_me, user_initials) |
+| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `PATCH /messages/drafts/{id} {text?, channel?, thread_ts?}` | the user edited the draft -> the `Draft` again, same `draft_id`, `edited: true`, `notify.draft` re-emitted; 404 if it is gone, 422 for empty text |
 | `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
-| `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks all seen. |
-| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a card (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of the last 50. |
-| `/ws` events | `notify.message` (each inbox message), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
-| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus), `messages_confirm {send, draft_id?}` |
+| `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
+| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a message (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
+| `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
+| Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
-**Startup backfill.** Right after Socket Mode connects, a background task lists the conversations you are in
-(`users.conversations`, up to 600) and reads each one's history since the last digest (`last_seen_ts`; the last two hours
-if there is none), 20 per conversation, into the store with the same filtering as live events but **without**
-`notify.message`. So the sit-down digest counts what arrived while the hub was off, and Unity sees no flood. One rate
-limit is waited out, a second one stops the backfill; a missing scope skips that conversation. One summary line in the log.
+**Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's
+users (`users.list`, once), lists the conversations you are in (`conversations.list`, every type, archived out, members
+only, up to 1000) and reads each one's history since its seen mark (the last two hours if there is none), 20 per
+conversation, into the store with the same filtering as live events but **without** `notify.message`. So the sit-down
+digest counts what arrived while the hub was off, and Unity sees no flood; the first `notify.channels` goes out at the
+end. The list is refreshed every 60 s (a new channel, a left one, a renamed topic -> `notify.channels`). One rate limit
+is waited out per run, a second one stops it; a missing scope skips that conversation. One summary line in the log.
 
-Map: `messaging/settings.py` (env), `store.py` (last 50 messages + `last_seen_ts` in `.data/messages/state.json`),
-`slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, name
-caches, drafts, digest), `router.py`, `tools.py`. Inbox rules: your own messages, Bit's posts and other bots are
-ignored; a post delivered twice (bot + user subscription, or `app_mention` + `message`) is recorded once; a DM or
-group DM is `is_dm` and counts as a mention.
+Map: `messaging/settings.py` (env), `store.py` (last 200 messages per conversation, merged by ts; a seen mark per
+conversation plus the digest's floor in `.data/messages/state.json`, the old single `last_seen_ts` migrates to the
+floor), `slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, user
+and channel records, history, drafts, digest), `router.py`, `tools.py`. Inbox rules: Bit's posts and other bots are
+ignored; your own messages are stored and pushed with `is_me` but never counted as unread or as a mention; a post
+delivered twice (bot + user subscription, or `app_mention` + `message`, or history + live) is recorded once; a DM or
+group DM is `is_dm` and counts as a mention; thread replies are stored (for the digest and focus) but left out of
+history, where the parent's `reply_count` grows instead.

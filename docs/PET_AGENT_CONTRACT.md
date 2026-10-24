@@ -374,6 +374,11 @@ is missing), `SCREEN_BRIDGE_DIR`. `GET /health` has `screen {enabled, state, sou
   Want me to answer?"` through the live voice session (`pet.say` with the same line when there is none), the voice
   session gets a one-line note naming the message, and the next `messages_send` that names no `reply_to_ts`,
   `thread_ts` or `channel` replies in that thread. The focus is spent once that reply is sent, or replaced by the next focus.
+* Bit's read-only Slack tools, next to `messages_read_latest`: `messages_list_channels {}` (every conversation the
+  user is in, with unread / mention counts and the last line; DMs named after the person) and
+  `messages_read_channel {channel, n?}` (the last n of one conversation, oldest first, the user's own posts included as
+  `is_me`; `channel` is a `#name`, an id, or a person's name for their DM). `messages_send`'s `channel` takes a person's
+  name too ("tell Hudson ...") and drafts into their DM. All `messages_*`, so Bit walks to the `messages` panel.
 * Crew runners (every agent type except Bit) now get only `vscode_*` hub tools, plus `cad_*` for the Designer whose
   kit is the CAD tools; never `messages_*` or the crew tools. Bit keeps everything.
 * Slack: on connect the hub backfills every conversation the user is in (since `last_seen_ts`, else the last two
