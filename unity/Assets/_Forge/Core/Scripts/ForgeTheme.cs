@@ -12,7 +12,7 @@ public static class ForgeTheme
     // Mode hues: only a faint tint of these shows (HueStrength); the light itself is white.
     public static readonly Color ML = Hex(0x4D8DFF);
     public static readonly Color CAD = Hex(0xFF8A3D);
-    public static readonly Color Screens = Hex(0x22CF86);
+    public static readonly Color Code = Hex(0x22CF86);
     public static readonly Color Messages = Hex(0xA77BFF);
     public static readonly Color Tool = Hex(0xCFE0FF);
     public const float HueStrength = 0.10f;
