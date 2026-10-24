@@ -103,8 +103,9 @@ def scan_part(script: Path) -> dict[str, Any]:
                 pass  # computed: the worker reports the real value once the design is built
         defined = [node.name] if isinstance(node, ast.FunctionDef) else \
             [a.asname or a.name for a in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
-        if "simulate_flight" in defined:
-            info["features"] = ["flight"]
+        for feature, fn in (("flight", "simulate_flight"), ("motion", "simulate_motion")):
+            if fn in defined and feature not in info["features"]:
+                info["features"] = [*info["features"], feature]
     return info
 
 
@@ -267,6 +268,16 @@ class CadService:
         path = self.path(record.version, "flight.json")
         if not path.exists():
             await self._derive(record, "flight", self.timeout_s * 6)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    async def motion(self, version: int | None) -> dict[str, Any]:
+        """The keyframed demo (the humanoid's walk) for designs that have one, cached per version."""
+        record = self.get(version)
+        if "motion" not in record.features:
+            raise LookupError(f"{record.title or record.part} has no motion demo")
+        path = self.path(record.version, "motion.json")
+        if not path.exists():
+            await self._derive(record, "motion", self.timeout_s * 2)
         return json.loads(path.read_text(encoding="utf-8"))
 
     async def drawing(self, version: int | None, fmt: str = "png") -> Path:

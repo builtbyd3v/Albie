@@ -7,6 +7,10 @@ from) are drawn in orange.
 
 Hidden-line removal is OCCT's exact HLRBRep_Algo, the algorithm build123d's project_to_viewport wraps, called
 directly so every part goes in on its own and each projected edge knows its part (for the orange highlight).
+A design made of meshes (the humanoid's links, cad/meshes.py) has no surfaces for it (it crashes), so a design with
+any mesh part takes the mesh path instead: each part's triangles (its lighter outline mesh), and per view its
+creases, open edges and silhouettes, kept where a depth buffer of every part says they're visible. Visible lines
+only there: hidden lines through a robot are a grey smear.
 A part with many faces (a gear) is projected as itself only in the view that looks along its thinnest side (its
 face); the other two orthographic views draw its bounding box, as gear drawings do. That keeps the gearbox fast
 and its side views readable (500 tooth edges seen edge-on are a grey smear).
@@ -43,6 +47,7 @@ from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
 
+from cad import meshes
 from cad.analysis import center_of_mass, leaves
 from cad.part_api import BuildResult
 
@@ -68,6 +73,8 @@ VIEWS = {"front": ((0, -1, 0), (0, 0, 1)), "top": ((0, 0, 1), (0, 1, 0)), "right
          "iso": ((1, -1, 1), (0, 0, 1))}
 VIEW_AXIS = {"front": 1, "top": 2, "right": 0}   # the model axis each orthographic view looks along
 COMPLEX_FACES = 100                # more faces than this: drawn as a box in views that see it edge-on
+CREASE_DEG = 35.0                  # mesh path: an edge between faces this far apart is drawn
+DEPTH_PIXELS = 700                 # mesh path: depth buffer cells along the model's longest side
 SCALES = (20, 10, 5, 4, 3, 2, 1.5, 1, 1 / 1.5, 1 / 2, 1 / 2.5, 1 / 3, 1 / 4, 1 / 5, 1 / 6, 1 / 8, 1 / 10, 1 / 15,
           1 / 20, 1 / 25, 1 / 30, 1 / 40, 1 / 50, 1 / 75, 1 / 100)
 
@@ -148,6 +155,110 @@ def project(parts: list[Part], view: str, *, deflection: float) -> Lines:
         for style, compounds in groups.items():
             for compound in compounds:
                 lines.setdefault((style, part.highlighted), []).extend(polylines(compound, deflection))
+    return lines
+
+
+class MeshPart:
+    """A leaf as triangles (part mm) for the mesh path, with its feature edges worked out once: the edges between
+    faces more than CREASE_DEG apart and the open ones. The silhouettes depend on the view."""
+
+    def __init__(self, shape, highlighted: bool, deflection: float):
+        self.highlighted = highlighted
+        self.points, self.tris = meshes.triangles(shape, deflection)
+        t = self.tris
+        a, b, c = self.points[t[:, 0]], self.points[t[:, 1]], self.points[t[:, 2]]
+        n = np.cross(b - a, c - a)
+        self.normals = n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        edges = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]), axis=1)
+        face = np.tile(np.arange(len(t)), 3)
+        order = np.lexsort((edges[:, 1], edges[:, 0]))
+        edges, face = edges[order], face[order]
+        first = np.ones(len(edges), bool)
+        first[1:] = np.any(edges[1:] != edges[:-1], axis=1)
+        starts = np.flatnonzero(first)
+        shared = np.diff(np.append(starts, len(edges))) >= 2
+        self.edges, self.f0 = edges[starts], face[starts]
+        self.f1 = np.where(shared, face[np.minimum(starts + 1, len(edges) - 1)], -1)
+        cos = np.ones(len(self.edges))
+        cos[shared] = np.einsum("ij,ij->i", self.normals[self.f0[shared]], self.normals[self.f1[shared]])
+        self.feature = ~shared | (cos < np.cos(np.radians(CREASE_DEG)))
+
+
+def view_axes(view: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The view's right, up and toward-the-viewer unit vectors (as HLRAlgo_Projector sets them up)."""
+    toward, up = (np.array(v, float) for v in VIEWS[view])
+    toward /= np.linalg.norm(toward)
+    right = np.cross(up, toward)
+    right /= np.linalg.norm(right)
+    return right, np.cross(toward, right), toward
+
+
+def rasterise(depth: np.ndarray, width: int, uv: np.ndarray, d: np.ndarray, tris: np.ndarray) -> None:
+    """Keep the nearest depth per cell: each triangle fills the cells of its box whose centres it covers."""
+    a, b, c = uv[tris[:, 0]], uv[tris[:, 1]], uv[tris[:, 2]]
+    lo = np.floor(np.minimum(np.minimum(a, b), c)).astype(int)
+    hi = np.ceil(np.maximum(np.maximum(a, b), c)).astype(int)
+    nx, ny = hi[:, 0] - lo[:, 0] + 1, hi[:, 1] - lo[:, 1] + 1
+    count = nx * ny
+    tid = np.repeat(np.arange(len(tris)), count)
+    k = np.arange(count.sum()) - np.repeat(np.cumsum(count) - count, count)
+    qx = lo[tid, 0] + k % nx[tid] + 0.5
+    qy = lo[tid, 1] + k // nx[tid] + 0.5
+    A, B, C = a[tid], b[tid], c[tid]
+    den = (B[:, 1] - C[:, 1]) * (A[:, 0] - C[:, 0]) + (C[:, 0] - B[:, 0]) * (A[:, 1] - C[:, 1])
+    ok = np.abs(den) > 1e-9
+    den = np.where(ok, den, 1.0)
+    l1 = ((B[:, 1] - C[:, 1]) * (qx - C[:, 0]) + (C[:, 0] - B[:, 0]) * (qy - C[:, 1])) / den
+    l2 = ((C[:, 1] - A[:, 1]) * (qx - C[:, 0]) + (A[:, 0] - C[:, 0]) * (qy - C[:, 1])) / den
+    l3 = 1 - l1 - l2
+    inside = ok & (l1 >= -1e-6) & (l2 >= -1e-6) & (l3 >= -1e-6)
+    z = d[tris[tid, 0]] * l1 + d[tris[tid, 1]] * l2 + d[tris[tid, 2]] * l3
+    np.maximum.at(depth, (qy.astype(int) * width + qx.astype(int))[inside], z[inside])
+
+
+def project_mesh(parts: list[MeshPart], view: str, cell: float) -> Lines:
+    """The mesh path's projection of one view: each part's creases, open edges and silhouettes, cut where the
+    depth buffer of every part's front faces says something is in front of them. `cell`: buffer cell size (mm)."""
+    right, up, toward = view_axes(view)
+    flat = [(p.points @ np.stack([right, up]).T, p.points @ toward) for p in parts]
+    every = np.vstack([uv for uv, _ in flat] or [np.zeros((1, 2))])
+    lo = every.min(axis=0)
+    width, height = (np.ceil((every.max(axis=0) - lo) / cell).astype(int) + 3)
+    depth = np.full(width * height, -np.inf)
+    for p, (uv, d) in zip(parts, flat):
+        front = p.normals @ toward > 0   # back faces never hold the nearest surface of a closed part
+        rasterise(depth, width, (uv - lo) / cell + 1, d, p.tris[front])
+    nearest = depth.reshape(height, width)
+    covered = nearest.copy()   # a sample is hidden only if the cells all round it are in front of it
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            covered = np.minimum(covered, np.roll(np.roll(nearest, dy, 0), dx, 1))
+    lines: Lines = {}
+    for p, (uv, d) in zip(parts, flat):
+        facing = p.normals @ toward > 0
+        other = np.maximum(p.f1, 0)
+        keep = p.feature | ((p.f1 >= 0) & (facing[p.f0] != facing[other]))
+        if view == "iso":   # no creases on the far side
+            keep &= ~((p.f1 >= 0) & ~facing[p.f0] & ~facing[other])
+        e = p.edges[keep]
+        if not len(e):
+            continue
+        a, b, da, db = uv[e[:, 0]], uv[e[:, 1]], d[e[:, 0]], d[e[:, 1]]
+        n = np.maximum(1, np.ceil(np.linalg.norm(b - a, axis=1) / cell).astype(int))
+        eid = np.repeat(np.arange(len(e)), n + 1)
+        t = (np.arange((n + 1).sum()) - np.repeat(np.cumsum(n + 1) - (n + 1), n + 1)) / np.repeat(n, n + 1)
+        points = a[eid] + (b[eid] - a[eid]) * t[:, None]
+        z = da[eid] + (db[eid] - da[eid]) * t
+        ij = np.clip(((points - lo) / cell + 1).astype(int), 0, [width - 1, height - 1])
+        seen = z >= covered[ij[:, 1], ij[:, 0]] - 1.5 * cell
+        # each edge's runs of visible samples become one segment each
+        new_edge = np.concatenate([[True], eid[1:] != eid[:-1]])
+        last = np.concatenate([eid[1:] != eid[:-1], [True]])
+        start = seen & (new_edge | ~np.concatenate([[False], seen[:-1]]))
+        end = seen & (last | ~np.concatenate([seen[1:], [False]]))
+        i0, i1 = np.flatnonzero(start), np.flatnonzero(end)
+        long = i1 > i0
+        lines.setdefault(("visible", p.highlighted), []).extend(np.stack([points[i0[long]], points[i1[long]]], 1))
     return lines
 
 
@@ -275,11 +386,13 @@ class Sheet:
         self.ax.add_patch(Rectangle((x, y), w, h, lw=lw, edgecolor=INK, facecolor=fill or "none",
                                     fill=fill is not None, zorder=0.5 if fill else 2))
 
+    raster_lines = False   # the views' lines as pixels in the SVG (a mesh design's tens of thousands of edges)
+
     def lines(self, polylines: list[np.ndarray], *, lw, color, dashed=False, zorder=3):
         if polylines:
             self.ax.add_collection(LineCollection(polylines, linewidths=lw, colors=color, zorder=zorder,
                                                   linestyles=[DASH] if dashed else "solid", capstyle="round",
-                                                  joinstyle="round"))
+                                                  joinstyle="round", rasterized=self.raster_lines))
 
     def arrow(self, tip, direction):
         """Filled dimension arrowhead at `tip` pointing along unit `direction`."""
@@ -455,14 +568,21 @@ def draw(result: BuildResult, masses, out_dir: Path, *, title: str, part: str, v
     object IDs (upper-case labels) to draw in orange. Returns timings in ms."""
     t0 = time.perf_counter()
     highlight = {h.upper() for h in highlight}
-    parts = [Part(shape, shape.label.upper() in highlight) for shape in leaves(result.assembly)]
+    shapes = list(leaves(result.assembly))
     size = result.assembly.bounding_box().size
     deflection = max(size.X, size.Y, size.Z, 1.0) / 2500
-    views = {name: dedupe(project(parts, name, deflection=deflection)) for name in VIEWS}
+    mesh_path = any(meshes.is_mesh(shape) for shape in shapes)
+    if mesh_path:
+        mesh_parts = [MeshPart(s, s.label.upper() in highlight, deflection * 4) for s in shapes]
+        cell = max(size.X, size.Y, size.Z, 1.0) / DEPTH_PIXELS
+        views = {name: project_mesh(mesh_parts, name, cell) for name in VIEWS}
+    else:
+        parts = [Part(shape, shape.label.upper() in highlight) for shape in shapes]
+        views = {name: dedupe(project(parts, name, deflection=deflection)) for name in VIEWS}
     t_project = time.perf_counter()
     with matplotlib.rc_context(RC):
         sheet = render(views, result, masses, highlight, title=title, part=part, version=version,
-                       created_at=created_at)
+                       created_at=created_at, raster_lines=mesh_path)
         out_dir.mkdir(parents=True, exist_ok=True)
         sheet.save(out_dir / "drawing.png")
         sheet.save(out_dir / "drawing.svg")
@@ -470,7 +590,7 @@ def draw(result: BuildResult, masses, out_dir: Path, *, title: str, part: str, v
 
 
 def render(views: dict[str, Lines], result: BuildResult, masses, highlight: set[str], *, title: str, part: str,
-           version: int | None, created_at: float | None) -> Sheet:
+           version: int | None, created_at: float | None, raster_lines: bool = False) -> Sheet:
     # Model extents per axis, from what was actually drawn (front: X, Z; top: X, Y; right: Y, Z).
     pts = {name: all_points(lines) for name, lines in views.items()}
 
@@ -497,6 +617,7 @@ def render(views: dict[str, Lines], result: BuildResult, masses, highlight: set[
               "right": ((Y[0], Z[0]), (fx + scale * wx + gap_h, fy), scale * wz)}
 
     sheet = Sheet()
+    sheet.raster_lines = raster_lines
     sheet.rect(MARGIN, MARGIN, SHEET_W - 2 * MARGIN, SHEET_H - 2 * MARGIN, lw=LW_FRAME)
     sheet_pts = {}
     for name, (origin, offset, height) in layout.items():
