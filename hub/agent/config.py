@@ -24,6 +24,7 @@ class ProjectConfig(BaseModel):
     id: str
     path: Path  # absolute, expanded; never serialize to clients
     default_mode: Literal["qa", "code", "auto"] = "qa"
+    edit_in_place: bool = False  # code mode edits the checked-out branch (the sandbox), no pet/* branch
 
     @property
     def exists(self) -> bool:
@@ -46,6 +47,7 @@ class PublicProject(BaseModel):
 class _RawProject(BaseModel):
     path: str
     default_mode: Literal["qa", "code", "auto"] = "qa"
+    edit_in_place: bool = False
 
 
 class _RawFile(BaseModel):
@@ -69,7 +71,8 @@ def load_projects() -> dict[str, ProjectConfig]:
     out: dict[str, ProjectConfig] = {}
     for pid, raw in parsed.projects.items():
         cfg = ProjectConfig(
-            id=pid, path=Path(raw.path).expanduser().resolve(), default_mode=raw.default_mode
+            id=pid, path=Path(raw.path).expanduser().resolve(), default_mode=raw.default_mode,
+            edit_in_place=raw.edit_in_place,
         )
         if not cfg.exists:
             log.warning("project %s: path does not exist (%s)", pid, cfg.path)
