@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from . import events as ev
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
-from .events import AgentAsk, AgentCancel, Event, Hello, SttStart, SttStop, TtsStopRequest
+from .events import AgentAsk, AgentCancel, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
@@ -47,6 +47,7 @@ class Session:
     control: TurnControl | None = None
     stt: SpeechToText | None = None
     stt_busy: bool = False
+    stt_cancelled: bool = False  # stt.cancel: ignore audio until the next stt.start
     voice: VoiceSession | None = None
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
@@ -109,10 +110,17 @@ async def _on_text(s: Session, raw: str) -> None:
             start = SttStart.model_validate(event.payload)
             if start.sample_rate != 16000:
                 log.warning("stt.start sample_rate=%s; expected 16000", start.sample_rate)
+            s.stt_cancelled = False
             if s.voice is not None:
                 await _voice_call(s, s.voice.begin_turn)
             else:
                 s.stt = await asyncio.to_thread(make_stt, _project_path(s))
+        elif event.type == "stt.cancel":
+            SttCancel.model_validate(event.payload)
+            if s.voice is not None:
+                await _voice_call(s, s.voice.cancel_turn)
+            else:
+                s.stt, s.stt_cancelled = None, True
         elif event.type == "stt.stop":
             SttStop.model_validate(event.payload)
             if s.voice is not None:
@@ -234,6 +242,8 @@ async def _voice_call(s: Session, fn) -> None:
 async def _on_audio(s: Session, chunk: bytes) -> None:
     if s.voice is not None:
         await _voice_call(s, lambda: s.voice.feed(chunk))
+        return
+    if s.stt_cancelled:
         return
     if s.stt is None:  # tolerate audio without stt.start
         s.stt = await asyncio.to_thread(make_stt, _project_path(s))

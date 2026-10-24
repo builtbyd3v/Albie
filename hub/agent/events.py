@@ -70,6 +70,10 @@ class SttStop(_Payload):
     pet_id: str | None = None
 
 
+class SttCancel(_Payload):  # client -> hub: drop the open turn (no answer); its stt.stop gets an empty final
+    pet_id: str | None = None
+
+
 class TtsStopRequest(_Payload):  # client -> hub: stop the current utterance
     pet_id: str | None = None
 
@@ -80,6 +84,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "agent.cancel": AgentCancel,
     "stt.start": SttStart,
     "stt.stop": SttStop,
+    "stt.cancel": SttCancel,
     "tts.stop": TtsStopRequest,
 }
 

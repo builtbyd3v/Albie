@@ -85,6 +85,7 @@ class VoiceSession(Protocol):
     async def begin_turn(self) -> None: ...
     async def feed(self, pcm16: bytes) -> None: ...
     async def commit_turn(self) -> None: ...
+    async def cancel_turn(self) -> None: ...
     async def stop_speech(self, reason: str = "cancel") -> None: ...
     async def close(self) -> None: ...
     def is_echo(self, text: str) -> bool: ...
@@ -104,6 +105,7 @@ class _Base:
         self._emit = emit  # broadcast Emitter (adds pet.state companions)
         self._partial = ""
         self._final_sent = True  # no turn open yet
+        self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
 
@@ -118,6 +120,7 @@ class _Base:
     def _open_turn(self) -> None:
         self._partial = ""
         self._final_sent = False
+        self._cancelled = False
 
     async def _transcript(self, text: str) -> None:
         if self._final_sent or not text or text == self._partial:
@@ -226,13 +229,13 @@ class GrokVoiceSession(_Base):
         self._open_turn()
 
     async def feed(self, pcm16: bytes) -> None:
-        if self._ws is None:
-            return  # no turn open (or connection dropped): drop the chunk
+        if self._ws is None or self._cancelled:
+            return  # no turn open, cancelled, or connection dropped: drop the chunk
         self._fed += len(pcm16)
         await self._send({"type": "input_audio_buffer.append", "audio": base64.b64encode(pcm16).decode("ascii")})
 
     async def commit_turn(self) -> None:
-        if self._ws is None:
+        if self._ws is None or self._cancelled:
             await self._final("")
             return
         if self._fed < MIN_COMMIT_BYTES:  # a tap: nothing to answer
@@ -242,6 +245,11 @@ class GrokVoiceSession(_Base):
         await self._send({"type": "input_audio_buffer.commit"})
         await self._send({"type": "response.create"})
         await self._emit(ev.thinking(self.pet_id))
+
+    async def cancel_turn(self) -> None:
+        self._cancelled = True
+        self._fed = 0
+        await self._send({"type": "input_audio_buffer.clear"})
 
     async def stop_speech(self, reason: str = "cancel") -> None:
         """Stop forwarding first, then tell Grok and Unity (no stale chunk can follow tts.stop)."""
@@ -389,7 +397,13 @@ class FakeVoiceSession(_Base):
     async def feed(self, pcm16: bytes) -> None:
         return None
 
+    async def cancel_turn(self) -> None:
+        self._cancelled = True
+
     async def commit_turn(self) -> None:
+        if self._cancelled:
+            await self._final("")
+            return
         await self._transcript(FAKE_TRANSCRIPT)
         await self._final(FAKE_TRANSCRIPT)
         await self._emit(ev.thinking(self.pet_id))

@@ -307,3 +307,38 @@ def test_no_voice_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch
         evts = _recv_until(ws, "stt.final")
     assert "voice.ready" not in [t for t, _ in evts]
     assert evts[-1] == ("stt.final", {"pet_id": "bit", "text": ""})
+
+
+def test_cancel_turn_drops_audio_and_commits_nothing() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x00\x00" * 4000)
+        await s.cancel_turn()
+        await s.feed(b"\x00\x00" * 4000)  # mic flush after the cancel
+        await s.commit_turn()
+        assert grok.types() == ["session.update", "input_audio_buffer.clear", "input_audio_buffer.append",
+                                "input_audio_buffer.clear"]
+        assert sink.flat() == ["emit:stt.final"] and sink.log[0][1].payload["text"] == ""
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("provider", ["none", "fake"])
+def test_stt_cancel_over_ws(client: TestClient, monkeypatch: pytest.MonkeyPatch, provider: str) -> None:
+    monkeypatch.setenv("VOICE_PROVIDER", provider)
+    monkeypatch.setenv("FAKE_VOICE_PACE", "0")
+    with client.websocket_connect("/ws/agent") as ws:
+        ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
+        ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit"}})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        ws.send_json({"type": "stt.cancel", "payload": {"pet_id": "bit"}})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        ws.send_json({"type": "stt.stop", "payload": {"pet_id": "bit"}})
+        evts = _recv_until(ws, "stt.final")
+        assert evts[-1][1]["text"] == ""
+        ws.send_json({"type": "agent.ask", "payload": {"text": "error", "mode": "qa"}})
+        after = _recv_until(ws, "agent.error")
+    assert "tts.start" not in [t for t, _ in after]
