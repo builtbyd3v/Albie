@@ -1,6 +1,8 @@
 """notify.* contract (PROJECT_CONTEXT 7 + 8.8): payload key names, digest wording, digest building."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import events
@@ -64,4 +66,4 @@ def test_digest_build_empty_is_quiet() -> None:
 
 def test_imports_worktree_copy() -> None:
     # pytest.ini sets pythonpath=.; guard against the venv's editable install shadowing this checkout.
-    assert "wt-slack" in events.__file__ or "gatorhack-dubz" in events.__file__
+    assert Path(events.__file__).resolve().parent == Path(__file__).resolve().parents[1]

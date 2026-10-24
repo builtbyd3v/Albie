@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-Modules so far: **CAD** (see `../CAD_PLAN.md`) and the **agent** (pet; see [Agent module (pet)](#agent-module-pet)). `main.py` and `events.py` are a minimal skeleton for Person 5 to grow.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)) and **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -172,3 +172,57 @@ The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` plus
 (mono, 16 kHz, ~100 ms chunks). Every event goes to every `/ws/agent` socket; filter by `pet_id`.
 The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
 pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
+
+## Messaging (Slack)
+
+Bit is a Slack bot user defined by `hub/manifest.json` (bot user, scopes, bot events, Socket Mode, Messages tab);
+`hub/.slack/` makes `hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so
+there is no public URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
+
+Setup with the Slack CLI (https://docs.slack.dev/tools/slack-cli), from `hub/`:
+
+```bash
+slack login                      # once per machine, into the team workspace
+slack install -E local           # creates "Bit (local)" from manifest.json and installs it
+slack run                        # start hook (scripts/slack_cli_start.py) writes SLACK_BOT_TOKEN + SLACK_APP_TOKEN to hub/.env, then exits
+slack auth list                  # your User ID -> SLACK_USER_ID in hub/.env
+slack api conversations.create --app local name=forge-team            # optional: Bit creates the demo channel...
+slack api conversations.invite  --app local channel=C... users=U...   # ...and invites you
+```
+
+Changed scopes or events? Edit `manifest.json` and run `slack run` again (it syncs the manifest and reinstalls).
+Another checkout of the repo: `slack app link -E local` (app id from `slack app list`). `.slack/apps.dev.json` is
+gitignored on purpose, it is per-checkout. Manual fallback: api.slack.com/apps with the same scopes and events.
+
+`hub/.env` after setup:
+
+```
+SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`
+SLACK_APP_TOKEN=xapp-...        # written by `slack run` (Socket Mode app-level token)
+SLACK_USER_ID=U...              # your member id; messages containing <@U...> count as mentions of you
+SLACK_DEFAULT_CHANNEL=#forge-team
+```
+
+Both tokens empty = messaging disabled (one warning at startup, `/messages/latest` and `/send` answer 503,
+`/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, bot_user_id}`.
+
+Live check without Unity:
+
+```bash
+.venv/bin/python scripts/slack_smoke.py                            # connect and print every message Bit sees
+.venv/bin/python scripts/slack_smoke.py --send "#forge-team" "hi"  # post as Bit
+.venv/bin/python scripts/slack_smoke.py --digest                   # what Bit would say on sit-down
+```
+
+| | |
+|---|---|
+| `GET /messages/latest?n=5` | newest messages Bit has seen (`SlackMessage`: channel, channel_name, user, user_name, text, ts, thread_ts, mentions_me) |
+| `POST /messages/send {channel?, text, thread_ts?}` | post as Bit; `channel` is an id or `#name`, omitted = `SLACK_DEFAULT_CHANNEL`; `thread_ts` replies in-thread -> `{ts}` |
+| `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread -> `notify.digest` (newest 4), `pet.say` with the one-line summary, and the line is spoken on the live voice session (`agent/speech.py`). Marks all seen. |
+| `/ws` events | `notify.message` (each inbound message), `notify.sent`, `notify.digest` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_send {text, channel?, thread_ts?}` (the model must read the text back and get a yes first) |
+
+Map: `messaging/settings.py` (env), `store.py` (last 50 messages + `last_seen_ts` in `.data/messages/state.json`),
+`slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, event filtering, name caches, send, digest),
+`router.py`, `tools.py`. Only events Bit can see count: DMs to the bot and channels it was invited to; its own
+posts and other bots are ignored, and an `app_mention` that also arrives as a `message` is recorded once.
