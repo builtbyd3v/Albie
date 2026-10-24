@@ -250,10 +250,14 @@ class NotifyDraftCancelled(BaseModel):
     reason: str = "cancelled"         # cancelled | superseded | expired
 
 
+NO_NEW_MESSAGES = "You have no new messages today."
+
+
 def digest_line(count: int, mentions: int) -> str:
-    """The one sentence Bit says on sit-down. Empty when there is nothing new."""
+    """The one sentence Bit says on sit-down (the greeting card's headline too). Never empty: the zero case is
+    NO_NEW_MESSAGES, so the wording lives here and nowhere in Unity."""
     if count <= 0:
-        return ""
+        return NO_NEW_MESSAGES
     msgs = "1 new message" if count == 1 else f"{count} new messages"
     if mentions <= 0:
         return f"You have {msgs}."
@@ -267,7 +271,7 @@ def digest_line(count: int, mentions: int) -> str:
 
 
 class NotifyDigest(BaseModel):
-    """Unread summary sent when the user sits down: counts, the spoken line, newest messages (capped)."""
+    """Unread summary sent when the user sits down: counts, the spoken line (never empty), newest messages (capped)."""
     count: int
     mentions: int
     line: str

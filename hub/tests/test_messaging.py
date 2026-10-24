@@ -144,12 +144,14 @@ def test_store_ring_buffer_caps(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ digest
-def test_digest_empty_is_quiet(tmp_path: Path) -> None:
+def test_digest_empty_still_greets(tmp_path: Path) -> None:
+    """Nothing new: the line is the zero-case sentence and Bit says it (the arrival card needs a headline)."""
     svc, bus, spoken = make_service(tmp_path)
     d = asyncio.run(svc.digest())
-    assert d.count == 0 and d.line == "" and d.messages == []
-    assert bus.types() == ["notify.digest"]
-    assert spoken == []
+    assert d.count == 0 and d.line == "You have no new messages today." and d.messages == []
+    assert bus.types() == ["notify.digest", "pet.say"]
+    assert bus.events[1][1] == {"pet_id": "bit", "text": d.line}
+    assert spoken == [("bit", d.line)]
 
 
 def test_digest_speaks_and_marks_seen(tmp_path: Path) -> None:
@@ -540,7 +542,8 @@ def test_router_disabled_503s_but_digest_works(api) -> None:
     assert c.post("/messages/drafts/abc/send").status_code == 503
     assert c.post("/messages/send", json={"text": "hi"}).status_code in (404, 405)  # no direct send endpoint
     r = c.post("/messages/digest")
-    assert r.status_code == 200 and r.json() == {"count": 0, "mentions": 0, "line": "", "messages": []}
+    assert r.status_code == 200
+    assert r.json() == {"count": 0, "mentions": 0, "line": "You have no new messages today.", "messages": []}
 
 
 def test_router_enabled_draft_flow(api) -> None:

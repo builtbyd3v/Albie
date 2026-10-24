@@ -494,16 +494,16 @@ class SlackService:
 
     # ------------------------------------------------------------------ digest
     async def digest(self, pet_id: str = "bit") -> NotifyDigest:
-        """Sit-down summary: everything unread -> notify.digest; if anything is new, Bit says the line."""
+        """Sit-down summary: everything unread -> notify.digest, and Bit says the line (also when nothing is new:
+        "You have no new messages today.", so the arrival greeting always has a sentence)."""
         d = NotifyDigest.build(self.store.unread())
         self.store.mark_seen()
         await self.bus.publish("notify.digest", d)
-        if d.count:
-            await self.bus.publish("pet.say", {"pet_id": pet_id, "text": d.line})
-            try:
-                spoke = await self.voice_speak(pet_id, d.line)
-            except Exception:  # noqa: BLE001 - the greeting is best effort; the caption already went out
-                log.exception("spoken digest failed")
-                spoke = False
-            log.info("digest for %s: %s (spoken=%s)", pet_id, d.line, spoke)
+        await self.bus.publish("pet.say", {"pet_id": pet_id, "text": d.line})
+        try:
+            spoke = await self.voice_speak(pet_id, d.line)
+        except Exception:  # noqa: BLE001 - the greeting is best effort; the caption already went out
+            log.exception("spoken digest failed")
+            spoke = False
+        log.info("digest for %s: %s (spoken=%s)", pet_id, d.line, spoke)
         return d

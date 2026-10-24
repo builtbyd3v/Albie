@@ -20,6 +20,8 @@ namespace Forge.Pet
         GatorExpressions expressions;
         [SerializeField, Tooltip("Auto-found in children / scene if empty.")]
         GatorCaption caption;
+        [SerializeField, Tooltip("Auto-found on this GameObject if empty. stt.* only mean Listening while it has a turn open.")]
+        PushToTalk pushToTalk;
         [SerializeField, Tooltip("Optional TTS (must implement ITextToSpeech). Falls back to a runtime NullTextToSpeech.")]
         MonoBehaviour tts;
         [SerializeField, Tooltip("Enter GatorState.Intro on Start and go to Wandering when the controller reports IntroComplete.")]
@@ -57,6 +59,7 @@ namespace Forge.Pet
             if (expressions == null) expressions = FindAnyObjectByType<GatorExpressions>();
             if (caption == null) caption = GetComponentInChildren<GatorCaption>(true);
             if (caption == null) caption = FindAnyObjectByType<GatorCaption>();
+            if (pushToTalk == null) pushToTalk = GetComponent<PushToTalk>();
 
             _tts = tts != null ? tts as ITextToSpeech : null;   // Unity null: a crew copy's voice child was removed
             if (_tts == null) _tts = GetComponent<ITextToSpeech>();
@@ -154,11 +157,19 @@ namespace Forge.Pet
             {
                 case "stt.partial":
                 case "stt.final":
+                {
+                    // Transcripts alone don't make him listen: only a turn this gator opened (push-to-talk, hands-free,
+                    // the whistle) does, or an explicit pet.state listening from the hub. A wake segment that was for
+                    // someone else, or an empty final (dropped / cancelled / silent turn), changes nothing and shows nothing.
+                    string text = e.GetString("text");
+                    if (string.IsNullOrWhiteSpace(text)) break;
+                    bool ownTurn = pushToTalk != null && pushToTalk.SessionActive;
                     // Don't drag the gator back to Listening once PushToTalk moved on to Thinking/Answering.
-                    if (State == GatorState.Listening || State == GatorState.Wandering || State == GatorState.Following)
+                    if (ownTurn && (State == GatorState.Listening || State == GatorState.Wandering || State == GatorState.Following))
                         SetStateIfChanged(GatorState.Listening);
-                    Caption(e.GetString("text"), e.type == "stt.partial");
+                    Caption(text, e.type == "stt.partial");
                     break;
+                }
 
                 case "agent.thinking":
                     SetStateIfChanged(GatorState.Thinking);

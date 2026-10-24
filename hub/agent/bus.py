@@ -75,19 +75,24 @@ bus = Bus()
 class Emitter:
     """Per-turn emit callable: adds companion pet.state, redacts paths, broadcasts.
 
-    * Before each proposed event, sends ``pet.state`` if the mapped mode changed.
+    * Before each proposed event, sends ``pet.state`` if the mapped mode changed. Not for an empty
+      ``stt.final`` (a dropped / cancelled / silent turn: nothing was heard, so the pet's state must
+      not change), and never when ``companion=False`` (wake turns, agent/wake.py: the router sends
+      ``pet.state listening`` itself once it knows the segment was for a gator).
     * Replaces the absolute repo path in any string payload field with "" so the
       raw path never reaches clients.
     * Optionally mirrors ``agent.answer_done`` as existing-contract ``pet.say``
       (``AGENT_EMIT_PET_SAY=1``).
     """
 
-    def __init__(self, pet_id: str, redact: list[str] | None = None, target: Bus = bus) -> None:
+    def __init__(self, pet_id: str, redact: list[str] | None = None, target: Bus = bus, *,
+                 companion: bool = True) -> None:
         self.pet_id = pet_id
         self._redact = [r.rstrip("/") + "/" for r in (redact or []) if r] + [
             r.rstrip("/") for r in (redact or []) if r
         ]
         self._bus = target
+        self._companion = companion
         self._last_mode: PetMode | None = None
         self._emit_pet_say = os.getenv("AGENT_EMIT_PET_SAY", "0") == "1"
 
@@ -103,7 +108,9 @@ class Emitter:
         return Event(type=event.type, payload=payload)
 
     async def __call__(self, event: Event) -> None:
-        mode = ev.PET_STATE_FOR_EVENT.get(event.type)
+        mode = ev.PET_STATE_FOR_EVENT.get(event.type) if self._companion else None
+        if event.type == "stt.final" and not str(event.payload.get("text") or "").strip():
+            mode = None  # nothing heard: no state change for the pet
         if mode is not None and mode != self._last_mode:
             self._last_mode = mode
             await self._bus.broadcast(ev.pet_state(self.pet_id, mode))

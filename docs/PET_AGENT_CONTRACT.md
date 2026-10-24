@@ -379,3 +379,33 @@ is missing), `SCREEN_BRIDGE_DIR`. `GET /health` has `screen {enabled, state, sou
 * Slack: on connect the hub backfills every conversation the user is in (since `last_seen_ts`, else the last two
   hours; 20 per conversation) into the store **without** `notify.message`, so the sit-down digest counts what arrived
   while the hub was off and Unity gets no flood.
+
+## Addendum G (2026-10-24): the arrival moment, listening is explicit (feat/arrival-start)
+
+No new event types. Behaviour changes on `/ws`:
+
+* **Wake turns send no `pet.state` until decided.** `stt.start {wake: true}` segments (Unity's always-on `WakeListener`)
+  produce no `pet.state listening` companion for their `stt.partial` / `stt.final`; once the hub decides a segment is a
+  request for a gator it sends `pet.state listening` for that gator explicitly, then the `stt.final` (then `agent.thinking`
+  follows as before). Room chatter: nothing at all.
+* **An empty `stt.final` has no companion.** Dropped (look-to-talk, `stt.cancel`), silent or ignored turns end with
+  `stt.final {text: ""}` and no `pet.state`; Unity treats it as "nothing heard" (no caption, no state change).
+* **Unity:** `GatorAgentBridge` switches to `Listening` on `stt.*` only while `PushToTalk.SessionActive` (a turn this gator
+  opened) or on `pet.state listening`; never for an empty final. `PushToTalk` drops a stopped turn whose final doesn't
+  arrive within 6 s.
+* **`notify.digest.line` is never empty.** `digest_line(0, 0)` = `"You have no new messages today."`, and `/messages/digest`
+  emits `pet.say` and speaks the line for the zero case too. The pet's greeting card shows that same `line`.
+
+Unity (Pet, `Forge.Pet`):
+```csharp
+// GatorController additions
+public void StationAt(Vector3 point, Transform face = null);  // Wandering, parked at a spot facing `face` / the user, until ReleaseStation()
+public void ReleaseStation();   public bool Stationed { get; }
+public void WanderTo(Vector3 point);                           // Wandering with the next trip chosen (clamped onto the surface, keep-out safe)
+// Core/ArrivalGreeting : MonoBehaviour (PetRuntime/ArrivalGreeting, built by ArrivalSetup, inactive until used)
+public void Show(DeskPresence presence, Vector3 greetingSpot, string line);  public void SetLine(string line);  public void Fold(bool immediate = false);
+public event Action StartPressed;   public DockRing StartRing { get; }
+```
+Core (Hudson agreed): `Workspace.HoldDock(bool)` / `DockHeld`; `DockRing.Create(Transform parent, string label, Color hue,
+float diameterMm, UnityAction onClick)` (+ the static `Layer` / `Label` / `SetLook` / `Pointers` DeskDock is built from);
+`DeskDock.Show(frame, width, depth, bool reposition = false)` always enters as frame slide-in + ring plops.

@@ -93,7 +93,8 @@ def test_router_crew_target_from_a_previous_listen() -> None:
             job.close()  # the assign coroutine (no hub here)
 
     asyncio.run(go())
-    assert [(e.type, e.payload["pet_id"]) for e in r.events] == [("stt.partial", "tester"), ("stt.final", "tester")]
+    assert [(e.type, e.payload["pet_id"]) for e in r.events] == [("stt.partial", "tester"), ("pet.state", "tester"), ("stt.final", "tester")]
+    assert r.events[1].payload["mode"] == "listening"
 
 
 def test_grok_wake_turn_answers_only_when_named() -> None:
@@ -124,7 +125,8 @@ def test_grok_wake_turn_answers_only_when_named() -> None:
         grok.push(type=f"{T}.completed", transcript="Hey Bit, how's the build?")
         await _settle()
         assert grok.types()[-1] == "response.create"
-        assert [(e.type, e.payload.get("text")) for e in r.events] == [("stt.final", "Hey Bit, how's the build?")]
+        assert [(e.type, e.payload.get("text") or e.payload.get("mode")) for e in r.events] == \
+            [("pet.state", "listening"), ("stt.final", "Hey Bit, how's the build?")]
         assert sink.flat() == ["emit:agent.thinking"]
         await s.close()
 
@@ -177,3 +179,35 @@ def test_text_path_wake_turn_routes_to_the_crew(client: TestClient, monkeypatch:
             got.append((m["payload"].get("pet_id"), m["type"]))
     assert ("scout", "stt.final") in got
     assert not any(p == "bit" and t.startswith(("agent.", "stt.")) for p, t in got)
+
+
+def test_ws_wake_turn_sends_no_pet_state_before_it_is_decided() -> None:
+    """Over ws.py the router's Emitter has no companions: a partial for a named gator is just stt.partial, and
+    pet.state listening appears only with the decided final."""
+    from agent.bus import Emitter
+
+    class Target:
+        def __init__(self) -> None:
+            self.sent: list[Event] = []
+
+        async def broadcast(self, e: Event) -> None:
+            self.sent.append(e)
+
+    target = Target()
+    owner: list[Event] = []
+
+    async def send_owner(e: Event) -> None:
+        owner.append(e)
+
+    router = WakeRouter(lead_pet_id="bit", emit_for=lambda pid: Emitter(pid, target=target, companion=False),
+                        send_owner=send_owner, spawn=lambda coro: coro.close())
+
+    async def go() -> None:
+        await router.partial("Hey Bit, how")
+        assert [e.type for e in target.sent] == ["stt.partial"]
+        d = await router.final("Hey Bit, how's the build?")
+        assert d.respond
+
+    asyncio.run(go())
+    assert [(e.type, e.payload.get("mode")) for e in target.sent] == \
+        [("stt.partial", None), ("pet.state", "listening"), ("stt.final", None)]
