@@ -3,7 +3,8 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// CADSandbox shortcuts: P next design, 1-4 jump to a stored version of it (mock mode), Left/Right step,
-/// E explode, U undo, R reset, F fly. (I, inspect, is CadViewer's own key, so it works in desktop mode too.)
+/// E explode, U undo, R reset, F the design's demo (Fly / Hover / Run; again to stop it).
+/// (I inspect, M measure and N markers are CadViewer's own keys, so they work in desktop mode too.)
 /// </summary>
 public class CadSandboxKeys : MonoBehaviour
 {
@@ -21,7 +22,7 @@ public class CadSandboxKeys : MonoBehaviour
         if (k.eKey.wasPressedThisFrame) s.SetView(s.View.explode != true, s.View.focusId);
         if (k.uKey.wasPressedThisFrame) s.Undo();
         if (k.rKey.wasPressedThisFrame) s.ResetDesign();
-        if (k.fKey.wasPressedThisFrame) s.RequestFlight();
+        if (k.fKey.wasPressedThisFrame) s.RequestDemo(!s.DemoRunning);
         if (k.pKey.wasPressedThisFrame) s.NextPart();
     }
 }

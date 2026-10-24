@@ -162,7 +162,7 @@ public class CadTakeApart : MonoBehaviour
 
     public void BeginGrab(CadPartHandle handle, CadPointer by, Vector3 point)
     {
-        if (held != null || by == null || !viewer.OnStage) return;
+        if (held != null || by == null || !viewer.OnStage || viewer.DemoRunning) return;  // a demo is moving the parts
         var p = pieces.Find(x => x.handle == handle);
         if (p == null || p.transform == null) return;
         if (p.homing != null)

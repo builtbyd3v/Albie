@@ -52,7 +52,22 @@ public class CadSession : MonoBehaviour
     public event Action InspectChanged;  // Inspecting or PartsOff changed
     public event Action ReassembleRequested;
 
+    // View only, like Inspecting (the hub doesn't know): what CadViewer draws over the model and its demo. Any panel sets
+    // them here; the viewer, wherever Workspace spawned it, reacts.
+    /// <summary>Dimension callouts shown (analysis.dimensions). Off until a panel's Measure turns them on.</summary>
+    public bool Measuring { get; private set; }
+    /// <summary>Marker beads shown (analysis.markers: CG, CP, thrust, input, output...) and the rocket's CG / CP collars.</summary>
+    public bool MarkersShown { get; private set; } = true;
+    public event Action OverlaysChanged;  // Measuring or MarkersShown changed
+    /// <summary>The design's demo (Fly / Hover / Run) is running, or getting ready to (CadViewer sets it).</summary>
+    public bool DemoRunning { get; private set; }
+    public event Action<bool> DemoRequested;     // a panel asks the viewer to start (true) or stop (false) the demo
+    public event Action DemoChanged;             // DemoRunning changed
+    public event Action<CadDemoFrame> DemoFrame; // every frame while a demo runs: phase and live readouts
+
     int mockPart = -1, mockIndex = -1;
+    CadFlight cachedFlight;
+    int cachedFlightVersion = -1;
     readonly List<int> mockHistory = new List<int>();
     bool fetching;
     CadModelUpdated pending;  // newest version announced while a fetch was running
@@ -120,6 +135,7 @@ public class CadSession : MonoBehaviour
     void StartHub()
     {
         IsMock = false;
+        cachedFlight = null;  // the hub's versions may not be the mocks' copies
         SetStatus(HubLabel);
         RefreshParts();
         // The hub replays the current model to every client that connects, so ForgeNet usually has it already.
@@ -218,6 +234,34 @@ public class CadSession : MonoBehaviour
         InspectChanged?.Invoke();
     }
 
+    public void SetMeasuring(bool on)
+    {
+        if (on == Measuring) return;
+        Measuring = on;
+        OverlaysChanged?.Invoke();
+    }
+
+    public void SetMarkersShown(bool on)
+    {
+        if (on == MarkersShown) return;
+        MarkersShown = on;
+        OverlaysChanged?.Invoke();
+    }
+
+    /// <summary>Start (true) or stop (false) the design's demo: Fly, Hover or Run (CadViewer runs it).</summary>
+    public void RequestDemo(bool run) => DemoRequested?.Invoke(run);
+
+    /// <summary>CadViewer: the demo started or ended.</summary>
+    public void SetDemoRunning(bool on)
+    {
+        if (on == DemoRunning) return;
+        DemoRunning = on;
+        DemoChanged?.Invoke();
+    }
+
+    /// <summary>CadViewer: this frame of the running demo.</summary>
+    public void PublishDemoFrame(CadDemoFrame frame) => DemoFrame?.Invoke(frame);
+
     public void RequestFlight()
     {
         if (Latest == null || Params == null || !Params.Has("flight")) return;
@@ -234,6 +278,68 @@ public class CadSession : MonoBehaviour
             SetStatus(HubLabel);
             FlightReady?.Invoke(JsonConvert.DeserializeObject<CadFlight>(text));
         }, timeout: 60));
+    }
+
+    /// <summary>
+    /// A version's flight, for the launch demo: GET <paramref name="source"/>?v=N (the hub runs its sim on the first
+    /// ask, a few seconds, then caches it) or the mock's stored flight.json. Null if there's none or it failed. Also
+    /// raises FlightReady (the panel's apogee). The last one is kept, so flying the same version again is instant.
+    /// </summary>
+    public void GetFlight(int version, string source, Action<CadFlight> done)
+    {
+        if (cachedFlight != null && cachedFlightVersion == version)
+        {
+            done(cachedFlight);
+            return;
+        }
+        if (IsMock)
+        {
+            var file = MockVersionOf(version)?.flight;
+            CadFlight mock = null;
+            if (file != null)
+            {
+                try { mock = JsonConvert.DeserializeObject<CadFlight>(file.text); }
+                catch (JsonException e) { Debug.LogWarning($"[CadSession] Mock flight of v{version}: {e.Message}"); }
+            }
+            DeliverFlight(version, mock, done);
+            return;
+        }
+        string path = string.IsNullOrEmpty(source) ? "/cad/flight" : source;
+        path += (path.IndexOf('?') >= 0 ? "&v=" : "?v=") + version;
+        SetStatus("Simulating the flight...");
+        StartCoroutine(GetText(path, text =>
+        {
+            CadFlight flight = null;
+            if (text != null)
+            {
+                try { flight = JsonConvert.DeserializeObject<CadFlight>(text); }
+                catch (JsonException e) { Debug.LogWarning($"[CadSession] Flight of v{version}: {e.Message}"); }
+            }
+            SetStatus(flight != null ? HubLabel : "Flight sim failed.");
+            DeliverFlight(version, flight, done);
+        }, timeout: 60));
+    }
+
+    void DeliverFlight(int version, CadFlight flight, Action<CadFlight> done)
+    {
+        if (flight != null)
+        {
+            cachedFlight = flight;
+            cachedFlightVersion = version;
+            FlightReady?.Invoke(flight);
+        }
+        done(flight);
+    }
+
+    /// <summary>The stored mock version with this version number (mock labels end in /vN), or null.</summary>
+    CadMockSet.Version MockVersionOf(int version)
+    {
+        if (mocks == null) return null;
+        string suffix = "/v" + version;
+        foreach (var part in mocks.parts)
+            foreach (var v in part.versions)
+                if (v.label.EndsWith(suffix, StringComparison.Ordinal)) return v;
+        return null;
     }
 
     /// <summary>

@@ -8,7 +8,8 @@ using UnityEngine.UI;
 /// The design panel (CadParamsPanel.prefab, a ForgePanel variant; this UI lives under Content). Works for any
 /// design in the hub's library: the title and a Designs menu to switch, its presets, its metrics (gauges for the
 /// ones with a range, a stats line for the rest), its parameter rows from GET /cad/params (in a scroll view, so
-/// the panel can be resized), and Undo / Reset / Explode, plus Fly for designs with a flight sim.
+/// the panel can be resized), and Undo / Reset / Explode, plus the design's demo button (analysis.demo: Fly for the
+/// rocket, Hover for the drone, Run for the gearbox; hidden for a design without one, Stop while it runs).
 /// Inspect brings the model up big in front of you (Back to desk sends it home); Reassemble puts back the parts
 /// taken off there.
 /// Releasing a slider sends POST /cad/params. In mock mode the arrows step through the stored versions.
@@ -36,6 +37,7 @@ public class CadParamsPanel : MonoBehaviour
     [SerializeField] TMP_Text status;
 
     CadSession session;
+    TMP_Text flyLabel;
     readonly List<CadParamRow> built = new List<CadParamRow>();
     readonly List<CadMetricGauge> gaugeViews = new List<CadMetricGauge>();
     readonly List<Button> presetButtons = new List<Button>();
@@ -54,11 +56,13 @@ public class CadParamsPanel : MonoBehaviour
         session.StatusChanged += OnStatus;
         session.FlightReady += OnFlight;
         session.InspectChanged += OnInspectChanged;
+        session.DemoChanged += OnDemoChanged;
+        if (flyLabel == null) flyLabel = flyButton.GetComponentInChildren<TMP_Text>(true);
         designsButton.onClick.AddListener(TogglePicker);
         undoButton.onClick.AddListener(session.Undo);
         resetButton.onClick.AddListener(session.ResetDesign);
         explodeButton.onClick.AddListener(ToggleExplode);
-        flyButton.onClick.AddListener(session.RequestFlight);
+        flyButton.onClick.AddListener(ToggleDemo);
         prevButton.onClick.AddListener(() => session.StepMock(-1));
         nextButton.onClick.AddListener(() => session.StepMock(1));
         inspectButton.onClick.AddListener(() => session.SetInspecting(!session.Inspecting));
@@ -80,6 +84,7 @@ public class CadParamsPanel : MonoBehaviour
         session.StatusChanged -= OnStatus;
         session.FlightReady -= OnFlight;
         session.InspectChanged -= OnInspectChanged;
+        session.DemoChanged -= OnDemoChanged;
         foreach (var b in new[] { designsButton, undoButton, resetButton, explodeButton, flyButton, prevButton, nextButton,
                      inspectButton, reassembleButton })
             b.onClick.RemoveAllListeners();
@@ -101,7 +106,7 @@ public class CadParamsPanel : MonoBehaviour
         }
         else foreach (var row in built) row.SetValue(p.Find(row.Name));
         BuildPresets(p);
-        flyButton.gameObject.SetActive(p.Has("flight"));
+        ShowDemo();
 
         string title = string.IsNullOrEmpty(p.title) ? p.part : p.title;
         header.text = mock ? $"{title}  v{p.version}  <size=70%><alpha=#88>mock {session.MockIndex + 1}/{session.MockCount}" : $"{title}  v{p.version}";
@@ -224,11 +229,36 @@ public class CadParamsPanel : MonoBehaviour
 
     void ToggleExplode() => session.SetView(session.View.explode != true, session.View.focusId);
 
+    // The demo button says what this design does (Fly / Hover / Run) and Stop while it runs; CadViewer runs it.
+    void ToggleDemo() => session.RequestDemo(!session.DemoRunning);
+
+    void ShowDemo()
+    {
+        if (session == null || flyButton == null) return;
+        var demo = CadDemoPlayer.Resolve(session.Latest?.info.analysis, session.Params);
+        bool running = session.DemoRunning;
+        flyButton.gameObject.SetActive(demo != null || running);
+        flyButton.interactable = running || (demo != null && string.IsNullOrEmpty(demo.blocked));  // e.g. props collide
+        if (flyLabel != null) flyLabel.text = running ? "Stop" : string.IsNullOrEmpty(demo?.label) ? "Fly" : demo.label;
+        // Editing and exploding pause while a demo runs (CAD UX spec 2.6).
+        undoButton.interactable = !running;
+        explodeButton.interactable = !running;
+    }
+
+    // A demo started or ended: its plain sentence while it runs (or why it can't), the session's status after.
+    void OnDemoChanged()
+    {
+        ShowDemo();
+        var demo = CadDemoPlayer.Resolve(session.Latest?.info.analysis, session.Params);
+        status.text = session.DemoRunning && !string.IsNullOrEmpty(demo?.note) ? demo.note
+            : demo != null && !string.IsNullOrEmpty(demo.blocked) ? demo.blocked : session.Status;
+    }
+
     void OnViewChanged(CadView view) => explodeLabel.text = view.explode == true ? "Assemble" : "Explode";
 
     void OnInspectChanged()
     {
-        inspectLabel.text = session.Inspecting ? "Back to desk" : "Inspect";
+        inspectLabel.text = session.Inspecting ? "Back to desk" : "Expand";
         reassembleButton.gameObject.SetActive(session.Inspecting);
         reassembleButton.interactable = session.PartsOff > 0;
     }
