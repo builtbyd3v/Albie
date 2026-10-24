@@ -8,6 +8,7 @@ using UnityEngine.UI;
 /// DigestTrigger can load the panel at runtime for the floating digest copy):
 /// - MessageCard.prefab: one Slack message (MessageCard)
 /// - MessagesPanel.prefab: ForgePanel variant, panel id "messages", UI under Content (MessagesPanel)
+/// - DraftCard.prefab: ForgePanel variant, panel id "messages-draft", the Send / Cancel card (DraftCard)
 /// GUIDs are kept on rebuild. Same technique as CAD/Editor/CadPrefabBuilder.cs; no scene is touched.
 /// </summary>
 public static class MessagesPrefabBuilder
@@ -16,6 +17,9 @@ public static class MessagesPrefabBuilder
     const string ResDir = Root + "/Resources";
     public const string CardPath = ResDir + "/MessageCard.prefab";
     public const string PanelPath = ResDir + "/MessagesPanel.prefab";
+    public const string DraftPath = ResDir + "/DraftCard.prefab";
+    static readonly Color SendAccent = new Color(0.85f, 0.4f, 0.9f);  // the MSG mode color (Workspace.DefaultModes)
+    static readonly Color CancelBack = new Color(1f, 1f, 1f, 0.14f);
 
     static readonly Color CardBackground = new Color(0.12f, 0.15f, 0.21f, MessageCard.RestAlpha);
     static readonly Color Muted = new Color(1f, 1f, 1f, 0.6f);
@@ -28,8 +32,9 @@ public static class MessagesPrefabBuilder
         if (!ForgePrefabBuilder.Exist()) ForgePrefabBuilder.BuildAll();
         var card = BuildCard();
         BuildPanel(card);
+        BuildDraftCard();
         AssetDatabase.SaveAssets();
-        Debug.Log($"[MessagesPrefabBuilder] Built {CardPath}, {PanelPath}");
+        Debug.Log($"[MessagesPrefabBuilder] Built {CardPath}, {PanelPath}, {DraftPath}");
     }
 
     // One message. Sizes in canvas units (1 unit = 1 mm on a ForgePanel).
@@ -142,7 +147,88 @@ public static class MessagesPrefabBuilder
         Object.DestroyImmediate(go);
     }
 
+    // The Send / Cancel card: a small ForgePanel with a translucent sheet, opaque text and two buttons.
+    static void BuildDraftCard()
+    {
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(ForgePrefabBuilder.PanelPath));
+        go.name = "DraftCard";
+        var panel = go.GetComponent<ForgePanel>();
+        panel.panelId = "messages-draft";
+        panel.Title = "Send this?";
+        panel.SizeMeters = DraftCard.SizeMeters;
+        if (go.GetComponent<GraphicRaycaster>() == null) go.AddComponent<GraphicRaycaster>();  // mouse (DesktopRig)
+        var content = panel.Content;
+        var placeholder = content.Find("Placeholder");
+        if (placeholder != null) placeholder.gameObject.SetActive(false);
+
+        var sheet = NewImage("Sheet", content, Rounded(), CardBackground);
+        sheet.raycastTarget = false;
+        Stretch(sheet.rectTransform, 0f, 0f, 0f, 0f);
+
+        var header = NewText("Header", content, "#forge-team", 19f, TextAlignmentOptions.MidlineLeft);
+        header.fontStyle = FontStyles.Bold;
+        header.overflowMode = TextOverflowModes.Ellipsis;
+        var headerRt = header.rectTransform;
+        headerRt.anchorMin = new Vector2(0f, 1f);
+        headerRt.anchorMax = new Vector2(1f, 1f);
+        headerRt.pivot = new Vector2(0f, 1f);
+        headerRt.offsetMin = new Vector2(14f, -40f);
+        headerRt.offsetMax = new Vector2(-14f, -10f);
+
+        var replying = NewText("Replying", content, "Replying to Hudson: is the demo build ready by 3?", 14f, TextAlignmentOptions.MidlineLeft);
+        replying.color = Muted;
+        replying.overflowMode = TextOverflowModes.Ellipsis;
+        var replyingRt = replying.rectTransform;
+        replyingRt.anchorMin = new Vector2(0f, 1f);
+        replyingRt.anchorMax = new Vector2(1f, 1f);
+        replyingRt.pivot = new Vector2(0f, 1f);
+        replyingRt.offsetMin = new Vector2(14f, -64f);
+        replyingRt.offsetMax = new Vector2(-14f, -42f);
+
+        var body = NewText("Body", content, "Yes, I'll ping you when it's pushed.", 18f, TextAlignmentOptions.TopLeft);
+        body.textWrappingMode = TextWrappingModes.Normal;
+        body.overflowMode = TextOverflowModes.Ellipsis;
+        Stretch(body.rectTransform, 14f, 70f, 14f, 68f);
+
+        var status = NewText("Status", content, "", 15f, TextAlignmentOptions.MidlineLeft);
+        status.color = Muted;
+        var statusRt = status.rectTransform;
+        statusRt.anchorMin = new Vector2(0f, 0f);
+        statusRt.anchorMax = new Vector2(0.5f, 0f);
+        statusRt.pivot = new Vector2(0f, 0f);
+        statusRt.offsetMin = new Vector2(14f, 14f);
+        statusRt.offsetMax = new Vector2(0f, 58f);
+
+        var cancel = NewButton("Cancel", content, "Cancel", CancelBack, Color.white, new Vector2(110f, 44f), new Vector2(-134f, 14f));
+        var send = NewButton("Send", content, "Send", SendAccent, Ink, new Vector2(110f, 44f), new Vector2(-14f, 14f));
+
+        var card = go.AddComponent<DraftCard>();
+        SetRefs(card, ("sheet", sheet), ("header", header), ("replying", replying), ("body", body), ("status", status),
+            ("send", send), ("cancel", cancel));
+        PrefabUtility.SaveAsPrefabAsset(go, DraftPath);
+        Object.DestroyImmediate(go);
+    }
+
     // ---- helpers (same shapes as CadPrefabBuilder / ForgePrefabBuilder) ----
+
+    // A uGUI Button anchored to the content's bottom-right corner (pivot bottom-right, offsets in mm).
+    static Button NewButton(string name, Transform parent, string label, Color back, Color ink, Vector2 size, Vector2 anchoredPos)
+    {
+        var image = NewImage(name, parent, Rounded(), back);
+        image.raycastTarget = true;
+        var rt = image.rectTransform;
+        rt.anchorMin = rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.sizeDelta = size;
+        rt.anchoredPosition = anchoredPos;
+        var button = image.gameObject.AddComponent<Button>();
+        button.targetGraphic = image;
+        var text = NewText("Label", image.transform, label, 18f, TextAlignmentOptions.Center);
+        text.fontStyle = FontStyles.Bold;
+        text.color = ink;
+        Stretch(text.rectTransform, 0f, 0f, 0f, 0f);
+        return button;
+    }
 
     static RectTransform NewRect(string name, Transform parent)
     {

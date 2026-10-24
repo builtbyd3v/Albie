@@ -66,11 +66,12 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         if (Message != null) time.text = RelativeTime(Message.ts);
     }
 
-    public static bool IsDm(NotifyMessage m) => IsDmChannel(m.channelName);
+    /// <summary>The hub sets is_dm; the channel name is only consulted when the hub sent none.</summary>
+    public static bool IsDm(NotifyMessage m) => m.isDm || (string.IsNullOrEmpty(m.channelName) ? true : m.channelName == "dm");
 
-    /// <summary>The hub names a DM channel "dm" (Slack's own DM ids start with "D").</summary>
+    /// <summary>For payloads without is_dm (notify.sent): the hub names a DM channel "dm".</summary>
     public static bool IsDmChannel(string channelName) =>
-        string.IsNullOrEmpty(channelName) || channelName == "dm" || channelName.StartsWith("D");
+        string.IsNullOrEmpty(channelName) || channelName == "dm" || channelName == "group-dm";
 
     /// <summary>Slack ts ("1729800000.123456") to "now" / "5m" / "2h" / "3d".</summary>
     public static string RelativeTime(string ts)

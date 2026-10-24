@@ -10,7 +10,8 @@ using UnityEngine;
 /// Shows the newest <see cref="MaxCards"/> messages as <see cref="MessageCard"/>s and folds the rest into a
 /// "+N more" footer. Fed by the hub's notify.* events (PROJECT_CONTEXT 7 / 8.8): notify.digest replaces the list,
 /// notify.message pushes one card in at the top, notify.sent flashes the footer. When it opens live it reads
-/// GET /messages/latest. Clicking a card asks Bit to reply (the hub's messages_send tool confirms before posting).
+/// GET /messages/latest. Clicking a card asks Bit to reply: Bit writes a draft, <see cref="DraftPresenter"/> shows it
+/// as a Send / Cancel <see cref="DraftCard"/> under this panel, and nothing is posted until you confirm.
 /// <see cref="floating"/> copies are spawned by <see cref="DigestTrigger"/> when the digest arrives with MSG mode
 /// closed; they don't count as an open panel. Live hub only, no mocks.
 /// </summary>
@@ -30,6 +31,10 @@ public class MessagesPanel : MonoBehaviour
     /// <summary>Enabled non-floating panels in the scene (MSG mode open).</summary>
     public static int ActiveCount { get; private set; }
     public static event Action ActiveChanged;
+    /// <summary>The open (non-floating) panel, if MSG mode is open; <see cref="DraftPresenter"/> docks the Send / Cancel card under it.</summary>
+    public static MessagesPanel Active { get; private set; }
+    /// <summary>The ForgePanel this lives on (size, title); null in a bare test scene.</summary>
+    public ForgePanel Panel { get; private set; }
 
     readonly List<MessageCard> cards = new List<MessageCard>(MaxCards);
     readonly List<NotifyMessage> shown = new List<NotifyMessage>(MaxCards + 1);
@@ -39,10 +44,11 @@ public class MessagesPanel : MonoBehaviour
     static readonly WaitForSeconds FlashWait = new WaitForSeconds(SentFlashSeconds);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-    static void ResetStatics() { ActiveCount = 0; ActiveChanged = null; }
+    static void ResetStatics() { ActiveCount = 0; ActiveChanged = null; Active = null; }
 
     void Awake()
     {
+        Panel = GetComponent<ForgePanel>();
         cardTemplate.gameObject.SetActive(false);
         for (int i = 0; i < MaxCards; i++)
         {
@@ -62,6 +68,7 @@ public class MessagesPanel : MonoBehaviour
         if (!floating)
         {
             ActiveCount++;
+            if (Active == null) Active = this;
             ActiveChanged?.Invoke();
         }
 
@@ -81,6 +88,7 @@ public class MessagesPanel : MonoBehaviour
         if (!floating)
         {
             ActiveCount = Mathf.Max(0, ActiveCount - 1);
+            if (Active == this) Active = null;
             ActiveChanged?.Invoke();
         }
     }
@@ -139,14 +147,15 @@ public class MessagesPanel : MonoBehaviour
 
     // ---- panel -> hub ---------------------------------------------------------------------------------------
 
-    /// <summary>"Reply with Bit": one agent turn with the message as context; the hub's messages_send tool
-    /// reads the reply back and sends it in-thread only after the user confirms.</summary>
+    /// <summary>"Reply with Bit": one agent turn with the message as context. Bit asks what to say, then the hub's
+    /// messages_send tool writes a draft (notify.draft -> DraftCard); it is posted in-thread only when the user hits
+    /// Send on the card or says so (messages_confirm).</summary>
     void ReplyWithBit(MessageCard card)
     {
         var m = card.Message;
         if (m == null) return;
         string where = MessageCard.IsDm(m) ? "by DM" : $"in #{m.channelName}";
-        string prompt = $"Reply to {m.userName} {where} (Slack ts {m.ts}). They said: \"{m.text}\". Ask me what to answer, then send it in that thread.";
+        string prompt = $"Reply to {m.userName} {where} (Slack ts {m.ts}). They said: \"{m.text}\". Ask me what to answer, then draft it in that thread; I'll confirm on the card.";
 
         var bridge = FindAnyObjectByType<Forge.Pet.GatorAgentBridge>();
         if (bridge != null) bridge.Ask(prompt, "qa");  // tracks the turn so the gator animates and cancels cleanly

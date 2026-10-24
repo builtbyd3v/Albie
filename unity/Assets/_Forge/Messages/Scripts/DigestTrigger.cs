@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 
@@ -9,6 +10,8 @@ using UnityEngine;
 /// the user leaves the desk.
 /// Installs itself: on scene load it adds one to any scene that has a DeskPresence (so Main needs no edit); dropping
 /// the component into a scene by hand also works and stops the auto-install.
+/// The static helpers (<see cref="SpawnAtDesk"/>, <see cref="PopIn"/>, <see cref="FoldOut"/>) are shared with
+/// <see cref="DraftPresenter"/>, so the digest stack and the Send / Cancel card appear and leave the same way.
 /// </summary>
 public class DigestTrigger : MonoBehaviour
 {
@@ -101,37 +104,12 @@ public class DigestTrigger : MonoBehaviour
             Debug.LogWarning($"[DigestTrigger] Resources/{PanelResource}.prefab not found; run Forge > Messages > Build Prefabs.");
             return;
         }
-
-        // Instantiate under an inactive holder so the panel's OnEnable sees floating = true.
-        var holder = new GameObject("FloatingMessages");
-        holder.SetActive(false);
-        holder.transform.SetParent(presence.Frame, false);
-        holder.transform.localPosition = floatingOffset;
-        var go = Instantiate(prefab, holder.transform);
-        var panel = go.GetComponent<MessagesPanel>();
-        if (panel != null) panel.floating = true;
-        go.transform.localPosition = Vector3.zero;
-        go.transform.localRotation = Quaternion.identity;
-
-        // Face the user: a world-space canvas reads right when its +Z points away from the viewer.
-        Transform head = presence.head != null ? presence.head : (Camera.main != null ? Camera.main.transform : null);
-        if (head != null)
+        floatingPanel = SpawnAtDesk(presence, prefab, floatingOffset, "FloatingMessages", go =>
         {
-            Vector3 toPanel = holder.transform.position - head.position;
-            toPanel.y *= 0.3f;  // mostly upright
-            if (toPanel.sqrMagnitude > 1e-4f) holder.transform.rotation = Quaternion.LookRotation(toPanel, Vector3.up);
-        }
-
-        holder.SetActive(true);
-        floatingPanel = holder;
-
-        Transform t = holder.transform;
-        Vector3 scale = t.localScale;
-        t.localScale = scale * 0.02f;
-        StartCoroutine(ForgeTween.Run(0.35f, 0f, k =>
-        {
-            if (t != null) t.localScale = scale * Mathf.Max(0.02f, ForgeTween.EaseOutBack(k));
-        }));
+            var panel = go.GetComponentInChildren<MessagesPanel>();
+            if (panel != null) panel.floating = true;  // set before OnEnable: a floating copy doesn't count as MSG mode open
+        });
+        PopIn(this, floatingPanel.transform);
         fold = StartCoroutine(FoldLater());
     }
 
@@ -148,14 +126,62 @@ public class DigestTrigger : MonoBehaviour
         if (floatingPanel == null) return;
         GameObject go = floatingPanel;
         floatingPanel = null;
-        if (immediate)
+        if (immediate) Destroy(go);
+        else FoldOut(this, go);
+    }
+
+    // ---- shared placement / animation helpers ---------------------------------------------------------------
+
+    /// <summary>
+    /// Instantiate <paramref name="prefab"/> beside Bit: a holder parented to the desk frame at <paramref name="offset"/>
+    /// (m: right of the front edge midpoint, up, into the desk), turned to face the user. <paramref name="configure"/>
+    /// runs on the instance while the holder is still inactive, so components can be set up before their OnEnable.
+    /// Returns the (active) holder; destroy it to remove the whole thing.
+    /// </summary>
+    public static GameObject SpawnAtDesk(DeskPresence presence, GameObject prefab, Vector3 offset, string holderName,
+        Action<GameObject> configure = null)
+    {
+        var holder = new GameObject(holderName);
+        holder.SetActive(false);
+        holder.transform.SetParent(presence.Frame, false);
+        holder.transform.localPosition = offset;
+        var go = Instantiate(prefab, holder.transform);
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        configure?.Invoke(go);
+        FaceUser(holder.transform, presence);
+        holder.SetActive(true);
+        return holder;
+    }
+
+    /// <summary>Turn a world-space canvas toward the user: it reads right when its +Z points away from the viewer.</summary>
+    public static void FaceUser(Transform t, DeskPresence presence)
+    {
+        Transform head = presence != null && presence.head != null ? presence.head : (Camera.main != null ? Camera.main.transform : null);
+        if (head == null) return;
+        Vector3 toPanel = t.position - head.position;
+        toPanel.y *= 0.3f;  // mostly upright
+        if (toPanel.sqrMagnitude > 1e-4f) t.rotation = Quaternion.LookRotation(toPanel, Vector3.up);
+    }
+
+    /// <summary>Scale-in with a little overshoot, 0.35 s.</summary>
+    public static Coroutine PopIn(MonoBehaviour runner, Transform t)
+    {
+        Vector3 scale = t.localScale;
+        t.localScale = scale * 0.02f;
+        return runner.StartCoroutine(ForgeTween.Run(0.35f, 0f, k =>
         {
-            Destroy(go);
-            return;
-        }
+            if (t != null) t.localScale = scale * Mathf.Max(0.02f, ForgeTween.EaseOutBack(k));
+        }));
+    }
+
+    /// <summary>Scale-out over 0.25 s, then Destroy. <paramref name="runner"/> may live inside <paramref name="go"/>.</summary>
+    public static void FoldOut(MonoBehaviour runner, GameObject go)
+    {
+        if (go == null) return;
         Transform t = go.transform;
         Vector3 s0 = t.localScale;
-        StartCoroutine(ForgeTween.Run(0.25f, 0f, k =>
+        runner.StartCoroutine(ForgeTween.Run(0.25f, 0f, k =>
         {
             if (t != null) t.localScale = s0 * (1f - ForgeTween.EaseInCubic(k) * 0.98f);
         }, () => { if (go != null) Destroy(go); }));
