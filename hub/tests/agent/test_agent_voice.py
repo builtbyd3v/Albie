@@ -726,4 +726,5 @@ def test_each_turn_logs_one_line(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level("INFO", logger="agent.voice"):
         asyncio.run(run())
     turns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn:")]
-    assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False answered"]
+    assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False "
+                     "gated=False judged=None answered"]

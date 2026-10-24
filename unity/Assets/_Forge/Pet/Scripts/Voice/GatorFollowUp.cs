@@ -12,8 +12,9 @@ namespace Forge.Pet
     /// Voice barge-in: while the gator speaks, the mic is monitored (HubSpeechToText.StartMonitoring, nothing sent).
     /// Speech clearly louder than the gator's own echo opens a hands-free turn and cuts the gator off; the hub
     /// stops Grok on stt.start and the monitored pre-roll keeps the first words.
-    /// Look-to-talk: the follow-up window only watches the mic (nothing sent). Speech opens a turn when the user faces
-    /// the gator; speech while looking elsewhere opens a turn that the hub answers only if it names the gator ("Albie, ...").
+    /// Look-to-talk: the follow-up window only watches the mic (nothing sent). Speech opens a gated turn
+    /// (stt.start {require_name}): the hub answers it if it names the gator ("Albie, ...") or, judging the transcript,
+    /// it was said to him (hub/agent/addressed.py), so teammates talking at the desk are not answered.
     /// Cutting the gator off needs facing it. Space / A / the whistle always open a turn.
     /// WakeListener reads UserFacing too: facing the gator answers any hands-free turn, not only in this window.
     /// </summary>
@@ -176,7 +177,7 @@ namespace Forge.Pet
             bool cutIn = _speaking, reply = _attending;
             _monitor = null;
             _attending = false;
-            hub.RequireName = !facing;                // looking elsewhere: only counts if they say "Albie"
+            hub.RequireName = reply || !facing;       // a reply is judged by the hub (said to Albie?); looking elsewhere needs "Albie"
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
             if (pushToTalk.BeginHandsFree())
             {

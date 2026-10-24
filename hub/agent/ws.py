@@ -297,6 +297,9 @@ async def _open_voice(s: Session, h: Hello) -> None:
     if voice is None:
         return
     voice.wake_router = s.wake
+    judge = getattr(voice, "addressed", None)  # unnamed facing / follow-up turns: judged with Albie's last line
+    if s.wake is not None and judge is not None:
+        s.wake.judge = judge
     voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted

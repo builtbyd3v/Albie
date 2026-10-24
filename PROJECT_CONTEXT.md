@@ -301,7 +301,7 @@ notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest f
 
 Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`, `messages-mentions`.
 
-Proposed voice addition: `stt.start` gains `facing: bool = false` (wake turns only; true = the user faced Albie at speech onset, so Albie answers with no name; see `hub/agent/wake.py`).
+Proposed voice addition: `stt.start` gains `facing: bool = false` (wake turns only; true = the user faced Albie at speech onset). An unnamed facing turn, and an unnamed `require_name` turn (follow-up reply), is answered only if `hub/agent/addressed.py` judges it was said to Albie (word rules; Claude Haiku when the `anthropic` package and key are present).
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 

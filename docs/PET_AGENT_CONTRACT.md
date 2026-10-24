@@ -205,9 +205,11 @@ Client → hub:
 ```
 hello        { ..., audio_out_rate?: 48000 }    # AudioSettings.outputSampleRate; Grok speaks at it when supported
 stt.start / <binary PCM16 16 kHz> / stt.stop    # unchanged; voice mode: stt.start = barge-in + new turn, stt.stop = commit + response.create
-stt.start.require_name: bool = false             # proposed (look-to-talk): user wasn't facing Bit; the hub answers only if the
-                                                  # transcript names him (first two words or last: "Bit, ...", "..., Bit?"), else empty stt.final, no captions
-stt.start.facing: bool = false                   # proposed (wake turns): user faced Bit at speech onset; the hub answers with no name
+stt.start.require_name: bool = false             # proposed (gated turn: look-to-talk / follow-up reply): the hub answers only if the
+                                                  # transcript names him (first two words or last: "Bit, ...", "..., Bit?") or is judged
+                                                  # said to him (hub/agent/addressed.py), else empty stt.final, no captions, no reply
+stt.start.facing: bool = false                   # proposed (wake turns): user faced Bit at speech onset; an unnamed turn is judged the
+                                                  # same way (facing alone no longer counts: teammates face Bit while talking to each other)
 stt.cancel   { pet_id }                          # drop the open turn: audio after it is ignored, its stt.stop yields an empty stt.final
 tts.stop     { pet_id }                          # stop the current reply (ITextToSpeech.Stop)
 ```
