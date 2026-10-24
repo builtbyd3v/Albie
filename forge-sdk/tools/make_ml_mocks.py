@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "forge-sdk" / "examples" / "cifar10"))
 from train import CLASSES, VAL_SIZE, SmallCNN  # noqa: E402
 from torch.utils.data import Subset  # noqa: E402
 
-OUT = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ML"
+OUT = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ml"
 RUN_ID = "mock0001"
 EPOCHS = 15
 NOISE_RATE = 0.03

@@ -45,7 +45,7 @@ def watch(
     val_dataset: Any,
     classes: Sequence[str],
     epochs: int = 0,
-    thumb_size: int = 32,
+    thumb_size: int = 64,
     run_dir: str | os.PathLike | None = None,
 ) -> str:
     """Start a run: capture the model graph and the val dataset atlas. Returns the run id."""

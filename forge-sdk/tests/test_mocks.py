@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-MOCKS = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ML"
+MOCKS = ROOT / "unity" / "Assets" / "_Forge" / "Mocks" / "ml"
 sys.path.insert(0, str(ROOT / "hub"))
 from ml.models import Atlas, Confusion, DatasetItem, Graph, Results  # noqa: E402
 

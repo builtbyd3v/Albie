@@ -53,7 +53,7 @@ def test_atlas_uses_raw_colors_through_subset_and_normalize():
     base = FakeVision(50, transform=NORMALIZED)
     image, meta, items = atlas.build(Subset(base, range(10, 30)))
     assert base.transform is NORMALIZED  # restored
-    assert meta["cols"] == 5 and image.size == (5 * 32, 4 * 32)
+    assert meta["cols"] == 5 and meta["cell"] == [64, 64] and image.size == (5 * 64, 4 * 64)
     assert items[0] == {"id": "val_0000", "label_idx": 0}  # base index 10 -> label 0
     assert image.getpixel((0, 0)) == (10, 100, 200)  # un-normalized pixel from base index 10
     assert meta["index"]["val_0019"] == 19
@@ -65,6 +65,28 @@ def test_atlas_resizes_and_caps_at_2048():
     with pytest.warns(UserWarning):
         image, meta, items = atlas.build(FakeVision(4100, size=8), cell=32)
     assert len(items) == 4096 and max(image.size) <= 2048
+
+
+def test_atlas_upscales_nearest_neighbor():
+    checker = Image.new("RGB", (2, 2), (0, 0, 0))
+    checker.putpixel((1, 0), (255, 255, 255))
+
+    class Tiny(Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, i):
+            return checker, 0
+
+    image, _, _ = atlas.build(Tiny(), cell=4)
+    # each source pixel becomes a crisp 2x2 block, no blended greys
+    assert {image.getpixel((x, y)) for x in range(2) for y in range(2)} == {(0, 0, 0)}
+    assert {image.getpixel((x, y)) for x in range(2, 4) for y in range(2)} == {(255, 255, 255)}
+
+
+def test_atlas_1000_images_fill_one_2048_texture():
+    image, meta, items = atlas.build(FakeVision(1000))
+    assert image.size == (2048, 2048) and meta["cols"] == 32 and len(items) == 1000
 
 
 def test_to_pil_handles_tensors():
