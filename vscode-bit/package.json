@@ -8,6 +8,13 @@
   "engines": { "vscode": "^1.93.0" },
   "main": "./extension.js",
   "activationEvents": ["onStartupFinished"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Runs in Restricted Mode too, so Bit still answers when the hub opens a new folder. A repo's own trainCommand and allowedCommands are ignored there: only your user settings count.",
+      "restrictedConfigurations": ["forgeBit.trainCommand", "forgeBit.allowedCommands"]
+    }
+  },
   "contributes": {
     "configuration": {
       "title": "Forge Bit",
