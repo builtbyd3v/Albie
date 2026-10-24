@@ -516,7 +516,7 @@ public class Workspace : MonoBehaviour
     {
         new WorkspaceMode
         {
-            id = "ml", label = "ML", color = new Color(0.25f, 0.55f, 1f),
+            id = "ml", label = "ML", color = ForgeTheme.ML,
             items =
             {
                 new WorkspaceItem("screen-main", "VS Code", WorkspaceSlot.Main),
@@ -528,7 +528,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "cad", label = "CAD", color = new Color(1f, 0.55f, 0.2f),
+            id = "cad", label = "CAD", color = ForgeTheme.CAD,
             items =
             {
                 new WorkspaceItem("screen-main", "rocket.py", WorkspaceSlot.Main),
@@ -539,7 +539,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "screens", label = "SCR", color = new Color(0.4f, 0.85f, 0.5f),
+            id = "screens", label = "SCR", color = ForgeTheme.Screens,
             items =
             {
                 new WorkspaceItem("screen-main", "Screen 1", WorkspaceSlot.Main),
@@ -549,7 +549,7 @@ public class Workspace : MonoBehaviour
         },
         new WorkspaceMode
         {
-            id = "messages", label = "MSG", color = new Color(0.85f, 0.4f, 0.9f),
+            id = "messages", label = "MSG", color = ForgeTheme.Messages,
             items = { new WorkspaceItem("messages", "Messages", WorkspaceSlot.Right) },
         },
     };

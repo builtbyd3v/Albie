@@ -24,7 +24,6 @@ public static class ForgePrefabBuilder
 
     static readonly Color PanelBackground = new Color(0.07f, 0.09f, 0.13f, 0.85f);
     static readonly Color TitleBar = new Color(0.16f, 0.45f, 0.85f, 0.95f);
-    static readonly Color Accent = new Color(0.25f, 0.65f, 1f);
 
     [MenuItem("Forge/Build Core Prefabs (missing only)")]
     public static void BuildMenu() => RunMenu(overwrite: false);
@@ -52,6 +51,7 @@ public static class ForgePrefabBuilder
     /// </summary>
     public static void BuildAll(bool overwrite = false)
     {
+        ForgeLookBuilder.Build();
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         EnsureFolder(Dir);
         EnsureFolder(MaterialDir);
@@ -152,47 +152,54 @@ public static class ForgePrefabBuilder
         Save(root, PanelPath);
     }
 
+    /// <summary>Rebuild only DeskDock.prefab (no module prefab is based on it), keeping the open scene.</summary>
+    [MenuItem("Forge/Rebuild Desk Dock")]
+    public static void RebuildDockMenu()
+    {
+        if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+        string previous = SceneManager.GetActiveScene().path;
+        RebuildDock();
+        if (!string.IsNullOrEmpty(previous)) EditorSceneManager.OpenScene(previous);
+    }
+
+    /// <summary>Overwrites DeskDock.prefab in a throwaway scene (replaces the open scene).</summary>
+    public static void RebuildDock()
+    {
+        ForgeLookBuilder.Build();
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        BuildDock();
+        AssetDatabase.SaveAssets();
+        Debug.Log("[ForgePrefabBuilder] Rebuilt " + DockPath);
+    }
+
+    // The dock's visuals are light drawn at runtime (DeskDock.Build); the prefab holds only the input: a canvas with
+    // Interaction SDK ray + poke, an invisible plate that catches rays between buttons, and an invisible button.
     static void BuildDock()
     {
-        var root = NewCanvas("DeskDock", new Vector2(400f, 110f));
+        var root = NewCanvas("DeskDock", new Vector2(595f, ForgeTheme.DockHeight));
         var group = root.AddComponent<CanvasGroup>();
-        Stretch(NewImage("Plate", root.transform, Rounded(), new Color(0.05f, 0.07f, 0.1f, 0.55f)).rectTransform, 0f, 0f, 0f, 0f);
+        var plate = NewImage("Plate", root.transform, null, Color.clear);
+        plate.type = Image.Type.Simple;
+        plate.canvasRenderer.cullTransparentMesh = true;
+        Stretch(plate.rectTransform, 0f, 0f, 0f, 0f);
 
         var row = (RectTransform)new GameObject("Row", typeof(RectTransform)).transform;
         row.SetParent(root.transform, false);
         Stretch(row, 0f, 0f, 0f, 0f);
-        var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
-        layout.spacing = 22f;
-        layout.padding = new RectOffset(18, 18, 19, 19);
-        layout.childAlignment = TextAnchor.MiddleCenter;
-        layout.childControlWidth = layout.childControlHeight = false;
-        layout.childForceExpandWidth = layout.childForceExpandHeight = false;
 
-        var knob = NewImage("ButtonTemplate", row, Knob(), Accent);
-        knob.type = Image.Type.Simple;
-        knob.rectTransform.sizeDelta = new Vector2(72f, 72f);
-        var button = knob.gameObject.AddComponent<Button>();
-        button.targetGraphic = knob;
-        var colors = button.colors;
-        colors.highlightedColor = new Color(1f, 1f, 1f, 1f);
-        colors.pressedColor = new Color(0.7f, 0.7f, 0.7f, 1f);
-        colors.colorMultiplier = 1.3f;
-        button.colors = colors;
-        var label = NewText("Label", knob.rectTransform, "ML", 22f, TextAlignmentOptions.Center);
-        label.fontStyle = FontStyles.Bold;
-        Stretch(label.rectTransform, 0f, 0f, 0f, 0f);
-        knob.gameObject.SetActive(false);
-
-        // Hub connection light in the plate's top-right corner (outside the row's layout).
-        var dot = NewImage("HubStatus", root.transform, Knob(), Color.grey);
-        dot.type = Image.Type.Simple;
-        dot.raycastTarget = false;
-        dot.rectTransform.anchorMin = dot.rectTransform.anchorMax = new Vector2(1f, 1f);
-        dot.rectTransform.sizeDelta = new Vector2(20f, 20f);
-        dot.rectTransform.anchoredPosition = new Vector2(-14f, -14f);
+        var hit = NewImage("ButtonTemplate", row, null, Color.clear);
+        hit.type = Image.Type.Simple;
+        hit.canvasRenderer.cullTransparentMesh = true;
+        hit.rectTransform.sizeDelta = new Vector2(80f, 80f);
+        var button = hit.gameObject.AddComponent<Button>();
+        button.targetGraphic = hit;
+        button.transition = Selectable.Transition.None;
+        button.navigation = new Navigation { mode = Navigation.Mode.None };
+        hit.gameObject.AddComponent<DockButton>();
+        hit.gameObject.SetActive(false);
 
         var dock = root.AddComponent<DeskDock>();
-        SetRefs(dock, ("row", row), ("buttonTemplate", button), ("group", group), ("statusDot", dot));
+        SetRefs(dock, ("row", row), ("buttonTemplate", button), ("group", group));
         AddCanvasInteraction(root);
         Save(root, DockPath);
     }
