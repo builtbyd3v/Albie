@@ -575,7 +575,9 @@ class GrokVoiceSession(_Base):
         elif t == "error":
             err = msg.get("error") or {}
             message = err.get("message") if isinstance(err, dict) else str(err)
-            if "item not found" in (message or "").lower():  # a dropped turn's item.delete raced Grok: nothing lost
+            # A dropped turn's item.delete, or a cancel of a reply that just ended, raced Grok: nothing lost. Shown as
+            # "Voice error: ..." these made Albie look broken (live 18:48 "Cancellation failed: no active response").
+            if any(m in (message or "").lower() for m in ("item not found", "no active response")):
                 log.info("grok: %s (harmless)", message)
                 return
             log.warning("grok error: %s", msg)

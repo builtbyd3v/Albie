@@ -7,8 +7,9 @@ is judged on its transcript first (agent/wake.py WakeRouter.final):
 1. ``rules``: clear cases with no model call. Empty, mid-sentence fragments ("...it wasn't supposed to show
    like the no messages thing or") and talk to a person ("dude", "bruh", "guys") are never for Albie; filler
    alone ("Yeah.", "Damn.") only counts as the answer to a question Albie just asked.
-2. A gated turn (a reply in Albie's follow-up window) that passes the rules is for him: it came right after he
-   spoke. No model call: Unity drops a hands-free turn with no stt.final within 6 s, so this path stays fast.
+2. A gated turn (a reply in Albie's follow-up window) that passes the rules is for him unless Claude says
+   otherwise within GATED_TIMEOUT_S: it came right after he spoke, and Unity drops a hands-free turn with no
+   stt.final within 6 s, so a slow or failed model call means "answer".
 3. A facing turn (wake turn, user looked at Albie) is the doubtful one: Claude (``ADDRESSED_MODEL``, default
    Haiku) reads Albie's last line and the sentence and says yes or no within JUDGE_TIMEOUT_S. Optional: needs
    the ``anthropic`` package and ANTHROPIC_API_KEY; ``warm()`` loads it before the first turn.
@@ -30,6 +31,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 JUDGE_TIMEOUT_S = 2.5  # warm Haiku answers in ~0.7 s from the venue Wi-Fi; a cold connection took ~1.5-3 s
+GATED_TIMEOUT_S = 1.2  # a follow-up reply must reach Unity within its 6 s stt.final limit: past this, answer it
 _WORD = re.compile(r"[A-Za-z0-9']+")  # digits too: "list like 20" ends on 20, not on a dangling "like"
 PEOPLE = {"dude", "bruh", "bro", "guys", "man", "mate", "buddy", "fam"}  # said to a person, not the gator
 DANGLING = {"or", "and", "so", "but", "like", "because", "um", "uh", "the", "a", "to", "if", "i"}  # cut off mid-sentence
@@ -126,9 +128,15 @@ async def judge(text: str, last_reply: str | None = None, age_s: float | None = 
     clear = rules(text, last_reply)
     if clear is not None:
         return clear
-    if gated:
-        return True
     ask = ask or default_ask()
+    if gated:
+        if ask is None:
+            return True
+        try:
+            return await asyncio.wait_for(ask(text, last_reply, age_s), GATED_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 - too slow for Unity's limit: a reply right after Albie spoke counts
+            log.info("addressed: judge failed on a reply (%s), answering", type(exc).__name__)
+            return True
     if ask is None:
         return guess(text)
     try:

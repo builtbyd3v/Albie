@@ -53,12 +53,26 @@ def test_rules_with_albies_last_line(text: str, last: str | None, said_to_albie:
 
 @pytest.mark.parametrize("text", ["Okay yeah, just list like 20.", "Yeah, go ahead with another.",
                                   "You're low-key a little funny guy, aren't you?"])
-def test_a_follow_up_reply_is_for_albie_without_a_model_call(text: str) -> None:
+def test_a_follow_up_reply_counts_when_the_model_is_slow_or_absent(text: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live 18:34: real follow-ups to "give me a hundred random fun facts" were dropped after a judge timeout."""
-    async def never(*_: object) -> bool:
-        raise AssertionError("gated replies must not wait for the model")
+    monkeypatch.setattr(addressed, "GATED_TIMEOUT_S", 0.01)
 
-    assert asyncio.run(addressed.judge(text, "Here are some fun facts.", 2.0, gated=True, ask=never)) is True
+    async def slow(*_: object) -> bool:
+        await asyncio.sleep(1)
+        return False
+
+    monkeypatch.setattr(addressed, "default_ask", lambda: None)
+    assert asyncio.run(addressed.judge(text, "Here are some fun facts.", 2.0, gated=True)) is True
+    assert asyncio.run(addressed.judge(text, "Here are some fun facts.", 2.0, gated=True, ask=slow)) is True
+
+
+def test_a_follow_up_the_model_says_is_side_talk_is_dropped() -> None:
+    """Live 18:48: 'are you fixing like speech to text at all? I think I want to look into the whistle' (to a teammate)."""
+    async def no(*_: object) -> bool:
+        return False
+
+    text = "What are you, are you fixing like speech to text at all? I think I want to look into the whistle."
+    assert asyncio.run(addressed.judge(text, "Sure, what next?", 3.0, gated=True, ask=no)) is False
 
 
 def test_judge_skips_the_model_for_clear_cases() -> None:

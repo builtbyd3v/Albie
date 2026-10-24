@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so"}
 # Common mis-hearings, per pet id ("bit" = the lead, spoken name Albie). Keep these unambiguous English-wise.
 ALIASES: dict[str, set[str]] = {
-    "bit": {"albie", "albee", "alby", "elbie", "abby"},  # "abby": live grok-transcribe for "Hi Albie"
+    "bit": {"albie", "albee", "alby", "albi", "elbie", "abby"},  # "abby", "albi": live grok-transcribe for "Albie"
     "fixer": {"fixer", "fixa", "fixor"},
     "scribe": {"scribe", "scribes"},
     "shipper": {"shipper", "skipper"},
