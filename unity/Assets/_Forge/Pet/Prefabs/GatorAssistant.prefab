@@ -265,12 +265,12 @@ MonoBehaviour:
     m_Name: XRSelect
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: 421d7581-fe92-43b6-bda0-d16ca9418872
+    m_Id: 82ef825e-9cda-4364-8920-081fd089382d
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings:
     - m_Name: 
-      m_Id: cd6d7f41-2076-41a0-a42a-e89ba7472efa
+      m_Id: 10812f1f-1b51-4694-9f10-a511a74d413b
       m_Path: <XRController>/{TriggerButton}
       m_Interactions: 
       m_Processors: 
@@ -340,7 +340,7 @@ MonoBehaviour:
     m_Name: PushToTalk
     m_Type: 1
     m_ExpectedControlType: 
-    m_Id: 6668cdf7-a709-4891-864b-383798c2c72a
+    m_Id: 759a93df-0f13-4c09-9002-7e9164b44ad4
     m_Processors: 
     m_Interactions: 
     m_SingletonActionBindings: []
@@ -350,6 +350,10 @@ MonoBehaviour:
   controller: {fileID: 1124947603312513688}
   caption: {fileID: 4915495619108957880}
   bridge: {fileID: 7540052793651538206}
+  noSpeechTimeout: 8
+  maxUtterance: 20
+  endSilence: 0.9
+  speechLevel: 0.03
 --- !u!114 &2751513760250796205
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -491,6 +495,22 @@ PrefabInstance:
     - target: {fileID: 7149149534607551026, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
       propertyPath: m_BlendShapeWeights.Array.size
       value: 29
+      objectReference: {fileID: 0}
+    - target: {fileID: 7459477488372886738, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LODs.Array.data[0].screenRelativeHeight
+      value: 0.08
+      objectReference: {fileID: 0}
+    - target: {fileID: 7459477488372886738, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LODs.Array.data[1].screenRelativeHeight
+      value: 0.04
+      objectReference: {fileID: 0}
+    - target: {fileID: 7459477488372886738, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LODs.Array.data[2].screenRelativeHeight
+      value: 0.015
+      objectReference: {fileID: 0}
+    - target: {fileID: 7459477488372886738, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
+      propertyPath: m_LODs.Array.data[3].screenRelativeHeight
+      value: 0.001
       objectReference: {fileID: 0}
     - target: {fileID: 7650317612356612463, guid: f51306084a840634eae6bef5fabb8e87, type: 3}
       propertyPath: m_LocalScale.x

@@ -74,3 +74,4 @@ namespace Forge.Pet
             $"PetConfig(hubUrl={hubUrl}, petId={petId}, projectId={projectId}, eventSource={eventSource})";
     }
 }
+

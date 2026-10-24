@@ -462,6 +462,20 @@ namespace Forge.Pet.Editor
                 // The pack prefab carries its own CapsuleCollider; disable it (the root gets a fitted one).
                 foreach (Collider c in model.GetComponentsInChildren<Collider>(true)) c.enabled = false;
 
+                // The pack's LOD thresholds (95/70/35/5 % of screen height) assume a 1.6 m gator. A 12 cm desk pet
+                // covers ~2 % of the screen from 3 m away, which culls every LOD -> invisible. Use desk-pet thresholds
+                // and effectively never cull (LOD3 is the far/tiny fallback).
+                LODGroup lodGroup = model.GetComponentInChildren<LODGroup>(true);
+                if (lodGroup != null)
+                {
+                    LOD[] lods = lodGroup.GetLODs();
+                    float[] heights = { 0.08f, 0.04f, 0.015f, 0.001f };
+                    for (int i = 0; i < lods.Length; i++)
+                        lods[i].screenRelativeTransitionHeight = i < heights.Length ? heights[i] : 0.001f;
+                    lodGroup.SetLODs(lods);
+                    lodGroup.RecalculateBounds();
+                }
+
                 // ---- Measure, scale to TargetHeight, put feet on y=0, centre on x/z ----
                 if (!TryGetRendererBounds(model, out Bounds nb) || nb.size.y < 0.01f)
                 {

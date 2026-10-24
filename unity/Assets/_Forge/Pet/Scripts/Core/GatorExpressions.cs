@@ -217,10 +217,13 @@ namespace Forge.Pet
                 value = Mathf.Clamp01(value + (1f - Mathf.Abs(2f * t - 1f)));   // triangle 0 -> 1 -> 0
             }
             float w = value * MaxWeight;
+            if (renderers == null || rendererIndex == null) return;
             for (int r = 0; r < renderers.Length; r++)
             {
-                int idx = rendererIndex[r][id];
-                if (idx >= 0 && renderers[r] != null) renderers[r].SetBlendShapeWeight(idx, w);
+                int[] map = rendererIndex[r];                 // null when a renderer had no mesh/blendshapes (or was torn down)
+                if (map == null || renderers[r] == null) continue;
+                int idx = map[id];
+                if (idx >= 0) renderers[r].SetBlendShapeWeight(idx, w);
             }
         }
     }
