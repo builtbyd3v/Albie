@@ -1,5 +1,8 @@
 {
-  "_metadata": { "major_version": 1, "minor_version": 1 },
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 1
+  },
   "display_information": {
     "name": "Bit",
     "description": "Forge's desk pet. Reads your team's Slack and replies for you, after you confirm.",
@@ -11,7 +14,10 @@
       "messages_tab_enabled": true,
       "messages_tab_read_only_enabled": false
     },
-    "bot_user": { "display_name": "Bit", "always_online": true }
+    "bot_user": {
+      "display_name": "Bit",
+      "always_online": true
+    }
   },
   "oauth_config": {
     "scopes": {
@@ -28,14 +34,40 @@
         "im:read",
         "im:write",
         "users:read"
+      ],
+      "user": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "mpim:history",
+        "mpim:read",
+        "users:read",
+        "chat:write"
       ]
     }
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": ["app_mention", "message.channels", "message.groups", "message.im"]
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im"
+      ],
+      "user_events": [
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim"
+      ]
     },
-    "interactivity": { "is_enabled": false },
+    "interactivity": {
+      "is_enabled": false
+    },
     "org_deploy_enabled": false,
     "socket_mode_enabled": true,
     "token_rotation_enabled": false
