@@ -51,6 +51,11 @@ def has(name: str) -> bool:
     return name in _tools
 
 
+def is_lead_only(name: str) -> bool:
+    """Bit's crew tools (agent/crew.py): offered to Grok only while the CODE view is open (voice.py)."""
+    return name in _lead_only
+
+
 def _names(lead: bool) -> list[str]:
     return [n for n in _tools if lead or n not in _lead_only]
 

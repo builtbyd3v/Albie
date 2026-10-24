@@ -12,7 +12,8 @@ events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.s
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
 Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
 gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
-run that member's own background turn instead of the socket's turn.
+run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
+shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
 Unknown message types are ignored (other modules may share the socket) and logged.
 """
 
@@ -31,11 +32,13 @@ from . import speech
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
 from .crew import Member, crew, spoken
-from .events import AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
+from .events import (
+    AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest, WorkspaceMode,
+)
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
-from .voice import VoiceSession, make_voice
+from .voice import VoiceSession, make_voice, view_note
 from .wake import WakeRouter
 
 log = logging.getLogger(__name__)
@@ -58,6 +61,7 @@ class Session:
     crew_listener: object | None = None  # announces finished crew work through this socket's voice
     wake: WakeRouter | None = None
     wake_turn: bool = False  # the open stt turn is a wake turn (decided by s.wake on its transcript)
+    mode: str | None = None  # workspace.mode: the view Unity shows ("code", "cad", ...; "" = none); None until it says
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def spawn(self, coro) -> None:  # fire-and-forget helper that keeps a reference
@@ -138,6 +142,8 @@ async def _on_text(s: Session, raw: str) -> None:
         elif event.type == "crew.roster":
             roster = CrewRoster.model_validate(event.payload)
             crew.set_roster([m.model_dump() for m in roster.members])
+        elif event.type == "workspace.mode":
+            await _on_mode(s, WorkspaceMode.model_validate(event.payload))
         elif event.type == "stt.start":
             start = SttStart.model_validate(event.payload)
             if start.sample_rate != 16000:
@@ -171,6 +177,22 @@ async def _on_text(s: Session, raw: str) -> None:
     except ValidationError as exc:
         log.warning("invalid %s payload: %s", event.type, exc)
         await s.reply_error(f"Bad {event.type} message.")
+
+
+async def _on_mode(s: Session, wm: WorkspaceMode) -> None:
+    """Unity switched workspace view: remember it, tell the voice model in one line (no reply), gate crew tools."""
+    mode = wm.mode.strip().lower()
+    if mode == s.mode:
+        return
+    s.mode = mode
+    log.info("workspace mode: %s", mode or "(closed)")
+    voice = s.voice
+    if voice is None:
+        return
+    voice.workspace_mode = mode
+    note = getattr(voice, "note", None)
+    if note is not None:
+        s.spawn(_voice_call(s, lambda: note(view_note(mode))))
 
 
 def _project_path(s: Session):
@@ -266,6 +288,7 @@ async def _open_voice(s: Session, h: Hello) -> None:
     if voice is None:
         return
     voice.wake_router = s.wake
+    voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))

@@ -89,6 +89,11 @@ class CrewRoster(_Payload):  # client -> hub: every crew gator that exists in Un
     members: list[CrewEntry] = Field(default_factory=list)
 
 
+class WorkspaceMode(_Payload):  # client -> hub: which workspace view is open ("code", "cad", "ml", "messages"; "" = none)
+    pet_id: str | None = None
+    mode: str = ""
+
+
 CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "hello": Hello,
     "agent.ask": AgentAsk,
@@ -98,6 +103,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "stt.cancel": SttCancel,
     "tts.stop": TtsStopRequest,
     "crew.roster": CrewRoster,
+    "workspace.mode": WorkspaceMode,
 }
 
 
