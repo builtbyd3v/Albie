@@ -66,6 +66,13 @@ namespace Forge.Pet
             if (_interaction != null) _interaction.Poked -= OnPoked;
         }
 
+        /// <summary>Mute / unmute this gator's speech bubble (GatorCrew: crew chatter is muted while the code mode is closed).</summary>
+        public void SetMuted(bool on)
+        {
+            if (_caption == null) _caption = GetComponentInChildren<GatorCaption>(true);
+            if (_caption != null) _caption.Muted = on;
+        }
+
         /// <summary>Shrink back into nothing, then destroy the gator.</summary>
         public void GoHome()
         {

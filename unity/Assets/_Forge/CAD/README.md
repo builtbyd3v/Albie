@@ -10,7 +10,8 @@ Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
 |---|---|---|
 | `cad-viewer` (DeskCenter, Volume) | `Prefabs/CadViewer.prefab` | ForgeVolume variant + `CadViewer`. Size 0.26 x 0.5 x 0.26 m, slow turntable. Its label shows the open design's title. |
 | `cad-params` (Right, Panel) | `Prefabs/CadParamsPanel.prefab` | ForgePanel variant + `CadParamsPanel`, which builds its UI at runtime under `Content`. 0.48 x 0.6 m (Workspace doesn't resize custom prefabs); resizable (min 0.42 x 0.52). |
-| `cad-drawing` (Left, Panel) | `Prefabs/CadDrawingPanel.prefab` | ForgePanel variant: the version's engineering drawing. 0.64 x 0.54 m. Replaces the `cad-timeline` placeholder (Core: `Workspace.DefaultModes` + `MainSceneBuilder`). |
+| `cad-drawing` (Main, Panel) | `Prefabs/CadDrawingPanel.prefab` | ForgePanel variant: the version's engineering drawing, on the middle screen behind the model (in place of VS Code in CAD mode). 0.8 x 0.66 m. |
+| `cad-timeline` (Left, Panel) | `Prefabs/CadVersionsPanel.prefab` | ForgePanel variant + `CadVersionsPanel`: the design's versions (the History tab's body). 0.48 x 0.6 m. |
 
 All of them find or create one shared `CadSession`, so they work wherever they're spawned.
 
@@ -202,6 +203,15 @@ On the desk, dragging still turns the whole model (Core's `VolumeManipulator`). 
 - The hub makes a drawing on its first request (it reuses the build that was just made): about 2 s after the model
   shows with the CPU pinned by two editors and the XR simulator, roughly a third of that on a quiet machine. Cached after.
 
+## The Versions panel (`CadVersionsPanel`)
+
+- The left screen: the same body as the design panel's History tab (`CadHistoryTab`, built at runtime under
+  `Content`): the main metric across the last 8 versions over its bands, then every version newest first (label, what
+  changed, how it was made, when, the metric). Tap one to go back to it (`CadSession.GoToVersion`; hub: rebuilds those
+  values as a new version; mock: the stored one). Disabled while a build or a demo runs.
+- Core's header keeps the title "Versions"; the subtitle is "Rocket · v4 · 4 versions" ("Building v5…" while one builds).
+- Asks for the list once per version (`CadSession.GetVersions`), like the design panel.
+
 ## Sandbox
 
 Open `CADSandbox.unity` and press Play (hub off = mocks; start the hub for live). Mouse works on the panels and, in
@@ -210,7 +220,9 @@ E explode, U undo, R reset, F the demo (Fly / Hover / Run; again to stop), X a f
 I expand, M measure, N markers.
 (I, M and N are CadViewer's own keys, so they work in desktop mode too.)
 
-Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox).
+Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox), or
+only the drawing and versions panels with **Forge > CAD > Build Drawing and Versions Panels** (GUIDs are kept, so Main's
+slots still point at them).
 Refresh the mocks after changing a design: in `hub/` run `python -m cad.make_mocks`, then copy
 `hub/.data/mocks/cad/` here (`parts.json`, `regen_failed.json` and each `<part>/vN/`), renaming `model.glb` to
 `model.glb.bytes` and `drawing.png` to `drawing.png.bytes` (so Unity keeps raw bytes instead of importing them), and
@@ -228,13 +240,8 @@ an in-memory default here (no asset), so this doesn't touch Project Settings.
   slider drag and release (that release triggers the regen). If you ever add a standard uGUI input module instead:
   `PointableCanvasModule` turns on **exclusive mode** when added in the Editor (its `Reset()`) and disables other
   input modules at Start; set `ExclusiveMode = false`, as the sandbox does.
-- `Workspace.DefaultModes` still titles the volume "Rocket"; `CadViewer` replaces it with the open design's title at
-  Start. But `VolumeManipulator` saves the title in `Init` (before that) and puts the saved one back after each hover,
-  so in Main the label reads "Rocket" again once pointed at. Fix on Core's side: read `volume.Title` when the hover
-  starts instead of in `Init`.
-- To put the drawing on the left screen: in `Workspace.DefaultModes` (CAD), `cad-timeline` "Versions" becomes
-  `new WorkspaceItem("cad-drawing", "Drawing", WorkspaceSlot.Left)`, and `MainSceneBuilder`'s slots gain
-  `("cad-drawing", "Assets/_Forge/CAD/Prefabs/CadDrawingPanel.prefab")`; then rebuild Main.
+- CAD mode in `Workspace.DefaultModes`: `cad-drawing` (Main), `cad-viewer` (desk), `cad-params` (right), `cad-timeline`
+  "Versions" (left), all four slotted by `MainSceneBuilder`. VS Code isn't in CAD mode (SCR and ML modes still have it).
 - Player builds: glTFast's shader graph (`Shader Graphs/glTF-pbrMetallicRoughness`) must be in the build, or the
   model renders magenta. Add it to Always Included Shaders, or record the variants (play the sandbox, then
   Project Settings > Graphics > Shader Preloading > save to asset) and add that to Preloaded Shaders. See glTFast's

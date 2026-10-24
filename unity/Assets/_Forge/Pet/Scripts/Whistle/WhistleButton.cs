@@ -13,7 +13,7 @@ namespace Forge.Pet
     ///    WhenSelect → Press(), WhenHover → HoverOn(), WhenUnhover → HoverOff() (wired by Forge/Pet/6. Add Whistle
     ///    To Open Scene). No Meta types here, per docs/PET_AGENT_CONTRACT.md.
     ///  * Mouse: left click raycast from PetUser.HeadCamera (screen centre while the cursor is locked).
-    ///  * whistleAction: F, or controller B (right secondaryButton). F is ignored while the typed-STT field is open.
+    ///  * whistleAction: F, or controller B (right secondaryButton). F is ignored while a sandbox typed-STT field is open.
     /// Placement: on its table (SetTable, one button per MRUK table via GatorMrukAdapter) or, with no table assigned,
     /// on GatorNavSurface.Desk; always the near corner on the user's right, re-placed when the user walks up to that
     /// table from another side. No table and no desk: 0.3 m right of the gator's spawn.
@@ -74,7 +74,6 @@ namespace Forge.Pet
         static readonly List<WhistleButton> s_all = new List<WhistleButton>(8);
 
         BoxCollider _collider;
-        TypedSpeechToText _typed;
         MaterialPropertyBlock _mpb;
         Vector3 _visualRest, _baseScale;
         Vector3 _spawnPos, _spawnRight = Vector3.right;
@@ -204,7 +203,7 @@ namespace Forge.Pet
         {
             if (autoPlace && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
 
-            if (whistleAction != null && whistleAction.WasPressedThisFrame() && !TypingInField()) Press();
+            if (whistleAction != null && whistleAction.WasPressedThisFrame() && !TypedSpeechToText.AnyListening) Press();   // sandbox text box open: F is a letter
 
             Mouse mouse = Mouse.current;
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) TryMousePress(mouse);
@@ -256,13 +255,6 @@ namespace Forge.Pet
             if (Physics.Raycast(ray, out RaycastHit hit, maxDistance, raycastMask, QueryTriggerInteraction.Collide)
                 && (hit.collider == _collider || hit.collider.transform.IsChildOf(transform)))
                 Press();
-        }
-
-        // Only evaluated when F/B is pressed; PushToTalk may add the typed field at runtime, so look it up lazily.
-        bool TypingInField()
-        {
-            if (_typed == null) _typed = FindAnyObjectByType<TypedSpeechToText>();
-            return _typed != null && _typed.IsListening;
         }
 
         void ApplyColor()

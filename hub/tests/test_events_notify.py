@@ -19,7 +19,7 @@ def _msg(ts: str, mentions_me: bool = False, text: str = "hi") -> SlackMessage:
 @pytest.mark.parametrize(
     ("count", "mentions", "line"),
     [
-        (0, 0, ""),
+        (0, 0, "You have no new messages today."),
         (1, 0, "You have 1 new message."),
         (3, 0, "You have 3 new messages."),
         (1, 1, "You have 1 new message, and it mentions you."),
@@ -35,8 +35,10 @@ def test_digest_line(count: int, mentions: int, line: str) -> None:
 
 def test_slack_message_keys_match_section_7() -> None:
     dumped = _msg("1700000000.000100").model_dump()
-    assert list(dumped) == ["channel", "channel_name", "is_dm", "user", "user_name", "text", "ts", "thread_ts", "mentions_me"]
+    assert list(dumped) == ["channel", "channel_name", "is_dm", "user", "user_name", "text", "ts", "thread_ts", "mentions_me",
+                            "reply_count", "edited", "is_me", "user_initials"]
     assert dumped["thread_ts"] is None and dumped["mentions_me"] is False
+    assert all(dumped[k] is None for k in ("reply_count", "edited", "is_me", "user_initials"))  # optional: null unless known
     assert NotifyMessage is SlackMessage
 
 
@@ -50,7 +52,15 @@ def test_draft_and_cancelled_keys() -> None:
     from events import Draft, NotifyDraftCancelled
 
     d = Draft(draft_id="d1", channel="C01", channel_name="forge-team", text="yes, by 3").model_dump()
-    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to"]
+    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited"]
+    assert d["edited"] is False
+
+    from events import ChannelSummary, NotifyChannels
+
+    row = ChannelSummary(id="D01", name="hudson", kind="dm").model_dump()
+    assert list(row) == ["id", "name", "kind", "unread", "mentions", "last_ts", "last_text", "topic", "is_default"]
+    assert (row["unread"], row["mentions"], row["last_ts"], row["is_default"]) == (0, 0, None, False)
+    assert NotifyChannels().model_dump() == {"channels": []}
     assert NotifyDraftCancelled(draft_id="d1").model_dump() == {"draft_id": "d1", "reason": "cancelled"}
 
 
@@ -68,9 +78,9 @@ def test_digest_build_sorts_by_numeric_ts_not_string() -> None:
     assert [m.ts for m in digest.messages] == ["1000.000000"]
 
 
-def test_digest_build_empty_is_quiet() -> None:
+def test_digest_build_empty_still_has_a_line() -> None:
     digest = NotifyDigest.build([])
-    assert digest.model_dump() == {"count": 0, "mentions": 0, "line": "", "messages": []}
+    assert digest.model_dump() == {"count": 0, "mentions": 0, "line": events.NO_NEW_MESSAGES, "messages": []}
 
 
 def test_imports_worktree_copy() -> None:

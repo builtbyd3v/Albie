@@ -4,6 +4,8 @@
     .venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hello"   # write a draft only (notify.draft), post nothing
     .venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hello"   # DEV SHORTCUT: draft + send at once, no confirmation
     .venv/bin/python scripts/slack_smoke.py --digest               # what Bit would say on sit-down right now
+    .venv/bin/python scripts/slack_smoke.py --channels             # the panel's channel list: names, kinds, unread
+    .venv/bin/python scripts/slack_smoke.py --history "#forge-team" 10   # the last 10 top-level messages of one conversation
 
 With SLACK_USER_TOKEN set, messages post under your name and the inbox is yours; without it Bit posts as itself and
 only sees channels it was invited to. The real product path is draft -> Send button / "send it"; --send skips that.
@@ -44,6 +46,8 @@ async def main() -> int:
     mode.add_argument("--draft", nargs=2, metavar=("CHANNEL", "TEXT"), help="create a draft for CHANNEL (#name or id); posts nothing")
     mode.add_argument("--send", nargs=2, metavar=("CHANNEL", "TEXT"), help="dev shortcut: draft TEXT and send it immediately")
     mode.add_argument("--digest", action="store_true", help="print the sit-down digest and exit")
+    mode.add_argument("--channels", action="store_true", help="print the channel list (GET /messages/channels) and exit")
+    mode.add_argument("--history", nargs=2, metavar=("CHANNEL", "N"), help="print the last N messages of CHANNEL (#name, id or a person)")
     ap.add_argument("--data", default=str(HUB / ".data" / "messages"), help="where last_seen_ts lives")
     args = ap.parse_args()
 
@@ -53,7 +57,7 @@ async def main() -> int:
     if not settings.configured:
         print("SLACK_BOT_TOKEN / SLACK_APP_TOKEN missing in hub/.env (see PROJECT_CONTEXT 8.7)")
         return 2
-    store = MessageStore(Path(args.data) if args.digest else Path(tempfile.mkdtemp()) / "messages")
+    store = MessageStore(Path(args.data) if args.digest or args.channels else Path(tempfile.mkdtemp()) / "messages")
     svc = SlackService(settings, store, PrintBus(), speak)  # type: ignore[arg-type]
     await svc.start()
     try:
@@ -78,6 +82,21 @@ async def main() -> int:
         if args.digest:
             d = await svc.digest()
             print(d.model_dump())
+            return 0
+        if args.channels:
+            await svc.refresh_channels()
+            for c in svc.channel_summaries():
+                flag = f" unread {c.unread} ({c.mentions} mention you)" if c.unread else ""
+                print(f"{c.id:12} {c.kind:9} {c.name:30} {c.last_ts or '-':20}{flag}  {(c.last_text or '')[:60]!r}")
+            return 0
+        if args.history:
+            channel, n = args.history
+            rec, messages, has_more = await svc.history(channel, int(n))
+            print(f"{rec.label} ({rec.id}, {rec.kind}); has_more={has_more}")
+            for m in messages:
+                who = "you" if m.is_me else m.user_name
+                extra = f"  [{m.reply_count} replies]" if m.reply_count else ""
+                print(f"{m.ts}  {who:>12}: {m.text[:100]!r}{extra}")
             return 0
         print("listening; message yourself from another account, or DM Bit. Ctrl-C to stop.")
         await asyncio.Event().wait()

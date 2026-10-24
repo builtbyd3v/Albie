@@ -8,8 +8,9 @@ namespace Forge.Pet
     /// <summary>
     /// Push-to-talk: hold Space / XR primary button → Listening + STT; release → StopListening.
     /// FinalTranscript → Thinking + GatorAgentBridge.Ask(text). PartialTranscript → caption (partial).
-    /// With TypedSpeechToText the key only OPENS the input field (Enter sends, Esc cancels),
-    /// because Space must be typeable while the field is focused.
+    /// Provider: HubSpeechToText (mic over ForgeNet) in hub mode; TypedSpeechToText only exists in the sandbox scenes
+    /// (with the MockEventSource), where the key only OPENS the input field (Enter sends, Esc cancels), because Space must
+    /// be typeable while the field is focused. Nothing is ever auto-added outside hub mode.
     ///
     /// Hands-free (GatorSummon / whistle): BeginHandsFree() listens without a held key. The session ends on
     /// endSilence after speech (mic level from IMicLevel), noSpeechTimeout without any speech (cancelled), or the
@@ -42,14 +43,18 @@ namespace Forge.Pet
         float speechLevel = 0.03f;
         [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]
         float minSpeechSeconds = 0.25f;
+        [SerializeField, Tooltip("After the mic stops, the hub's stt.final must arrive within this many seconds; otherwise the turn counts as empty (so he never hangs in Listening).")]
+        float finalTimeout = 6f;
 
         ISpeechToText _stt;
+        bool _warnedNoStt;
         bool _held;          // key physically held (hold-to-talk providers)
         bool _typedMode;     // current provider is TypedSpeechToText
         bool _handsFree;     // a hands-free session is open (until SessionEnded)
         bool _discardFinal;  // CancelSession: swallow the final transcript that is still on its way
         bool _heardSpeech;
         float _sessionStart, _lastSpeech, _speechTime, _sessionNoSpeech, _firstSpeech;
+        float _finalDeadline = -1f;   // > 0 while a stopped turn waits for its stt.final
 
         public ISpeechToText Provider => _stt;
         /// <summary>A hands-free or held session is open.</summary>
@@ -95,6 +100,26 @@ namespace Forge.Pet
                 if (talkAction.WasReleasedThisFrame()) OnReleased();
             }
             if (_handsFree) UpdateHandsFree();
+            if (_finalDeadline > 0f && Time.time >= _finalDeadline) FinalTimedOut();
+        }
+
+        // Mic stopped, no stt.final: the hub lost the turn (socket hiccup, voice session gone). Treat it as empty and
+        // swallow a late final, instead of Bit standing in Listening with the mic blocked for everyone else.
+        void FinalTimedOut()
+        {
+            _finalDeadline = -1f;
+            Debug.LogWarning("[PushToTalk] No stt.final within " + finalTimeout.ToString("F0") + " s; dropping the turn.");
+            _discardFinal = true;
+            if (caption != null) caption.Clear();
+            if (controller != null && controller.State == GatorState.Listening) controller.SetState(GatorState.Wandering);
+            EndHandsFree(false);
+        }
+
+        void StopAndAwaitFinal()
+        {
+            if (_stt == null || !_stt.IsListening) return;
+            _stt.StopListening();
+            _finalDeadline = Time.time + Mathf.Max(1f, finalTimeout);
         }
 
         // ---------------------------------------------------------------- hands-free API
@@ -112,6 +137,7 @@ namespace Forge.Pet
             if (stt == null || stt.IsListening) return false;
             _handsFree = true;
             _discardFinal = false;
+            _finalDeadline = -1f;
             _heardSpeech = false;
             _sessionStart = _lastSpeech = Time.time;
             StartHandsFreeAsync(stt);
@@ -123,6 +149,7 @@ namespace Forge.Pet
         {
             if (!SessionActive) return;
             _held = false;
+            _finalDeadline = -1f;
             if (_stt != null && _stt.IsListening)
             {
                 _discardFinal = true;
@@ -174,9 +201,9 @@ namespace Forge.Pet
                 if (!_heardSpeech && _speechTime >= minSpeechSeconds) { _heardSpeech = true; _firstSpeech = now; }
             }
 
-            if (_heardSpeech && now - _firstSpeech >= maxUtterance) _stt.StopListening();  // cap: send what we have
+            if (_heardSpeech && now - _firstSpeech >= maxUtterance) StopAndAwaitFinal();  // cap: send what we have
             else if (!_heardSpeech && now - _sessionStart >= _sessionNoSpeech) CancelSession();
-            else if (_heardSpeech && now - _lastSpeech >= endSilence) _stt.StopListening();
+            else if (_heardSpeech && now - _lastSpeech >= endSilence) StopAndAwaitFinal();
         }
 
         void EndHandsFree(bool answered)
@@ -188,21 +215,31 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- push-to-talk
 
-        /// <summary>Resolves the provider lazily (config is loaded async, so EventSourceIsHub is known late).</summary>
+        /// <summary>
+        /// Resolves the provider lazily (config is loaded async, so EventSourceIsHub is known late). Hub mode: the
+        /// HubSpeechToText on this object (added if the prefab lost it). Sandbox (mock source): the TypedSpeechToText the
+        /// sandbox builder put on the gator. Nothing else is ever created; no provider = a warning, not a text box.
+        /// </summary>
         ISpeechToText ResolveProvider()
         {
             ISpeechToText wanted = sttProvider as ISpeechToText;
             if (wanted == null)
             {
+                bool hub = GatorAgentBridge.EventSourceIsHub;
                 MonoBehaviour pick = null;
-                if (GatorAgentBridge.EventSourceIsHub) pick = GetComponent<HubSpeechToText>();
-                if (pick == null) pick = GetComponent<TypedSpeechToText>();
+                if (hub) pick = GetComponent<HubSpeechToText>();
+                else pick = GetComponent<TypedSpeechToText>();
                 if (pick == null)
                 {
                     foreach (var mb in GetComponents<MonoBehaviour>())
-                        if (mb is ISpeechToText) { pick = mb; break; }
+                        if (mb is ISpeechToText && (hub || !(mb is HubSpeechToText))) { pick = mb; break; }
                 }
-                if (pick == null) pick = gameObject.AddComponent<TypedSpeechToText>(); // sandbox fallback
+                if (pick == null && hub) pick = gameObject.AddComponent<HubSpeechToText>();
+                if (pick == null && !_warnedNoStt)
+                {
+                    _warnedNoStt = true;
+                    Debug.LogWarning("[PushToTalk] No speech-to-text provider on " + name + " yet (hub mode undecided, or a sandbox gator without TypedSpeechToText).", this);
+                }
                 wanted = pick as ISpeechToText;
             }
             if (!ReferenceEquals(wanted, _stt))
@@ -237,6 +274,7 @@ namespace Forge.Pet
                 if (_typedMode && stt.IsListening) return;   // typing: Space is a character, not PTT
                 _held = true;
                 _discardFinal = false;
+                _finalDeadline = -1f;
 
                 if (!_typedMode)
                 {
@@ -258,7 +296,7 @@ namespace Forge.Pet
             if (!_held) return;
             _held = false;
             if (_typedMode || _stt == null) return;          // typed: Enter/Esc finish it
-            if (_stt.IsListening) _stt.StopListening();
+            StopAndAwaitFinal();
         }
 
         void OnPartial(string text)
@@ -270,6 +308,7 @@ namespace Forge.Pet
 
         void OnFinal(string text)
         {
+            _finalDeadline = -1f;
             if (_discardFinal)
             {
                 _discardFinal = false;                       // cancelled session: the hub's (empty) final, ignore it
@@ -294,6 +333,7 @@ namespace Forge.Pet
         void OnSttError(string message)
         {
             _held = false;
+            _finalDeadline = -1f;
             _discardFinal = false;
             if (message != "cancelled")
             {
