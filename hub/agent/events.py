@@ -64,6 +64,7 @@ class SttStart(_Payload):
     pet_id: str | None = None  # wake turns: the gator a wake.listen opened (no name needed then)
     sample_rate: int = 16000
     encoding: Literal["pcm16"] = "pcm16"
+    require_name: bool = False  # proposed: look-to-talk turn opened while the user wasn't facing Bit
     wake: bool = False  # proposed: always-on VAD segment; only answered if it names a gator (agent/wake.py)
 
 

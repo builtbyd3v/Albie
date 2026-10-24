@@ -15,9 +15,25 @@ from pydantic import BaseModel
 log = logging.getLogger("forge.events")
 
 
+class CadMetric(BaseModel):
+    id: str
+    label: str
+    value: float
+    unit: str = ""
+    display: str = ""                 # value + unit, formatted by the hub
+    status: str = "ok"                # ok | warn | bad
+    min: float | None = None          # min and max: draw it as a gauge
+    max: float | None = None
+    bands: list[dict[str, Any]] = []  # gauge colours, ascending: [{to, status}]
+    note: str = ""                    # one word for the gauge's chip (e.g. "stable")
+
+
 class CadAnalysis(BaseModel):
     mass_g: float
     cg_gltf: list[float]
+    size_mm: list[float] | None = None
+    part_count: int | None = None
+    metrics: list[CadMetric] = []     # what the panel shows for any design; the rocket's margin is one of them
     length_mm: float | None = None
     diameter_mm: float | None = None
     cg_mm: float | None = None        # from the nose tip
@@ -34,11 +50,13 @@ class CadAnalysis(BaseModel):
 
 class CadModelUpdated(BaseModel):
     version: int
+    part: str = ""                    # design id: hub/cad/parts/<part>.py
+    title: str = ""
     params: dict[str, Any]
     previous_version: int | None = None
     changed_ids: list[str] = []
     removed_ids: list[str] = []
-    source: str = "api"               # api | script | undo | reset | startup
+    source: str = "api"               # api | pet | preset | script | undo | reset | open | startup
     analysis: CadAnalysis | None = None
 
 

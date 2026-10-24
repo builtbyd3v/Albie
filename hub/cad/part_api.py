@@ -1,7 +1,11 @@
-"""Types a part script uses to declare its parameters and physics.
+"""Types a part script uses to declare its parameters, physics and metrics.
 
 Part scripts (and Bit, when it edits one) import only this module and build123d, so keep it small and stable.
-Units are millimetres. Rocket parts put the tail at z=0 and the nose tip at +z.
+Units are millimetres, Z up. Rocket parts put the tail at z=0 and the nose tip at +z.
+
+A part script is one file in hub/cad/parts/ (the file name is the design's id). It defines PARAMS and
+build(params) -> BuildResult, and optionally TITLE, DESCRIPTION, PRESETS ({name: {param: value}}),
+analyze(result, masses) -> list[Metric] | Analysis, and simulate_flight(result, masses). See parts/_template.py.
 """
 from __future__ import annotations
 
@@ -112,3 +116,44 @@ class BuildResult:
     masses: dict[str, SolidMass | ShellMass] = field(default_factory=dict)  # by part label
     point_masses: list[PointMass] = field(default_factory=list)
     rocket: RocketSpec | None = None
+    params: dict[str, Any] = field(default_factory=dict)  # the values build() got; the hub fills this in for analyze()
+
+
+@dataclass(frozen=True)
+class Metric:
+    """One number on the design panel (and for Bit). Give min and max to draw it as a gauge.
+
+    bands colour the gauge: (upper bound, status) pairs in ascending order, the last one reaching max.
+    """
+    id: str
+    label: str
+    value: float
+    unit: str = ""
+    status: str = "ok"            # ok | warn | bad
+    min: float | None = None
+    max: float | None = None
+    bands: tuple[tuple[float, str], ...] = ()
+    note: str = ""                # one word for the gauge's chip, e.g. "stable"
+    digits: int = 0               # decimals in the display text
+    display: str = ""             # replaces "<value> <unit>"
+
+    def schema(self) -> dict[str, Any]:
+        return {"id": self.id, "label": self.label, "value": round(float(self.value), 4), "unit": self.unit,
+                "display": self.display or f"{self.value:.{self.digits}f} {self.unit}".strip(),
+                "status": self.status, "min": self.min, "max": self.max,
+                "bands": [{"to": to, "status": status} for to, status in self.bands], "note": self.note}
+
+
+def band(value: float, bands: tuple[tuple[float, str], ...]) -> str:
+    """Status of value in ascending (upper bound, status) bands; past the last bound counts as the last band."""
+    for upper, status in bands:
+        if value < upper:
+            return status
+    return bands[-1][1]
+
+
+@dataclass
+class Analysis:
+    """What analyze() returns when it adds fields of its own to the analysis block (the rocket's CG/CP markers)."""
+    metrics: list[Metric] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)

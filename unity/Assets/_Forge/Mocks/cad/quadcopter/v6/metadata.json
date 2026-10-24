@@ -1,0 +1,545 @@
+{
+  "schemaVersion": "1.0",
+  "project": {
+    "id": "FORGE_QUADCOPTER",
+    "name": "quadcopter",
+    "rootObjectId": "QUADCOPTER",
+    "units": {
+      "length": "m",
+      "mass": "kg",
+      "angle": "deg"
+    }
+  },
+  "coordinateSystem": "part axes (Z-up, tail at z=0); the GLB root node rotates them to glTF Y-up",
+  "provenance": {
+    "synthetic": false,
+    "source": "forge hub/cad (build123d)",
+    "sourceGlbSha256": "feef7814f6fd8eb94823f6be2471318113e47f5662445d6756801fbd7fc4d4f6"
+  },
+  "objects": [
+    {
+      "id": "QUADCOPTER",
+      "name": "quadcopter",
+      "type": "assembly",
+      "glbNodeIndex": 0,
+      "parentId": null,
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {
+        "arm_count": "4",
+        "arm_length": "110.0",
+        "prop_diameter": "7.0",
+        "motor_size": "28.0",
+        "plate_size": "70.0",
+        "battery_mah": "1300"
+      },
+      "childIds": [
+        "FRAME",
+        "MOTORS",
+        "PROPS",
+        "FLIGHT_CONTROLLER",
+        "BATTERY"
+      ]
+    },
+    {
+      "id": "FRAME",
+      "name": "frame",
+      "type": "assembly",
+      "glbNodeIndex": 1,
+      "parentId": "QUADCOPTER",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "BOTTOM_PLATE",
+        "TOP_PLATE",
+        "STANDOFF_1",
+        "STANDOFF_2",
+        "STANDOFF_3",
+        "STANDOFF_4",
+        "ARM_1",
+        "ARM_2",
+        "ARM_3",
+        "ARM_4"
+      ]
+    },
+    {
+      "id": "BOTTOM_PLATE",
+      "name": "bottom_plate",
+      "type": "part",
+      "glbNodeIndex": 2,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.022151,
+      "volume": 1.4291158e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0,
+        0.0,
+        0.0015
+      ]
+    },
+    {
+      "id": "TOP_PLATE",
+      "name": "top_plate",
+      "type": "part",
+      "glbNodeIndex": 3,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.014768,
+      "volume": 9.527438e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0,
+        0.0,
+        0.033
+      ]
+    },
+    {
+      "id": "STANDOFF_1",
+      "name": "standoff_1",
+      "type": "part",
+      "glbNodeIndex": 4,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.001325,
+      "volume": 4.90874e-07,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.029,
+        -0.0,
+        0.0195
+      ]
+    },
+    {
+      "id": "STANDOFF_2",
+      "name": "standoff_2",
+      "type": "part",
+      "glbNodeIndex": 5,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.001325,
+      "volume": 4.90874e-07,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0,
+        0.029,
+        0.0195
+      ]
+    },
+    {
+      "id": "STANDOFF_3",
+      "name": "standoff_3",
+      "type": "part",
+      "glbNodeIndex": 6,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.001325,
+      "volume": 4.90874e-07,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.029,
+        0.0,
+        0.0195
+      ]
+    },
+    {
+      "id": "STANDOFF_4",
+      "name": "standoff_4",
+      "type": "part",
+      "glbNodeIndex": 7,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.001325,
+      "volume": 4.90874e-07,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        -0.029,
+        0.0195
+      ]
+    },
+    {
+      "id": "ARM_1",
+      "name": "arm_1",
+      "type": "part",
+      "glbNodeIndex": 8,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.01034,
+      "volume": 6.67098e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.050346,
+        0.050346,
+        0.005
+      ]
+    },
+    {
+      "id": "ARM_2",
+      "name": "arm_2",
+      "type": "part",
+      "glbNodeIndex": 9,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.01034,
+      "volume": 6.67098e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.050346,
+        0.050346,
+        0.005
+      ]
+    },
+    {
+      "id": "ARM_3",
+      "name": "arm_3",
+      "type": "part",
+      "glbNodeIndex": 10,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.01034,
+      "volume": 6.67098e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.050346,
+        -0.050346,
+        0.005
+      ]
+    },
+    {
+      "id": "ARM_4",
+      "name": "arm_4",
+      "type": "part",
+      "glbNodeIndex": 11,
+      "parentId": "FRAME",
+      "material": {
+        "assigned": true,
+        "name": "carbon fibre",
+        "density": 1550.0
+      },
+      "mass": 0.01034,
+      "volume": 6.67098e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.050346,
+        -0.050346,
+        0.005
+      ]
+    },
+    {
+      "id": "MOTORS",
+      "name": "motors",
+      "type": "assembly",
+      "glbNodeIndex": 12,
+      "parentId": "QUADCOPTER",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "MOTOR_1",
+        "MOTOR_2",
+        "MOTOR_3",
+        "MOTOR_4"
+      ]
+    },
+    {
+      "id": "MOTOR_1",
+      "name": "motor_1",
+      "type": "part",
+      "glbNodeIndex": 13,
+      "parentId": "MOTORS",
+      "material": {
+        "assigned": true,
+        "name": "brushless motor",
+        "density": 3200.0
+      },
+      "mass": 0.03348,
+      "volume": 1.0462446e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.077782,
+        0.077782,
+        0.015528
+      ]
+    },
+    {
+      "id": "MOTOR_2",
+      "name": "motor_2",
+      "type": "part",
+      "glbNodeIndex": 14,
+      "parentId": "MOTORS",
+      "material": {
+        "assigned": true,
+        "name": "brushless motor",
+        "density": 3200.0
+      },
+      "mass": 0.03348,
+      "volume": 1.0462446e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.077782,
+        0.077782,
+        0.015528
+      ]
+    },
+    {
+      "id": "MOTOR_3",
+      "name": "motor_3",
+      "type": "part",
+      "glbNodeIndex": 15,
+      "parentId": "MOTORS",
+      "material": {
+        "assigned": true,
+        "name": "brushless motor",
+        "density": 3200.0
+      },
+      "mass": 0.03348,
+      "volume": 1.0462446e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.077782,
+        -0.077782,
+        0.015528
+      ]
+    },
+    {
+      "id": "MOTOR_4",
+      "name": "motor_4",
+      "type": "part",
+      "glbNodeIndex": 16,
+      "parentId": "MOTORS",
+      "material": {
+        "assigned": true,
+        "name": "brushless motor",
+        "density": 3200.0
+      },
+      "mass": 0.03348,
+      "volume": 1.0462446e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.077782,
+        -0.077782,
+        0.015528
+      ]
+    },
+    {
+      "id": "PROPS",
+      "name": "props",
+      "type": "assembly",
+      "glbNodeIndex": 17,
+      "parentId": "QUADCOPTER",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "PROP_1",
+        "PROP_2",
+        "PROP_3",
+        "PROP_4"
+      ]
+    },
+    {
+      "id": "PROP_1",
+      "name": "prop_1",
+      "type": "part",
+      "glbNodeIndex": 18,
+      "parentId": "PROPS",
+      "material": {
+        "assigned": true,
+        "name": "polycarbonate",
+        "density": 1200.0
+      },
+      "mass": 0.007801,
+      "volume": 6.501044e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.077782,
+        0.077782,
+        0.0278
+      ]
+    },
+    {
+      "id": "PROP_2",
+      "name": "prop_2",
+      "type": "part",
+      "glbNodeIndex": 19,
+      "parentId": "PROPS",
+      "material": {
+        "assigned": true,
+        "name": "polycarbonate",
+        "density": 1200.0
+      },
+      "mass": 0.007801,
+      "volume": 6.501044e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.077782,
+        0.077782,
+        0.0278
+      ]
+    },
+    {
+      "id": "PROP_3",
+      "name": "prop_3",
+      "type": "part",
+      "glbNodeIndex": 20,
+      "parentId": "PROPS",
+      "material": {
+        "assigned": true,
+        "name": "polycarbonate",
+        "density": 1200.0
+      },
+      "mass": 0.007801,
+      "volume": 6.501044e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.077782,
+        -0.077782,
+        0.0278
+      ]
+    },
+    {
+      "id": "PROP_4",
+      "name": "prop_4",
+      "type": "part",
+      "glbNodeIndex": 21,
+      "parentId": "PROPS",
+      "material": {
+        "assigned": true,
+        "name": "polycarbonate",
+        "density": 1200.0
+      },
+      "mass": 0.007801,
+      "volume": 6.501044e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.077782,
+        -0.077782,
+        0.0278
+      ]
+    },
+    {
+      "id": "FLIGHT_CONTROLLER",
+      "name": "flight_controller",
+      "type": "part",
+      "glbNodeIndex": 22,
+      "parentId": "QUADCOPTER",
+      "material": {
+        "assigned": true,
+        "name": "PCB",
+        "density": 1000.0
+      },
+      "mass": 0.0054,
+      "volume": 5.4e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0,
+        -0.0,
+        0.018
+      ]
+    },
+    {
+      "id": "BATTERY",
+      "name": "battery",
+      "type": "part",
+      "glbNodeIndex": 23,
+      "parentId": "QUADCOPTER",
+      "material": {
+        "assigned": true,
+        "name": "LiPo",
+        "density": 1900.0
+      },
+      "mass": 0.149625,
+      "volume": 7.875e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0,
+        -0.0,
+        0.049
+      ]
+    }
+  ],
+  "mates": [],
+  "interferences": []
+}

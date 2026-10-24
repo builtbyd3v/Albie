@@ -1,0 +1,324 @@
+{
+  "schemaVersion": "1.0",
+  "project": {
+    "id": "FORGE_GEARBOX",
+    "name": "gearbox",
+    "rootObjectId": "GEARBOX",
+    "units": {
+      "length": "m",
+      "mass": "kg",
+      "angle": "deg"
+    }
+  },
+  "coordinateSystem": "part axes (Z-up, tail at z=0); the GLB root node rotates them to glTF Y-up",
+  "provenance": {
+    "synthetic": false,
+    "source": "forge hub/cad (build123d)",
+    "sourceGlbSha256": "6380d085b5aa65274310c8761ad969177e26f7fa61cdebf34a23b8133086fdc2"
+  },
+  "objects": [
+    {
+      "id": "GEARBOX",
+      "name": "gearbox",
+      "type": "assembly",
+      "glbNodeIndex": 0,
+      "parentId": null,
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {
+        "pinion_teeth": "15",
+        "gear_teeth": "45",
+        "module": "1.5",
+        "face_width": "10.0",
+        "shaft_diameter": "8.0"
+      },
+      "childIds": [
+        "HOUSING",
+        "INPUT_STAGE",
+        "OUTPUT_STAGE"
+      ]
+    },
+    {
+      "id": "HOUSING",
+      "name": "housing",
+      "type": "assembly",
+      "glbNodeIndex": 1,
+      "parentId": "GEARBOX",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "HOUSING_BOTTOM",
+        "HOUSING_TOP"
+      ]
+    },
+    {
+      "id": "HOUSING_BOTTOM",
+      "name": "housing_bottom",
+      "type": "part",
+      "glbNodeIndex": 2,
+      "parentId": "HOUSING",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.308043,
+      "volume": 0.000114089877,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.01185,
+        -0.0,
+        0.02015
+      ]
+    },
+    {
+      "id": "HOUSING_TOP",
+      "name": "housing_top",
+      "type": "part",
+      "glbNodeIndex": 3,
+      "parentId": "HOUSING",
+      "material": {
+        "assigned": true,
+        "name": "aluminium",
+        "density": 2700.0
+      },
+      "mass": 0.308043,
+      "volume": 0.000114089877,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.01185,
+        -0.0,
+        0.07535
+      ]
+    },
+    {
+      "id": "INPUT_STAGE",
+      "name": "input_stage",
+      "type": "assembly",
+      "glbNodeIndex": 4,
+      "parentId": "GEARBOX",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "INPUT_SHAFT",
+        "PINION",
+        "BEARING_IN_FRONT",
+        "BEARING_IN_BACK"
+      ]
+    },
+    {
+      "id": "INPUT_SHAFT",
+      "name": "input_shaft",
+      "type": "part",
+      "glbNodeIndex": 5,
+      "parentId": "INPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.023675,
+      "volume": 3.015929e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0225,
+        -0.0125,
+        0.04775
+      ]
+    },
+    {
+      "id": "PINION",
+      "name": "pinion",
+      "type": "part",
+      "glbNodeIndex": 6,
+      "parentId": "INPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "brass",
+        "density": 8500.0
+      },
+      "mass": 0.028287,
+      "volume": 3.327886e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0225,
+        0.0,
+        0.04775
+      ]
+    },
+    {
+      "id": "BEARING_IN_FRONT",
+      "name": "bearing_in_front",
+      "type": "part",
+      "glbNodeIndex": 7,
+      "parentId": "INPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.018126,
+      "volume": 2.309071e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0225,
+        -0.0135,
+        0.04775
+      ]
+    },
+    {
+      "id": "BEARING_IN_BACK",
+      "name": "bearing_in_back",
+      "type": "part",
+      "glbNodeIndex": 8,
+      "parentId": "INPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.018126,
+      "volume": 2.309071e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.0225,
+        0.0135,
+        0.04775
+      ]
+    },
+    {
+      "id": "OUTPUT_STAGE",
+      "name": "output_stage",
+      "type": "assembly",
+      "glbNodeIndex": 9,
+      "parentId": "GEARBOX",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "OUTPUT_SHAFT",
+        "GEAR",
+        "BEARING_OUT_FRONT",
+        "BEARING_OUT_BACK"
+      ]
+    },
+    {
+      "id": "OUTPUT_SHAFT",
+      "name": "output_shaft",
+      "type": "part",
+      "glbNodeIndex": 10,
+      "parentId": "OUTPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.025648,
+      "volume": 3.267256e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0225,
+        0.015,
+        0.04775
+      ]
+    },
+    {
+      "id": "GEAR",
+      "name": "gear",
+      "type": "part",
+      "glbNodeIndex": 11,
+      "parentId": "OUTPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.274699,
+      "volume": 3.4993487e-05,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0225,
+        0.0,
+        0.04775
+      ]
+    },
+    {
+      "id": "BEARING_OUT_FRONT",
+      "name": "bearing_out_front",
+      "type": "part",
+      "glbNodeIndex": 12,
+      "parentId": "OUTPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.018126,
+      "volume": 2.309071e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0225,
+        -0.0135,
+        0.04775
+      ]
+    },
+    {
+      "id": "BEARING_OUT_BACK",
+      "name": "bearing_out_back",
+      "type": "part",
+      "glbNodeIndex": 13,
+      "parentId": "OUTPUT_STAGE",
+      "material": {
+        "assigned": true,
+        "name": "steel",
+        "density": 7850.0
+      },
+      "mass": 0.018126,
+      "volume": 2.309071e-06,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.0225,
+        0.0135,
+        0.04775
+      ]
+    }
+  ],
+  "mates": [],
+  "interferences": []
+}

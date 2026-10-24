@@ -61,16 +61,21 @@ public class CadAnalysis
     [JsonProperty("stability")] public string stability;      // unstable | marginal | stable | overstable
     [JsonProperty("motor")] public string motor;
     [JsonProperty("markers_gltf")] public CadMarkers markers; // GLB scene space: metres, Y-up, on the axis
+    [JsonProperty("size_mm")] public float[] sizeMm;
+    [JsonProperty("part_count")] public int? partCount;
+    [JsonProperty("metrics")] public List<CadMetric> metrics = new List<CadMetric>();  // any design; CadData.cs
 }
 
 public class CadModelUpdated
 {
     [JsonProperty("version")] public int version;
+    [JsonProperty("part")] public string part;                // design id: hub/cad/parts/<part>.py
+    [JsonProperty("title")] public string title;
     [JsonProperty("params")] public Dictionary<string, object> parameters;
     [JsonProperty("previous_version")] public int? previousVersion;
     [JsonProperty("changed_ids")] public List<string> changedIds = new List<string>();
     [JsonProperty("removed_ids")] public List<string> removedIds = new List<string>();
-    [JsonProperty("source")] public string source;            // api | pet | script | undo | reset | startup
+    [JsonProperty("source")] public string source;            // api | pet | preset | script | undo | reset | open | startup
     [JsonProperty("analysis")] public CadAnalysis analysis;
 }
 

@@ -145,7 +145,7 @@ async def _on_text(s: Session, raw: str) -> None:
             if s.wake_turn:
                 s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None)  # type: ignore[union-attr]
             if s.voice is not None:
-                await _voice_call(s, lambda: s.voice.begin_turn(wake=s.wake_turn))
+                await _voice_call(s, lambda: s.voice.begin_turn(require_name=start.require_name, wake=s.wake_turn))
             else:
                 s.stt = await asyncio.to_thread(make_stt, _project_path(s))
         elif event.type == "stt.cancel":

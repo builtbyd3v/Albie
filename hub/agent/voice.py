@@ -69,9 +69,10 @@ FAKE_ANSWER = "Hi! I'm Bit. I'm right here on your desk, ready to help."
 
 PERSONA = (
     "You are Bit, a small, cute and very competent alligator who lives on the user's desk in Forge, "
-    "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: bouncy, expressive "
-    "and playful, with the odd little 'ooh!' or 'hehe', but always helpful. No lists, no markdown, never "
-    "read code aloud; say file and function names plainly."
+    "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
+    "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
+    "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
+    "function names plainly."
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
 BREVITY = (
@@ -136,7 +137,7 @@ class VoiceSession(Protocol):
     wake_router: Any
 
     async def start(self) -> None: ...
-    async def begin_turn(self, wake: bool = False) -> None: ...
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None: ...
     async def feed(self, pcm16: bytes) -> None: ...
     async def commit_turn(self) -> None: ...
     async def cancel_turn(self) -> None: ...
@@ -161,6 +162,8 @@ class _Base:
         self._final_sent = True  # no turn open yet
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._turn_seq = 0
+        self._require_name = False  # look-to-talk: user wasn't facing Bit, so only a turn naming him counts
+        self._named = False  # an interim transcript of this turn named him (the final can drop a leading "Bit")
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -177,6 +180,7 @@ class _Base:
 
     def _open_turn(self, wake: bool = False) -> None:
         self._turn_seq += 1
+        self._named = False
         self._partial = ""
         self._final_sent = False
         self._committed = False
@@ -187,9 +191,12 @@ class _Base:
         if self._final_sent or not text or text == self._partial:
             return
         self._partial = text
+        self._named = self._named or has_name(text)
         if self._wake:
             await self.wake_router.partial(text)  # captions only once a gator is named
             return
+        if self._require_name and not self._named:
+            return  # maybe side conversation: no captions until he's named
         await self._emit(ev.stt_partial(self.pet_id, text))
 
     async def _final(self, text: str | None = None) -> None:
@@ -233,7 +240,7 @@ class GrokVoiceSession(_Base):
         self._dropping = False  # that reply is being cancelled (until its response.done)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
-        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))
+        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "20"))
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
         self._watchdog: asyncio.Task[None] | None = None
@@ -322,7 +329,7 @@ class GrokVoiceSession(_Base):
         return {"type": "session.update", "session": session}
 
     # ------------------------------------------------------------ turn API (called by ws.py)
-    async def begin_turn(self, wake: bool = False) -> None:
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
         if not wake:  # room chatter must not cut Bit off; a named turn barges in once it's routed
             await self.stop_speech("barge_in")
@@ -330,6 +337,7 @@ class GrokVoiceSession(_Base):
         self._fed = 0
         self._drop_reply = False
         self._open_turn(wake)
+        self._require_name = require_name and not self._wake  # a wake turn routes by name itself (agent/wake.py)
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -571,7 +579,7 @@ class GrokVoiceSession(_Base):
 
     async def _final(self, text: str | None = None) -> None:
         final = (text if text is not None else self._partial).strip()
-        if not self._final_sent and is_stop(final):
+        if not self._final_sent and (is_stop(final) or (self._require_name and not (self._named or has_name(final)))):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         await super()._final(text)
@@ -618,7 +626,7 @@ class FakeVoiceSession(_Base):
                 log.warning("fake voice: %s missing, speaking silence", FAKE_PCM)
                 self._pcm = bytes(FAKE_RATE * 2)
 
-    async def begin_turn(self, wake: bool = False) -> None:
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
         if not wake:
             await self.stop_speech("barge_in")
@@ -712,6 +720,18 @@ def is_stop(text: str) -> bool:
     """Only stop words and filler ("Wait, stop, Bit.", "Never mind."): the user wants silence, not an answer."""
     words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
+
+
+NAME_WORDS = {"bit", "bid"}
+# How grok-transcribe mishears a leading "Bit," (live: "Sit"). Only as the first word: accepts a rare "Sit down".
+FIRST_WORD_NAMES = NAME_WORDS | {"sit", "pit", "bet"}
+
+
+def has_name(text: str) -> bool:
+    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?". Only the first two words or the last one,
+    so "I'm a bit tired" doesn't count."""
+    words = re.findall(r"[a-z]+", text.lower())
+    return bool(words) and (words[0] in FIRST_WORD_NAMES or any(w in NAME_WORDS for w in words[1:2] + words[-1:]))
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

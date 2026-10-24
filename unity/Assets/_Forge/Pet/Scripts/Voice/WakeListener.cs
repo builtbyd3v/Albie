@@ -120,7 +120,9 @@ namespace Forge.Pet
             ResolveClient();
             if (_target != null && Time.time >= _targetUntil) DropTarget();
 
-            bool sessionBusy = pushToTalk != null && pushToTalk.SessionActive;
+            // Push-to-talk / hands-free, or GatorFollowUp watching the mic (barge-in, look-to-talk): their mic, not ours.
+            bool sessionBusy = (pushToTalk != null && pushToTalk.SessionActive)
+                               || (pushToTalk != null && pushToTalk.Provider is HubSpeechToText hub && (hub.IsMonitoring || hub.IsListening));
             bool want = listenForNames && GatorAgentBridge.EventSourceIsHub && _client != null && _client.IsConnected
                         && !sessionBusy && !_ttsTalking && Time.time >= _pausedUntil && MicPermission.HasPermission;
             if (sessionBusy || _ttsTalking) _pausedUntil = Time.time + resumeDelay;
