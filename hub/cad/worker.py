@@ -28,10 +28,22 @@ def load_part(script: Path):
     spec = importlib.util.spec_from_file_location(f"forge_part_{_loads}", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    for attr in ("PART", "PARAMS", "build"):
+    for attr in ("PARAMS", "build"):
         if not hasattr(module, attr):
             raise AttributeError(f"{script.name} must define {attr}")
     return module
+
+
+def default_title(part: str) -> str:
+    return part.replace("_", " ").capitalize()
+
+
+def part_info(module, script: Path) -> dict[str, Any]:
+    """What the library shows for a part. Its id is the file name, so a copied script is a new design."""
+    return {"part": script.stem, "title": getattr(module, "TITLE", "") or default_title(script.stem),
+            "description": getattr(module, "DESCRIPTION", ""),
+            "presets": {name: dict(values) for name, values in getattr(module, "PRESETS", {}).items()},
+            "features": ["flight"] if callable(getattr(module, "simulate_flight", None)) else []}
 
 
 def resolve_params(params: list[Param], supplied: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -62,6 +74,7 @@ def build_part(script: Path, supplied: dict[str, Any]):
     result = module.build(values)
     if not isinstance(result, BuildResult):
         raise TypeError("build(params) must return a BuildResult")
+    result.params = values
     return module, values, clamped, result
 
 
@@ -81,16 +94,19 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
             return {"ok": True}
         masses = mass_properties(result)
         if job["op"] == "flight":
-            from cad.flight import simulate
+            simulate = getattr(module, "simulate_flight", None)
+            if simulate is None:
+                raise LookupError(f"{script.stem} has no flight simulation")
             flight = simulate(result, masses)
             (out_dir / "flight.json").write_text(json.dumps(flight, indent=2), encoding="utf-8")
             return {"ok": True, "flight": flight}
-        analysis = analyze(result, masses)
-        exported = export_part(result, out_dir, part=module.PART, params=values, masses=masses)
+        analysis = analyze(result, masses, getattr(module, "analyze", None))
+        info = part_info(module, script)
+        exported = export_part(result, out_dir, part=info["part"], params=values, masses=masses)
         t_done = time.perf_counter()
         schema = [p.schema(values[p.name]) for p in module.PARAMS]
         (out_dir / "analysis.json").write_text(json.dumps(analysis, indent=2), encoding="utf-8")
-        return {"ok": True, "part": module.PART, "params": values, "clamped": clamped, "schema": schema,
+        return {"ok": True, **info, "params": values, "clamped": clamped, "schema": schema,
                 "analysis": analysis, "fingerprints": exported["fingerprints"],
                 "script_sha": script_sha(script), "glb_bytes": exported["glb_bytes"],
                 "timings_ms": {"build": round((t_build - t0) * 1000), "export": round((t_done - t_build) * 1000)}}
