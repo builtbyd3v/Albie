@@ -1,7 +1,8 @@
 # CAD module (Unity)
 
-The open design on the desk (rocket, quadcopter, gearbox, or any part script in the hub's library) and its design
-panel. Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
+The open design on the desk (rocket, quadcopter, gearbox, or any part script in the hub's library), its design
+panel and its engineering drawing. Inspect brings the model up big in front of you, where you can take it apart.
+Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
 
 ## Prefabs (slot these into the CAD mode on `Workspace`)
 
@@ -9,8 +10,9 @@ panel. Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
 |---|---|---|
 | `cad-viewer` (DeskCenter, Volume) | `Prefabs/CadViewer.prefab` | ForgeVolume variant + `CadViewer`. Size 0.26 x 0.5 x 0.26 m, slow turntable. Its label shows the open design's title. |
 | `cad-params` (Right, Panel) | `Prefabs/CadParamsPanel.prefab` | ForgePanel variant, UI under `Content`. 0.48 x 0.6 m (Workspace doesn't resize custom prefabs); resizable. |
+| `cad-drawing` (Left, Panel) | `Prefabs/CadDrawingPanel.prefab` | ForgePanel variant: the version's engineering drawing. 0.64 x 0.54 m. Replaces the `cad-timeline` placeholder (Core: `Workspace.DefaultModes` + `MainSceneBuilder`). |
 
-Both find or create one shared `CadSession`, so they work wherever they're spawned.
+All of them find or create one shared `CadSession`, so they work wherever they're spawned.
 
 ## Where the data comes from: `CadSession`
 
@@ -38,6 +40,7 @@ Generic over designs; everything comes from the hub:
 - Parameter rows from the design's `PARAMS`, in a scroll view with the stats line (drag the rows or the scrollbar;
   desktop mode sends no wheel events to uGUI).
 - Undo / Reset / Explode, and **Fly** only for designs with a flight sim (`features` contains `flight`).
+- **Inspect** / **Back to desk**, and **Reassemble** while inspecting (lit when parts are off).
 
 ## What the viewer does
 
@@ -48,15 +51,65 @@ Generic over designs; everything comes from the hub:
   another design fits it afresh (no glow or ghost across designs).
 - `cad.view`: explode (parts spread along the axis and sideways) and focus (everything else dims).
 
+## Inspect: the model up big (`CadViewer`)
+
+- **Inspect** (panel, or key **I**): the model flies off the desk to a stage 0.6 m in front of the eyes (toward the
+  desk, not where you're looking) and 0.1 m below them, turned 30° to show a corner and, unless it's tall, tipped back
+  25° to show its top. It's fitted to a 0.6 x 0.6 x 0.36 m box, which keeps it in front of CAD mode's VS Code screen
+  (0.8 m away). A flat screen (desktop mode, sandbox) sees less than a headset, so there the stage steps back until the
+  box fits in view. All of these are fields on `CadViewer` (Inspect section).
+- **Back to desk** (or I again) flies it home. If CAD mode closes while inspecting (`Workspace.modeChanged`, or the
+  viewer is disabled), it goes home first, instantly, so it folds with the volume.
+- The desk and the stage each have their own fit, both from the model's mesh bounds: new versions load wherever the
+  model is; a stage visit fits afresh and keeps that scale for the versions that arrive during it. Explode works there.
+- While the model is away, the empty desk volume's model grab box is off (`VolumeManipulator.ModelAway`, Core); its
+  base can still be moved.
+
+## Take it apart (`CadTakeApart`, Inspect only)
+
+On the desk, dragging still turns the whole model (Core's `VolumeManipulator`). On the stage:
+- Point at a part: it gets a blue outline and a card with its name, material and mass (`metadata.json`).
+- Grab it (mouse, controller ray, pinching hand ray), carry it, let go: it stays there. It keeps its pose relative to
+  the pointer (cad-vision's `CADGrabSession` idea), so a controller or hand turns it by twisting. Mouse: **Shift** +
+  drag turns it in place; scroll / thumbstick pushes it away or pulls it in.
+- Let go within 3 cm of its place (at the design's real size; at most 8 cm in the room) and it snaps back, straight.
+  **Reassemble** puts every part back. Back to desk puts them back on the way.
+- View only: the design version never changes. A new version arriving while parts are off puts them back first
+  (instantly), then swaps in with the glow.
+- Each leaf part (`CadModel.partIds`) gets a `CadPartHandle`: a mesh collider on its own mesh, so the pointer takes the
+  part under it, including a gear inside an open housing (bounding boxes nest). It only takes pointing: it collides with
+  nothing (`excludeLayers`) and sits on the Ignore Raycast layer. They're added on the stage and removed on leaving.
+- Input: XR rays reach the parts through a `RayInteractable` on each; a mouse through `CadPartRaycaster`, a uGUI
+  raycaster that puts the parts into the EventSystem's raycast (DesktopRig and the sandbox's input module both use it;
+  nearest wins against panels). `CadPointer` wraps Core's `ForgePointer`, or the plain mouse in the sandbox.
+
+## The drawing panel (`CadDrawingPanel`)
+
+- Shows the version's engineering drawing (`GET /cad/drawing.png?v=N`: front, top, right and iso views, overall
+  dimensions, parts list, title block; parts changed since the version it came from in orange), or the mock's stored
+  one. Tap the sheet to zoom 2x on that spot (read the parts list), tap again for the whole sheet.
+- Asks as soon as the hub announces a version (`CadSession.VersionComing`), keeps the last sheet up meanwhile, and has
+  one request out at a time (a slider drag skips to the newest), so drawing jobs don't queue in front of regens.
+- The hub makes a drawing on its first request (it reuses the build that was just made): about 2 s after the model
+  shows with the CPU pinned by two editors and the XR simulator, roughly a third of that on a quiet machine. Cached after.
+
 ## Sandbox
 
-Open `CADSandbox.unity` and press Play (hub off = mocks; start the hub for live). Mouse works on the panel.
-Keys (Game view must have focus): P next design, 1-4 stored versions, Left/Right step, E explode, U undo, R reset, F fly.
+Open `CADSandbox.unity` and press Play (hub off = mocks; start the hub for live). Mouse works on the panels and, in
+Inspect, on the parts. Keys (Game view must have focus): P next design, 1-4 stored versions, Left/Right step,
+E explode, U undo, R reset, F fly, I inspect.
 
 Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox).
 Refresh the mocks after changing a design: in `hub/` run `python -m cad.make_mocks`, then copy
 `hub/.data/mocks/cad/` here (`parts.json`, `regen_failed.json` and each `<part>/vN/`), renaming `model.glb` to
-`model.glb.bytes` (so Unity keeps raw bytes instead of importing a prefab), and rebuild.
+`model.glb.bytes` and `drawing.png` to `drawing.png.bytes` (so Unity keeps raw bytes instead of importing them), and
+rebuild.
+
+Driving the sandbox from the CLI (agents): simulated input only reaches the game if it's queued from inside a Dynamic
+input update (`InputSystem.onBeforeUpdate`, checking `InputState.currentUpdateType`), with
+`InputSettings.backgroundBehavior = IgnoreFocus`, `editorInputBehaviorInPlayMode = AllDeviceInputAlwaysGoesToGameView`,
+and the mouse / keyboard re-enabled (`InputSystem.EnableDevice`): an unfocused editor disables them. The settings are
+an in-memory default here (no asset), so this doesn't touch Project Settings.
 
 ## Notes for Core
 
@@ -65,7 +118,12 @@ Refresh the mocks after changing a design: in `hub/` run `python -m cad.make_moc
   `PointableCanvasModule` turns on **exclusive mode** when added in the Editor (its `Reset()`) and disables other
   input modules at Start; set `ExclusiveMode = false`, as the sandbox does.
 - `Workspace.DefaultModes` still titles the volume "Rocket"; `CadViewer` replaces it with the open design's title at
-  Start, so nothing needs changing there.
+  Start. But `VolumeManipulator` saves the title in `Init` (before that) and puts the saved one back after each hover,
+  so in Main the label reads "Rocket" again once pointed at. Fix on Core's side: read `volume.Title` when the hover
+  starts instead of in `Init`.
+- To put the drawing on the left screen: in `Workspace.DefaultModes` (CAD), `cad-timeline` "Versions" becomes
+  `new WorkspaceItem("cad-drawing", "Drawing", WorkspaceSlot.Left)`, and `MainSceneBuilder`'s slots gain
+  `("cad-drawing", "Assets/_Forge/CAD/Prefabs/CadDrawingPanel.prefab")`; then rebuild Main.
 - Player builds: glTFast's shader graph (`Shader Graphs/glTF-pbrMetallicRoughness`) must be in the build, or the
   model renders magenta. Add it to Always Included Shaders, or record the variants (play the sandbox, then
   Project Settings > Graphics > Shader Preloading > save to asset) and add that to Preloaded Shaders. See glTFast's

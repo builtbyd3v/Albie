@@ -231,15 +231,32 @@ class CadService:
             await self._derive(record, "flight", self.timeout_s * 6)
         return json.loads(path.read_text(encoding="utf-8"))
 
-    async def _derive(self, record: VersionRecord, op: str, timeout_s: float) -> dict[str, Any]:
-        """Rebuild an existing version in the worker to produce an extra artifact (STL, flight sim)."""
+    async def drawing(self, version: int | None, fmt: str = "png") -> Path:
+        """Engineering drawing (cad/drawing.py), cached per version: one job writes drawing.png and drawing.svg.
+        Orange marks the parts that changed from the version this one came from (its parent)."""
+        if fmt not in ("png", "svg"):
+            raise ValueError(f"No drawing format {fmt!r}")
+        record = self.get(version)
+        path = self.path(record.version, f"drawing.{fmt}")
+        if not path.exists():
+            changed = self.diff(record.parent, record.version)[0] if record.parent in self._versions else []
+            await self._derive(record, "drawing", self.timeout_s * 2, done=path, version=record.version,
+                               created_at=record.created_at, highlight=changed)
+        return path
+
+    async def _derive(self, record: VersionRecord, op: str, timeout_s: float, done: Path | None = None,
+                      **job: Any) -> dict[str, Any]:
+        """Rebuild an existing version in the worker to produce an extra artifact (STL, flight sim, drawing).
+        `done`: skip the job if that file appeared while this call waited for the lock. `job`: extra op fields."""
         script = self.script_for(record.part)
         if record.script_sha != script_sha(script):
             raise LookupError(f"v{record.version} was built from an older part script; {op} is only available "
                               "for versions built from the current script")
         async with self._lock:
+            if done is not None and done.exists():
+                return {"ok": True}
             result = await asyncio.to_thread(self._worker.call, {
-                "op": op, "script": str(script), "params": record.params,
+                **job, "op": op, "script": str(script), "params": record.params,
                 "out_dir": str(self._dir_for(record.part, record.version))}, timeout_s)
         if not result["ok"]:
             raise RegenError(CadRegenFailed(source=op, kind=result["kind"], error=result["error"],

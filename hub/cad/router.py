@@ -37,11 +37,15 @@ def record(cad: CadService, v: int | None) -> VersionRecord:
         raise HTTPException(404, f"No CAD version {v}") from None
 
 
+def file_headers(v: int | None, version: int) -> dict[str, str]:
+    """`?v=N` names an immutable file; without it the answer is whatever is current, so never cache it."""
+    return {"Cache-Control": "public, max-age=31536000, immutable" if v is not None else "no-store",
+            "X-Forge-Version": str(version)}
+
+
 def file(cad: CadService, v: int | None, name: str, media_type: str) -> FileResponse:
     r = record(cad, v)
-    cache = "public, max-age=31536000, immutable" if v is not None else "no-store"
-    return FileResponse(cad.path(r.version, name), media_type=media_type,
-                        headers={"Cache-Control": cache, "X-Forge-Version": str(r.version)})
+    return FileResponse(cad.path(r.version, name), media_type=media_type, headers=file_headers(v, r.version))
 
 
 def regen_error(e: RegenError) -> HTTPException:
@@ -144,6 +148,31 @@ async def model_stl(v: int | None = None, cad: CadService = Depends(service)):
     except RegenError as e:
         raise regen_error(e) from None
     return FileResponse(path, media_type="model/stl", filename=f"{r.part}_v{r.version}.stl")
+
+
+async def drawing_file(cad: CadService, v: int | None, fmt: str, media_type: str) -> FileResponse:
+    r = record(cad, v)
+    try:
+        path = await cad.drawing(r.version, fmt)
+    except LookupError as e:
+        raise HTTPException(409, str(e)) from None
+    except RegenError as e:
+        raise regen_error(e) from None
+    return FileResponse(path, media_type=media_type, headers=file_headers(v, r.version))
+
+
+@router.get("/drawing.png")
+async def drawing_png(v: int | None = None, cad: CadService = Depends(service)):
+    """Engineering drawing of a version (2048 x 1448, A3 landscape): front, top, right and iso views, overall
+    dimensions, parts list, title block; parts changed from the previous version in orange. Made on first request
+    (about a second), then cached. 409 if the version was built from an older part script."""
+    return await drawing_file(cad, v, "png", "image/png")
+
+
+@router.get("/drawing.svg")
+async def drawing_svg(v: int | None = None, cad: CadService = Depends(service)):
+    """The same drawing as SVG (made in the same job as the PNG)."""
+    return await drawing_file(cad, v, "svg", "image/svg+xml")
 
 
 @router.get("/flight")

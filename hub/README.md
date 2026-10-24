@@ -38,6 +38,8 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
   give `min`/`max` for a gauge) and `simulate_flight` (the Fly button). Mass, size and part count come free.
 - Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
   `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
+- `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
+  views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
 
 ## Test
 
