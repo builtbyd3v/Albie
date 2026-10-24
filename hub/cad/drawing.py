@@ -296,8 +296,9 @@ class Sheet:
             canvas.draw()
             Image.frombuffer("RGBA", canvas.get_width_height(), canvas.buffer_rgba(), "raw", "RGBA", 0, 1) \
                 .convert("RGB").save(tmp, format="PNG", compress_level=1)
-        else:
-            self.fig.savefig(tmp, format=path.suffix[1:], dpi=DPI, facecolor=PAPER, metadata={"Date": None})
+        else:   # svg / pdf: no timestamp, so the same version makes the same file
+            stamp = {"CreationDate": None} if path.suffix == ".pdf" else {"Date": None}
+            self.fig.savefig(tmp, format=path.suffix[1:], dpi=DPI, facecolor=PAPER, metadata=stamp)
         os.replace(tmp, path)   # never serve a half-written file
 
 
@@ -450,9 +451,11 @@ def draw_title_block(sheet: Sheet, *, title: str, part: str, version: int | None
 
 
 def draw(result: BuildResult, masses, out_dir: Path, *, title: str, part: str, version: int | None = None,
-         created_at: float | None = None, highlight: Iterable[str] = ()) -> dict[str, int]:
-    """Write out_dir/drawing.png and drawing.svg. `masses` is analysis.mass_properties(result); `highlight` holds
-    object IDs (upper-case labels) to draw in orange. Returns timings in ms."""
+         created_at: float | None = None, highlight: Iterable[str] = (),
+         files: Iterable[str] = ("drawing.png", "drawing.svg")) -> dict[str, int]:
+    """Write the sheet into out_dir as each of `files` (.png, .svg or .pdf; the panel's pair by default, the supplier
+    package's PDF from cad/package.py). `masses` is analysis.mass_properties(result); `highlight` holds object IDs
+    (upper-case labels) to draw in orange. Returns timings in ms."""
     t0 = time.perf_counter()
     highlight = {h.upper() for h in highlight}
     parts = [Part(shape, shape.label.upper() in highlight) for shape in leaves(result.assembly)]
@@ -464,8 +467,8 @@ def draw(result: BuildResult, masses, out_dir: Path, *, title: str, part: str, v
         sheet = render(views, result, masses, highlight, title=title, part=part, version=version,
                        created_at=created_at)
         out_dir.mkdir(parents=True, exist_ok=True)
-        sheet.save(out_dir / "drawing.png")
-        sheet.save(out_dir / "drawing.svg")
+        for name in files:
+            sheet.save(out_dir / name)
     return {"project": round((t_project - t0) * 1000), "render": round((time.perf_counter() - t_project) * 1000)}
 
 

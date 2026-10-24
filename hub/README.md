@@ -71,6 +71,11 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
   `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
 - `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
   views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
+- `GET /cad/files?v=N`: a version's **files for a supplier** (`cad/package.py`): `<part>_vN.step` (the CAD model,
+  AP214, mm), `.stl` (3D printing), `_drawing.pdf` (the drawing, no orange) and `_parts.csv` (part, material, qty,
+  mass) -> `{part, version, files: [{kind: step|stl|drawing|parts, name, title, bytes}]}`; `GET /cad/files/{name}?v=N`
+  downloads one. Made in one worker job on first request (a few seconds), cached in the version's `package/` folder.
+  Bit attaches them to Slack drafts (`messages_send` `attach`, see "Bit runs the workspace").
 
 ## Test
 
@@ -100,8 +105,9 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 | `cad/flight.py` | RocketPy launch-to-apogee sim on an Estes C6 (`cad/data/estes_c6.eng`), then parachute descent to landing; fixed-rate samples + events. |
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
 | `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
+| `cad/package.py` | The supplier files of a version: STEP, STL, drawing PDF, parts CSV (`GET /cad/files`, Slack attachments). |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
-| `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+| `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module; `attachments()` for Slack drafts. |
 
 ## Agent module (pet)
 
@@ -126,6 +132,7 @@ agent/
   crew.py     Bit's crew: agent types, roster, parallel member turns, the lead-only crew tools
   wake.py     "Hey Bit" / "<Crew name>, ..." routing for always-on wake turns
   speech.py   live voice sessions by pet id: speak(text) and note(text) for other modules (digest, focus)
+  workspace.py Bit opens views: ui.mode out, workspace.mode back (the ui_open_view tool; CAD/Slack tools use ensure)
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
   stt.py      SpeechToText: NoneSTT, WhisperSTT (faster-whisper, optional)
@@ -215,6 +222,32 @@ branch. When one finishes, Bit says so out loud (voice mode) and the gator shows
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
 that member's turn without touching Bit's.
 
+### Bit runs the workspace (views, CAD, files to Slack)
+
+From the desk with nothing open: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the
+shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Make it shorter. Send it." Each
+sentence is one or two of Bit's fast tools, called straight from Grok (no `delegate`), so each answers in about a
+second. The contract is `docs/PET_AGENT_CONTRACT.md` Addendum H; `tests/test_bit_script.py` runs that whole script.
+
+- **Views.** `ui_open_view {view: cad|code|ml|messages|none}`. The hub sends `ui.mode {mode}`; Unity opens the view
+  (only at the desk) and answers with `workspace.mode {mode, reason?}`, so Bit's result says what really happened
+  (`reason: "not_at_desk"` -> "sit down at the desk first"). `agent/workspace.py` waits 1.5 s for that answer, and only
+  0.4 s while the Unity build in use never answers (one without the handler), so no tool stalls on it.
+- **CAD tools open the CAD view themselves** (`cad_open_part`, `cad_set_params`, presets, undo/reset, `cad_view`,
+  `cad_demo`, `cad_restore_version`), so you never have to say "open CAD" first. If it can't open, the change still
+  happens and the result carries `view_error`. New: `cad_open_part` takes what people say ("the drone", "gear box");
+  `cad_view` also does `expand` (the model big in front of you), `markers`, `dimensions` and `tab`; `cad_demo {run}`
+  presses the design's Fly / Hover / Run (the rocket's flight numbers come back too); `cad_list_versions`,
+  `cad_restore_version {version}`; `cad_export_files` (the supplier files). Unity's buttons are pressed with
+  `cad.action {action, on?, tab?, part, version, seq}` (not sticky).
+- **Slack with files.** `messages_send {..., attach: [all|step|stl|drawing|parts], open_messenger?}` puts the open
+  design's current files on the draft (`Draft.attachments`: name, title, kind, bytes; the hub keeps the paths) and, with
+  files, opens the messenger first so the draft shows in its conversation. `messages_edit_draft {text}` rewords the open
+  draft in place (same id, same files). Send (the card, or "send it" -> `messages_confirm`) uploads text and files in one
+  `files_upload_v2` under your name. If Slack refuses, the draft stays open for another try. **Needs `files:write`**
+  (and `files:read`, for the message's ts): added to `manifest.json`, so run `slack run` once in `hub/` and re-copy the
+  User OAuth Token into `SLACK_USER_TOKEN` (README "Messaging"). Drafts now expire after 5 minutes, not 2.
+
 ### Test
 
 ```bash
@@ -303,7 +336,7 @@ of every conversation and a seen mark per conversation, so a second open is inst
 /messages/drafts/{id}` re-emits `notify.draft` with the same `draft_id` and `edited: true`. Only `POST
 /messages/drafts/{id}/send` (the button) or the `messages_confirm` tool ("send it") posts it, with your token, then
 `notify.sent`. One open draft at a time: a new one supersedes it (`notify.draft_cancelled`, reason `superseded`);
-unsent drafts expire after 120 s (`expired`, an edit restarts the clock); Cancel gives `cancelled`. The composer
+unsent drafts expire after 300 s (`expired`, an edit restarts the clock); Cancel gives `cancelled`. The composer
 clears on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed. A draft's `channel` is an id, a `#name`,
 or a person's name: "tell Hudson ..." drafts into their DM (opened with `conversations.open` if there is none yet).
 
@@ -314,14 +347,14 @@ or a person's name: "tell Hudson ..." drafts into their DM (opened with `convers
 | `POST /messages/channels/{id}/seen` | the conversation is open in the panel -> `{ok, unread: 0}`; `notify.channels` follows |
 | `GET /messages/users/me` | `{user_id, name, display_name}`: who the hub posts as |
 | `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me, reply_count, edited, is_me, user_initials) |
-| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited, attachments}` (`attachments`: files Bit put on it, `[{id, name, title, kind, bytes, source}]`, uploaded with the text on send; `[]` for typed drafts); `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
 | `PATCH /messages/drafts/{id} {text?, channel?, thread_ts?}` | the user edited the draft -> the `Draft` again, same `draft_id`, `edited: true`, `notify.draft` re-emitted; 404 if it is gone, 422 for empty text |
-| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
+| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}` (with files: one `files_upload_v2`, the text as its comment; `ts` from `files.info`, `""` if Slack hasn't shared it yet); 404 if the draft is gone (sent, cancelled, expired, superseded); if Slack refuses it (502), the draft stays open so Send can try again |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
 | `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a message (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
 | `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
-| Bit's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
+| Bit's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?, attach?, open_messenger?}` (draft only; no target = the message in focus; a person's name = their DM; `attach`: the open CAD design's files, `all` or `step`/`stl`/`drawing`/`parts`; with files the messenger opens first), `messages_edit_draft {text}` (reword the open draft, keeps its files), `messages_confirm {send, draft_id?}` |
 | Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
 **Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's

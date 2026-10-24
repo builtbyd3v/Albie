@@ -92,6 +92,7 @@ class CrewRoster(_Payload):  # client -> hub: every crew gator that exists in Un
 class WorkspaceMode(_Payload):  # client -> hub: which workspace view is open ("code", "cad", "ml", "messages"; "" = none)
     pet_id: str | None = None
     mode: str = ""
+    reason: str | None = None  # proposed (Addendum H): answering ui.mode, why `mode` isn't the view asked for ("not_at_desk")
 
 
 class MessagesFocus(_Payload):  # client -> hub: "Reply with Bit" on a message card (handled by hub/messaging)

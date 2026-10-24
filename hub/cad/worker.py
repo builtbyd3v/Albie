@@ -97,7 +97,8 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
     script, out_dir = Path(job["script"]), Path(job["out_dir"])
     try:
         t0 = time.perf_counter()
-        module, values, clamped, result = build_part(script, job.get("params", {}), reuse=job["op"] == "drawing")
+        module, values, clamped, result = build_part(script, job.get("params", {}),
+                                                     reuse=job["op"] in ("drawing", "package"))
         t_build = time.perf_counter()
         if job["op"] == "stl":
             from build123d import export_stl
@@ -118,6 +119,13 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
                            version=job.get("version"), created_at=job.get("created_at"),
                            highlight=job.get("highlight", ()))
             return {"ok": True, "timings_ms": {"build": round((t_build - t0) * 1000), **timings}}
+        if job["op"] == "package":
+            from cad.package import write_package
+            files = write_package(result, masses, out_dir / "package", part=script.stem,
+                                  title=part_info(module, script)["title"], version=job["version"],
+                                  created_at=job.get("created_at"))
+            return {"ok": True, "files": files, "timings_ms": {"build": round((t_build - t0) * 1000),
+                                                               "package": round((time.perf_counter() - t_build) * 1000)}}
         info = part_info(module, script)
         analysis = analyze(result, masses, getattr(module, "analyze", None), features=info["features"])
         exported = export_part(result, out_dir, part=info["part"], params=values, masses=masses)

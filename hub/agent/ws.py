@@ -40,6 +40,7 @@ from .turn import TurnControl, classify_mode
 from .voice import VoiceSession, make_voice, view_note
 from .wake import WakeRouter
 from .watcher import watcher
+from .workspace import workspace
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +107,8 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
         pass
     finally:
         bus.remove(ws)
+        if bus.count == 0:
+            workspace.forget()
         if s.crew_listener is not None:
             crew.remove_listener(s.crew_listener)  # type: ignore[arg-type]
         if s.voice is not None:
@@ -189,8 +192,10 @@ async def _on_text(s: Session, raw: str) -> None:
 
 
 async def _on_mode(s: Session, wm: WorkspaceMode) -> None:
-    """Unity switched workspace view: remember it, tell the voice model in one line (no reply), gate crew tools."""
+    """Unity switched workspace view (or answered ui.mode): remember it, tell the voice model in one line (no reply),
+    gate crew tools. Every report also goes to agent/workspace.py, which may be waiting for it."""
     mode = wm.mode.strip().lower()
+    workspace.report(mode, wm.reason)
     if mode == s.mode:
         return
     s.mode = mode

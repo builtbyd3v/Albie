@@ -7,6 +7,20 @@
 
 ## 0. Status (update this as you go)
 
+**2026-10-24, Hudson (Bit runs the workspace, branch `agent/bit-control`):**
+- **Done: hub side.** From the desk with nothing open, by voice alone: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Rephrase it. Send it."
+  - Bit opens views himself: the `ui_open_view` tool, `ui.mode` out, Unity's `workspace.mode` back. CAD tools open the CAD view on their own.
+  - New CAD tools: expand / markers / dimensions / tab (`cad_view`), the design's demo (`cad_demo`: Fly, Hover, Run), versions and go-back, and supplier files.
+  - Supplier files per version (`GET /cad/files`): STEP, STL, drawing PDF, parts CSV.
+  - Slack drafts can carry those files (`messages_send attach`); `messages_edit_draft` rewords a draft and keeps the files; sending uploads text and files in one go, as you.
+  - Tests: `hub/tests/test_bit_script.py` runs the whole script.
+  - Contract: `docs/PET_AGENT_CONTRACT.md` Addendum H.
+- **Setup:** Slack needs `files:write` + `files:read` (added to `hub/manifest.json`). Run `slack run` in `hub/`, then re-copy the User OAuth Token.
+- **Next: Unity** (Addendum H, "Unity"):
+  - Core: a `ui.mode` handler that answers with `workspace.mode`.
+  - CAD: `cad.action` → Expand / demo / overlays / tab, queued until that version has loaded.
+  - Messages: attachment chips on the draft card and in the composer.
+
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
 - **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).
 - **Done: polish.**
@@ -303,6 +317,8 @@ Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datast
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 
+Proposed agent-control additions (Bit opens views and presses CAD buttons, drafts carry files: `ui.mode`, `workspace.mode.reason`, `cad.action`, `Draft.attachments`, `GET /cad/files`): `docs/PET_AGENT_CONTRACT.md` Addendum H.
+
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 
 ---
@@ -376,7 +392,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - **`delegate(task)` tool** for anything that needs real analysis ("why is it bad at cats?", "suggest a design change"): the hub runs a reasoning model with read access to run results / CAD script, returns a card. While it runs, emit `pet.state working` (blob dive) and have the voice model say "give me a sec."
 - Every tool call also emits `pet.state` so the body animates.
 - Persona: short, cute, competent. 1 to 3 spoken sentences, details go in the card.
-- Slack: one app ("Bit", `hub/manifest.json`) with bot scopes and **user scopes** (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, ...) and matching `bot_events` + `user_events`. `hub/messaging/` runs Bolt's `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task. Inbound `message` events (bot or user subscription, deduped by `(channel, ts)`) -> `notify.message` on `/ws` and a per-conversation ring (last 200 each, `last_seen_ts` per channel) behind `messages_read_latest`, the channel list / history endpoints and the digest. Skipped: the user's own messages, anything with `bot_id`, the bot itself. `is_dm` from `conversations.info`, `mentions_me` = DM or `<@user_id>` in the text. **Sending is always two steps:** `messages_send` / `POST /messages/drafts` writes a `Draft` and emits `notify.draft`; only `POST /messages/drafts/{id}/send` (card button) or `messages_confirm` (voice) posts it, with the user token, then `notify.sent`. A new draft supersedes the open one (`notify.draft_cancelled`, reason `superseded`); drafts expire after 2 minutes. Without `SLACK_USER_TOKEN` the hub falls back to the bot identity (reads only invited channels, posts as Bit) and logs a warning. Tokens all missing -> module disabled, hub still boots. No fake or mock mode.
+- Slack: one app ("Bit", `hub/manifest.json`) with bot scopes and **user scopes** (`channels:history`, `groups:history`, `im:history`, `mpim:history`, `chat:write`, ...) and matching `bot_events` + `user_events`. `hub/messaging/` runs Bolt's `AsyncApp` + `AsyncSocketModeHandler` as a lifespan task. Inbound `message` events (bot or user subscription, deduped by `(channel, ts)`) -> `notify.message` on `/ws` and a per-conversation ring (last 200 each, `last_seen_ts` per channel) behind `messages_read_latest`, the channel list / history endpoints and the digest. Skipped: the user's own messages, anything with `bot_id`, the bot itself. `is_dm` from `conversations.info`, `mentions_me` = DM or `<@user_id>` in the text. **Sending is always two steps:** `messages_send` / `POST /messages/drafts` writes a `Draft` and emits `notify.draft`; only `POST /messages/drafts/{id}/send` (card button) or `messages_confirm` (voice) posts it, with the user token, then `notify.sent`. A new draft supersedes the open one (`notify.draft_cancelled`, reason `superseded`); drafts expire after 5 minutes (Addendum H; drafts may carry files, uploaded with the text on send). Without `SLACK_USER_TOKEN` the hub falls back to the bot identity (reads only invited channels, posts as Bit) and logs a warning. Tokens all missing -> module disabled, hub still boots. No fake or mock mode.
   - Tools register through `agent/tools.py` like CAD and VS Code do (`messages_` prefix -> panel `messages`).
   - **Setup (5 min, Slack CLI):** `hub/manifest.json` is the app and `hub/.slack/` is the CLI project. Install the CLI (https://docs.slack.dev/tools/slack-cli), `slack login` to the team workspace, then from `hub/`: `slack install -E local` (creates and installs "Bit (local)" with bot + user scopes), `slack run` once (the start hook writes `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` into `hub/.env` and exits). The CLI never hands out the user token, so once: `slack app settings` > OAuth & Permissions > copy **User OAuth Token** (`xoxp-`) into `SLACK_USER_TOKEN`. Scope or event changes: edit `manifest.json`, `slack run` again, re-copy the user token if user scopes changed. Other checkouts: `slack app link -E local`. Manual path (api.slack.com/apps, same manifest) still works.
   - Teammates install the Slack mobile app and turn on notifications so the on-stage reply visibly buzzes a phone.

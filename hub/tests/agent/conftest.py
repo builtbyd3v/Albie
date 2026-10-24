@@ -34,7 +34,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     repo.mkdir()
     (repo / "hello.py").write_text("def greet():\n    return 'hi'\n")
     cfg = tmp_path / "projects.yaml"
-    cfg.write_text(f'projects:\n  demo:\n    path: "{repo}"\n    default_mode: "qa"\n')
+    cfg.write_text(f'projects:\n  demo:\n    path: "{repo.as_posix()}"\n    default_mode: "qa"\n')
     monkeypatch.setenv("FAKE_AGENT", "1")
     monkeypatch.setenv("FAKE_AGENT_DELAY", "0.01")
     monkeypatch.setenv("PROJECTS_FILE", str(cfg))

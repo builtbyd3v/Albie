@@ -414,3 +414,62 @@ public event Action StartPressed;   public DockRing StartRing { get; }
 Core (Hudson agreed): `Workspace.HoldDock(bool)` / `DockHeld`; `DockRing.Create(Transform parent, string label, Color hue,
 float diameterMm, UnityAction onClick)` (+ the static `Layer` / `Label` / `SetLook` / `Pointers` DeskDock is built from);
 `DeskDock.Show(frame, width, depth, bool reposition = false)` always enters as frame slide-in + ring plops.
+
+## Addendum H (2026-10-24): Bit runs the workspace (views, CAD buttons, files on Slack drafts)
+
+All **proposed**, additive; old clients ignore the new types and fields. Goal: from the desk with nothing open,
+"Bit, open the quadcopter, expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to
+Adrian with all the files for the supplier. Rephrase it. Send it." works by voice alone. Hub side done
+(`hub/agent/workspace.py`, `hub/cad/tools.py`, `hub/cad/package.py`, `hub/messaging/`; `hub/tests/test_bit_script.py`
+runs that script); Unity side below is still to build.
+
+| direction | type | payload |
+|---|---|---|
+| hub → clients | `ui.mode` | `{mode}`: open that workspace view, `"cad"`, `"code"`, `"ml"`, `"messages"`; `""` closes the open one. Not sticky. |
+| client → hub | `workspace.mode` | unchanged, plus optional `reason`: when answering `ui.mode`, why `mode` (what is open now) isn't the view asked for. `"not_at_desk"` (Workspace refuses away from a desk), `"unknown_mode"`. |
+| hub → clients | `cad.action` | `{action, on?, tab?, part, version, seq}`: Bit pressing a CAD button. `action`: `expand` (Inspect: the model big in front of the user; `on` false puts it back), `demo` (the design's Fly / Hover / Run; `on` false stops it), `markers`, `dimensions` (the analysis overlays, `on`), `tab` (`tab`: overview \| parameters \| analysis \| history), `reassemble` (snap pulled-off parts back). `version`: the version it is for. `seq` increases per hub run. Not sticky. |
+| hub → clients | `notify.draft` | `Draft` gains `attachments: [{id, name, title, kind, bytes, source}]` (`kind`: step \| stl \| drawing \| parts \| file). `[]` for plain drafts. The hub keeps the files; Send uploads them with the text. |
+
+**Hub behaviour.**
+* `ui_open_view {view}` (Bit's tool) publishes `ui.mode` and waits up to 1.5 s for a `workspace.mode` naming that view
+  or carrying a `reason`; the tool answers `{ok, view}` or `{error, view}` ("sit down at the desk first"). Already open:
+  no `ui.mode`. A Unity build without the handler never answers: after one 1.5 s timeout the hub waits only 0.4 s until
+  a client reports a mode again.
+* CAD tools that change what is on screen open the CAD view first (`cad_set_params`, presets, undo, reset,
+  `cad_view`, `cad_demo`, `cad_restore_version`; `cad_open_part` opens the design first, then the view, so the view comes
+  up on the new design). If the view can't open, the design change still happens and the tool result has
+  `view_error`; the view-only tools (`cad_view`, `cad_demo`) answer an error and publish nothing.
+* `cad_view {expand?, explode?, focus_id?, markers?, dimensions?, tab?}`: explode / focus_id stay on the sticky
+  `cad.view` (only published when asked for, so `expand` alone leaves the explode state alone; `focus_id: ""` clears;
+  `explode: false` also sends `cad.action reassemble`, so parts pulled off in Expand go back too); the rest are
+  `cad.action`s. `cad_demo {run?}`: `cad.action demo`; for a `launch` demo the hub computes
+  `/cad/flight` for that version first, so Unity's fetch is a cache hit. Blocked (`analysis.demo.blocked`) or `kind:
+  none`: an error, nothing published.
+* New CAD tools: `cad_list_versions`, `cad_restore_version {version}` (that version's values become a new head, label
+  "Back to vN"; another design's version opens that design first), `cad_export_files`. `cad_open_part` resolves what
+  people say ("the drone", "gear box").
+* `messages_send` gains `attach: [all|step|stl|drawing|parts]` (the open design's current version: `GET /cad/files`)
+  and `open_messenger` (default: true when files are attached). With it, the hub sends `ui.mode messages` **before**
+  `notify.draft`, so the open Slack panel's composer takes the draft. `messages_edit_draft {text}` rewords the open
+  draft in place (= `PATCH /messages/drafts/{id}`: same `draft_id`, `edited: true`, files kept). Sending a draft with
+  files is one `files_upload_v2` as the user (text = its comment, in the thread if it has one), needs the `files:write`
+  user scope (`hub/manifest.json`; re-run `slack run`, re-copy the user token). `notify.sent.ts` is the shared
+  message's ts from `files.info` (`files:read`), `""` if Slack hasn't shared it within ~3 s.
+* Send failures keep the draft open (same id, fresh expiry), so the card's Send works again once the cause is fixed;
+  drafts expire after 5 minutes (was 2).
+
+**Unity (to build; Core = Hudson, CAD, Messages):**
+* Core: a `ui.mode` handler (one component next to `Workspace`, in Main and sandboxes): `""` → `Close()`, a known mode →
+  `Open(mode)` (not `Toggle`: asking for the open view keeps it open); then send `workspace.mode {pet_id, mode:
+  ActiveMode ?? "", reason}` right away, with `reason: "not_at_desk"` when `presence.AtDesk` is false, `"unknown_mode"`
+  for an id `modes` doesn't have. (`ArrivalDirector` still sends its own `workspace.mode` on every change; the duplicate
+  is harmless.) `ForgeEvents.cs`: `UiMode`, `CadAction`, `DraftAttachment` + `NotifyDraft.attachments`, `WorkspaceMode.reason`.
+* CAD: `CadSession` subscribes to `cad.action` and routes it to what the buttons call today: `expand` →
+  `CadViewer.SetInspecting(on)`, `demo` → `RequestDemo` / stop, `markers` / `dimensions` → the Analysis toggles (keys
+  M / N), `tab` → `SetTab`, `reassemble` → the Reassemble pill. Apply it only for the open `part`, and only once the
+  loaded version is `>= version` (queue it until then: a `cad_set_params` + `cad_demo` pair must fly the new rocket).
+  `CadSession` is created by the CAD prefabs when CAD mode first opens, which can be a moment after the hub's
+  `cad.action`: on start, apply `ForgeNet`'s last `cad.action` once if it arrived within the last ~3 s and its `seq`
+  is newer than any applied.
+* Messages: `DraftCard` and `SlackComposer` show `attachments` as chips (kind icon, name, size) under the text.
+  Nothing else changes: Send / Cancel / PATCH are the same calls.
