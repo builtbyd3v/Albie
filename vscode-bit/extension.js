@@ -7,16 +7,21 @@
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
 //   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /layout    { zoom? }              the headset layout: zoomed editor, Bit's terminal under it, no side bars or chat
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
 //   command_finished  a command in the "Bit" terminal ended, with its exit code
+//
+// A "Bit" item in the status bar says what Bit is doing in this window, so it shows on the streamed screen too.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
 
 let server;
 let terminal;
+let statusItem;
+let statusTimer;
 
 const glow = vscode.window.createTextEditorDecorationType({
   isWholeLine: true,
@@ -118,21 +123,58 @@ async function run({ command, args = [] }) {
   return (await vscode.commands.executeCommand(command, ...args)) ?? null;
 }
 
+function bitTerminal() {
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  terminal.show(true);
+  return terminal;
+}
+
 function train() {
   const cmd = config().get("trainCommand");
   if (!cmd) throw new Error("set forgeBit.trainCommand first");
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
-  terminal.show(true);
-  terminal.sendText(cmd);
+  bitTerminal().sendText(cmd);
+}
+
+// screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
+// terminal is where training shows, so the side bar and Copilot chat only cost columns.
+// Zoom is per window (not saved to settings): level 2 = 144%, big enough on the panel at 1 m once the full-screen
+// window is shrunk to the stream's 1920 px. There is no command to set the panel's height, so: editor to its
+// tallest, then 2 steps back, which leaves Bit's terminal a few lines under the code.
+async function layout({ zoom = 2 }) {
+  const run = (id, times = 1) =>
+    Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
+  await run("workbench.action.closeSidebar");
+  await run("workbench.action.closeAuxiliaryBar");
+  await run("notifications.clearAll");
+  await run("workbench.action.zoomReset");
+  await run("workbench.action.zoomIn", zoom);
+  bitTerminal();
+  await run("workbench.action.focusActiveEditorGroup");
+  await run("workbench.action.increaseViewHeight", 40);
+  await run("workbench.action.decreaseViewHeight", 2);
+}
+
+// Highlighted while Bit acts, then back to idle after `ms`.
+function status(text, ms = 4000) {
+  statusItem.text = `$(sparkle) Bit: ${text}`;
+  statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(idle, ms);
+}
+
+function idle(text = "$(sparkle) Bit") {
+  statusItem.text = text;
+  statusItem.backgroundColor = undefined;
 }
 
 const routes = {
   "GET /context": () => context(),
   "GET /errors": (_, query) => errors(query.get("path")),
-  "POST /open": (b) => show(b.path, b.line).then(() => null),
-  "POST /highlight": (b) => highlight(b).then(() => null),
-  "POST /run": (b) => run(b).then((result) => ({ result })),
-  "POST /train": () => train(),
+  "POST /open": (b) => show(b.path, b.line).then(() => (status(`opened ${path.basename(b.path)}`), null)),
+  "POST /highlight": (b) => highlight(b).then(() => (status(b.note ?? `looking at line ${b.start}`, b.ms), null)),
+  "POST /run": (b) => run(b).then((result) => (status(`ran ${b.command.split(".").pop()}`), { result })),
+  "POST /train": () => (train(), status("started training", 6000)),
+  "POST /layout": (b) => layout(b).then(() => null),
 };
 
 function readBody(req) {
@@ -190,6 +232,10 @@ function watch(ctx) {
 }
 
 function activate(ctx) {
+  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  statusItem.tooltip = "Forge Bit: the Forge pet can open, highlight and run things in this window";
+  idle();
+  statusItem.show();
   watch(ctx);
   const port = config().get("port");
   server = http.createServer(async (req, res) => {
@@ -207,9 +253,12 @@ function activate(ctx) {
     }
   });
   // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
-  server.on("error", (e) => console.error(`[forge-bit] ${e.message}`));
+  server.on("error", (e) => {
+    console.error(`[forge-bit] ${e.message}`);
+    idle("$(circle-slash) Bit: busy in another window");
+  });
   server.listen(port, "127.0.0.1");
-  ctx.subscriptions.push(glow, noteStyle, { dispose: () => server.close() });
+  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
 }
 
 function deactivate() {

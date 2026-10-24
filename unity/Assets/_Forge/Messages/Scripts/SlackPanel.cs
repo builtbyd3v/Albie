@@ -14,7 +14,7 @@ using UnityEngine.UI;
 /// bottom unless you scrolled up) and the <see cref="SlackComposer"/>. Data comes from <see cref="SlackStore"/>
 /// (notify.channels / notify.message / GET history); showing a conversation and new messages in it POST /seen.
 /// Tapping a message asks Bit to read it (messages.focus); the composer's Ask Bit does the same for the latest one.
-/// One open panel at a time is <see cref="Active"/>: the Mentions panel, DigestTrigger and DraftPresenter route through
+/// One open panel at a time is <see cref="Active"/>: the Mentions panel and DraftPresenter route through
 /// it. Lists are rebuilt only when data or the panel's size changes; rows are pooled. Live hub only: offline it says so.
 /// </summary>
 public class SlackPanel : MonoBehaviour

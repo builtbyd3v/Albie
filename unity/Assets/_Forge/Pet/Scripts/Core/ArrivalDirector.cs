@@ -12,7 +12,7 @@ namespace Forge.Pet
     ///   desk doesn't count) → the dock is held back (Workspace.HoldDock), Bit walks to the greeting spot (in front of the
     ///   seated user, a little to their left, outside the DeskDock keep-out) and faces them (GatorController.StationAt),
     ///   POST /messages/digest, and the greeting card shows the digest line (which the hub also speaks; count 0 =
-    ///   "You have no new messages today.", hub never live = "Hub offline.") with a START ring beside it (ArrivalGreeting).
+    ///   "You have no new messages today.", hub never live = "Hub offline.") with a START pill beside it (ArrivalGreeting).
     ///   START → card + ring fold, the dock comes in (frame slides in, rings plop on), Bit walks over to the right of the desk, and after
     ///   the dock has landed Workspace.Open("code") (fallback "screens"). No timeout: the card stays up until START or Away.
     ///   Later arrivals → just the hop; the dock shows on Near as Core always did.
@@ -31,7 +31,7 @@ namespace Forge.Pet
         GatorAgentBridge bridge;
         [SerializeField, Tooltip("Builds the desk NavMesh from DeskPresence.Table. Auto-found in children / scene if empty.")]
         GatorMrukAdapter adapter;
-        [SerializeField, Tooltip("The greeting card + START ring (built into PetRuntime by the editor). Auto-found in children if empty.")]
+        [SerializeField, Tooltip("The greeting card + START pill (built into PetRuntime by the editor). Auto-found in children if empty.")]
         ArrivalGreeting greeting;
 
         [Header("Steps")]

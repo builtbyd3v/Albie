@@ -7,6 +7,7 @@ Shader "Forge/LightPool"
     {
         _Size ("Quad size (mm)", Float) = 180
         _Radius ("Ring radius (mm)", Float) = 36
+        _Half ("Pill: half length of the straight part (mm), 0 = circle", Float) = 0
         _Hue ("Mode hue", Color) = (1, 1, 1, 1)
         _HueT ("Hue strength", Float) = 0.1
         _Opacity ("Opacity", Range(0, 1)) = 0.3
@@ -31,14 +32,14 @@ Shader "Forge/LightPool"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Hue;
-            float _Size, _Radius, _HueT, _Opacity, _Imprint, _Wash, _Fade;
+            float _Size, _Radius, _Half, _HueT, _Opacity, _Imprint, _Wash, _Fade;
             CBUFFER_END
 
             half4 Frag(Varyings i) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
-                float2 p = (i.uv - 0.5) * _Size;
-                float r = length(p);
+                float2 p = (i.uv - 0.5) * float2(_Size + 2.0 * _Half, _Size);
+                float r = length(float2(max(abs(p.x) - _Half, 0.0), p.y));   // _Half > 0: a pill
                 float aa = max(fwidth(r), 1e-3);
                 float R = _Radius;
                 float4 acc = 0;
