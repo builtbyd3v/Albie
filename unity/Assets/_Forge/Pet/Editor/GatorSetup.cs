@@ -66,6 +66,9 @@ namespace Forge.Pet.Editor
         const string QuirkyDir = "Assets/_Forge/Pet/ThirdParty/Quirky Series";
         const string PackDir = QuirkyDir + "/Ultimate Pack Vol.1/Mega Pack Vol.4/River Vol.2";
         const string SrcPrefabPath = PackDir + "/Prefabs/Alligator.prefab";
+        /// PR 26 (pet/gator-anims): the pack's LOD0 with an opening mouth and a "jaw" bone (Rig/root/body/head/jaw),
+        /// LOD0 only, no LODGroup. Preferred as the model source when it exists; the pack prefab is the fallback.
+        const string CustomModelPath = PetRoot + "/Models/Gator_Model.fbx";
         const string SrcMaterialPath = PackDir + "/Materials/M_Alligator.mat";
         const string SrcAnimFbxPath = PackDir + "/Animations/Alligator_Animations.fbx";
         const string UrpShaderGraphPath = QuirkyDir + "/_Shader/URP (Unity 2019.3.0f3 and above)/SoftSurfaceGraph.shadergraph";
@@ -490,8 +493,17 @@ namespace Forge.Pet.Editor
             // Mocks first so MockEventSource can be wired to the TextAsset.
             TextAsset introFlow = WriteIntroFlow();
 
-            GameObject srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SrcPrefabPath);
-            if (srcPrefab == null) throw new FileNotFoundException("Source prefab not found", SrcPrefabPath);
+            // Model source: the mouth-enabled Gator_Model.fbx when PR 26 is merged, else the untouched pack prefab.
+            string modelPath = CustomModelPath;
+            GameObject srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
+            bool customModel = srcPrefab != null;
+            if (!customModel)
+            {
+                modelPath = SrcPrefabPath;
+                srcPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(modelPath);
+                Debug.Log("[GatorSetup] " + CustomModelPath + " not found (PR 26 not merged?): building from the pack prefab; the mouth won't move.");
+            }
+            if (srcPrefab == null) throw new FileNotFoundException("Source model not found", modelPath);
             Material gatorMat = AssetDatabase.LoadAssetAtPath<Material>(GatorMaterialPath);
             if (gatorMat == null) { FixMaterialInternal(); gatorMat = AssetDatabase.LoadAssetAtPath<Material>(GatorMaterialPath); }
             var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(ControllerPath);
@@ -513,18 +525,22 @@ namespace Forge.Pet.Editor
                 model.transform.localRotation = Quaternion.identity;
                 model.transform.localScale = Vector3.one;
 
+                // Skin material -> M_Gator_URP. The custom model may carry extra slots (mouth cavity, tongue): keep those.
                 foreach (Renderer r in model.GetComponentsInChildren<Renderer>(true))
                 {
                     Material[] mats = r.sharedMaterials;
                     if (mats.Length == 0) mats = new Material[1];
-                    for (int i = 0; i < mats.Length; i++) mats[i] = gatorMat;
+                    for (int i = 0; i < mats.Length; i++)
+                        if (!customModel || mats[i] == null || mats[i].name.IndexOf("Alligator", StringComparison.OrdinalIgnoreCase) >= 0 || mats[i].name.IndexOf("Gator", StringComparison.OrdinalIgnoreCase) >= 0)
+                            mats[i] = gatorMat;
                     r.sharedMaterials = mats;
                 }
 
-                // Animator lives on the model root ("GatorAssistant/Model"); Generic rig, no Avatar.
+                // Animator lives on the model root ("GatorAssistant/Model"); Generic rig, no Avatar. A bare FBX imported
+                // without one gets an Animator added here.
                 Animator animator = model.GetComponent<Animator>();
                 if (animator == null) animator = model.GetComponentInChildren<Animator>(true);
-                if (animator == null) throw new Exception("No Animator found on " + SrcPrefabPath);
+                if (animator == null) animator = model.AddComponent<Animator>();
                 animator.runtimeAnimatorController = controller;
                 animator.applyRootMotion = false;
                 animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
@@ -534,7 +550,7 @@ namespace Forge.Pet.Editor
 
                 // The pack's LOD thresholds (95/70/35/5 % of screen height) assume a 1.6 m gator. A 12 cm desk pet
                 // covers ~2 % of the screen from 3 m away, which culls every LOD -> invisible. Use desk-pet thresholds
-                // and effectively never cull (LOD3 is the far/tiny fallback).
+                // and effectively never cull (LOD3 is the far/tiny fallback). Gator_Model.fbx has no LODGroup (LOD0 only).
                 LODGroup lodGroup = model.GetComponentInChildren<LODGroup>(true);
                 if (lodGroup != null)
                 {
@@ -622,7 +638,8 @@ namespace Forge.Pet.Editor
                 GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out bool success);
                 if (!success || saved == null) throw new Exception("PrefabUtility.SaveAsPrefabAsset failed for " + PrefabPath);
 
-                msg = $"{PrefabPath} (native {nb.size.x:F3}×{nb.size.y:F3}×{nb.size.z:F3} m -> scale {scale:F3} -> " +
+                bool hasJaw = FindChildByName(model.transform, "jaw") != null;
+                msg = $"{PrefabPath} (model {modelPath}{(hasJaw ? ", jaw bone" : ", no jaw bone")}; native {nb.size.x:F3}×{nb.size.y:F3}×{nb.size.z:F3} m -> scale {scale:F3} -> " +
                       $"{width:F3} w × {height:F3} h × {length:F3} l m; agent r {agent.radius:F3}; components: {string.Join(", ", added)})";
             }
             finally
@@ -631,6 +648,17 @@ namespace Forge.Pet.Editor
             }
             Debug.Log("[GatorSetup] BuildPrefab: " + msg);
             return msg;
+        }
+
+        static Transform FindChildByName(Transform root, string childName)
+        {
+            if (root.name == childName) return root;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform hit = FindChildByName(root.GetChild(i), childName);
+                if (hit != null) return hit;
+            }
+            return null;
         }
 
         static bool TryGetRendererBounds(GameObject go, out Bounds bounds)
