@@ -336,7 +336,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 ## 11. Decisions
 
 1. **Engine:** Unity 6 + Meta XR SDK. Decided.
-2. **Voice:** Grok Voice Agent API (`grok-voice-think-fast-1.0`) + `delegate` to a reasoning model. ElevenLabs Agents is the fallback if Grok's voices don't fit the pet's personality.
+2. **Voice:** Grok Voice Agent API (`grok-voice-think-fast-1.0`) + `delegate` to a reasoning model. No ElevenLabs: it only adds voice choice, and team leads already like Grok's voices. Decided.
 3. **Messaging:** WhatsApp Cloud API with test number. Decided.
 4. **CAD engine:** build123d 0.13 (hub) + cad-vision's GLB/metadata loader and shaders (Unity). Decided, see `CAD_PLAN.md`.
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
@@ -358,3 +358,35 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 - Python: FastAPI routers per module, type hints, pydantic models mirroring `events.py`.
 - Never send a real message or take an irreversible action from the pet without a user confirmation step.
 - Small commits, pull often, never break `main`.
+
+---
+
+## 13. Proposal: pet voice and interactions (pending team OK)
+
+> Voice is decided (section 11 item 2). The rest is still a proposal. Hudson: contract change below. Person 5: hub side.
+
+**Voice**
+- Grok Voice Agent API is the only voice (ears, brain, mouth). **No ElevenLabs.**
+- Pin the model name you test against. xAI docs now list `grok-voice-latest` (points to `grok-voice-3.0`), not `grok-voice-think-fast-1.0`.
+- `delegate(task)` is our own tool, listed in the Grok session like any other. The hub sends the task to Claude (`claude-sonnet-5-5`) with an API key from the Console org linked to a Max plan (included monthly API credits). Give it its own workspace with a spend limit.
+
+**Tool calls in three directions**
+1. Grok to hub: `response.function_call_arguments.done` -> hub runs the tool -> `conversation.item.create` (`function_call_output`, same `call_id`) -> `response.create`. Parallel calls: send all outputs, then one `response.create`.
+2. Hub to Unity and back (new events, contract change):
+   ```
+   unity.call   { call_id, name, args }            hub -> Unity
+   unity.result { call_id, ok, data?, error? }     Unity -> hub
+   ```
+   Uses: what the user is pointing at, thumbs-up confirm, "Bit arrived at the panel". Hub times out after 3 s and returns `{ ok: false }` to Grok.
+3. Hub to Grok, unprompted: WhatsApp message arrives or a `delegate` job finishes -> hub injects a text item + `response.create`, Bit speaks on its own. Slow `delegate` returns `{ status: "started" }` at once.
+
+**Rules**
+- Emit `pet.state` before the work, so Bit moves while the hub works.
+- `messages_send` waits in the hub for a thumbs-up or a spoken "yes". Grok alone can never send.
+
+**Physical interactions (by demo value)**
+1. Point + talk: at push-to-talk start, Unity reports the panel/item under the hand ray or head gaze; the hub adds it to the turn ("why is *this* wrong?").
+2. Thumbs-up (Interaction SDK pose) as the send confirmation.
+3. Petting: hand touches the pet collider -> purr/squish. Desktop: click and hold.
+4. Stretch: grab Bit and drop it on a panel = "work on this".
+5. Stretch: Bit's voice plays from Bit (stream Grok audio into Unity, spatial AudioSource) instead of laptop speakers. Needed once on Quest.
