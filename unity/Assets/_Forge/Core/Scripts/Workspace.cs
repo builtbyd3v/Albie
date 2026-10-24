@@ -700,7 +700,7 @@ public class Workspace : MonoBehaviour
             case "ml-model3d": return "The model's layers, as blocks";
             case "cad-timeline": return "Every version of the design, newest first.";
             case "cad-drawing": return "The design's engineering drawing: views, dimensions, parts list.";
-            case "messages": return "Slack messages land here, with replies Bit drafts for you.";
+            case "messages": return "iMessage conversations land here, with replies Bit drafts for you.";
             case "screen-left":
             case "screen-right": return "Share a window from Screen Bridge to see it here.";
             default: return "Shows up here once its module is plugged in.";
@@ -838,10 +838,10 @@ public class Workspace : MonoBehaviour
             id = "messages", label = "MSG", color = ForgeTheme.Messages,
             items =
             {
-                // The Slack panel (conversations, messages, composer) and the "New for you" list beside it
-                // (Messages/Resources/SlackPanel.prefab, MentionsPanel.prefab; ids per section 7).
-                new WorkspaceItem("messages", "Slack", WorkspaceSlot.Main),
-                new WorkspaceItem("messages-mentions", "Mentions", WorkspaceSlot.Left),
+                // Notifications on the left, iMessage in the center and Slack on the right.
+                new WorkspaceItem("messages-mentions", "Mentions & notifications", WorkspaceSlot.Left),
+                new WorkspaceItem("messages", "iMessage", WorkspaceSlot.Main),
+                new WorkspaceItem("messages-slack", "Slack", WorkspaceSlot.Right),
             },
         },
     };

@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
@@ -49,10 +50,31 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register_cad(cad, bus)  # Bit's CAD tools for Grok and the Claude runner
         slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak, speech.note)
         app.state.slack = slack
-        agent_ws.client_handlers["messages.focus"] = slack.focus_from_ws  # "Reply with Bit" from a message card
-        agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
+        imessage = None
+        if sys.platform == "darwin":
+            # Keep the macOS-specific integration out of non-Mac startup/import paths.
+            from messaging.imessage import IMessageService, IMessageSettings
+
+            imessage = IMessageService(IMessageSettings.from_env(), slack.store, bus, speech.note)
+            slack.extra_channel_summaries = imessage.channel_summaries
+            imessage.channels_changed = slack.channels_changed
+        app.state.imessage = imessage
+
+        async def messages_focus(session, payload):
+            channel = str(payload.get("channel") or "")
+            if channel.startswith("im:") and imessage is not None:
+                await imessage.focus(channel, str(payload.get("ts") or ""),
+                                     str(payload.get("pet_id") or getattr(session, "pet_id", "bit")))
+            else:
+                await slack.focus_from_ws(session, payload)
+
+        agent_ws.client_handlers["messages.focus"] = messages_focus  # reply flow from either provider
+        agent_tools.register(messaging_tools.TOOLS,
+                            lambda name, args: messaging_tools.call_tool(name, args, slack, imessage))
         await cad.start()
         await slack.start()
+        if imessage is not None:
+            await imessage.start()
         screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)
         app.state.screens = screens
         await screens.start()
@@ -65,6 +87,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
             await screens.stop()
+            if imessage is not None:
+                await imessage.stop()
             await slack.stop()
             await cad.stop()
 
@@ -89,8 +113,11 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.get("/health")
     def health():
+        imessage_health = (app.state.imessage.health() if app.state.imessage is not None else
+                           {"enabled": False, "available": False, "status": "unavailable (not macOS)",
+                            "error": None, "digest": False})
         return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
-                "screen": app.state.screens.health(), **agent_health()}
+                "imessage": imessage_health, "screen": app.state.screens.health(), **agent_health()}
 
     return app
 

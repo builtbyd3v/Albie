@@ -17,6 +17,11 @@ public static class SlackUi
     public static readonly Color CardFill = new Color(0.12f, 0.15f, 0.21f, 0.8f);
     public static readonly Color CardFillHover = new Color(0.14f, 0.17f, 0.24f, 0.92f);
     public static readonly Color CardFillOn = new Color(0.17f, 0.20f, 0.28f, 1f);
+    // Native Messages uses a near-black conversation surface with Apple's blue outgoing bubbles.
+    public static readonly Color IMessageIncoming = new Color(0.17f, 0.17f, 0.18f, 1f);
+    public static readonly Color IMessageOutgoing = new Color(0.0f, 0.48f, 0.98f, 1f);
+    public static readonly Color IMessageComposer = new Color(0.13f, 0.13f, 0.14f, 1f);
+    public static readonly Color IMessageBlue = new Color(0.0f, 0.48f, 0.98f, 1f);
     public static readonly Color Shadow = new Color(0f, 0f, 0f, 0.28f);
     public static Color TextColor => ForgeTheme.PanelText;                          // white 95%
     public static Color Subtext => ForgeTheme.PanelSubtext;                    // white 50%

@@ -264,6 +264,7 @@ class SlackService:
         self._has_more: dict[str, bool] = {}
         self._recent: deque[tuple[str, str]] = deque(maxlen=200)  # (channel, ts) already recorded live
         self._warned_as_bot = False
+        self.extra_channel_summaries: Callable[[], list[ChannelSummary]] | None = None
         self.channels_debounce_s = CHANNELS_DEBOUNCE_S
         self.channels_refresh_s = CHANNELS_REFRESH_S
         # drafts: exactly one open at a time
@@ -567,12 +568,15 @@ class SlackService:
                                        last_ts=last.ts if last else None, last_text=last.text if last else None,
                                        topic=rec.topic, is_default=rec.id == default))
         rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
+        if self.extra_channel_summaries is not None:
+            rows.extend(self.extra_channel_summaries())
+            rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
         return rows
 
     def channels_changed(self) -> None:
         """Something in the channel list moved (a message, a seen mark, the list itself): push notify.channels soon.
         Debounced: one push per `channels_debounce_s`, always with the state at that moment."""
-        if not self.enabled or (self._push is not None and not self._push.done()):
+        if (not self.enabled and self.extra_channel_summaries is None) or (self._push is not None and not self._push.done()):
             return
         try:
             self._push = asyncio.get_running_loop().create_task(self._push_channels(), name="slack-notify-channels")

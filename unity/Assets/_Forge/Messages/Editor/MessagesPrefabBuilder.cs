@@ -7,8 +7,9 @@ using UnityEngine.UI;
 /// Forge > Messages > Build Prefabs: (re)builds, in Assets/_Forge/Messages/Resources (Resources so DigestTrigger and
 /// DraftPresenter can load them at runtime without scene references), with no manual steps:
 /// - MessageCard.prefab: one Slack message on the module's slate card (MessageCard; pooled by the panels)
-/// - SlackPanel.prefab: ForgePanel variant, panel id "messages", slot Main; SlackPanel builds its UI at runtime
-/// - MentionsPanel.prefab: ForgePanel variant, panel id "messages-mentions", slot Left ("New for you"; also the floating digest)
+/// - SlackPanel.prefab: Slack-only ForgePanel variant, panel id "messages-slack", slot Right
+/// - IMessagePanel.prefab: iMessage-only ForgePanel variant, panel id "messages", slot Main
+/// - MentionsPanel.prefab: ForgePanel variant, panel id "messages-mentions", slot Left (mentions and unread notifications)
 /// - DraftCard.prefab: ForgePanel variant, panel id "messages-draft", the Send / Cancel card while the Slack panel is closed
 /// GUIDs are kept on rebuild (SaveAsPrefabAsset over the same path). Same technique as CAD/Editor/CadPrefabBuilder.cs;
 /// no scene is touched. The old MessagesPanel.prefab is deleted if it is still around.
@@ -19,6 +20,7 @@ public static class MessagesPrefabBuilder
     const string ResDir = Root + "/Resources";
     public const string CardPath = ResDir + "/MessageCard.prefab";
     public const string SlackPanelPath = ResDir + "/SlackPanel.prefab";
+    public const string IMessagePanelPath = ResDir + "/IMessagePanel.prefab";
     public const string MentionsPanelPath = ResDir + "/MentionsPanel.prefab";
     public const string DraftPath = ResDir + "/DraftCard.prefab";
     const string LegacyPanelPath = ResDir + "/MessagesPanel.prefab";
@@ -34,12 +36,18 @@ public static class MessagesPrefabBuilder
         if (!ForgePrefabBuilder.Exist()) ForgePrefabBuilder.BuildAll();
         ForgeLookBuilder.Build();  // Inter + the PanelSurface material the cards draw with (idempotent)
         BuildCard();
-        BuildPanel(SlackPanelPath, "SlackPanel", "messages", "Slack", SlackPanelSize, go => go.AddComponent<SlackPanel>());
-        BuildPanel(MentionsPanelPath, "MentionsPanel", "messages-mentions", "Mentions", MentionsPanelSize, go => go.AddComponent<MentionsPanel>());
+        BuildPanel(SlackPanelPath, "SlackPanel", "messages-slack", "Slack", SlackPanelSize, go => go.AddComponent<SlackPanel>());
+        BuildPanel(IMessagePanelPath, "IMessagePanel", "messages", "iMessage", SlackPanelSize, go =>
+        {
+            var panel = go.AddComponent<SlackPanel>();
+            panel.iMessagePanel = true;
+        });
+        BuildPanel(MentionsPanelPath, "MentionsPanel", "messages-mentions", "Mentions & notifications", MentionsPanelSize,
+            go => go.AddComponent<MentionsPanel>());
         BuildDraftCard();
         if (AssetDatabase.LoadAssetAtPath<GameObject>(LegacyPanelPath) != null) AssetDatabase.DeleteAsset(LegacyPanelPath);
         AssetDatabase.SaveAssets();
-        Debug.Log($"[MessagesPrefabBuilder] Built {CardPath}, {SlackPanelPath}, {MentionsPanelPath}, {DraftPath}");
+        Debug.Log($"[MessagesPrefabBuilder] Built {CardPath}, {SlackPanelPath}, {IMessagePanelPath}, {MentionsPanelPath}, {DraftPath}");
     }
 
     // One message on a slate card: shadow + fill, accent strip, initials bubble, name, time, text, replies line. The

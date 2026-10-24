@@ -242,6 +242,7 @@ public class UiHighlight
 
 public class NotifyMessage
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
     [JsonProperty("is_dm")] public bool isDm;                 // a DM to the user (channel_name is "dm")
@@ -261,6 +262,7 @@ public class NotifyMessage
 /// <summary>One conversation in notify.channels / GET /messages/channels (channel, private, dm or group-dm).</summary>
 public class SlackChannel
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("id")] public string id;
     [JsonProperty("name")] public string name;
     [JsonProperty("kind")] public string kind;                // channel | private | dm | group-dm
@@ -281,6 +283,7 @@ public class NotifyChannels
 /// <summary>A reply Bit wrote but has NOT sent: show it as a Send / Cancel card. Send = POST /messages/drafts/{id}/send.</summary>
 public class NotifyDraft
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("draft_id")] public string draftId;
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
