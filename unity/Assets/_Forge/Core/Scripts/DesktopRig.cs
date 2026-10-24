@@ -31,6 +31,15 @@ public class DesktopRig : MonoBehaviour
     public Transform Head => cam.transform;
     public bool Seated { get; private set; }
 
+    /// <summary>The desktop rig in use, if any (panel handles ask it for the mouse ray).</summary>
+    public static DesktopRig Current { get; private set; }
+    /// <summary>UI under the crosshair / cursor right now, or null.</summary>
+    public GameObject Hovered => hovered;
+    /// <summary>Ray from the eyes through the crosshair or the free cursor.</summary>
+    public Ray PointerRay => cam.ScreenPointToRay(pointer != null ? pointer.position : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+    /// <summary>Whether a uGUI event came from this rig's pointer.</summary>
+    public bool OwnsPointer(PointerEventData e) => e != null && e == pointer;
+
     CharacterController body;
     float pitch;
     bool cursorLocked;
@@ -47,10 +56,15 @@ public class DesktopRig : MonoBehaviour
         SetEyeHeight(standingEyeHeight);
     }
 
-    void OnEnable() => SetCursorLocked(true);
+    void OnEnable()
+    {
+        Current = this;
+        SetCursorLocked(true);
+    }
 
     void OnDisable()
     {
+        if (Current == this) Current = null;
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
@@ -173,6 +187,10 @@ public class DesktopRig : MonoBehaviour
         {
             if (h.distance <= reach) { hit = h; break; }
         }
+        // Volumes' grab boxes aren't UI: whichever is nearer, the UI or a box, gets the events.
+        float uiDistance = hit.gameObject != null ? hit.distance : reach;
+        if (VolumeHandle.Raycast(cam.ScreenPointToRay(screen), uiDistance, out RaycastHit box, out VolumeHandle handle))
+            hit = new RaycastResult { gameObject = handle.gameObject, distance = box.distance, worldPosition = box.point, worldNormal = box.normal };
         pointer.pointerCurrentRaycast = hit;
         GameObject target = hit.gameObject;
 
@@ -227,6 +245,12 @@ public class DesktopRig : MonoBehaviour
     void UpdateHint()
     {
         if (hint == null) return;
+        if (PanelManipulator.Grabbing > 0)
+        {
+            hint.text = cursorLocked ? "Holding a panel · look around to carry it · scroll: push back / pull in · release to drop"
+                                     : "Holding a panel · move the mouse to carry it · scroll: push back / pull in · release to drop";
+            return;
+        }
         string cursor = cursorLocked ? "Esc: free cursor" : "Click empty space: grab mouse · hold right mouse: look";
         string desk = Seated ? "E: stand up"
                     : presence != null && presence.AtDesk ? "E: sit at desk"
