@@ -8,10 +8,15 @@
 
 **2026-10-23, Hudson (Core):**
 - **Done:** Unity project pushed in `unity/` (6000.6.7f1, Meta XR SDK 207.0.1, OpenXR 1.18.0, all Meta setup fixes applied). Teammates: clone and open it, see 6.1; no SDK setup needed.
-- **Done:** `Assets/_Forge/Core/Main.unity`: passthrough camera rig + MRUK. In the simulator it loads the synthetic room (27 anchors) and `DeskLocator` finds the `TABLE` (drawn blue). Verified in Play mode.
+- **Done:** `Assets/_Forge/Core/Main.unity`: passthrough camera rig + Interaction SDK hands/controllers (ray + poke) + MRUK room. Floor-level tracking origin.
+- **Done: desk flow.** `DeskPresence` tracks Away / Near (head within 0.7 m of a table edge) / Seated (near + head below 1.35 m). Any table works. At the desk, `DeskDock` lays round mode buttons (ML, CAD, SCR, MSG) flat on the desk; pressing one makes `Workspace` unfold that mode's panels in an arc around your eyes and its volumes on the desk. Walking away folds everything. Verified in the simulator.
+- **Done: building blocks for modules** (`Assets/_Forge/Core/Prefabs/`):
+  - `ForgePanel.prefab`: flat window (world-space canvas, 1 unit = 1 mm, title bar). Put your UI under `Content`. Ray + poke already wired, so uGUI Buttons/Sliders/ScrollRects work with hands and controllers.
+  - `ForgeVolume.prefab`: 3D container. `SetContent(go)` scales your model to fit `size` and stands it on the base; `turntable` spins it.
+  - To plug a module in: make a prefab from these (a prefab variant is easiest), send it to Hudson, and it goes into that mode's item list on the `Workspace` object in Main (slot + prefab). Panel IDs come from section 7.
 - **Done:** `Assets/_Forge/<Module>/` folders exist. Make your sandbox scene in yours.
-- **Next (Hudson):** `ForgePanel` prefab + the "unfold" around the desk (placeholder panels), then `DesktopRig` (WASD fallback), then `ForgeNet` (WS/REST client). Until `ForgePanel` lands, use a plain world-space Canvas.
-- **Unclaimed in repo:** `CAD_PLAN.md` and `hub/cad/spike/` exist locally on Hudson's machine but aren't committed; whoever owns CAD, commit them from your side.
+- **Next (Hudson):** `DesktopRig` (WASD + mouse fallback, press E to sit), then `ForgeNet` (WS/REST client), then grab/move for panels and volumes.
+- **CAD hub done (phase 1 of `CAD_PLAN.md`):** `hub/` has a minimal FastAPI skeleton (`main.py`, `events.py`, `/ws`) and the full `hub/cad/` module: build123d rocket, GLB + cad-vision metadata, stability analysis, flight sim, undo, script-save regen, pet tools, 15 passing tests. Unity CAD viewer (phase 2) not started. Proposed CAD contract additions: `CAD_PLAN.md` section 5. Person 5: the skeleton is yours to grow. See `hub/README.md`.
 
 ---
 
@@ -277,7 +282,7 @@ C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a stati
 - `POST /cad/params` regenerates, exports GLB, emits `cad.model_updated`. Target under 2 s.
 - Unity: glTFast loads `/cad/model.glb?v=N`, swaps the mesh with a quick dissolve. Turntable, grab to rotate. Params panel with sliders.
 - Hand-edit path: `rocket.py` open in VS Code on the main screen; file watcher regenerates on save.
-- **Pending:** review the open-source repos Hudson found and decide what to reuse.
+- **Decided:** build123d + pieces of cad-vision (MIT). Full plan, verified numbers and status: `CAD_PLAN.md`.
 
 ### 8.6 Pet body (Adrian)
 - States driven by `pet.state`: `follow` (about 1 m beside and behind the user, NavMesh or simple steering, faces user when they stop), `idle` (on desk when seated, sit, look around, fidgets), `listening`, `thinking`, `working` (blob morph, arc jump into `target_panel`, panel pulses), `speaking` (pops out, speech bubble + answer card with action buttons).
@@ -326,7 +331,7 @@ When the Quest 3 arrives: Hudson + Adrian do the device pass (APK build, passthr
 1. **Engine:** Unity 6 + Meta XR SDK. Decided.
 2. **Voice:** Grok Voice Agent API (`grok-voice-think-fast-1.0`) + `delegate` to a reasoning model. ElevenLabs Agents is the fallback if Grok's voices don't fit the pet's personality.
 3. **Messaging:** WhatsApp Cloud API with test number. Decided.
-4. **CAD engine:** build123d unless Hudson's repos give something better. **Pending repo review.**
+4. **CAD engine:** build123d 0.13 (hub) + cad-vision's GLB/metadata loader and shaders (Unity). Decided, see `CAD_PLAN.md`.
 5. **Headset:** Quest 3 expected in about a day. Laptop/simulator first.
 6. **Unity version:** `6000.6.7f1` (Unity 6.6), Meta XR SDK 207.0.1, OpenXR 1.18.0, simulator v207.1. Decided.
 7. **Pet model:** Adrian picks in hour 1.
