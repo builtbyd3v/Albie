@@ -16,7 +16,15 @@ namespace Forge.ML
     [Serializable] public class MLGraph { public MLLayer[] layers; }
     [Serializable] public class MLResults { public MLSample[] samples; }
     public class MLConfusion { public string[] labels; public int[][] matrix; }
-    [Serializable] public class MLReplayPayload : MLMetrics { public string status, reason, id; public int total_epochs, label_idx; public bool removed; }
+    [Serializable] public class MLReplayPayload : MLMetrics
+    {
+        public string status, reason, id;
+        public int total_epochs, label_idx;
+        public bool removed;
+        public int[] pred_idx;
+        public float?[] per_class;
+        public MLProbeSample[] samples;
+    }
     [Serializable] public class MLReplayEvent { public float t; public string type; public MLReplayPayload payload; }
 
     // References to the generated source assets. Never writes to their files or importer settings.
