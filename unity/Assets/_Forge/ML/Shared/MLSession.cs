@@ -130,20 +130,20 @@ namespace Forge.ML
                 BuildAtlas(); ownsAtlas = true;
             }
             TotalEpochs = Data.metrics.Length;
-            replayStarted = Time.time;
-            nextTick = Time.time + secondsPerEpoch;
+            replayStarted = Time.unscaledTime;
+            nextTick = Time.unscaledTime + secondsPerEpoch;
         }
         void Update()
         {
             if (!replay || Done) return;
             if (timeline != null)
             {
-                float elapsed = (Time.time - replayStarted) * Mathf.Max(.01f, replaySpeed);
+                float elapsed = (Time.unscaledTime - replayStarted) * Mathf.Max(.01f, replaySpeed);
                 while (nextEvent < timeline.Length && timeline[nextEvent].t <= elapsed) ApplyReplayEvent(timeline[nextEvent++]);
                 return;
             }
-            if (Time.time < nextTick) return;
-            nextTick = Time.time + Mathf.Max(.1f, secondsPerEpoch);
+            if (Time.unscaledTime < nextTick) return;
+            nextTick = Time.unscaledTime + Mathf.Max(.1f, secondsPerEpoch);
             int next = EpochIndex + 1;
             if (next < Data.metrics.Length) ApplyMetrics(Data.metrics[next]);
             if (next >= Data.metrics.Length - 1) SetRunState("done", TotalEpochs);
@@ -191,7 +191,7 @@ namespace Forge.ML
             }
             RestartMock();
         }
-        void RestartMock() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.time; nextTick = Time.time + secondsPerEpoch; Changed?.Invoke(); }
+        void RestartMock() { EpochIndex = -1; Done = Overfit = false; OverfitReason = null; RunStatus = "idle"; nextEvent = 0; replayStarted = Time.unscaledTime; nextTick = Time.unscaledTime + secondsPerEpoch; Changed?.Invoke(); }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
         public void Relabel(MLSample sample, int label)

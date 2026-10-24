@@ -48,7 +48,7 @@ namespace Forge.ML
         void Refresh()
         {
             int e = session.EpochIndex;
-            status.text = e < 0 ? (session.Done ? $"DONE   run {session.RunId}" : session.HubData ? "Waiting for training…" : "Waiting for mock training…") :$"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
+            status.text = e < 0 ? (session.Done ? $"DONE   run {session.RunId}" : session.HubData ? "Waiting for training..." : "Waiting for mock training...") :$"{(session.Done ? "DONE" : "TRAINING")}   Epoch {e+1}/{session.TotalEpochs}   LR {session.Data.metrics[e].lr:G3}   val acc {session.Data.metrics[e].val_acc:P1}";
             progress.rectTransform.sizeDelta = new Vector2(740f * (e+1) / Mathf.Max(1,session.TotalEpochs), 6);
             warning.text = session.Overfit ? "OVERFIT: " + (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason) : "";
             loss.SetVerticesDirty(); accuracy.SetVerticesDirty(); MLUI.Clear(summary);
@@ -119,7 +119,7 @@ namespace Forge.ML
                 image.texture = session.Atlas; image.uvRect = session.UV(sampleIndex); image.raycastTarget = false;
                 int predicted = probe.pred_idx;
                 string caption = predicted >= 0 && predicted < session.Data.classes.Length
-                    ? $"{ShortName(session.Data.classes[sample.true_idx])}→{ShortName(session.Data.classes[predicted])}" : ShortName(session.Data.classes[sample.true_idx]);
+                    ? $"{ShortName(session.Data.classes[sample.true_idx])}->{ShortName(session.Data.classes[predicted])}" : ShortName(session.Data.classes[sample.true_idx]);
                 var text = MLUI.Text(summary, caption, i * slotWidth, captionY, slotWidth - 2, 16, 8);
                 text.color = predicted == sample.true_idx ? new Color(.45f, 1f, .68f) : new Color(1f, .55f, .36f);
                 MLUI.Fill(summary, i * slotWidth + 3, barY, slotWidth - 7, 5, new Color(.14f, .2f, .28f));
@@ -218,7 +218,7 @@ namespace Forge.ML
             for (int i = 0; i < session.Data.samples.Length; i++) if (session.Data.samples[i].id == id) return i;
             return -1;
         }
-        static string ShortName(string value) => string.IsNullOrEmpty(value) ? "?" : value.Length <= 9 ? value : value.Substring(0, 8) + "…";
+        static string ShortName(string value) => string.IsNullOrEmpty(value) ? "?" : value.Length <= 9 ? value : value.Substring(0, 6) + "...";
         static float Confidence(MLProbeSample probe)
         {
             if (probe.probs == null || probe.probs.Length == 0) return .5f;
