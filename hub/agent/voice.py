@@ -78,7 +78,8 @@ PERSONA = (
     "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
     "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
     "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
-    "function names plainly."
+    "function names plainly. Transcripts often turn \"ML\" into \"email\": Forge has no email panel, so "
+    "\"email\" means ML (the machine learning desk)."
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
 BREVITY = (
@@ -125,7 +126,7 @@ DELEGATE_TOOL = {
     },
 }
 # Albie's own vocabulary first in grok-transcribe's hints ("fins" came back as "Fizz" in a live test).
-ROCKET_TERMS = ["Albie", "fins", "fin", "nose cone", "body tube", "static margin", "apogee", "center of pressure",
+ROCKET_TERMS = ["Albie", "ML", "ML panel", "ML desk", "fins", "fin", "nose cone", "body tube", "static margin", "apogee", "center of pressure",
                 "center of gravity", "calibers", "Estes", "ogive", "fin span", "fin sweep"]
 # "Stop" over Albie should just stop him, not start a reply ("Okay, quiet!").
 STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind"}
