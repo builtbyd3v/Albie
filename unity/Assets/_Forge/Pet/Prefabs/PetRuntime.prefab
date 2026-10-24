@@ -5533,7 +5533,7 @@ MonoBehaviour:
   minLevel: 0.02
   noiseRatio: 3
   startSeconds: 0.2
-  endSilence: 0.7
+  endSilence: 1
   prerollSeconds: 0.5
   minSpeech: 0.35
   maxSegment: 12

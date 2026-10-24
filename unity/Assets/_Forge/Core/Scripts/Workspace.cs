@@ -700,7 +700,7 @@ public class Workspace : MonoBehaviour
             case "ml-model3d": return "The model's layers, as blocks";
             case "cad-timeline": return "Every version of the design, newest first.";
             case "cad-drawing": return "The design's engineering drawing: views, dimensions, parts list.";
-            case "messages": return "Slack messages land here, with replies Bit drafts for you.";
+            case "messages": return "Slack messages land here, with replies Albie drafts for you.";
             case "screen-left":
             case "screen-right": return "Share a window from Screen Bridge to see it here.";
             default: return "Shows up here once its module is plugged in.";

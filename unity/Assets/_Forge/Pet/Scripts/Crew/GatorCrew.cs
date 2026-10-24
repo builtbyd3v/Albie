@@ -448,7 +448,7 @@ namespace Forge.Pet
             {
                 if (!on) return;
                 tag = lead.gameObject.AddComponent<GatorNameTag>();
-                tag.Set("Bit", new Color(0.3f, 0.78f, 0.42f));
+                tag.Set("Albie", new Color(0.3f, 0.78f, 0.42f));
             }
             tag.Show(on);
         }

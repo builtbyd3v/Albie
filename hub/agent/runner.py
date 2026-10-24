@@ -75,7 +75,7 @@ KIT_FORGE_TOOLS: dict[str, tuple[str, ...]] = {"cad": ("cad_",)}
 PARTIAL_MIN_INTERVAL_S = 0.15
 
 PERSONA = (
-    "You are Bit, a small, cute, competent gator pet living in a developer's XR workspace. "
+    "You are Albie, a small, cute, competent gator pet living in a developer's XR workspace. "
     "Your reply is spoken aloud and shown in a speech bubble."
 )
 QA_PROMPT = (
@@ -112,8 +112,8 @@ def _model() -> str:
 
 def crew_prompt(agent: AgentType, mode: ConcreteMode) -> str:
     return (
-        f"You are {agent.name}, a small gator on Bit's crew in a developer's XR workspace; your job: {agent.role}. "
-        f"{agent.persona} Your reply is shown in a speech bubble above you and may be read aloud by Bit."
+        f"You are {agent.name}, a small gator on Albie's crew in a developer's XR workspace; your job: {agent.role}. "
+        f"{agent.persona} Your reply is shown in a speech bubble above you and may be read aloud by Albie."
         + (CREW_QA_PROMPT if mode == "qa" else CREW_CODE_PROMPT)
     )
 

@@ -4,14 +4,14 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>
-    /// Small floating name over a gator ("Tester", "Bit"), in its colour with a dark outline so it reads on
+    /// Small floating name over a gator ("Tester", "Albie"), in its colour with a dark outline so it reads on
     /// passthrough, billboarded toward PetUser.Head. Sits just above the body, under the speech bubble (GatorCaption
     /// is 0.35 m up). GatorCrewMember adds one to every crew gator; GatorCrew shows Bit's while a crew exists.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorNameTag : MonoBehaviour
     {
-        [SerializeField] string label = "Bit";
+        [SerializeField] string label = "Albie";
         [SerializeField] Color color = new Color(0.25f, 0.75f, 0.4f);
         [SerializeField, Tooltip("Height above the gator's root (m, before the gator's own scale).")]
         float height = 0.14f;
