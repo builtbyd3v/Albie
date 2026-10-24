@@ -45,10 +45,10 @@ namespace Forge.ML
                 var material = blockMaterial != null ? new Material(blockMaterial) : new Material(Shader.Find("Universal Render Pipeline/Unlit"));
                 colors[i] = TypeColor(layer.type); material.SetColor("_BaseColor",colors[i]); materials[i] = material; go.GetComponent<Renderer>().sharedMaterial = material;
                 float y = 30+i*step;
-                MLUI.Text(root, string.Join("×",layer.in_shape), 190, y, 260, 12, 9);
-                MLUI.Text(root, layer.name+" · "+layer.type, 190, y+12, 260, 15, 12).color = colors[i];
-                MLUI.Text(root, string.Join("×",layer.out_shape), 190, y+27, 260, 12, 9);
-                var hit = MLUI.Rect("Layer hit " + i, root, 180, y, 280, 40).gameObject;
+                MLUI.Text(root, string.Join("×",layer.in_shape), 190, y, 260, 17, 13);
+                MLUI.Text(root, layer.name+" · "+layer.type, 190, y+17, 260, 17, 12).color = colors[i];
+                MLUI.Text(root, string.Join("×",layer.out_shape), 190, y+34, 260, 19, 15);
+                var hit = MLUI.Rect("Layer hit " + i, root, 180, y, 280, 56).gameObject;
                 var image = hit.AddComponent<Image>(); image.color = new Color(0, 0, 0, .001f);
                 var input = hit.AddComponent<MLModelLayerInput>(); input.owner = this; input.layerIndex = i;
             }

@@ -28,7 +28,11 @@ public static class MLSmokeCheck
     }
     static void Check()
     {
-        if (EditorApplication.timeSinceStartup - started < 2) return;
+        if (EditorApplication.timeSinceStartup - started < 8)
+        {
+            var liveGraphs = UnityEngine.Object.FindAnyObjectByType<TrainingDash>();
+            if (liveGraphs == null || liveGraphs.ProbeCount != 16 || liveGraphs.AccuracyEpochCount == 0) return;
+        }
         EditorApplication.update -= Check; SessionState.SetBool(Key, false);
         try
         {
@@ -57,6 +61,39 @@ public static class MLSmokeCheck
             var wall = UnityEngine.Object.FindAnyObjectByType<ResultsWall>();
             var dash = UnityEngine.Object.FindAnyObjectByType<TrainingDash>();
             Require(wall != null && dash != null, "Results and training panels start");
+            Debug.Log($"[ML smoke] Replay={session.UsesGeneratedMocks}, live-graph mock={session.HasReplayLiveGraphs}, epoch={session.EpochIndex}, probes={dash.ProbeCount}, accuracy epochs={dash.AccuracyEpochCount}");
+            Require(dash.ProbeCount == 16 && dash.AccuracyEpochCount > 0, "Training dashboard animates the 16-sample probe strip and class-accuracy heatmap during mock replay");
+            var model = UnityEngine.Object.FindAnyObjectByType<Model3D>();
+            string outputShape = string.Join("×", session.Data.layers[0].out_shape); bool readableShape = false;
+            foreach (var label in model.GetComponent<ForgePanel>().Content.GetComponentsInChildren<TMPro.TMP_Text>(true))
+                if (label.text == outputShape && label.fontSize >= 15) readableShape = true;
+            Require(readableShape, "Model layer output dimensions use readable text");
+            var predictions = new int[session.Data.samples.Length];
+            for (int i = 0; i < predictions.Length; i++) predictions[i] = session.Data.samples[i].pred_idx;
+            float[] classAccuracy = null; session.ClassAccuracyUpdated += (_, values) => classAccuracy = values;
+            session.ApplyEpochPredictions(predictions, Mathf.Max(1, session.EpochIndex + 1));
+            Require(classAccuracy != null && classAccuracy.Length == session.Data.classes.Length, "Per-class accuracy derives from the watched prediction array");
+            session.ApplyReplayEvent(new MLReplayEvent
+            {
+                type = "ml.class_acc", payload = new MLReplayPayload
+                {
+                    run_id = "mock0001", epoch = 1,
+                    per_class = new float?[] { .25f, null, .5f, .75f, 1f, 0f, .1f, .2f, .3f, .4f }
+                }
+            });
+            Require(classAccuracy != null && Mathf.Approximately(classAccuracy[0], .25f) && classAccuracy[1] < 0,
+                "ml.class_acc updates the heatmap and renders null classes as unavailable");
+            var probes = new MLProbeSample[16];
+            for (int i = 0; i < probes.Length; i++) probes[i] = new MLProbeSample
+            {
+                id = session.Data.samples[i].id, pred_idx = session.Data.samples[i].pred_idx,
+                probs = new float[session.Data.classes.Length]
+            };
+            session.ApplyReplayEvent(new MLReplayEvent
+            {
+                type = "ml.probe", payload = new MLReplayPayload { run_id = "mock0001", epoch = 1, samples = probes }
+            });
+            Require(dash.ProbeCount == 16, "ml.probe updates the fixed sample strip");
             var vizPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Forge/ML/Prefabs/VizCard.prefab");
             var regressionPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Forge/ML/Prefabs/RegressionResults.prefab");
             Require(vizPrefab != null && vizPrefab.GetComponent<VizCard>() != null, "VizCard prefab is generated");

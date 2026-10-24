@@ -15,9 +15,20 @@ namespace Forge.ML
     [Serializable] public class MLLayer { public string name, type; public int[] in_shape, out_shape; public int @params; }
     [Serializable] public class MLMetrics { public string run_id; public int epoch, step; public float train_loss, train_acc, val_loss, val_acc, lr; }
     [Serializable] public class MLFixture { public string[] classes; public MLSample[] samples; public MLLayer[] layers; public MLMetrics[] metrics; [NonSerialized] public int[][] confusion; }
+    [Serializable] public class MLProbeSample { public string id; public int label_idx = -1, pred_idx = -1; public float[] probs; public float y_pred; }
+    [Serializable] public class MLProbePayload { public string run_id; public int epoch; public MLProbeSample[] samples; }
+    [Serializable] public class MLClassAccuracyPayload { public string run_id; public int epoch; public float?[] per_class; }
     public class MLRunInfo { public string run_id, status; public int? epochs; }
     // GET /ml/metrics/{run_id}: a finished run's curves, so panels opened after training still show them.
-    public class MLMetricsHistory { public string run_id; public int total_epochs; public MLMetrics[] metrics; public MLReplayPayload overfit; }
+    public class MLMetricsHistory
+    {
+        public string run_id;
+        public int total_epochs;
+        public MLMetrics[] metrics;
+        public MLReplayPayload overfit;
+        public MLClassAccuracyPayload[] class_acc;
+        public MLProbePayload probe;
+    }
 
     // Local presentation state. Starts on the generated mocks; once ForgeNet is Live it loads the hub's dataset,
     // atlas, graph and latest results (LoadFromHub) and follows Core's ml.* events.
@@ -47,6 +58,8 @@ namespace Forge.ML
         public event Action Reloaded;
         public event Action SamplesChanged;
         public event Action<MLMetrics> Metrics;
+        public event Action<int, float[]> ClassAccuracyUpdated;
+        public event Action<MLProbePayload> ProbeUpdated;
         public event Action<int, int> PairSelected;
         public event Action<string, int> RelabelRequested;
         public event Action<string> RemoveRequested;
@@ -58,7 +71,10 @@ namespace Forge.ML
         bool ownsAtlas, loading, reloadQueued;
         string atlasUrl;
         IDisposable epochPreds;
+        IDisposable classAccEvents;
+        IDisposable probeEvents;
         public const int AtlasColumns = 8;
+        public bool HasReplayLiveGraphs => timeline != null && Array.Exists(timeline, e => e != null && (e.type == "ml.class_acc" || e.type == "ml.probe"));
 
         public static MLSession Resolve(MLSession assigned)
         {
@@ -80,6 +96,8 @@ namespace Forge.ML
             ForgeNet.StatusChanged += OnNetStatus;
             // ML_PLAN 7.5 live dot wall; not a Core ForgeEvents type, so subscribed by name.
             epochPreds = ForgeNet.On("ml.epoch_preds", OnLiveEpochPreds);
+            classAccEvents = ForgeNet.On("ml.class_acc", OnLiveClassAccuracy);
+            probeEvents = ForgeNet.On("ml.probe", OnLiveProbe);
         }
         void Start() { if (IsLive) OnNetStatus(ForgeNetStatus.Live); }
         void OnDisable()
@@ -92,6 +110,8 @@ namespace Forge.ML
             ForgeEvents.OnMlGraphReady -= OnLiveGraphReady;
             ForgeNet.StatusChanged -= OnNetStatus;
             epochPreds?.Dispose(); epochPreds = null;
+            classAccEvents?.Dispose(); classAccEvents = null;
+            probeEvents?.Dispose(); probeEvents = null;
         }
         public void EnsureLoaded()
         {
@@ -138,6 +158,9 @@ namespace Forge.ML
                 case "ml.overfit_alert": Overfit = true; OverfitReason = p.reason; Changed?.Invoke(); break;
                 case "ml.sample_updated": ApplySampleUpdate(p.id, p.label_idx, p.removed); break;
                 case "ml.results_ready": Changed?.Invoke(); break;
+                case "ml.epoch_preds": ApplyEpochPredictions(p.pred_idx, p.epoch); break;
+                case "ml.class_acc": ApplyClassAccuracy(new MLClassAccuracyPayload { run_id = p.run_id, epoch = p.epoch, per_class = p.per_class }); break;
+                case "ml.probe": ProbeUpdated?.Invoke(new MLProbePayload { run_id = p.run_id, epoch = p.epoch, samples = p.samples }); Changed?.Invoke(); break;
             }
         }
 
@@ -241,13 +264,54 @@ namespace Forge.ML
         void OnLiveEpochPreds(Newtonsoft.Json.Linq.JToken payload)
         {
             if (!IsLive || !HubData || payload == null || !(payload["pred_idx"] is Newtonsoft.Json.Linq.JArray preds)) return;
-            int n = Mathf.Min(preds.Count, Data.samples.Length);
+            string runId = payload["run_id"]?.ToObject<string>();
+            if (!string.IsNullOrEmpty(runId) && !string.IsNullOrEmpty(RunId) && runId != RunId) return;
+            int epoch = payload["epoch"] != null ? payload["epoch"].ToObject<int>() : Mathf.Max(1, EpochIndex + 1);
+            ApplyEpochPredictions(preds.ToObject<int[]>(), epoch);
+        }
+        void OnLiveClassAccuracy(Newtonsoft.Json.Linq.JToken payload)
+        {
+            if (!IsLive || !HubData || payload == null) return;
+            var accuracy = payload.ToObject<MLClassAccuracyPayload>();
+            if (accuracy == null || !MatchesRun(accuracy.run_id)) return;
+            ApplyClassAccuracy(accuracy);
+        }
+        bool MatchesRun(string runId) => string.IsNullOrEmpty(runId) || string.IsNullOrEmpty(RunId) || runId == RunId;
+        public void ApplyClassAccuracy(MLClassAccuracyPayload payload)
+        {
+            if (payload == null || !MatchesRun(payload.run_id) || Data?.classes == null) return;
+            var values = new float[Data.classes.Length];
+            for (int i = 0; i < values.Length; i++) values[i] = -1f;
+            if (payload.per_class != null)
+                for (int i = 0; i < Mathf.Min(values.Length, payload.per_class.Length); i++)
+                    if (payload.per_class[i].HasValue) values[i] = Mathf.Clamp01(payload.per_class[i].Value);
+            ClassAccuracyUpdated?.Invoke(payload.epoch, values);
+            Changed?.Invoke();
+        }
+        public void ApplyEpochPredictions(int[] predictions, int epoch)
+        {
+            if (predictions == null || Data?.samples == null || Data.classes == null) return;
+            int n = Mathf.Min(predictions.Length, Data.samples.Length);
+            var seen = new int[Data.classes.Length]; var correct = new int[Data.classes.Length];
             for (int i = 0; i < n; i++)
             {
-                var s = Data.samples[i];
-                s.pred_idx = (int)preds[i]; s.probs = null; s.correct = s.pred_idx == s.true_idx;
+                var sample = Data.samples[i]; int predicted = predictions[i];
+                sample.pred_idx = predicted; sample.probs = null; sample.correct = predicted == sample.true_idx;
+                if (sample.removed || sample.true_idx < 0 || sample.true_idx >= seen.Length) continue;
+                seen[sample.true_idx]++;
+                if (sample.correct) correct[sample.true_idx]++;
             }
+            var accuracy = new float[seen.Length];
+            for (int c = 0; c < accuracy.Length; c++) accuracy[c] = seen[c] == 0 ? -1f : correct[c] / (float)seen[c];
+            ClassAccuracyUpdated?.Invoke(epoch, accuracy);
             SamplesChanged?.Invoke(); Changed?.Invoke();
+        }
+        void OnLiveProbe(Newtonsoft.Json.Linq.JToken payload)
+        {
+            if (!IsLive || !HubData || payload == null) return;
+            var probe = payload.ToObject<MLProbePayload>();
+            if (probe == null || !MatchesRun(probe.run_id)) return;
+            ProbeUpdated?.Invoke(probe); Changed?.Invoke();
         }
         void OnLiveResultsReady(global::MlResultsReady ready) { if (IsLive && ready != null) LoadFromHub(ready.runId); }
         void OnLiveGraphReady(global::MlGraphReady _) { if (IsLive) LoadFromHub(RunId); }
@@ -331,7 +395,11 @@ namespace Forge.ML
             atlasMetadata = meta; atlasCells = cells; timeline = null; HubData = true;
             if (results != null) { Done = true; RunStatus = "done"; }
             Debug.Log($"[ML] Loaded {samples.Length} samples from the hub" + (runId != null ? $", results of run {runId}" : ", no results yet"));
-            Reloaded?.Invoke(); SamplesChanged?.Invoke(); Changed?.Invoke();
+            Reloaded?.Invoke();
+            if (history?.class_acc != null)
+                foreach (var classAccuracy in history.class_acc) ApplyClassAccuracy(classAccuracy);
+            if (history?.probe != null) ProbeUpdated?.Invoke(history.probe);
+            SamplesChanged?.Invoke(); Changed?.Invoke();
         }
         void OnLiveMetrics(global::MlMetrics tick)
         {
