@@ -836,7 +836,13 @@ public class Workspace : MonoBehaviour
         new WorkspaceMode
         {
             id = "messages", label = "MSG", color = ForgeTheme.Messages,
-            items = { new WorkspaceItem("messages", "Messages", WorkspaceSlot.Right) },
+            items =
+            {
+                // The Slack panel (conversations, messages, composer) and the "New for you" list beside it
+                // (Messages/Resources/SlackPanel.prefab, MentionsPanel.prefab; ids per section 7).
+                new WorkspaceItem("messages", "Slack", WorkspaceSlot.Main),
+                new WorkspaceItem("messages-mentions", "Mentions", WorkspaceSlot.Left),
+            },
         },
     };
 }

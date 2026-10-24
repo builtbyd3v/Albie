@@ -9,8 +9,9 @@ using UnityEngine.UI;
 /// Send / Cancel. Send -> POST /messages/drafts/{id}/send (the hub posts it under the user's own name);
 /// Cancel -> POST /messages/drafts/{id}/cancel. The card closes itself on notify.sent / notify.draft_cancelled for
 /// its draft, so saying "send it" to Bit (the messages_confirm tool) or a newer draft (reason superseded) dismisses it
-/// too. Spawned and placed by <see cref="DraftPresenter"/>. Buttons are plain uGUI, so mouse (DesktopRig) and
-/// Interaction SDK ray/poke (wired on the ForgePanel prefab) both work.
+/// too. Spawned and placed by <see cref="DraftPresenter"/> only while the Slack panel is closed (open, the draft goes to
+/// its composer instead). Buttons are uGUI Buttons (SlackButton pills), so mouse (DesktopRig) and Interaction SDK
+/// ray/poke (wired on the ForgePanel prefab) both work. Look: the module's translucent slate card inside the graphite frame.
 /// </summary>
 public class DraftCard : MonoBehaviour
 {
@@ -19,7 +20,7 @@ public class DraftCard : MonoBehaviour
     const float LingerSeconds = 0.8f;
     static readonly char[] LineBreaks = { '\n', '\r' };
 
-    [SerializeField] Image sheet;          // translucent background inside the panel (text stays opaque)
+    [SerializeField] ForgeSurface sheet;   // translucent slate card inside the panel (text stays opaque)
     [SerializeField] TMP_Text header;      // "#forge-team" / "DM to Hudson"
     [SerializeField] TMP_Text replying;    // "Replying to Hudson: is the build ready?"
     [SerializeField] TMP_Text body;        // the exact text that will be sent
@@ -56,18 +57,23 @@ public class DraftCard : MonoBehaviour
         Draft = d;
         Closing = false;
         NotifyMessage to = d.replyTo;
-        bool dm = d.channelName == "dm" || d.channelName == "group-dm" || (to != null && to.isDm);
+        // The hub names a DM draft after the person (channels stay bare), so the kind comes from the conversation list
+        // (by channel id) or the message being answered, never from the name.
+        var conversation = SlackStore.Find(d.channel);
+        bool dm = conversation != null ? SlackText.IsDmKind(conversation.kind)
+            : (to != null && to.isDm) || d.channelName == "dm" || d.channelName == "group-dm";
         if (dm)
-            header.text = to != null && !string.IsNullOrEmpty(to.userName) ? $"DM to {to.userName}" : "Direct message";
+            header.text = !string.IsNullOrEmpty(d.channelName) && d.channelName != "dm" && d.channelName != "group-dm" ? $"DM to {d.channelName}"
+                : to != null && !string.IsNullOrEmpty(to.userName) ? $"DM to {to.userName}" : "Direct message";
         else
-            header.text = $"#{d.channelName}";
+            header.text = string.IsNullOrEmpty(d.channelName) ? "Slack" : $"#{d.channelName.TrimStart('#')}";
 
         bool hasReply = to != null && !string.IsNullOrEmpty(to.text);
         replying.gameObject.SetActive(hasReply);
-        if (hasReply) replying.text = $"Replying to {to.userName}: {FirstLine(to.text)}";
+        if (hasReply) replying.text = $"Replying to {SlackText.SenderName(to)}: {FirstLine(to.text)}";
 
         body.text = d.text ?? "";
-        status.text = "";
+        status.text = d.edited ? "Edited by Bit" : "Bit wrote this";
         SetButtons(true);
     }
 

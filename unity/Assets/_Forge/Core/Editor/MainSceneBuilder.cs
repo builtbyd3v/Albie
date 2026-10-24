@@ -34,7 +34,8 @@ public static class MainSceneBuilder
         ("cad-drawing", "Assets/_Forge/CAD/Prefabs/CadDrawingPanel.prefab"),
         ("cad-timeline", "Assets/_Forge/CAD/Prefabs/CadVersionsPanel.prefab"),
         ("screen-main", "Assets/_Forge/Screens/ScreenForgePanel.prefab"),
-        ("messages", "Assets/_Forge/Messages/Resources/MessagesPanel.prefab"),
+        ("messages", "Assets/_Forge/Messages/Resources/SlackPanel.prefab"),
+        ("messages-mentions", "Assets/_Forge/Messages/Resources/MentionsPanel.prefab"),
         // ML panels (all ForgePanel variants), from Forge > ML > Build Prefabs and Sandbox.
         ("ml-training", "Assets/_Forge/ML/Resources/MLPanels/TrainingDash.prefab"),
         ("ml-datastack", "Assets/_Forge/ML/Resources/MLPanels/DataStack.prefab"),
