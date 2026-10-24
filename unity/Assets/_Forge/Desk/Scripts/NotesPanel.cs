@@ -33,13 +33,13 @@ public class NotesPanel : MonoBehaviour
     GameObject emptyState, toast;
     TMP_Text emptyCaption, hint, toastText;
     NotesUpdated notes;
-    string assistant = "Bit", toastFor;
+    string assistant = "Albie", toastFor;
     float toastUntil, agesAt;
     bool built;
 
     public void Bind(DeskExtras owner)
     {
-        assistant = owner != null && !string.IsNullOrEmpty(owner.assistantName) ? owner.assistantName : "Bit";
+        assistant = owner != null && !string.IsNullOrEmpty(owner.assistantName) ? owner.assistantName : "Albie";
         Build();
         hint.text = $"Ask {assistant} to add a note";
         emptyCaption.text = $"Ask {assistant} to write something down.";

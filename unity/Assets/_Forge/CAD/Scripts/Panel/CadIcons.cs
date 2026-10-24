@@ -2,12 +2,12 @@ using UnityEngine;
 
 /// <summary>
 /// The design panel's icons, ported from the boards' 24-unit SVGs (stroked, round caps and joins): the design glyphs
-/// (rocket, drone, gears, box), the footer's (undo, expand, back, explode, assemble, play, stop), the title's chevron
+/// (rocket, drone, gears, robot, box), the footer's (undo, expand, back, explode, assemble, play, stop), the title's chevron
 /// and the banner's warning. Each draws into a <see cref="CadShape"/> at (x, y), <paramref name="size"/> mm square.
 /// </summary>
 public static class CadIcons
 {
-    /// <summary>The design's glyph by its hub name (rocket | drone | gears | box); anything else is a box.</summary>
+    /// <summary>The design's glyph by its hub name (rocket | drone | gears | robot | box); anything else is a box.</summary>
     public static void Glyph(CadShape s, string glyph, float x, float y, float size, Color c)
     {
         float k = size / 24f, w = 1.8f * k;
@@ -35,6 +35,15 @@ public static class CadIcons
                     .M(4.3f, 8.3f).L(5.4f, 9.4f).M(12.6f, 16.6f).L(13.7f, 17.7f).M(4.3f, 17.7f).L(5.4f, 16.6f).M(12.6f, 9.4f).L(13.7f, 8.3f)
                     .Circle(18f, 6f, 2.6f)
                     .M(18f, 2.2f).L(18f, 3.4f).M(18f, 8.6f).L(18f, 9.8f).M(14.2f, 6f).L(15.4f, 6f).M(20.6f, 6f).L(21.8f, 6f)
+                    .Stroke(w, c);
+                break;
+            case "robot":
+            case "humanoid":
+                s.Begin().RoundRect(9f, 2f, 6f, 5f, 1.8f).M(10.6f, 4.6f).L(13.4f, 4.6f)
+                    .M(12f, 7f).L(12f, 8.4f)
+                    .RoundRect(7.6f, 8.4f, 8.8f, 7f, 1.6f)
+                    .M(7.6f, 9.6f).L(4.6f, 14.6f).M(16.4f, 9.6f).L(19.4f, 14.6f)
+                    .M(10.2f, 15.4f).L(9.4f, 21.4f).L(7.6f, 21.4f).M(13.8f, 15.4f).L(14.6f, 21.4f).L(16.4f, 21.4f)
                     .Stroke(w, c);
                 break;
             default:

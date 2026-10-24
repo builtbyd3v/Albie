@@ -47,11 +47,11 @@ public class MoviePanel : MonoBehaviour
     int cue = -1, shownSecond = -1, seekRev = int.MinValue;
     bool prepared, showSubtitles, speaking;
     float reportAt, controlsShown;
-    string assistant = "Bit";
+    string assistant = "Albie";
 
     public void Bind(DeskExtras owner)
     {
-        assistant = owner != null && !string.IsNullOrEmpty(owner.assistantName) ? owner.assistantName : "Bit";
+        assistant = owner != null && !string.IsNullOrEmpty(owner.assistantName) ? owner.assistantName : "Albie";
         if (duckText != null) duckText.text = $"Quieter while {assistant} talks";
     }
 

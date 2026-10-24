@@ -164,4 +164,4 @@ MonoBehaviour:
   moviePrefab: {fileID: 4518143668574369261, guid: a1326720613a77e4d8524c50d40016a3, type: 3}
   orbPrefab: {fileID: 8755594479428941228, guid: f31f0b975a9c47744bdb6005c044a012, type: 3}
   chime: {fileID: 2998176582843699717}
-  assistantName: Bit
+  assistantName: Albie

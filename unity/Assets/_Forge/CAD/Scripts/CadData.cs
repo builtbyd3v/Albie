@@ -204,6 +204,38 @@ public class CadFlightSample
     [JsonProperty("speed_mps")] public float speedMps;
 }
 
+/// <summary>
+/// GET /cad/motion (mock motion.json): a keyframed demo, the humanoid's Walk. Model frame (CAD_PLAN section 5). Each joint
+/// is a GLB assembly node that turns about origin + dir by angles_deg[i] at sample i, relative to the version's pose
+/// (right-hand rule in glTF, like spin's rpm); root is where the whole model is at sample i: rot * p + pos.
+/// </summary>
+public class CadMotion
+{
+    [JsonProperty("rate_hz")] public float rateHz;
+    [JsonProperty("loop")] public bool loop;
+    [JsonProperty("samples")] public int samples;
+    [JsonProperty("duration_s")] public float durationS;
+    [JsonProperty("joints")] public List<CadMotionJoint> joints = new List<CadMotionJoint>();
+    [JsonProperty("root")] public CadMotionRoot root;                 // null: the model stays put
+    [JsonProperty("centre")] public float[] centre;                   // the point the path goes round, if any
+    [JsonProperty("values")] public Dictionary<string, float> values = new Dictionary<string, float>();  // radius_mm, lap_s
+    [JsonProperty("tracks")] public Dictionary<string, float[]> tracks = new Dictionary<string, float[]>(); // load_pct
+}
+
+public class CadMotionJoint
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("origin")] public float[] origin;
+    [JsonProperty("dir")] public float[] dir;
+    [JsonProperty("angles_deg")] public float[] anglesDeg;
+}
+
+public class CadMotionRoot
+{
+    [JsonProperty("pos")] public List<float[]> pos = new List<float[]>();   // metres
+    [JsonProperty("rot")] public List<float[]> rot = new List<float[]>();   // x, y, z, w
+}
+
 public class CadEnvelope<T>
 {
     [JsonProperty("type")] public string type;
@@ -226,15 +258,18 @@ public class CadUpdate
 /// </summary>
 public struct CadDemoFrame
 {
-    public string kind;               // launch | hover | spin
+    public string kind;               // launch | hover | spin | walk
     public string phase;              // launch: the last flight event passed (Liftoff, Off the rail, Burnout, Apogee,
                                       // Parachute, Landing); hover: Spooling up, Lifting off, Hovering, Landing,
-                                      // Spooling down; spin: Starting, Running, Stopping
-    public float timeS;               // launch: flight time (sim seconds); hover / spin: seconds since it started
+                                      // Spooling down; spin: Starting, Running, Stopping; walk: Stepping out,
+                                      // Walking, Stepping back
+    public float timeS;               // launch: flight time (sim seconds); hover / spin: seconds since it started;
+                                      // walk: seconds into the lap
     public float altitudeM;           // launch: altitude (m); hover: height above its base in the room (m); spin: 0
-    public float speedMps;            // launch: speed (m/s); otherwise 0
-    public float progress;            // launch: share of the flight flown; hover / spin: how spun up (0..1)
+    public float speedMps;            // launch: speed (m/s); walk: walking speed (m/s, real); otherwise 0
+    public float progress;            // launch: share of the flight flown; hover / spin: how spun up; walk: share of the lap
+    public float load;                // walk: how hard the hardest-working joint works now, % of its rating
     public float playback;            // launch: how much faster than real time it plays (1, then 8 on the way down)
     public float countdownS;          // launch: seconds left in the countdown (0 once it's off the pad)
-    public List<CadMetric> readouts;  // hover / spin: the design's demo.readouts (fixed per version); launch: null
+    public List<CadMetric> readouts;  // hover / spin / walk: the design's demo.readouts (fixed per version); launch: null
 }

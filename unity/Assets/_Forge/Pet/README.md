@@ -1,8 +1,8 @@
-# Pet module (Bit, the gator)
+# Pet module (Albie, the gator)
 
-Bit lives in **Main.unity** through one prefab: `Prefabs/PetRuntime.prefab`. Core's `MainSceneBuilder` instantiates it by
+Albie lives in **Main.unity** through one prefab: `Prefabs/PetRuntime.prefab`. Core's `MainSceneBuilder` instantiates it by
 that path (a contract), so nothing pet-related is set up by hand in Main. The sandbox scenes (`Scenes/PetSandbox.unity`,
-`Scenes/PetSandboxXR.unity`) are for working on Bit in isolation; `PetMain.unity` (a stale copy of Main) is gone.
+`Scenes/PetSandboxXR.unity`) are for working on Albie in isolation; `PetMain.unity` (a stale copy of Main) is gone.
 Specs: `PROJECT_CONTEXT.md` 8.6 / 8.7 / 8.8, `docs/PET_AGENT_CONTRACT.md`, test guide `docs/PET_TESTING.md`.
 
 ## What is in PetRuntime.prefab
@@ -20,38 +20,38 @@ PetRuntime
 └─ ArrivalDirector       (root) the desk choreography below
 ```
 
-## How Bit behaves in Main
+## How Albie behaves in Main
 
 * **Desk.** `GatorMrukAdapter` builds the desk NavMesh from **`DeskPresence.Table`**, the table the user actually walked up
   to (re-built when it changes); `DeskLocator.Desk` only stands in until then. Without a `DeskPresence` (sandbox XR) it
   falls back to the locator / nearest table and hops by itself, as before. The desk keep-out covers the laptop + `DeskDock`
-  area and, while the Messages cards float beside Bit, `MessagesDeskZone.Footprint`.
+  area and, while the Messages cards float beside Albie, `MessagesDeskZone.Footprint`.
 * **Arrival** (`ArrivalDirector`, one `[Arrival]` log line per step, every step is an inspector toggle):
   Near / Seated → hop onto the desk (2.5 s landing cap). **First arrival of the session**: the dock is held back
-  (`Workspace.HoldDock`), Bit walks to the greeting spot (`greetingSpot`, desk frame: in front of the seated user, a little
+  (`Workspace.HoldDock`), Albie walks to the greeting spot (`greetingSpot`, desk frame: in front of the seated user, a little
   to their left, nudged out of the dock keep-out) and faces them (`GatorController.StationAt`, plain Wandering, not
   Listening) → `POST /messages/digest` (`DigestTrigger.RequestDigest`, 3 s hub wait, 5 s reply cap) → the **greeting card**
   shows the digest `line` ("You have 3 new messages, 1 mentions you." / "You have no new messages today." / "Hub offline."
   when the hub never came up; it is swapped in if the hub connects later) with the **START ring** to its right. The hub
   speaks the same line. No timeout: the card stays until START or Away. START → card + ring fold (`ArrivalGreeting.Fold`),
-  the dock comes in (frame slides in from the right, rings plop on), Bit walks to `afterStartSpot` (his side of the desk,
+  the dock comes in (frame slides in from the right, rings plop on), Albie walks to `afterStartSpot` (his side of the desk,
   `GatorController.WanderTo`), and after the dock has landed `Workspace.Open("code")` (falls back to `"screens"`).
-  Later arrivals: just the hop; the dock shows on Near as Core does. Away → cancel, fold, release the hold; Bit hops down
+  Later arrivals: just the hop; the dock shows on Near as Core does. Away → cancel, fold, release the hold; Albie hops down
   and follows (or wanders off: `followOnAway`). The greeting re-arms after `rearmAwaySeconds` (120 s) Away; a short step
   away or walking round the desk doesn't replay it. It also sends `workspace.mode {pet_id, mode}` on
   `Workspace.modeChanged` and after every (re)connect (`""` when closed).
-* **Listening is explicit.** Bit goes `Listening` only for a turn he opened (push-to-talk, hands-free, the whistle, "Hey
-  Bit") or an explicit `pet.state listening` from the hub; `stt.*` transcripts alone don't change his state (the always-on
+* **Listening is explicit.** Albie goes `Listening` only for a turn he opened (push-to-talk, hands-free, the whistle, "Hey
+  Albie") or an explicit `pet.state listening` from the hub; `stt.*` transcripts alone don't change his state (the always-on
   `WakeListener` streams every speech segment, and the hub now sends no `pet.state` for wake segments until one is for a
   gator, and none for an empty final). A stopped turn whose `stt.final` never comes times out after 6 s
   (`PushToTalk.finalTimeout`) instead of leaving him staring. On the desk, Wandering stops facing the user once the first
   trip after a hop starts, so he fidgets and wanders instead of standing frozen.
 * **Voice** (live hub only, no mock mode outside the sandboxes): `WakeListener` keeps the mic on and streams wake turns
   (`stt.start {wake: true}`, the hub decides by name / look-to-talk); `GatorFollowUp` keeps listening after an answer;
-  `GatorSummon` (whistle) brings Bit over and opens a hands-free turn; `PushToTalk` (Space / controller primary) is the
+  `GatorSummon` (whistle) brings Albie over and opens a hands-free turn; `PushToTalk` (Space / controller primary) is the
   session manager with `HubSpeechToText`. The typed text box is sandbox-only.
 * **Crew** is gated to the code screen: the egg and the N / X keys work while the `code` mode is open; when it closes
-  the crew stays on the desk, keeps its antics, but its bubbles are muted (`GatorCaption.Muted`). Bit is never muted and
+  the crew stays on the desk, keeps its antics, but its bubbles are muted (`GatorCaption.Muted`). Albie is never muted and
   the hub's `crew.spawn` / `crew.dismiss` are not gated.
 * **`pet.state` with `target_panel`** (`screen-main`, `cad-viewer`, `messages`, ...): Thinking / Working walk or hop to
   the desk spot in front of that open panel (beside a volume such as the rocket, under / nearest a floating panel),
@@ -67,7 +67,7 @@ PetRuntime
 
 1. **Forge ▸ Pet ▸ Build All** — material, animator, `GatorAssistant.prefab`, both sandbox scenes, and (last)
    `PetRuntime.prefab`. Console ends with `[GatorSetup] BuildAll summary: ... RESULT: OK`.
-2. **Forge ▸ Pet ▸ 8. Build PetRuntime Prefab** — rebuilds just the runtime prefab (after changing what Bit carries).
+2. **Forge ▸ Pet ▸ 8. Build PetRuntime Prefab** — rebuilds just the runtime prefab (after changing what Albie carries).
 3. **Forge ▸ Messages ▸ Build Prefabs** — the Messages panel / card prefabs the digest uses.
 4. **Forge ▸ Build Main Scene** (Core) — instantiates `Prefabs/PetRuntime.prefab`.
 

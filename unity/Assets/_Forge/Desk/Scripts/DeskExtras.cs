@@ -15,7 +15,7 @@ public class DeskExtras : MonoBehaviour
     public PanelOrb orbPrefab;
     public DeskChime chime;
     [Tooltip("What the panels call the pet (\"Ask Bit to add a note\"). Rename the pet here.")]
-    public string assistantName = "Bit";
+    public string assistantName = "Albie";
 
     UiWidgets widgets = new UiWidgets();
     TimersUpdated timers = new TimersUpdated();

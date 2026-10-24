@@ -4,13 +4,20 @@ Unity streams each speech segment it hears as a normal turn marked ``stt.start {
 held back (no stt.*, no pet.state for room chatter) until we know who it is for; the gator's ``pet.state listening``
 goes out only when a segment turns out to be a request for it:
 
-    "Hey Bit, what's in ws.py?"     -> Bit answers (voice: Grok responds to the turn; else agent.ask)
+    "Hey Albie, what's in ws.py?"   -> Albie answers (voice: Grok responds to the turn; else agent.ask)
     "Tester, run the hub tests"     -> crew.assign("tester", "run the hub tests") (hatches the tester if needed)
     "Hey Scout"                     -> wake.listen {pet_id: "scout"}: the next segment goes to the Scout, no name needed
     "...a bit later we can eat"     -> nobody: dropped (deleted from the voice conversation)
+    "open the ML panel" + facing    -> Albie answers: looking at him counts as his name
+    "I don't know, bruh." + facing  -> dropped: agent/addressed.py word rules (talk to a person, fragments, filler)
+
+An unnamed turn is answered only when the user faced Albie at speech onset (stt.start {facing: true}). A gated
+turn (begin(gated=True): Unity's follow-up window while looking elsewhere, stt.start {require_name: true}) and
+any other unnamed turn are dropped: every sentence says "Albie" unless you look at him (Dev, 2026-10-24).
 
 A name counts when it opens the sentence (after an optional "hey / ok / hi / yo"), or closes it after a comma
-("thanks, Bit"), so "wait a bit" never wakes Bit. ``stt.start {wake: true, pet_id}`` after a wake.listen names
+("thanks, Albie"), so "wait a bit" never wakes Albie. The lead's name is said "AL-bee"; at the start it may also
+come back as two words ("Al bee, ..."). ``stt.start {wake: true, pet_id}`` after a wake.listen names
 the target up front and needs no name.
 """
 
@@ -22,20 +29,43 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from . import addressed
 from . import events as ev
 from .crew import TYPES, crew
 
 log = logging.getLogger(__name__)
 
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so"}
-# Common mis-hearings, per pet id ("bit" = the lead). Keep these unambiguous English-wise.
+# Common mis-hearings, per pet id ("bit" = the lead, spoken name Albie). Keep these unambiguous English-wise.
+# A name only counts at the start of a sentence (after a greeting) or after a comma, so "Scott" here means a
+# sentence addressed to someone called Scott goes to the Scout; drop an alias if that bites in your room.
 ALIASES: dict[str, set[str]] = {
-    "bit": {"bit", "bitt", "bitty", "bits"},
-    "fixer": {"fixer", "fixa", "fixor"},
-    "scribe": {"scribe", "scribes"},
-    "shipper": {"shipper", "skipper"},
-    "sentinel": {"sentinel", "centinel"},
+    "bit": {"albie", "albee", "alby", "albi", "elbie", "abby"},  # "abby", "albi": live grok-transcribe for "Albie"
+    "scout": {"scout", "scouts", "scott", "scoot", "skout"},
+    "builder": {"builder", "builders", "bilder"},
+    "fixer": {"fixer", "fixers", "fixa", "fixor", "fisher"},
+    "tester": {"tester", "testers", "testa", "tessa"},
+    "reviewer": {"reviewer", "reviewers", "reviewa"},
+    "scribe": {"scribe", "scribes", "scribed", "scribble"},
+    "shipper": {"shipper", "shippers", "skipper", "chipper"},
+    "designer": {"designer", "designers", "designa"},
+    "sentinel": {"sentinel", "sentinels", "centinel", "sentinal"},
 }
+# "Albie" transcribed as two words ("Al bee", "al be", "al b"): only where a name may open the sentence.
+SPLIT_FIRST, SPLIT_SECOND = "al", {"bee", "be", "b"}
+# "-er" names the transcriber splits in two ("Fix her, run the tests"). Folded back into one word only where a
+# name can stand: opening the sentence (after a greeting) and set off by punctuation, or closing it after a comma,
+# so "Albie, test her code" keeps its words.
+JOINED: dict[str, str] = {"build her": "builder", "fix her": "fixer", "test her": "tester",
+                          "review her": "reviewer", "ship her": "shipper", "design her": "designer"}
+_JOINED_ALT = "|".join(re.escape(k) for k in JOINED)
+_JOINED_OPEN = re.compile(r"^(\W*(?:" + "|".join(GREETINGS) + r")\s+){0,2}(" + _JOINED_ALT + r")(?=\s*(?:[,.!?;:]|$))", re.I)
+_JOINED_CLOSE = re.compile(r"(?<=,)(\s*)(" + _JOINED_ALT + r")(\W*)$", re.I)
+
+
+def _fold(text: str) -> str:
+    text = _JOINED_OPEN.sub(lambda m: (m.group(1) or "") + JOINED[m.group(2).lower()], text, count=1)
+    return _JOINED_CLOSE.sub(lambda m: m.group(1) + JOINED[m.group(2).lower()] + m.group(3), text, count=1)
 _WORD = re.compile(r"[A-Za-z']+")
 _LEADING = re.compile(r"^[\s,.!?;:\-]+")
 
@@ -53,13 +83,16 @@ def _alias_map(lead_pet_id: str) -> dict[str, str]:
 def parse(text: str, lead_pet_id: str = "bit") -> tuple[str | None, str]:
     """(pet_id the sentence is addressed to or None, the rest of the sentence without the name)."""
     names = _alias_map(lead_pet_id)
+    text = _fold(text)
     words = list(_WORD.finditer(text))
     i = 0
     while i < len(words) - 1 and i < 2 and words[i].group().lower() in GREETINGS:
         i += 1
     if i < len(words) and words[i].group().lower() in names:
         return names[words[i].group().lower()], _LEADING.sub("", text[words[i].end():]).strip()
-    if len(words) >= 2:  # vocative at the end: "..., Bit?"
+    if i + 1 < len(words) and words[i].group().lower() == SPLIT_FIRST and words[i + 1].group().lower() in SPLIT_SECOND:
+        return lead_pet_id, _LEADING.sub("", text[words[i + 1].end():]).strip()
+    if len(words) >= 2:  # vocative at the end: "..., Albie?"
         last = words[-1]
         if last.group().lower() in names and text[:last.start()].rstrip().endswith(","):
             return names[last.group().lower()], text[:last.start()].rstrip().rstrip(",").strip()
@@ -86,34 +119,66 @@ class WakeRouter:
         self._send_owner = send_owner  # owner socket only
         self._spawn = spawn  # fire-and-forget on the socket's task set
         self.target: str | None = None  # from stt.start {wake, pet_id}: addressed up front
+        self.facing = False  # from stt.start {wake, facing}: user faced the lead at speech onset
+        self.gated = False  # a look-to-talk / follow-up reply (stt.start {require_name}): needs the name
+        # Was an unnamed sentence said to the lead? The voice session sets one with his last line as context.
+        self.judge: Callable[[str, bool], Awaitable[bool]] = lambda text, gated: addressed.judge(text, gated=gated)
+        self.judged: bool | None = None  # last final's verdict (None = no judge call), for the turn: log line
 
-    def begin(self, target: str | None) -> None:
+    def begin(self, target: str | None, facing: bool = False, gated: bool = False) -> None:
         self.target = target or None
+        self.facing, self.gated = facing, gated
 
-    def _who(self, text: str) -> tuple[str | None, str]:
+    def crew_target(self, text: str) -> str | None:
+        """The crew gator a non-wake turn (push-to-talk, hands-free, Bit's follow-up window) is really for, if any.
+        Stricter than a wake turn: the name must be greeted ("Hey Tester ...") or set off ("Tester, ..."), so a
+        question to Bit that merely starts with a type name ("builder pattern?") stays Bit's."""
+        pid, _ = parse(text, self.lead)
+        if pid is None or pid == self.lead:
+            return None
+        names = _alias_map(self.lead)
+        text = _fold(text)
+        words = list(_WORD.finditer(text))
+        first = next((w for w in words[:3] if names.get(w.group().lower()) == pid), None)
+        if first is None or first is not words[0]:
+            return pid  # greeted, or the "..., Tester" vocative (parse already required the comma)
+        after = text[first.end():].lstrip()
+        return pid if not after or after[0] in ",.!?;:" else None
+
+    def _who(self, text: str, target: str | None) -> tuple[str | None, str]:
         pid, rest = parse(text, self.lead)
-        if pid is None and self.target is not None:
-            return self.target, text.strip()
+        if pid is None and target is not None:
+            return target, text.strip()
         return pid, rest
 
     async def partial(self, text: str) -> None:
-        pid, _ = self._who(text)
+        pid, _ = self._who(text, self.target)
         if pid is not None:  # addressed: now the gator may show what it's hearing
             await self._emit_for(pid)(ev.stt_partial(pid, text))
 
-    async def final(self, text: str) -> Decision:
-        pid, rest = self._who(text)
-        self.target = None
+    async def final(self, text: str, flags: tuple[str | None, bool, bool] | None = None) -> Decision:
+        """flags: (target, facing, gated) of an earlier turn whose transcript arrived late (voice.py); None = this
+        turn's, which are then reset."""
+        target, facing, gated = flags if flags is not None else (self.target, self.facing, self.gated)
+        if flags is None:
+            self.target, self.facing, self.gated = None, False, False
+        pid, rest = self._who(text, target)
+        ask = pid is None and (facing or gated) and bool(text.strip())
+        self.judged = None
+        if ask:
+            self.judged = await self.judge(text, gated)
+            if self.judged:
+                pid, rest = self.lead, text.strip()
         if pid is None:
             if text.strip():
                 log.debug("wake: nobody addressed in %r", text)
             return Decision(None, text, False)
         log.info("wake: %r -> %s", text, pid)
         if pid == self.lead:
-            if not rest:  # just "Hey Bit": open a hands-free turn on the Unity side
+            if not rest:  # just "Hey Albie": open a hands-free turn on the Unity side
                 await self._send_owner(ev.wake_listen(pid))
                 return Decision(pid, rest, False)
-            # Decided: this segment is for Bit. Only now does he look like he is listening (the stt.* events of a
+            # Decided: this segment is for Albie. Only now does he look like he is listening (the stt.* events of a
             # wake turn carry no pet.state companion, see ws.py), and thinking follows right behind.
             await self._emit_for(pid)(ev.pet_state(pid, "listening"))
             await self._emit_for(pid)(ev.stt_final(pid, text, voice=True))

@@ -5,7 +5,7 @@ using UnityEngine.EventSystems;
 
 /// <summary>
 /// One Slack message on a translucent slate card (MessageCard.prefab, pooled by its owners; 1 canvas unit = 1 mm).
-/// Two styles: <see cref="Style.Inbox"/> (Mentions panel, the floating digest copy): initials bubble, name + channel,
+/// Two styles: <see cref="Style.Inbox"/> (Mentions panel): initials bubble, name + channel,
 /// relative time, up to two lines of text; hover lifts it 1 cm toward the viewer and makes it opaque; click opens the
 /// conversation. <see cref="Style.Thread"/> (the Slack panel's message list): bubble, name, time, the whole text,
 /// "N replies" when the hub reports a thread, the user's own rows tinted. Mentions of the user get a thin accent strip.

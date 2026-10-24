@@ -41,7 +41,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent.events import MessagesFocus
+from agent.events import DISPLAY_NAME, MessagesFocus
 from events import (ChannelSummary, Draft, EventBus, NotifyChannels, NotifyDigest, NotifyDraftCancelled, NotifySent,
                     SlackMessage)
 
@@ -595,7 +595,7 @@ class SlackService:
         if self.as_user and self.user_id:
             u = await self.user(self.user_id)
             return {"user_id": self.user_id, "name": self.user_name or u.name or self.user_id, "display_name": u.label}
-        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": "Bit"}
+        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": DISPLAY_NAME}
 
     # ------------------------------------------------------------------ inbound
     def accepts(self, event: dict[str, Any], live: bool = True) -> bool:
@@ -742,7 +742,7 @@ class SlackService:
             person = await self.find_user(value)
             if person is not None:
                 return await self.dm_with(person.id)
-        who = "you are" if self.as_user else "Bit is"
+        who = "you are" if self.as_user else f"{DISPLAY_NAME} is"
         raise LookupError(f"No Slack channel named #{name} (is it one {who} in?) and nobody called {value.lstrip('#')!r}")
 
     async def dm_with(self, user_id: str) -> str:

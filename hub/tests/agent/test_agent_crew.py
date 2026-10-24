@@ -183,10 +183,12 @@ def test_crew_options_follow_the_kit(tmp_path: Path) -> None:
     reviewer = runner._options(_project(tmp_path), "qa", "reviewer", TYPES["reviewer"])
     assert "Bash" in reviewer.tools and "Bash(git diff:*)" in reviewer.allowed_tools
     assert "Edit" not in reviewer.tools and "You are Reviewer" in reviewer.system_prompt
+    assert "Bash" not in reviewer.allowed_tools  # only the git read commands, not every shell command
     assert "mcp__forge__spawn_agent" not in reviewer.allowed_tools
 
     scribe = runner._options(_project(tmp_path), "code", "scribe", TYPES["scribe"], cwd=tmp_path / "wt")
-    assert scribe.tools == runner.DOCS_TOOLS and scribe.cwd == str(tmp_path / "wt")
+    assert scribe.tools == runner.DOCS_TOOLS + ["Bash"] and scribe.cwd == str(tmp_path / "wt")
+    assert "Bash(git commit:*)" in scribe.allowed_tools and "Bash" not in scribe.allowed_tools
     assert "Bash(git worktree:*)" in scribe.disallowed_tools
 
     bit = runner._options(_project(tmp_path), "qa", "bit")
@@ -228,7 +230,7 @@ def test_create_task_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     for args in (["init", "-q"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True)
     monkeypatch.delenv("AGENT_WORKTREE_DIR", raising=False)
-    path, branch = runner.create_task_worktree(repo, "Add a test for greet", "abcdef12", "tester")
+    path, branch, _ = runner.create_task_worktree(repo, "Add a test for greet", "abcdef12", "tester")
     assert branch == "pet/tester/add-a-test-for-greet-abcdef"
     assert path == tmp_path / "repo-crew" / "tester-abcdef" and (path / ".git").exists()
     head = subprocess.run(["git", "-C", str(repo), "branch", "--show-current"], capture_output=True, text=True)

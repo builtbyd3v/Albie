@@ -54,7 +54,7 @@ namespace Forge.Pet
         float hideAt = -1f;
         bool built, muted;
 
-        /// <summary>Muted: SetText shows nothing (crew gators while the code mode is closed). Bit is never muted.</summary>
+        /// <summary>Muted: SetText shows nothing (crew gators while the code mode is closed; Bit while the arrival card is up).</summary>
         public bool Muted
         {
             get => muted;

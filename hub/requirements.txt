@@ -7,6 +7,7 @@ build123d==0.13.0
 rocketpy==1.13.0  # flight sim (GET /cad/flight); also cross-checks our Barrowman math in tests
 matplotlib==3.11.2  # engineering drawings (GET /cad/drawing.png); rocketpy pulls it too
 pillow==13.0.0
+scipy==1.18.1  # convex hulls in cad/parts/humanoid.py; rocketpy pulls it too, but we import it directly
 # Agent module (pet: Q&A + coding tasks). The SDK bundles its own Claude Code CLI.
 claude-agent-sdk==0.2.173
 PyYAML==6.0.3
