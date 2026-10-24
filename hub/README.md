@@ -142,6 +142,25 @@ Conversational only for now (no tools, no `delegate`). `VOICE_PROVIDER=fake` spe
 VOICE_PROVIDER=fake FAKE_AGENT=1 .venv/bin/python -m agent
 ```
 
+### Say a gator's name (wake turns)
+
+Unity's `WakeListener` keeps the mic on and sends each speech segment as `stt.start {wake: true}`. `agent/wake.py`
+only answers segments that name a gator ("Hey Bit, ...", "Tester, run the tests"); a name on its own
+("Hey Scout") comes back as `wake.listen` and that gator takes the next sentence. Anything else is dropped
+without a caption (and deleted from the Grok conversation). In voice mode every segment is transcribed by xAI.
+
+### Crew (extra gators, one per agent type)
+
+The user hatches helper gators in Unity (the egg on the desk, the N key, or "Bit, hatch a tester"). Each one is
+its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.py` `TYPES`): Scout, Builder, Fixer,
+Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Bit leads: Grok and Bit's Claude runner get four
+lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
+`crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
+default `<repo>-crew/`) on `pet/<agent>/<task>` and is committed there, so nobody switches the main checkout's
+branch. When one finishes, Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
+Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
+that member's turn without touching Bit's.
+
 ### Test
 
 ```bash

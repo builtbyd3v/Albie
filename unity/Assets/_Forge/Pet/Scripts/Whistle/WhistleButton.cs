@@ -191,40 +191,11 @@ namespace Forge.Pet
 
         bool TryCornerPose(Vector3 top, Quaternion rot, Vector2 size, Vector3 headPos, out Vector3 pos, out Quaternion r)
         {
-            pos = default; r = Quaternion.identity;
-            float hx = size.x * 0.5f, hz = size.y * 0.5f;
-            if (hx <= 0.01f || hz <= 0.01f) return false;
-            Vector3 l = Quaternion.Inverse(rot) * (headPos - top);
-
-            // Near edge = the side the head is beyond the most (relative to the half extents).
-            Vector3 outward, along;
-            float halfAlong, edgeDist;
-            if (Mathf.Abs(l.z) / hz >= Mathf.Abs(l.x) / hx)
-            { outward = new Vector3(0f, 0f, l.z >= 0f ? 1f : -1f); along = Vector3.right; halfAlong = hx; edgeDist = hz; }
-            else
-            { outward = new Vector3(l.x >= 0f ? 1f : -1f, 0f, 0f); along = Vector3.forward; halfAlong = hz; edgeDist = hx; }
-
-            Vector3 outwardW = rot * outward;
-            Vector3 rightW = Vector3.Cross(Vector3.up, -outwardW);           // the user's right while facing the table
-            if (leftHanded) rightW = -rightW;
-            float side = Vector3.Dot(rot * along, rightW) >= 0f ? 1f : -1f;
-
-            Vector3 local = along * (side * Mathf.Max(0f, halfAlong - cornerInset)) + outward * Mathf.Max(0f, edgeDist - cornerInset);
-            Vector3 tiltAxis = Vector3.Cross(Vector3.up, outwardW);
-            Vector3 up = Quaternion.AngleAxis(tiltDegrees, tiltAxis) * Vector3.up;
-            Vector3 fwd = Vector3.ProjectOnPlane(outwardW, up);
+            if (!DeskCorner.TryPose(top, rot, size, headPos, cornerInset, leftHanded, tiltDegrees, out pos, out r)) return false;
             float lift = _collider.size.y * transform.lossyScale.y * 0.5f
                        + Mathf.Sin(tiltDegrees * Mathf.Deg2Rad) * _collider.size.z * transform.lossyScale.z * 0.5f;
-            pos = top + rot * local + Vector3.up * lift;
-            r = Quaternion.LookRotation(fwd, up);
+            pos += Vector3.up * lift;
             return true;
-        }
-
-        static float HorizontalDistance(Vector3 top, Quaternion rot, Vector2 size, Vector3 p)
-        {
-            Vector3 l = Quaternion.Inverse(rot) * (p - top);
-            float dx = Mathf.Max(0f, Mathf.Abs(l.x) - size.x * 0.5f), dz = Mathf.Max(0f, Mathf.Abs(l.z) - size.y * 0.5f);
-            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         // ---------------------------------------------------------------- per frame
@@ -257,7 +228,7 @@ namespace Forge.Pet
                 top = desk.TopCenter; rot = desk.Rotation; size = desk.Size;
             }
             if (!Placed || _placedFallback) { _placedFallback = false; PlaceOnRect(top, rot, size, head); return; }
-            if (HorizontalDistance(top, rot, size, head.position) > nearTableDistance) return;
+            if (DeskCorner.HorizontalDistance(top, rot, size, head.position) > nearTableDistance) return;
             if (TryCornerPose(top, rot, size, head.position, out Vector3 pos, out Quaternion r)
                 && (pos - transform.position).sqrMagnitude > 0.05f * 0.05f)
                 transform.SetPositionAndRotation(pos, r);

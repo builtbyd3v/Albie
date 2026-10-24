@@ -8,6 +8,8 @@ namespace Forge.Pet
     /// <summary>
     /// Glue between the event source (MockEventSource or AgentClient, picked by pet_config.json)
     /// and the gator body. Implements the event → GatorState table of docs/PET_AGENT_CONTRACT.md.
+    /// Only events for this gator's pet_id are handled (several gators share one socket, see GatorCrew); a crew
+    /// gator uses Bit's source (UseSharedSource) instead of opening its own.
     /// </summary>
     public class GatorAgentBridge : MonoBehaviour
     {
@@ -29,12 +31,16 @@ namespace Forge.Pet
 
         public IPetEventSource Source { get; private set; }
         public PetConfig Config { get; private set; }
+        /// <summary>This gator's pet_id: the config's (Bit) or the crew type id.</summary>
+        public string PetId => _crewPetId ?? (Config != null ? Config.petId : "bit");
         /// <summary>An ask is awaiting its answer or a code task is running.</summary>
         public bool TaskInProgress => _awaitingAnswer || _taskRunning;
 
         ITextToSpeech _tts;
         bool _awaitingAnswer, _taskRunning;
         string _pendingAsk, _pendingMode;
+        string _crewPetId;                   // set for crew gators: events / asks use this pet_id
+        GatorAgentBridge _sharedFrom;        // crew: Bit's bridge, whose Source we borrow (never connect / disconnect it)
         readonly HashSet<string> _unknownLogged = new HashSet<string>();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -49,7 +55,7 @@ namespace Forge.Pet
             if (caption == null) caption = GetComponentInChildren<GatorCaption>(true);
             if (caption == null) caption = FindAnyObjectByType<GatorCaption>();
 
-            _tts = tts as ITextToSpeech;
+            _tts = tts != null ? tts as ITextToSpeech : null;   // Unity null: a crew copy's voice child was removed
             if (_tts == null) _tts = GetComponent<ITextToSpeech>();
             if (_tts == null) _tts = GetComponentInChildren<ITextToSpeech>(true);   // e.g. StreamedPcmTextToSpeech on a "Voice" child
             if (_tts == null) _tts = gameObject.AddComponent<NullTextToSpeech>();
@@ -63,7 +69,25 @@ namespace Forge.Pet
                 controller.IntroComplete += OnIntroComplete;
                 if (playIntroOnStart) controller.SetState(GatorState.Intro);
             }
-            StartCoroutine(PetConfig.LoadAsync(OnConfigLoaded));
+            if (_sharedFrom == null) StartCoroutine(PetConfig.LoadAsync(OnConfigLoaded));
+        }
+
+        /// <summary>Crew gator: use <paramref name="lead"/>'s event source with its own pet_id. Call before Start.</summary>
+        public void UseSharedSource(string petId, GatorAgentBridge lead)
+        {
+            _crewPetId = petId;
+            _sharedFrom = lead;
+            playIntroOnStart = true;
+        }
+
+        // Crew: Bit's source exists once his config has loaded; attach then (polled, cheap).
+        void Update()
+        {
+            if (_sharedFrom == null || Source != null || _sharedFrom.Source == null) return;
+            Config = _sharedFrom.Config;
+            Source = _sharedFrom.Source;
+            Source.EventReceived += OnEvent;
+            if (_pendingAsk != null) { var t = _pendingAsk; _pendingAsk = null; Ask(t, _pendingMode); }
         }
 
         void OnConfigLoaded(PetConfig cfg)
@@ -101,7 +125,7 @@ namespace Forge.Pet
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             if (Source == null) { _pendingAsk = text; _pendingMode = mode; return; } // config still loading
-            string petId = Config.petId;
+            string petId = PetId;
             if (TaskInProgress) Source.Send("agent.cancel", new JObject { ["pet_id"] = petId });
             _taskRunning = false;
             _awaitingAnswer = true;
@@ -116,6 +140,8 @@ namespace Forge.Pet
         void OnEvent(PetEvent e)
         {
             if (e == null || string.IsNullOrEmpty(e.type)) return;
+            string pid = e.GetString("pet_id");
+            if (!string.IsNullOrEmpty(pid) && pid != PetId) return;   // another gator's event
             switch (e.type)
             {
                 case "stt.partial":
@@ -255,7 +281,11 @@ namespace Forge.Pet
         {
             if (controller != null) controller.IntroComplete -= OnIntroComplete;
             if (_tts != null) _tts.SpeechEnded -= OnSpeechEnded;
-            if (Source != null) { Source.EventReceived -= OnEvent; Source.Disconnect(); }
+            if (Source != null)
+            {
+                Source.EventReceived -= OnEvent;
+                if (_sharedFrom == null) Source.Disconnect();   // a crew gator only borrowed Bit's
+            }
         }
     }
 }
