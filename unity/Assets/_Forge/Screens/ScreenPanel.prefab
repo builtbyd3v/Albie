@@ -11,7 +11,9 @@ GameObject:
   - component: {fileID: 9003328638346438366}
   - component: {fileID: 7724059238476127372}
   - component: {fileID: 8075841594417345710}
+  - component: {fileID: 4453276164532535566}
   - component: {fileID: 1744796956966955488}
+  - component: {fileID: 70577364957518561}
   m_Layer: 0
   m_Name: ScreenPanel
   m_TagString: Untagged
@@ -91,6 +93,20 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &4453276164532535566
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7079016336633745783}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f7036b1b59008497ea603c88d9917011, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScreenSurface
+  image: {fileID: 0}
+  fitAspect: 1
 --- !u!114 &1744796956966955488
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -104,5 +120,17 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScreenReceiver
   signalingUrl: ws://localhost:8766
-  target: {fileID: 0}
-  fitAspect: 1
+  jpegFallbackSeconds: 10
+--- !u!114 &70577364957518561
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7079016336633745783}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5fc3fa534016e43b794447bf94e00b01, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::JpegScreenReceiver
+  streamUrl: ws://localhost:8765

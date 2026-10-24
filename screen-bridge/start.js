@@ -1,7 +1,9 @@
-// One command for WebRTC streaming: starts signaling.py, opens Chrome, and shares the VS Code window.
+// One command for screen streaming: starts signaling.py and the JPEG fallback (stream.py), opens Chrome,
+// and shares the VS Code window over WebRTC.
 // No clicks: Chrome auto-picks the capture source named by SCREEN_SOURCE (default: VS Code's front window).
 //   npm start                                  # share VS Code
 //   SCREEN_SOURCE="Entire screen" npm start    # share the whole screen
+// A Quest plugged in over USB is wired up automatically (adb reverse, see below).
 // Ctrl+C stops everything.
 import { execFileSync, spawn } from "node:child_process";
 import { chromium } from "playwright-core";
@@ -22,11 +24,33 @@ function vsCodeWorkspace() {
 
 const source = process.env.SCREEN_SOURCE || vsCodeWorkspace() || "Entire screen";
 
+// Over USB, `adb reverse` makes localhost:<port> on the Quest reach this laptop, so the panel's default
+// ws://localhost:8766 works with no IP to type. Only signaling (TCP) needs it; video goes over Wi-Fi.
+// 8765 is the JPEG fallback, which runs entirely over the cable. Re-run every 5 s to catch a late plug-in.
+const adb = process.env.ADB || "/Applications/Unity/Hub/Editor/6000.6.7f1/PlaybackEngines/AndroidPlayer/SDK/platform-tools/adb";
+let reversed = false;
+function reversePorts() {
+  try {
+    const devices = execFileSync(adb, ["devices"]).toString().split("\n").filter((l) => l.endsWith("\tdevice"));
+    if (devices.length === 0) return (reversed = false);
+    for (const port of ["8766", "8765"]) execFileSync(adb, ["reverse", `tcp:${port}`, `tcp:${port}`]);
+    if (!reversed) console.log(`adb reverse on ${devices[0].split("\t")[0]}: Quest localhost:8766 and :8765 reach this laptop`);
+    reversed = true;
+  } catch {
+    // no adb or no device: Wi-Fi only, set signalingUrl to this laptop's IP
+  }
+}
+reversePorts();
+setInterval(reversePorts, 5000);
+
 const signaling = spawn(`${here}.venv/bin/python`, ["-u", `${here}signaling.py`], { stdio: ["ignore", "pipe", "inherit"] });
-signaling.on("exit", (code) => {
-  console.error(`signaling.py exited (${code}). Is another copy already running on :8766?`);
-  process.exit(1);
-});
+// JPEG fallback server (whole screen, :8765), for Unity's JpegScreenReceiver if WebRTC shows no video.
+const jpeg = spawn(`${here}.venv/bin/python`, ["-u", `${here}stream.py`], { stdio: ["ignore", "inherit", "inherit"] });
+for (const [child, port] of [[signaling, 8766], [jpeg, 8765]])
+  child.on("exit", (code) => {
+    console.error(`A server exited (${code}). Is another copy already running on :${port}?`);
+    process.exit(1);
+  });
 await new Promise((ready) =>
   signaling.stdout.on("data", (line) => {
     process.stdout.write(line);
@@ -63,8 +87,10 @@ setInterval(async () => {
 }, 10000);
 
 process.on("SIGINT", async () => {
-  signaling.removeAllListeners("exit");
-  signaling.kill();
+  for (const child of [signaling, jpeg]) {
+    child.removeAllListeners("exit");
+    child.kill();
+  }
   await browser.close();
   process.exit(0);
 });

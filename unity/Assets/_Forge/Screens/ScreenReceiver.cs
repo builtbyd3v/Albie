@@ -7,7 +7,7 @@ using Unity.WebRTC;
 using UnityEngine;
 
 /// <summary>
-/// Shows a laptop window, streamed over WebRTC by screen-bridge/index.html, on this object's renderer.
+/// Shows a laptop window, streamed over WebRTC by screen-bridge/index.html, on this object's <see cref="ScreenSurface"/>.
 /// Signaling goes through screen-bridge/signaling.py: we send "ready", the page sends an offer,
 /// we reply with an answer. ICE candidates ride inside the SDP, so there are no candidate messages.
 /// </summary>
@@ -16,11 +16,8 @@ public class ScreenReceiver : MonoBehaviour
     [Tooltip("screen-bridge/signaling.py. On the Quest, use the laptop's IP instead of localhost.")]
     public string signalingUrl = "ws://localhost:8766";
 
-    [Tooltip("Renderer that shows the stream. Defaults to this object's renderer.")]
-    public Renderer target;
-
-    [Tooltip("Keep the panel's height and set its width from the stream's aspect ratio.")]
-    public bool fitAspect = true;
+    [Tooltip("No video after this many seconds: switch to a JpegScreenReceiver on this object, if there is one.")]
+    public float jpegFallbackSeconds = 10f;
 
     [Serializable]
     struct Message
@@ -31,11 +28,13 @@ public class ScreenReceiver : MonoBehaviour
 
     ClientWebSocket ws;
     RTCPeerConnection pc;
+    ScreenSurface surface;
     bool destroyed;
 
     async void Start()
     {
-        if (target == null) target = GetComponent<Renderer>();
+        surface = GetComponent<ScreenSurface>();
+        Invoke(nameof(FallBackToJpeg), jpegFallbackSeconds);
         StartCoroutine(WebRTC.Update());
 
         // Reconnect forever, so the panel recovers when signaling.py restarts.
@@ -111,13 +110,18 @@ public class ScreenReceiver : MonoBehaviour
     // Called on the first frame and again whenever the stream changes size.
     void Show(Texture texture)
     {
-        target.material.mainTexture = texture;
-        if (fitAspect)
-        {
-            var s = target.transform.localScale;
-            target.transform.localScale = new Vector3(s.y * texture.width / texture.height, s.y, s.z);
-        }
+        CancelInvoke(nameof(FallBackToJpeg));
+        surface.Show(texture);
         Debug.Log($"[ScreenReceiver] Receiving {texture.width}x{texture.height}");
+    }
+
+    // For the Quest: if WebRTC video fails (for example on Vulkan), the JPEG path still shows the screen.
+    void FallBackToJpeg()
+    {
+        if (!TryGetComponent(out JpegScreenReceiver jpeg)) return;
+        Debug.LogWarning($"[ScreenReceiver] No WebRTC video after {jpegFallbackSeconds} s, switching to JPEG frames");
+        jpeg.enabled = true;
+        Destroy(this);
     }
 
     void OnDestroy()
