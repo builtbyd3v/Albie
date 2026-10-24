@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.InputSystem;
@@ -6,15 +7,16 @@ using UnityEngine.InputSystem;
 namespace Forge.Pet
 {
     /// <summary>
-    /// Small 3D desk button that summons the gator (GatorSummon subscribes to Pressed).
+    /// Small 3D desk button that summons the gator (GatorSummon listens to AnyPressed, so there can be one per table).
     /// Inputs, all ending in Press():
     ///  * Meta Interaction SDK: PokeInteractable / RayInteractable children with an InteractableUnityEventWrapper whose
     ///    WhenSelect → Press(), WhenHover → HoverOn(), WhenUnhover → HoverOff() (wired by Forge/Pet/6. Add Whistle
     ///    To Open Scene). No Meta types here, per docs/PET_AGENT_CONTRACT.md.
     ///  * Mouse: left click raycast from PetUser.HeadCamera (screen centre while the cursor is locked).
     ///  * whistleAction: F, or controller B (right secondaryButton). F is ignored while the typed-STT field is open.
-    /// Places itself at the desk's near edge, to the user's right, once GatorNavSurface.Desk is built; without a desk
-    /// it falls back to 0.3 m right of the gator's spawn.
+    /// Placement: on its table (SetTable, one button per MRUK table via GatorMrukAdapter) or, with no table assigned,
+    /// on GatorNavSurface.Desk; always the near corner on the user's right, re-placed when the user walks up to that
+    /// table from another side. No table and no desk: 0.3 m right of the gator's spawn.
     /// </summary>
     [RequireComponent(typeof(BoxCollider))]
     [DisallowMultipleComponent]
@@ -36,10 +38,10 @@ namespace Forge.Pet
         [Header("Placement")]
         [SerializeField, Tooltip("Place automatically on the desk / next to the gator.")]
         bool autoPlace = true;
-        [SerializeField, Tooltip("Lateral offset (m) to the user's right of the head's projection on the near edge.")]
-        float lateralOffset = 0.45f;
-        [SerializeField, Tooltip("Distance (m) in from the desk's near edge.")]
-        float edgeInset = 0.08f;
+        [SerializeField, Tooltip("Distance (m) in from both edges of the near-right corner.")]
+        float cornerInset = 0.08f;
+        [SerializeField, Tooltip("Re-place (other side of the table) when the head comes within this distance (m) of it.")]
+        float nearTableDistance = 1.2f;
         [SerializeField, Tooltip("Tilt (deg) of the button face toward the user.")]
         float tiltDegrees = 25f;
         [SerializeField, Tooltip("No desk after this many seconds: place next to the gator spawn.")]
@@ -59,8 +61,17 @@ namespace Forge.Pet
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         static readonly int ColorId = Shader.PropertyToID("_Color");
 
+        /// <summary>Raised first on every press (e.g. GatorMrukAdapter makes this button's table the desk).</summary>
+        public event Action<WhistleButton> Pressing;
         public event Action Pressed;
-        public bool PlacedOnDesk { get; private set; }
+        /// <summary>Any button in the scene was pressed (after its Pressing/Pressed).</summary>
+        public static event Action<WhistleButton> AnyPressed;
+        /// <summary>Every enabled button.</summary>
+        public static IReadOnlyList<WhistleButton> All => s_all;
+        public bool Placed { get; private set; }
+        public bool HasTable { get; private set; }
+
+        static readonly List<WhistleButton> s_all = new List<WhistleButton>(8);
 
         BoxCollider _collider;
         TypedSpeechToText _typed;
@@ -68,7 +79,10 @@ namespace Forge.Pet
         Vector3 _visualRest, _baseScale;
         Vector3 _spawnPos, _spawnRight = Vector3.right;
         bool _hasSpawn, _hovered, _placedFallback;
-        float _lastPress = -10f, _pressedUntil = -1f, _startTime;
+        float _lastPress = -10f, _pressedUntil = -1f, _startTime, _nextPlaceCheck;
+        Vector3 _tableTop;
+        Quaternion _tableRot = Quaternion.identity;
+        Vector2 _tableSize;
         Visual _visual = Visual.Idle;
 
         void Awake()
@@ -100,8 +114,20 @@ namespace Forge.Pet
             }
         }
 
-        void OnEnable() => whistleAction?.Enable();
-        void OnDisable() => whistleAction?.Disable();
+        void OnEnable()
+        {
+            whistleAction?.Enable();
+            if (!s_all.Contains(this)) s_all.Add(this);
+        }
+
+        void OnDisable()
+        {
+            whistleAction?.Disable();
+            s_all.Remove(this);
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() { AnyPressed = null; s_all.Clear(); }
 
         // ---------------------------------------------------------------- public API
 
@@ -111,8 +137,10 @@ namespace Forge.Pet
             if (Time.time - _lastPress < debounce) return;
             _lastPress = Time.time;
             _pressedUntil = Time.time + 0.12f;
+            Pressing?.Invoke(this);
             onPressed.Invoke();
             Pressed?.Invoke();
+            AnyPressed?.Invoke(this);
         }
 
         public void HoverOn() => SetHovered(true);
@@ -131,49 +159,79 @@ namespace Forge.Pet
             ApplyColor();
         }
 
-        /// <summary>Lay the button on the desk's edge nearest the head, to the user's right (left if leftHanded), tilted toward them.</summary>
+        /// <summary>This button belongs to a table (world top-face centre, yaw, size): it lives on that table's near-right corner.</summary>
+        public void SetTable(Vector3 topCenter, Quaternion yaw, Vector2 size)
+        {
+            _tableTop = topCenter;
+            _tableRot = yaw;
+            _tableSize = size;
+            HasTable = true;
+            Placed = false;
+            Transform head = PetUser.Head;
+            if (head != null) PlaceOnRect(topCenter, yaw, size, head);
+        }
+
+        /// <summary>Put the button on the desk's near corner on the user's right.</summary>
         public void PlaceOnDesk(GatorNavSurface desk, Transform head)
         {
-            if (desk == null || !desk.IsBuilt || head == null) return;
-            Quaternion rot = desk.Rotation;
-            Vector3 top = desk.TopCenter;
-            float hx = desk.Size.x * 0.5f, hz = desk.Size.y * 0.5f;
-            Vector3 l = Quaternion.Inverse(rot) * (head.position - top);
+            if (desk == null || !desk.IsBuilt) return;
+            PlaceOnRect(desk.TopCenter, desk.Rotation, desk.Size, head);
+        }
+
+        /// <summary>Near-right corner (left if leftHanded) of a horizontal rectangle, as seen from head, tilted toward it.</summary>
+        public void PlaceOnRect(Vector3 top, Quaternion rot, Vector2 size, Transform head)
+        {
+            if (head == null || _collider == null) return;
+            if (TryCornerPose(top, rot, size, head.position, out Vector3 pos, out Quaternion r))
+            {
+                transform.SetPositionAndRotation(pos, r);
+                Placed = true;
+            }
+        }
+
+        bool TryCornerPose(Vector3 top, Quaternion rot, Vector2 size, Vector3 headPos, out Vector3 pos, out Quaternion r)
+        {
+            pos = default; r = Quaternion.identity;
+            float hx = size.x * 0.5f, hz = size.y * 0.5f;
+            if (hx <= 0.01f || hz <= 0.01f) return false;
+            Vector3 l = Quaternion.Inverse(rot) * (headPos - top);
 
             // Near edge = the side the head is beyond the most (relative to the half extents).
             Vector3 outward, along;
             float halfAlong, edgeDist;
-            if (Mathf.Abs(l.z) / Mathf.Max(0.01f, hz) >= Mathf.Abs(l.x) / Mathf.Max(0.01f, hx))
-            { outward = new Vector3(0f, 0f, Mathf.Sign(l.z)); along = Vector3.right; halfAlong = hx; edgeDist = hz; }
+            if (Mathf.Abs(l.z) / hz >= Mathf.Abs(l.x) / hx)
+            { outward = new Vector3(0f, 0f, l.z >= 0f ? 1f : -1f); along = Vector3.right; halfAlong = hx; edgeDist = hz; }
             else
-            { outward = new Vector3(Mathf.Sign(l.x), 0f, 0f); along = Vector3.forward; halfAlong = hz; edgeDist = hx; }
+            { outward = new Vector3(l.x >= 0f ? 1f : -1f, 0f, 0f); along = Vector3.forward; halfAlong = hz; edgeDist = hx; }
 
             Vector3 outwardW = rot * outward;
-            Vector3 rightW = Vector3.Cross(Vector3.up, -outwardW);           // the user's right while facing the desk
+            Vector3 rightW = Vector3.Cross(Vector3.up, -outwardW);           // the user's right while facing the table
             if (leftHanded) rightW = -rightW;
-            float sideSign = Vector3.Dot(rot * along, rightW) >= 0f ? 1f : -1f;
+            float side = Vector3.Dot(rot * along, rightW) >= 0f ? 1f : -1f;
 
-            float lateral = Vector3.Dot(l, along) + sideSign * lateralOffset;
-            float margin = Mathf.Max(0.05f, _collider.size.x * transform.lossyScale.x);
-            lateral = Mathf.Clamp(lateral, -halfAlong + margin, halfAlong - margin);
-            float inward = Mathf.Max(0f, edgeDist - edgeInset);
-
-            Vector3 local = along * lateral + outward * inward;
+            Vector3 local = along * (side * Mathf.Max(0f, halfAlong - cornerInset)) + outward * Mathf.Max(0f, edgeDist - cornerInset);
             Vector3 tiltAxis = Vector3.Cross(Vector3.up, outwardW);
             Vector3 up = Quaternion.AngleAxis(tiltDegrees, tiltAxis) * Vector3.up;
             Vector3 fwd = Vector3.ProjectOnPlane(outwardW, up);
             float lift = _collider.size.y * transform.lossyScale.y * 0.5f
                        + Mathf.Sin(tiltDegrees * Mathf.Deg2Rad) * _collider.size.z * transform.lossyScale.z * 0.5f;
+            pos = top + rot * local + Vector3.up * lift;
+            r = Quaternion.LookRotation(fwd, up);
+            return true;
+        }
 
-            transform.SetPositionAndRotation(top + rot * local + Vector3.up * lift, Quaternion.LookRotation(fwd, up));
-            PlacedOnDesk = true;
+        static float HorizontalDistance(Vector3 top, Quaternion rot, Vector2 size, Vector3 p)
+        {
+            Vector3 l = Quaternion.Inverse(rot) * (p - top);
+            float dx = Mathf.Max(0f, Mathf.Abs(l.x) - size.x * 0.5f), dz = Mathf.Max(0f, Mathf.Abs(l.z) - size.y * 0.5f);
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         // ---------------------------------------------------------------- per frame
 
         void Update()
         {
-            if (autoPlace && !PlacedOnDesk) TryAutoPlace();
+            if (autoPlace && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
 
             if (whistleAction != null && whistleAction.WasPressedThisFrame() && !TypingInField()) Press();
 
@@ -184,18 +242,37 @@ namespace Forge.Pet
                 visual.transform.localPosition = Time.time < _pressedUntil ? _visualRest - Vector3.up * 0.006f : _visualRest;
         }
 
-        void TryAutoPlace()
+        // Throttled (0.5 s). First placement as soon as a table / desk and a head exist; afterwards only when the user is
+        // at this table (so it follows them round to another side, but buttons on other tables stay put).
+        void UpdatePlacement()
         {
-            GatorNavSurface desk = GatorNavSurface.Desk;
             Transform head = PetUser.Head;
-            if (desk != null && desk.IsBuilt && head != null) { PlaceOnDesk(desk, head); return; }
-            if (_placedFallback || !_hasSpawn || Time.time - _startTime < noDeskFallbackSeconds) return;
+            if (head == null) return;
+            Vector3 top; Quaternion rot; Vector2 size;
+            if (HasTable) { top = _tableTop; rot = _tableRot; size = _tableSize; }
+            else
+            {
+                GatorNavSurface desk = GatorNavSurface.Desk;
+                if (desk == null || !desk.IsBuilt) { PlaceFallback(); return; }
+                top = desk.TopCenter; rot = desk.Rotation; size = desk.Size;
+            }
+            if (!Placed || _placedFallback) { _placedFallback = false; PlaceOnRect(top, rot, size, head); return; }
+            if (HorizontalDistance(top, rot, size, head.position) > nearTableDistance) return;
+            if (TryCornerPose(top, rot, size, head.position, out Vector3 pos, out Quaternion r)
+                && (pos - transform.position).sqrMagnitude > 0.05f * 0.05f)
+                transform.SetPositionAndRotation(pos, r);
+        }
+
+        void PlaceFallback()
+        {
+            if (Placed || !_hasSpawn || Time.time - _startTime < noDeskFallbackSeconds) return;
             Vector3 right = Vector3.ProjectOnPlane(leftHanded ? -_spawnRight : _spawnRight, Vector3.up);
             if (right.sqrMagnitude < 0.0001f) right = Vector3.right;
             right.Normalize();
             Vector3 lift = Vector3.up * (_collider.size.y * transform.lossyScale.y * 0.5f);
             transform.SetPositionAndRotation(_spawnPos + right * spawnRightOffset + lift, Quaternion.LookRotation(Vector3.Cross(right, Vector3.up), Vector3.up));
-            _placedFallback = true;                  // keeps checking for a desk (MRUK may find one later)
+            Placed = true;
+            _placedFallback = true;                  // a desk found later (MRUK) replaces this spot
         }
 
         void TryMousePress(Mouse mouse)

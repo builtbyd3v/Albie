@@ -2,9 +2,11 @@
 //
 // Adds the voice + whistle pieces to the gator in the CURRENTLY OPEN scene (no scene is created or saved):
 //   * gator/Voice            AudioSource + StreamedPcmTextToSpeech (hub speech), wired into GatorAgentBridge.tts
-//   * gator                  GatorTalkAnimator (head nod + pulse while speaking), GatorSummon
+//   * gator                  GatorTalkAnimator (head nod + pulse while speaking), GatorSummon, GatorFollowUp
+//                            (keeps listening 15 s after an answer, then wanders off)
 //   * WhistleButton          collider puck + Meta Interaction SDK PokeInteractable / RayInteractable, each with an
-//                            InteractableUnityEventWrapper → WhistleButton.Press / HoverOn / HoverOff
+//                            InteractableUnityEventWrapper → WhistleButton.Press / HoverOn / HoverOff.
+//                            XR (GatorMrukAdapter present): it becomes the template cloned onto every MRUK table.
 // Idempotent: re-running reuses what exists and re-wires it. Interaction SDK types are looked up by name so this
 // file compiles without the SDK (the button then works with mouse / F / controller B only).
 // Save the scene yourself afterwards. -executeMethod Forge.Pet.Editor.WhistleSetup.AddWhistleToOpenScene
@@ -46,12 +48,15 @@ namespace Forge.Pet.Editor
             WhistleButton button = FindOrCreateButton(gator);
             string isdk = AddInteractionSdk(button);
             AddSummon(root, button, voice);
+            AddFollowUp(root, voice);
+            var adapter = Object.FindAnyObjectByType<GatorMrukAdapter>();
+            if (adapter != null) SetRef(adapter, "whistleTemplate", button);
 
             EditorSceneManager.MarkSceneDirty(root.scene);
             Selection.activeGameObject = button.gameObject;
             Undo.CollapseUndoOperations(group);
-            Debug.Log($"[WhistleSetup] Done in '{root.scene.name}': Voice + GatorTalkAnimator + GatorSummon on '{root.name}', " +
-                      $"WhistleButton ({isdk}). Save the scene to keep it. Test: F / click the button / B.");
+            Debug.Log($"[WhistleSetup] Done in '{root.scene.name}': Voice + GatorTalkAnimator + GatorSummon + GatorFollowUp on '{root.name}', " +
+                      $"WhistleButton ({isdk}{(adapter != null ? ", cloned onto every MRUK table" : "")}). Save the scene to keep it. Test: F / click the button / B.");
         }
 
         // ------------------------------------------------------------------ voice
@@ -100,6 +105,17 @@ namespace Forge.Pet.Editor
             if (ptt != null) SetRef(summon, "pushToTalk", ptt);
             SetRef(summon, "tts", voice);
             SetRef(summon, "sfxSource", button.GetComponent<AudioSource>());
+        }
+
+        static void AddFollowUp(GameObject gator, StreamedPcmTextToSpeech voice)
+        {
+            var follow = gator.GetComponent<GatorFollowUp>();
+            if (follow == null) follow = Undo.AddComponent<GatorFollowUp>(gator);
+            SetRef(follow, "tts", voice);
+            var ptt = gator.GetComponent<PushToTalk>();
+            if (ptt == null) ptt = Object.FindAnyObjectByType<PushToTalk>();
+            if (ptt != null) SetRef(follow, "pushToTalk", ptt);
+            SetRef(follow, "controller", gator.GetComponent<GatorController>());
         }
 
         // ------------------------------------------------------------------ button

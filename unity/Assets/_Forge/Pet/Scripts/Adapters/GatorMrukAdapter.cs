@@ -9,6 +9,8 @@ namespace Forge.Pet
     /// The ONLY pet script that references Meta types (MRUK). Turns the scanned room into
     /// GatorNavSurfaces: the desk top ("DeskNav") and the floor with furniture holes ("FloorNav"),
     /// then hops the gator onto the desk. See docs/PET_AGENT_CONTRACT.md Addendum A.
+    /// Whistles: clones whistleTemplate onto every TABLE in the room (WhistleButton.SetTable); pressing one makes its
+    /// table the desk (Pressing runs before GatorSummon hears the press, so the gator hops to THAT table).
     ///
     /// Wiring: DeskLocator.deskFound (UnityEvent&lt;MRUKAnchor&gt;) -> OnDeskFound. If nothing is wired,
     /// Start() hooks an unwired DeskLocator at runtime, or (no DeskLocator at all) subscribes to
@@ -28,6 +30,8 @@ namespace Forge.Pet
         float hopDelay = 1.0f;
         [SerializeField, Tooltip("Shrink the desk walkable rectangle by this much (m) on every side.")]
         float deskInset = 0.03f;
+        [SerializeField, Tooltip("Whistle cloned onto every TABLE (one per table). Empty = first WhistleButton in the scene; none = no whistles.")]
+        WhistleButton whistleTemplate;
 
         // Planes/meshes that are never floor obstacles.
         const MRUKAnchor.SceneLabels NotFurniture =
@@ -36,6 +40,9 @@ namespace Forge.Pet
             MRUKAnchor.SceneLabels.GLOBAL_MESH;
 
         readonly List<Bounds> holes = new List<Bounds>(32);
+        readonly Dictionary<WhistleButton, MRUKAnchor> whistleTables = new Dictionary<WhistleButton, MRUKAnchor>();
+        MRUKAnchor currentDesk;
+        MRUKRoom whistleRoom;
         GatorNavSurface deskNav, floorNav;
         Coroutine hopRoutine;
         DeskLocator hookedLocator;
@@ -69,6 +76,7 @@ namespace Forge.Pet
         {
             if (hookedLocator != null && hookedLocator.deskFound != null) hookedLocator.deskFound.RemoveListener(OnDeskFound);
             if (hookedMruk && MRUK.Instance != null) MRUK.Instance.SceneLoadedEvent.RemoveListener(OnSceneLoaded);
+            foreach (var b in whistleTables.Keys) if (b != null) b.Pressing -= OnWhistlePressing;
         }
 
         // ---------------------------------------------------------------- public API
@@ -80,6 +88,7 @@ namespace Forge.Pet
             BuildDesk(desk);
             MRUKRoom room = desk.Room != null ? desk.Room : (MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null);
             BuildFloor(room);
+            SpawnWhistles(room);
 
             if (controller == null) return;
             if (floorNav != null && floorNav.IsBuilt && controller.CurrentSurface != GatorNavSurface.Desk)
@@ -95,28 +104,14 @@ namespace Forge.Pet
 
         void BuildDesk(MRUKAnchor desk)
         {
-            Transform t = desk.transform;
-            Vector3 localTop;
-            Vector2 size;
-            if (desk.PlaneRect.HasValue)
-            {
-                Rect r = desk.PlaneRect.Value;                       // local X/Y, plane at local z = 0 (top)
-                localTop = new Vector3(r.center.x, r.center.y, 0f);
-                size = r.size;
-            }
-            else if (desk.VolumeBounds.HasValue)
-            {
-                Bounds v = desk.VolumeBounds.Value;                  // top face = max local z
-                localTop = new Vector3(v.center.x, v.center.y, v.max.z);
-                size = new Vector2(v.size.x, v.size.y);
-            }
-            else { Debug.LogWarning("[GatorMrukAdapter] Desk anchor has neither PlaneRect nor VolumeBounds.", this); return; }
+            if (!TryGetTop(desk, out Vector3 top, out Quaternion yaw, out Vector2 size))
+            { Debug.LogWarning("[GatorMrukAdapter] Desk anchor has neither PlaneRect nor VolumeBounds.", this); return; }
 
             size -= Vector2.one * (2f * deskInset);
-            Vector3 top = t.TransformPoint(localTop);
             EnsureSurface(ref deskNav, "DeskNav");
-            deskNav.BuildBox(top, YawOf(t), size);
+            deskNav.BuildBox(top, yaw, size);
             if (!deskNav.IsBuilt) return;
+            currentDesk = desk;
             GatorNavSurface.Desk = deskNav;
             Debug.Log("[GatorMrukAdapter] Desk surface " + size.x.ToString("F2") + " x " + size.y.ToString("F2") + " m at " + top, this);
         }
@@ -143,6 +138,41 @@ namespace Forge.Pet
             if (!floorNav.IsBuilt) return;
             GatorNavSurface.Floor = floorNav;
             Debug.Log("[GatorMrukAdapter] Floor surface " + r.size.x.ToString("F2") + " x " + r.size.y.ToString("F2") + " m, " + holes.Count + " hole(s)", this);
+        }
+
+        // ---------------------------------------------------------------- whistles (one per table)
+
+        void SpawnWhistles(MRUKRoom room)
+        {
+            if (room == null || room == whistleRoom) return;
+            WhistleButton template = whistleTemplate != null ? whistleTemplate : FindAnyObjectByType<WhistleButton>();
+            if (template == null) return;
+            whistleRoom = room;
+            bool first = true;
+            List<MRUKAnchor> anchors = room.Anchors;
+            for (int i = 0; i < anchors.Count; i++)
+            {
+                MRUKAnchor a = anchors[i];
+                if (a == null || !a.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE)) continue;
+                if (!TryGetTop(a, out Vector3 top, out Quaternion yaw, out Vector2 size)) continue;
+                WhistleButton b = first ? template : Instantiate(template, template.transform.parent);
+                b.name = "WhistleButton (" + a.name + ")";
+                b.SetTable(top, yaw, size);
+                b.Pressing += OnWhistlePressing;
+                whistleTables[b] = a;
+                first = false;
+            }
+            Debug.Log("[GatorMrukAdapter] " + whistleTables.Count + " whistle(s), one per table.", this);
+        }
+
+        // Runs before GatorSummon hears the press: make the pressed table the desk so the summon hops there.
+        void OnWhistlePressing(WhistleButton b)
+        {
+            if (!whistleTables.TryGetValue(b, out MRUKAnchor table) || table == null || table == currentDesk) return;
+            bool gatorWasOnDesk = controller != null && deskNav != null && controller.CurrentSurface == deskNav;
+            BuildDesk(table);
+            // The desk NavMesh just moved under the gator: forget it so the summon hops (agent off) instead of walking.
+            if (gatorWasOnDesk) controller.SetWanderArea(floorNav != null && floorNav.IsBuilt ? floorNav : null);
         }
 
         // Standalone fallback: same selection as DeskLocator (TABLE nearest the user's head).
@@ -203,6 +233,29 @@ namespace Forge.Pet
             if (r.sqrMagnitude < 1e-4f) return Quaternion.identity;
             r.Normalize();
             return Quaternion.LookRotation(Vector3.Cross(r, Vector3.up), Vector3.up);
+        }
+
+        // World top-face centre, yaw and size of a TABLE anchor (plane rect, else volume top).
+        static bool TryGetTop(MRUKAnchor a, out Vector3 top, out Quaternion yaw, out Vector2 size)
+        {
+            Transform t = a.transform;
+            Vector3 localTop;
+            if (a.PlaneRect.HasValue)
+            {
+                Rect r = a.PlaneRect.Value;                          // local X/Y, plane at local z = 0 (top)
+                localTop = new Vector3(r.center.x, r.center.y, 0f);
+                size = r.size;
+            }
+            else if (a.VolumeBounds.HasValue)
+            {
+                Bounds v = a.VolumeBounds.Value;                     // top face = max local z
+                localTop = new Vector3(v.center.x, v.center.y, v.max.z);
+                size = new Vector2(v.size.x, v.size.y);
+            }
+            else { top = default; yaw = Quaternion.identity; size = default; return false; }
+            top = t.TransformPoint(localTop);
+            yaw = YawOf(t);
+            return true;
         }
 
         static MRUKAnchor LargestFloor(MRUKRoom room)

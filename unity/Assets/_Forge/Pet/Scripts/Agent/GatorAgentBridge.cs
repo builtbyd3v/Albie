@@ -186,6 +186,11 @@ namespace Forge.Pet
                 case "voice.ready":
                     break;
 
+                case "agent.tool_call":   // the voice model handed work to a tool (delegate = the Claude brain)
+                    SetStateIfChanged(GatorState.Thinking);
+                    ApplyMood(Mood.Squint);
+                    break;
+
                 default:
                     if (_unknownLogged.Add(e.type)) Debug.Log("[GatorAgentBridge] Ignoring event type '" + e.type + "' (logged once).");
                     break;

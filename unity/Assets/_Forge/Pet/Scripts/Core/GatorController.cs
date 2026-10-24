@@ -104,6 +104,33 @@ namespace Forge.Pet
             ComeToUserInternal(!OnDesk && FlatDistance(head.position) > 3f);
         }
 
+        /// <summary>
+        /// "Done talking": Wandering, stop facing the user and walk (back turned) to the farthest of a few wander points
+        /// from the user, then idle there as usual. Makes it obvious the gator stopped listening.
+        /// </summary>
+        public void WanderAway()
+        {
+            if (hopping) return;
+            SetState(GatorState.Wandering);           // no-op if already Wandering, so reset the bits below ourselves
+            faceTarget = null; faceUser = false; approachingUser = false;
+            SetMood(Mood.Neutral);
+            Transform head = PetUser.Head;
+            Vector3 best = transform.position;
+            float bestSq = -1f;
+            for (int i = 0; i < 4; i++)
+            {
+                if (!TryPickWanderPoint(out Vector3 p)) continue;
+                Vector3 from = head != null ? head.position : transform.position;
+                float dx = p.x - from.x, dz = p.z - from.z;
+                if (dx * dx + dz * dz > bestSq) { bestSq = dx * dx + dz * dz; best = p; }
+            }
+            if (bestSq >= 0f && MoveTo(best, false))
+            {
+                tripActive = true;
+                nextActionTime = Time.time + 10f;     // trip timeout, then the normal idle pause
+            }
+        }
+
         // ---------------------------------------------------------------- state machine
 
         void EnterState(GatorState s)

@@ -34,12 +34,14 @@ namespace Forge.Pet
         [Header("Hands-free (whistle)")]
         [SerializeField, Tooltip("Give up (cancel) if no speech is heard within this many seconds.")]
         float noSpeechTimeout = 8f;
-        [SerializeField, Tooltip("Hard cap (s): stop listening and send what was said.")]
+        [SerializeField, Tooltip("Hard cap (s) from the first speech: stop listening and send what was said.")]
         float maxUtterance = 20f;
         [SerializeField, Tooltip("Silence (s) after speech that ends the utterance.")]
         float endSilence = 0.9f;
         [SerializeField, Tooltip("Mic RMS (0..1) that counts as speech.")]
         float speechLevel = 0.03f;
+        [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]
+        float minSpeechSeconds = 0.25f;
 
         ISpeechToText _stt;
         bool _held;          // key physically held (hold-to-talk providers)
@@ -47,7 +49,7 @@ namespace Forge.Pet
         bool _handsFree;     // a hands-free session is open (until SessionEnded)
         bool _discardFinal;  // CancelSession: swallow the final transcript that is still on its way
         bool _heardSpeech;
-        float _sessionStart, _lastSpeech;
+        float _sessionStart, _lastSpeech, _speechTime, _sessionNoSpeech, _firstSpeech;
 
         public ISpeechToText Provider => _stt;
         /// <summary>A hands-free or held session is open.</summary>
@@ -55,6 +57,15 @@ namespace Forge.Pet
         public bool HandsFree => _handsFree;
         /// <summary>Hands-free session over. true = a transcript went on to be answered; false = cancelled / nothing heard / error / handed to hold mode.</summary>
         public event Action<bool> SessionEnded;
+        /// <summary>The STT provider can listen without a key (mic). False for the typed field (it would just sit open).</summary>
+        public bool CanListenHandsFree
+        {
+            get
+            {
+                var stt = ResolveProvider();
+                return stt != null && !(stt is TypedSpeechToText);
+            }
+        }
 
         void Awake()
         {
@@ -89,9 +100,14 @@ namespace Forge.Pet
         // ---------------------------------------------------------------- hands-free API
 
         /// <summary>Starts a hands-free listening session (mic permission asked first). False if one is already open or there is no STT.</summary>
-        public bool BeginHandsFree()
+        public bool BeginHandsFree() => BeginHandsFree(noSpeechTimeout);
+
+        /// <summary>Same, giving up after <paramref name="noSpeechSeconds"/> without speech (e.g. 15 s follow-up after an answer).</summary>
+        public bool BeginHandsFree(float noSpeechSeconds)
         {
             if (SessionActive) return false;
+            _sessionNoSpeech = noSpeechSeconds > 0f ? noSpeechSeconds : noSpeechTimeout;
+            _speechTime = 0f;
             var stt = ResolveProvider();
             if (stt == null || stt.IsListening) return false;
             _handsFree = true;
@@ -151,10 +167,15 @@ namespace Forge.Pet
         {
             if (_stt == null || !_stt.IsListening || _typedMode) return;   // typed: Enter / Esc end it
             float now = Time.time;
-            if (_stt is IMicLevel mic && mic.Level >= speechLevel) { _heardSpeech = true; _lastSpeech = now; }
+            if (_stt is IMicLevel mic && mic.Level >= speechLevel)
+            {
+                _lastSpeech = now;
+                _speechTime += Time.deltaTime;
+                if (!_heardSpeech && _speechTime >= minSpeechSeconds) { _heardSpeech = true; _firstSpeech = now; }
+            }
 
-            if (now - _sessionStart >= maxUtterance) _stt.StopListening();                 // cap: send what we have
-            else if (!_heardSpeech && now - _sessionStart >= noSpeechTimeout) CancelSession();
+            if (_heardSpeech && now - _firstSpeech >= maxUtterance) _stt.StopListening();  // cap: send what we have
+            else if (!_heardSpeech && now - _sessionStart >= _sessionNoSpeech) CancelSession();
             else if (_heardSpeech && now - _lastSpeech >= endSilence) _stt.StopListening();
         }
 

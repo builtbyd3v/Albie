@@ -9,7 +9,9 @@ namespace Forge.Pet
     ///   press → whistle SFX + Mood.Excited → gator on the floor and a desk is built: HopToUserDesk(), else ComeToUser()
     ///   → arrived (or approachTimeout) → PushToTalk.BeginHandsFree() (Listening, faces the user)
     ///   → PushToTalk ends it: transcript asked / nothing heard (8 s) / 20 s cap / error.
-    /// Press again while approaching or listening = cancel → Wandering. Thinking/Working: ignored with a Bounce and
+    /// Any WhistleButton works (one per table; the MRUK adapter makes the pressed table the desk first).
+    /// Press again while approaching or listening = cancel; a summon that ends without a question sends the gator
+    /// off to idle (GatorController.WanderAway) so it's clear it stopped listening. Thinking/Working: ignored with a Bounce and
     /// "One sec!". Answering: the speech is stopped first. No new GatorState: the trip happens in Wandering, and a
     /// state change from anyone else (hub pet.state, hotkeys, Space) during the trip cancels the summon quietly.
     /// PushToTalk stays the only reader of transcripts. No allocations per frame.
@@ -20,7 +22,7 @@ namespace Forge.Pet
         public enum SummonEnd { Listening, Cancelled, Ignored }
         enum Phase { Idle, Approaching, Listening }
 
-        [SerializeField, Tooltip("Button whose Pressed event toggles the summon. Auto-found in the scene if empty.")]
+        [SerializeField, Tooltip("Default button (whistle sound source). Every WhistleButton in the scene toggles the summon.")]
         WhistleButton button;
         [SerializeField, Tooltip("Auto-found on this GameObject / parents / scene if empty.")]
         GatorController controller;
@@ -40,8 +42,10 @@ namespace Forge.Pet
         [Header("Whistle sound")]
         [SerializeField, Tooltip("Optional clip; empty = a two-tone chirp generated at startup.")]
         AudioClip whistleClip;
-        [SerializeField, Tooltip("Where the whistle plays. Empty = an AudioSource on the button, else on this object.")]
+        [SerializeField, Tooltip("Fallback whistle source when the pressed button has no AudioSource. Empty = one on this object.")]
         AudioSource sfxSource;
+        [SerializeField, Tooltip("Cancelled / nothing heard: walk off and idle away from the user.")]
+        bool wanderAwayWhenDone = true;
         [SerializeField, Range(0f, 1f)] float whistleVolume = 0.6f;
 
         public bool IsActive => _phase != Phase.Idle;
@@ -52,6 +56,7 @@ namespace Forge.Pet
         Phase _phase;
         float _phaseStart, _deadline;
         bool _selfStateChange;
+        WhistleButton _pressed;
 
         void Awake()
         {
@@ -71,12 +76,11 @@ namespace Forge.Pet
         {
             _tts = tts as ITextToSpeech;
             if (_tts == null && controller != null) _tts = controller.GetComponentInChildren<ITextToSpeech>(true);
-            if (sfxSource == null && button != null) sfxSource = button.GetComponent<AudioSource>();
             if (sfxSource == null) sfxSource = GetComponent<AudioSource>();
             if (sfxSource == null) { sfxSource = gameObject.AddComponent<AudioSource>(); sfxSource.playOnAwake = false; }
 
-            if (button != null) button.Pressed += Toggle;
-            else Debug.LogWarning("[GatorSummon] No WhistleButton in the scene; call Toggle() yourself.", this);
+            WhistleButton.AnyPressed += OnAnyPressed;
+            if (button == null) Debug.Log("[GatorSummon] No WhistleButton in the scene yet; F/B only work on a button, call Toggle() yourself.", this);
             if (controller != null) controller.StateChanged += OnStateChanged;
             if (pushToTalk != null) pushToTalk.SessionEnded += OnSessionEnded;
             RefreshVisual();
@@ -84,12 +88,18 @@ namespace Forge.Pet
 
         void OnDestroy()
         {
-            if (button != null) button.Pressed -= Toggle;
+            WhistleButton.AnyPressed -= OnAnyPressed;
             if (controller != null) controller.StateChanged -= OnStateChanged;
             if (pushToTalk != null) pushToTalk.SessionEnded -= OnSessionEnded;
         }
 
         // ---------------------------------------------------------------- public API
+
+        void OnAnyPressed(WhistleButton b)
+        {
+            _pressed = b;
+            Toggle();
+        }
 
         /// <summary>What the button calls: summon, or cancel a summon in progress.</summary>
         public void Toggle()
@@ -191,6 +201,9 @@ namespace Forge.Pet
             if (_phase == Phase.Idle) return;
             _phase = Phase.Idle;
             RefreshVisual();
+            if (how == SummonEnd.Cancelled && wanderAwayWhenDone && controller != null
+                && (pushToTalk == null || !pushToTalk.SessionActive))   // not when Space/A took the session over
+                controller.WanderAway();
             Ended?.Invoke(how);
         }
 
@@ -204,16 +217,20 @@ namespace Forge.Pet
 
         void RefreshVisual()
         {
-            if (button == null) return;
-            if (IsActive) button.SetVisual(WhistleButton.Visual.Active);
-            else if (controller != null && (controller.State == GatorState.Thinking || controller.State == GatorState.Working))
-                button.SetVisual(WhistleButton.Visual.Busy);
-            else button.SetVisual(WhistleButton.Visual.Idle);
+            WhistleButton.Visual v = IsActive ? WhistleButton.Visual.Active
+                : controller != null && (controller.State == GatorState.Thinking || controller.State == GatorState.Working)
+                    ? WhistleButton.Visual.Busy : WhistleButton.Visual.Idle;
+            var all = WhistleButton.All;
+            for (int i = 0; i < all.Count; i++) if (all[i] != null) all[i].SetVisual(v);
         }
 
         void PlayWhistle()
         {
-            if (sfxSource != null && whistleClip != null) sfxSource.PlayOneShot(whistleClip, whistleVolume);
+            if (whistleClip == null) return;
+            WhistleButton from = _pressed != null ? _pressed : button;
+            AudioSource src = from != null ? from.GetComponent<AudioSource>() : null;
+            if (src == null) src = sfxSource;
+            if (src != null) src.PlayOneShot(whistleClip, whistleVolume);
         }
 
         // Two rising notes (~1.8→2.3 kHz, then 2.1→2.7 kHz), 0.45 s. Built once.
