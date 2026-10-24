@@ -95,21 +95,22 @@ Android: request `Permission.Microphone` before first mic use.
 ## Text-to-speech hook
 
 `ITextToSpeech { void Speak(string text); void Stop(); event Action SpeechStarted; event Action SpeechEnded; }`
-— `NullTextToSpeech` (Unity) and `tts.py:TextToSpeech` Protocol (hub) are stubs. `GatorController` has a clearly
-marked `// TODO(lipsync)` hook in the Answering state.
+— `NullTextToSpeech` (Unity) is the stub; on the hub speech comes from the Grok voice session (Addendum B; the old
+`agent/tts.py` stub is gone). `GatorController` has a clearly marked `// TODO(lipsync)` hook in the Answering state.
 
 ## Config
 
 `Assets/StreamingAssets/pet_config.json`:
 ```json
-{ "hubUrl": "ws://127.0.0.1:8000/ws/agent", "petId": "bit", "projectId": "gatorhack", "eventSource": "mock" }
+{ "hubUrl": "ws://127.0.0.1:8000/ws", "petId": "bit", "projectId": "gatorhack", "eventSource": "mock" }
 ```
 `eventSource`: `"mock"` (in-Unity scripted `MockEventSource`, no network) | `"hub"` (live `AgentClient`).
 Quest on LAN: replace 127.0.0.1 with the laptop IP, or `adb reverse tcp:8000 tcp:8000`.
 
-## WebSocket protocol (`/ws/agent`, JSON text frames `{ "type": "...", "payload": { ... } }`, binary frames = audio)
+## WebSocket protocol (`/ws`, JSON text frames `{ "type": "...", "payload": { ... } }`, binary frames = audio)
 
-Path is `/ws/agent` because the hub's `/ws` is served by the CAD `EventBus` (`hub/events.py`); the agent keeps its own bus (`hub/agent/bus.py`) until Person 5 decides whether to unify onto `/ws`.
+Path is `/ws`, the hub's only socket (Addendum C): the CAD `EventBus` (`hub/events.py`) publishes on it and the agent
+session (`hub/agent/ws.py`) reads it. The agent-only `/ws/agent` was removed (Addendum F).
 
 Client → hub:
 ```
@@ -154,7 +155,8 @@ Event → gator state mapping (`GatorAgentBridge`):
 | `pet.state follow` / `idle` | Following / Wandering | |
 | `pet.state listening` / `speaking` | Listening / Answering | |
 
-Hub REST (existing): `POST /agent/text { pet_id, text } -> { reply }` typed fallback — implemented by `hub/agent`.
+Hub REST: `GET /agent/projects`. A typed question is `agent.ask` on the socket like a spoken one; the
+`POST /agent/text` typed fallback was removed (Addendum F).
 Hub config `hub/config/projects.yaml`: `projects: { gatorhack: { path: "~/Documents/gatorhack-dubz", default_mode: "qa" } }`.
 Env: `ANTHROPIC_API_KEY`, `FAKE_AGENT=1` (scripted events, no model calls), `STT_PROVIDER=none|whisper`.
 
@@ -197,7 +199,7 @@ no keep-out zone yet.
 
 Hub env: `VOICE_PROVIDER=none|grok|fake` (default `none` = everything above, unchanged), `XAI_API_KEY`,
 `GROK_VOICE_MODEL=grok-voice-3.0`, `GROK_VOICE`, `GROK_VOICE_OUT_RATE=48000`, `VOICE_IDLE_CLOSE_S=120`,
-`FAKE_VOICE_PACE`. One Grok session per `/ws/agent` socket (`hub/agent/voice.py`), push-to-talk = manual turn.
+`FAKE_VOICE_PACE`. One Grok session per `/ws` socket (`hub/agent/voice.py`), push-to-talk = manual turn.
 
 Client → hub:
 ```
@@ -259,7 +261,7 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
   ForgeNet's `/ws` socket: `ForgeNet.On(type)` per agent event type, `ForgeNet.Send` for JSON, `ForgeNet.SendBinary` for mic audio,
   `ForgeNet.BinaryReceived` for speech (the Send/SendBinary/BinaryReceived additions are their own PR, `core/forgenet-send`).
   `hello` is re-sent whenever ForgeNet goes Live. The hub's `/ws` runs the agent session on every socket while the CAD `EventBus`
-  keeps publishing to it; `/ws/agent` remains the agent-only endpoint (same protocol). The hub address is ForgeNet's
+  keeps publishing to it (`/ws/agent`, the agent-only endpoint, was removed in Addendum F). The hub address is ForgeNet's
   (`hubUrl` on the ForgeNet object / PlayerPrefs `Forge.HubUrl`); `pet_config.json` `hubUrl` is unused. `pet.state` / `pet.say`
   published on `/ws` by anyone now reach the gator too.
 - **Delegate:** Grok's only tool. `agent.tool_call { pet_id, call_id, name, args }` (proposed, broadcast, companion `pet.state thinking`);
@@ -343,3 +345,37 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
   be transcribed, so the Grok session stays open while people talk. With `VOICE_PROVIDER=none` and
   `STT_PROVIDER=whisper` the segments are transcribed locally instead.
 
+## Addendum F (2026-10-24): one hub process, workspace view, "Reply with Bit", screen status
+
+**One process.** `uvicorn main:app` is everything on the laptop: CAD worker, Slack Socket Mode, the pet, and now
+the screen bridge (`hub/screens/`), which the hub spawns as `npm start` in `screen-bridge/` (VS Code extension
+install, signaling.py :8766, stream.py :8765, Chrome sharing the VS Code window) and kills with itself. The agent
+has no standalone app any more: `python -m agent`, `agent/app.py`'s `create_agent_app`, `/ws/agent` and
+`POST /agent/text` are gone; `agent/tts.py` (dead stub) too. Everything the pet says or hears goes over `/ws`.
+Env: `SCREEN_BRIDGE=1|0` (default on; off automatically with a warning when `node` or `screen-bridge/start.js`
+is missing), `SCREEN_BRIDGE_DIR`. `GET /health` has `screen {enabled, state, source}`; `GET /screens/status` the long form.
+
+**Messages** (all **proposed**, additive; old clients ignore them):
+
+| direction | type | payload |
+|---|---|---|
+| client → hub | `workspace.mode` | `{pet_id, mode}`: the workspace view Unity shows, `"code"`, `"cad"`, `"ml"`, `"messages"`, or `""` when closed. Send on every change. |
+| client → hub | `messages.focus` | `{pet_id, channel, ts}`: "Reply with Bit" on a message card (also `POST /messages/focus {pet_id, channel, ts}` → the `SlackMessage`, 404 if it isn't one of the last 50). |
+| hub → clients | `screen.status` | `{state: "starting"\|"sharing"\|"stopped"\|"error", source?, detail?}`: the screen bridge. **Sticky**: replayed on connect like `cad.model_updated`. `source` is what Chrome shares, `detail` the last status line (`signaling: connected`, `video: connected h264`, the error when restarts are exhausted). |
+
+* `workspace.mode`: kept on the hub session. The Grok voice session gets a one-line system note ("The user
+  switched to the CAD view ..."; no reply is triggered). Bit's crew tools (`spawn_agent`, `assign_task`,
+  `dismiss_agent`, `crew_status`) stay in Grok's tool list but answer
+  `{"error": "crew tools are only available on the code screen; ask the user to open CODE"}` unless the mode is
+  `"code"`. Chosen over editing the tool list mid-session: it is one branch in the tool-call path and does not depend on
+  Grok re-reading `session.update`. A client that never sends `workspace.mode` keeps them available. `delegate` and the
+  Claude runner are unaffected.
+* `messages.focus`: the hub finds the message, Bit says `"<user_name> in <#channel | a DM> says: <text, ~200 chars>.
+  Want me to answer?"` through the live voice session (`pet.say` with the same line when there is none), the voice
+  session gets a one-line note naming the message, and the next `messages_send` that names no `reply_to_ts`,
+  `thread_ts` or `channel` replies in that thread. The focus is spent once that reply is sent, or replaced by the next focus.
+* Crew runners (every agent type except Bit) now get only `vscode_*` hub tools, plus `cad_*` for the Designer whose
+  kit is the CAD tools; never `messages_*` or the crew tools. Bit keeps everything.
+* Slack: on connect the hub backfills every conversation the user is in (since `last_seen_ts`, else the last two
+  hours; 20 per conversation) into the store **without** `notify.message`, so the sit-down digest counts what arrived
+  while the hub was off and Unity gets no flood.
