@@ -30,6 +30,8 @@ namespace Forge.Pet
 
         public bool IsListening { get; private set; }
         public bool IsMonitoring { get; private set; }
+        /// <summary>Next stt.start asks the hub to answer only if the user names the gator (look-to-talk, not facing it).</summary>
+        public bool RequireName { get; set; }
         /// <summary>RMS (0..1) of the last ~100 ms chunk; 0 when not listening.</summary>
         public float Level { get; private set; }
         public event Action<string> PartialTranscript;
@@ -64,7 +66,10 @@ namespace Forge.Pet
             if (client == null || !client.IsConnected) { StopMonitoring(); Error?.Invoke("hub not connected"); return; }
             if (!IsMonitoring && !StartMic()) return;
 
-            client.Send("stt.start", new JObject { ["pet_id"] = petId, ["sample_rate"] = TargetRate, ["encoding"] = "pcm16" });
+            var start = new JObject { ["pet_id"] = petId, ["sample_rate"] = TargetRate, ["encoding"] = "pcm16" };
+            if (RequireName) start["require_name"] = true;
+            RequireName = false;
+            client.Send("stt.start", start);
             if (IsMonitoring)
             {
                 int first = _preCount < _preRoll.Length ? 0 : _preNext;

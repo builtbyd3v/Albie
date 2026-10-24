@@ -12,6 +12,9 @@ namespace Forge.Pet
     /// Voice barge-in: while the gator speaks, the mic is monitored (HubSpeechToText.StartMonitoring, nothing sent).
     /// Speech clearly louder than the gator's own echo opens a hands-free turn and cuts the gator off; the hub
     /// stops Grok on stt.start and the monitored pre-roll keeps the first words.
+    /// Look-to-talk: the follow-up window only watches the mic (nothing sent). Speech opens a turn when the user faces
+    /// the gator; speech while looking elsewhere opens a turn that the hub answers only if it names the gator ("Bit, ...").
+    /// Cutting the gator off needs facing it. Space / A / the whistle always open a turn.
     /// </summary>
     [DisallowMultipleComponent]
     public class GatorFollowUp : MonoBehaviour
@@ -45,11 +48,17 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Seconds above loudLevel that are enough on their own.")]
         float loudSeconds = 0.15f;
 
+        [Header("Look to talk")]
+        [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Bit, ...\"). Buttons and the whistle always work.")]
+        bool lookToTalk = true;
+        [SerializeField, Tooltip("Max angle (degrees) between where the user looks and the gator.")]
+        float lookAngle = 40f;
+
         ITextToSpeech _tts;
         ITalkLevel _talk;
         HubSpeechToText _monitor;
-        bool _following, _subscribed;
-        float _startAt = -1f, _speechFor, _loudFor;
+        bool _following, _subscribed, _speaking, _attending;
+        float _startAt = -1f, _speechFor, _loudFor, _attendUntil;
 
         void Awake()
         {
@@ -87,51 +96,87 @@ namespace Forge.Pet
         void OnSpeechStarted()
         {
             _startAt = -1f;
+            _speaking = true;
+            _attending = false;                       // talking over our own window: close it, ask nothing
             if (_following)
             {
-                _following = false;                   // talking over our own window: close it, ask nothing
+                _following = false;
                 pushToTalk.CancelSession();
             }
-            if (voiceBargeIn && !pushToTalk.SessionActive && pushToTalk.CanListenHandsFree && pushToTalk.Provider is HubSpeechToText hub)
-            {
-                _monitor = hub;
-                _speechFor = _loudFor = 0f;
-                hub.StartMonitoring();
-            }
+            if (voiceBargeIn) StartMonitor();
         }
 
         void OnSpeechEnded()
         {
-            if (_monitor != null) { _monitor.StopMonitoring(); _monitor = null; }
-            if (pushToTalk.SessionActive) return;     // barge-in / Space: someone is already talking
+            _speaking = false;
+            if (pushToTalk.SessionActive) { StopMonitor(); return; }   // barge-in / Space: someone is already talking
             GatorState s = controller.State;
             if (s == GatorState.Answering || s == GatorState.Wandering || s == GatorState.TaskComplete)
-                _startAt = Time.time + startDelay;
+                _startAt = Time.time + startDelay;    // the mic keeps running into the follow-up window (no restart)
+            else StopMonitor();
         }
 
         void Update()
         {
-            if (_monitor != null && _monitor.IsMonitoring) CheckBargeIn();
+            if (_monitor != null && _monitor.IsMonitoring && (_speaking || _attending)) CheckSpeech();
+            if (_attending && Time.time >= _attendUntil)
+            {
+                _attending = false;                   // nobody replied
+                StopMonitor();
+                if (wanderAwayWhenDone && !pushToTalk.SessionActive) controller.WanderAway();
+            }
             if (_startAt < 0f || Time.time < _startAt) return;
             _startAt = -1f;
             GatorState s = controller.State;
-            if (pushToTalk.SessionActive || s == GatorState.Thinking || s == GatorState.Working || s == GatorState.Error) return;
-            if (pushToTalk.CanListenHandsFree && pushToTalk.BeginHandsFree(listenSeconds)) _following = true;
+            if (pushToTalk.SessionActive || s == GatorState.Thinking || s == GatorState.Working || s == GatorState.Error) { StopMonitor(); return; }
+            if (lookToTalk && StartMonitor()) { _attending = true; _attendUntil = Time.time + listenSeconds; }
+            else if (pushToTalk.CanListenHandsFree && pushToTalk.BeginHandsFree(listenSeconds)) _following = true;
             else if (wanderAwayWhenDone) controller.WanderAway();
         }
 
-        void CheckBargeIn()
+        bool StartMonitor()
         {
-            float echo = _talk != null ? _talk.Level * echoShare : 0f;
+            if (pushToTalk.SessionActive || !pushToTalk.CanListenHandsFree || !(pushToTalk.Provider is HubSpeechToText hub)) return false;
+            _monitor = hub;
+            _speechFor = _loudFor = 0f;
+            hub.StartMonitoring();                    // no-op if the mic is already running
+            return hub.IsMonitoring;
+        }
+
+        void StopMonitor()
+        {
+            if (_monitor != null) { _monitor.StopMonitoring(); _monitor = null; }
+        }
+
+        bool Facing()
+        {
+            var cam = Camera.main;
+            if (!lookToTalk || cam == null) return true;
+            Vector3 to = controller.transform.position - cam.transform.position;
+            return to.sqrMagnitude < 0.01f || Vector3.Angle(cam.transform.forward, to) <= lookAngle;
+        }
+
+        void CheckSpeech()
+        {
+            bool facing = Facing();
+            if (_speaking && !facing) { _speechFor = _loudFor = 0f; return; }   // cutting the gator off needs facing it
+            float echo = _speaking && _talk != null ? _talk.Level * echoShare : 0f;
             float level = _monitor.Level, dt = Time.deltaTime;
             _speechFor = level >= bargeLevel && level >= echo ? _speechFor + dt : Mathf.Max(0f, _speechFor - dt);
             _loudFor = level >= loudLevel && level >= echo ? _loudFor + dt : Mathf.Max(0f, _loudFor - dt);
             if (_speechFor < bargeSeconds && _loudFor < loudSeconds) return;
             var hub = _monitor;
+            bool cutIn = _speaking, reply = _attending;
             _monitor = null;
+            _attending = false;
+            hub.RequireName = !facing;                // looking elsewhere: only counts if they say "Bit"
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
-            if (pushToTalk.BeginHandsFree()) _tts.Stop();
-            else hub.StopMonitoring();
+            if (pushToTalk.BeginHandsFree())
+            {
+                if (cutIn) _tts.Stop();
+                _following = reply;
+            }
+            else { hub.RequireName = false; hub.StopMonitoring(); }
         }
 
         void OnSessionEnded(bool answered)

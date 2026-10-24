@@ -128,7 +128,7 @@ class VoiceSession(Protocol):
     sample_rate: int
 
     async def start(self) -> None: ...
-    async def begin_turn(self) -> None: ...
+    async def begin_turn(self, require_name: bool = False) -> None: ...
     async def feed(self, pcm16: bytes) -> None: ...
     async def commit_turn(self) -> None: ...
     async def cancel_turn(self) -> None: ...
@@ -153,6 +153,7 @@ class _Base:
         self._final_sent = True  # no turn open yet
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._turn_seq = 0
+        self._require_name = False  # look-to-talk: user wasn't facing Bit, so only a turn naming him counts
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
@@ -176,6 +177,8 @@ class _Base:
         if self._final_sent or not text or text == self._partial:
             return
         self._partial = text
+        if self._require_name and not has_name(text):
+            return  # maybe side conversation: no captions until he's named
         await self._emit(ev.stt_partial(self.pet_id, text))
 
     async def _final(self, text: str | None = None) -> None:
@@ -211,7 +214,7 @@ class GrokVoiceSession(_Base):
         self._dropping = False  # that reply is being cancelled (until its response.done)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
-        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))
+        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "20"))
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
         self._watchdog: asyncio.Task[None] | None = None
@@ -298,13 +301,14 @@ class GrokVoiceSession(_Base):
         return {"type": "session.update", "session": session}
 
     # ------------------------------------------------------------ turn API (called by ws.py)
-    async def begin_turn(self) -> None:
+    async def begin_turn(self, require_name: bool = False) -> None:
         await self.start()
         await self.stop_speech("barge_in")
         await self._send({"type": "input_audio_buffer.clear"})
         self._fed = 0
         self._drop_reply = False
         self._open_turn()
+        self._require_name = require_name
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -526,7 +530,7 @@ class GrokVoiceSession(_Base):
 
     async def _final(self, text: str | None = None) -> None:
         final = (text if text is not None else self._partial).strip()
-        if not self._final_sent and is_stop(final):
+        if not self._final_sent and (is_stop(final) or (self._require_name and not has_name(final))):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         await super()._final(text)
@@ -573,7 +577,7 @@ class FakeVoiceSession(_Base):
                 log.warning("fake voice: %s missing, speaking silence", FAKE_PCM)
                 self._pcm = bytes(FAKE_RATE * 2)
 
-    async def begin_turn(self) -> None:
+    async def begin_turn(self, require_name: bool = False) -> None:
         await self.start()
         await self.stop_speech("barge_in")
         self._open_turn()
@@ -659,6 +663,13 @@ def is_stop(text: str) -> bool:
     """Only stop words and filler ("Wait, stop, Bit.", "Never mind."): the user wants silence, not an answer."""
     words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
+
+
+def has_name(text: str) -> bool:
+    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?" ("bid" is how grok-transcribe often hears it).
+    Only the first two words or the last one, so "I'm a bit tired" doesn't count."""
+    words = re.findall(r"[a-z]+", text.lower())
+    return any(w in ("bit", "bid") for w in words[:2] + words[-1:]) if words else False
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

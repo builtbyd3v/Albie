@@ -115,7 +115,7 @@ async def _on_text(s: Session, raw: str) -> None:
                 log.warning("stt.start sample_rate=%s; expected 16000", start.sample_rate)
             s.stt_cancelled = False
             if s.voice is not None:
-                await _voice_call(s, s.voice.begin_turn)
+                await _voice_call(s, lambda: s.voice.begin_turn(require_name=start.require_name))
             else:
                 s.stt = await asyncio.to_thread(make_stt, _project_path(s))
         elif event.type == "stt.cancel":
