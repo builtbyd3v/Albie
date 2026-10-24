@@ -10,6 +10,8 @@ Inbound `message` / `app_mention` events (bot and user subscriptions, deduped) -
 notify.message on the EventBus. Sending is two steps: `create_draft` emits notify.draft and nothing leaves;
 `send_draft` (the card's Send button or the messages_confirm tool) posts it and emits notify.sent.
 `digest` is the sit-down summary: notify.digest, pet.say and the spoken greeting through `voice_speak`.
+`focus` is "Reply with Bit" on a message card (ws `messages.focus` / POST /messages/focus): Bit reads the message
+out loud and asks whether to answer; the next `messages_send` without a target replies in that thread.
 
 Without tokens the service stays disabled (one warning) and the hub boots as usual. Connection trouble is
 logged and retried; it never takes the hub down.
@@ -24,6 +26,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from agent.events import MessagesFocus
 from events import Draft, EventBus, NotifyDigest, NotifyDraftCancelled, NotifySent, SlackMessage
 
 from .settings import SlackSettings
@@ -32,6 +35,8 @@ from .store import MessageStore
 log = logging.getLogger("forge.messaging")
 
 VoiceSpeak = Callable[[str, str], Awaitable[bool]]
+VoiceNote = Callable[[str, str], Awaitable[bool]]  # (pet_id, one line of context the voice model reads, no reply)
+FOCUS_TEXT_CHARS = 200
 ACCEPTED_SUBTYPES: tuple[str | None, ...] = (None, "thread_broadcast", "file_share")
 RECONNECT_S = (2, 5, 10, 30)
 DRAFT_EXPIRY_S = 120.0
@@ -41,12 +46,32 @@ class DraftError(LookupError):
     """No open draft with that id (never existed, already sent, cancelled or expired)."""
 
 
+def _trim(text: str, limit: int = FOCUS_TEXT_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
+
+
+def _where(msg: SlackMessage) -> str:
+    return "a DM" if msg.is_dm else f"#{msg.channel_name}"
+
+
+def focus_line(msg: SlackMessage) -> str:
+    """What Bit says when a message card is tapped."""
+    text = _trim(msg.text)
+    if text and text[-1] not in ".!?":
+        text += "."
+    return f"{msg.user_name} in {_where(msg)} says: {text} Want me to answer?"
+
+
 class SlackService:
-    def __init__(self, settings: SlackSettings, store: MessageStore, bus: EventBus, voice_speak: VoiceSpeak) -> None:
+    def __init__(self, settings: SlackSettings, store: MessageStore, bus: EventBus, voice_speak: VoiceSpeak,
+                 voice_note: VoiceNote | None = None) -> None:
         self.settings = settings
         self.store = store
         self.bus = bus
         self.voice_speak = voice_speak
+        self.voice_note = voice_note
+        self.focused: SlackMessage | None = None   # "Reply with Bit": messages_send without a target answers this
         self.enabled = settings.configured
         self.connected = False
         self.bot_user_id: str | None = None
@@ -279,6 +304,8 @@ class SlackService:
         res = await (self._user_client or self._client).chat_postMessage(channel=draft.channel, text=draft.text,
                                                                            thread_ts=draft.thread_ts)
         ts = res["ts"]
+        if self.focused is not None and draft.reply_to is not None and draft.reply_to.ts == self.focused.ts:
+            self.focused = None  # answered
         await self.bus.publish("notify.sent", NotifySent(draft_id=draft.draft_id, channel=draft.channel,
                                                          channel_name=draft.channel_name, text=draft.text, ts=ts))
         log.info("sent draft %s as %s, ts=%s", draft.draft_id, "you" if self.as_user else "Bit", ts)
@@ -318,6 +345,41 @@ class SlackService:
         if not ts:
             return None
         return next((m for m in self.store.latest(len(self.store)) if m.ts == ts), None)
+
+    def find(self, channel: str, ts: str) -> SlackMessage | None:
+        return next((m for m in self.store.latest(len(self.store)) if m.ts == ts and m.channel == channel), None)
+
+    # ------------------------------------------------------------------ focus ("Reply with Bit")
+    async def focus(self, channel: str, ts: str, pet_id: str = "bit") -> SlackMessage | None:
+        """Bit reads the message and offers to answer; messages_send without a target then replies in its thread.
+        Spoken on the live voice session, else pet.say. None (and nothing said) if the message isn't in the store."""
+        msg = self.find(channel, ts)
+        if msg is None:
+            log.warning("messages.focus: no message %s in %s", ts, channel)
+            return None
+        self.focused = msg
+        line = focus_line(msg)
+        if self.voice_note is not None:
+            try:
+                await self.voice_note(pet_id, f"Slack message in focus, from {msg.user_name} in {_where(msg)}: "
+                                              f"\"{_trim(msg.text)}\". To answer it call messages_send; the reply goes "
+                                              "to that thread unless you name another target.")
+            except Exception:  # noqa: BLE001
+                log.exception("focus note failed")
+        try:
+            spoke = await self.voice_speak(pet_id, line)
+        except Exception:  # noqa: BLE001
+            log.exception("spoken focus failed")
+            spoke = False
+        if not spoke:
+            await self.bus.publish("pet.say", {"pet_id": pet_id, "text": line})
+        log.info("focus for %s: #%s %s (spoken=%s)", pet_id, msg.channel_name, msg.ts, spoke)
+        return msg
+
+    async def focus_from_ws(self, session: Any, payload: dict[str, Any]) -> None:
+        """ws `messages.focus {pet_id, channel, ts}` (agent.ws.client_handlers); the session supplies the pet id."""
+        f = MessagesFocus.model_validate(payload)
+        await self.focus(f.channel, f.ts, f.pet_id or getattr(session, "pet_id", "bit"))
 
     # ------------------------------------------------------------------ digest
     async def digest(self, pet_id: str = "bit") -> NotifyDigest:

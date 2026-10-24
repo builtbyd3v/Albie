@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent import handle_socket as agent_socket, router as agent_router
 from agent import speech, tools as agent_tools
+from agent import ws as agent_ws
 from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
@@ -46,8 +47,9 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         cad = CadService(data_dir / "cad", cad_script, bus)
         app.state.bus, app.state.cad = bus, cad
         agent_tools.register_cad(cad, bus)  # Bit's CAD tools for Grok and the Claude runner
-        slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak)
+        slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak, speech.note)
         app.state.slack = slack
+        agent_ws.client_handlers["messages.focus"] = slack.focus_from_ws  # "Reply with Bit" from a message card
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
         await cad.start()
         await slack.start()

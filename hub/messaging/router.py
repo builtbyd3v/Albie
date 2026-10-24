@@ -1,4 +1,5 @@
-"""REST for messaging (PROJECT_CONTEXT section 7): /messages/latest, /messages/drafts[/{id}/send|cancel], /messages/digest.
+"""REST for messaging (PROJECT_CONTEXT section 7): /messages/latest, /messages/drafts[/{id}/send|cancel], /messages/digest,
+and /messages/focus (the REST form of the ws `messages.focus` message: "Reply with Bit" on a card).
 
 There is no direct send endpoint. A draft is created (nothing posted), Unity shows it as a Send / Cancel card,
 and only /drafts/{id}/send posts it, under the user's own name.
@@ -45,6 +46,12 @@ class DigestRequest(BaseModel):
     pet_id: str = "bit"
 
 
+class FocusRequest(BaseModel):
+    pet_id: str = "bit"
+    channel: str
+    ts: str
+
+
 @router.get("/latest", response_model=list[SlackMessage])
 async def latest(n: int = Query(5, ge=1, le=50), svc: SlackService = Depends(enabled)) -> list[SlackMessage]:
     return svc.store.latest(n)
@@ -82,6 +89,15 @@ async def cancel_draft(draft_id: str, svc: SlackService = Depends(enabled)) -> O
     except DraftError as e:
         raise HTTPException(404, str(e)) from None
     return OkReply()
+
+
+@router.post("/focus", response_model=SlackMessage)
+async def focus(req: FocusRequest, svc: SlackService = Depends(enabled)) -> SlackMessage:
+    """Tap on a message card: Bit reads it out and offers to answer; the next messages_send replies in that thread."""
+    msg = await svc.focus(req.channel, req.ts, req.pet_id)
+    if msg is None:
+        raise HTTPException(404, f"No message {req.ts} in {req.channel} (only the last 50 are kept)")
+    return msg
 
 
 @router.post("/digest", response_model=NotifyDigest)

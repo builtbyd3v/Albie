@@ -62,18 +62,25 @@ class StubClient:
         return {"ts": "1700000099.000100"}
 
 
-def make_service(tmp_path: Path, *, enabled: bool = True, as_user: bool = False
+def make_service(tmp_path: Path, *, enabled: bool = True, as_user: bool = False, voice: bool = True,
                  ) -> tuple[SlackService, BusRecorder, list[tuple[str, str]]]:
     spoken: list[tuple[str, str]] = []
+    noted: list[tuple[str, str]] = []
 
     async def speak(pet_id: str, text: str) -> bool:
-        spoken.append((pet_id, text))
-        return True
+        if voice:
+            spoken.append((pet_id, text))
+        return voice  # False = no live voice session (speech.speak found nobody)
+
+    async def note(pet_id: str, text: str) -> bool:
+        noted.append((pet_id, text))
+        return voice
 
     settings = SlackSettings(bot_token="xoxb-x" if enabled else "", app_token="xapp-x" if enabled else "",
                              user_token="xoxp-x" if as_user else "", user_id="UME", default_channel="#forge-team")
     bus = BusRecorder()
-    svc = SlackService(settings, MessageStore(tmp_path / "messages"), bus, speak)  # type: ignore[arg-type]
+    svc = SlackService(settings, MessageStore(tmp_path / "messages"), bus, speak, note)  # type: ignore[arg-type]
+    svc.noted = noted  # type: ignore[attr-defined]  (test-only handle)
     svc._client = StubClient("UBOT")
     if as_user:
         svc._user_client = StubClient("UME")
@@ -265,6 +272,81 @@ def test_draft_expires(tmp_path: Path) -> None:
     assert bus.last("notify.draft_cancelled").reason == "expired"
 
 
+# ------------------------------------------------------------------ focus ("Reply with Bit")
+def test_focus_speaks_notes_and_seeds_the_next_send(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path, as_user=True)
+    svc.store.add(msg("1700000001.000100", text="unrelated"))
+    svc.store.add(msg("1700000002.000100", text="can you review my PR today"))
+
+    async def run() -> list[Any]:
+        found = await svc.focus("C1", "1700000002.000100")
+        drafted = await mtools.call_tool("messages_send", {"text": "yes, after lunch"}, svc)
+        draft = svc.open_draft
+        sent = await mtools.call_tool("messages_confirm", {"send": True}, svc)
+        return [found, drafted, draft, sent]
+
+    found, drafted, draft, sent = asyncio.run(run())
+    assert found is not None and found.ts == "1700000002.000100"
+    assert spoken == [("bit", "hudson in #forge-team says: can you review my PR today. Want me to answer?")]
+    assert bus.types() == ["notify.draft", "notify.sent"]  # voice spoke, so no pet.say caption
+    note = svc.noted[0][1]  # type: ignore[attr-defined]
+    assert "hudson" in note and "#forge-team" in note and "can you review my PR today" in note and "messages_send" in note
+    assert drafted["status"] == "awaiting_confirmation"
+    assert (draft.channel, draft.thread_ts, draft.reply_to.ts) == ("C1", "1700000002.000100", "1700000002.000100")
+    assert svc._user_client.posted[-1]["thread_ts"] == "1700000002.000100"
+    assert sent["status"] == "sent" and svc.focused is None  # answered: the focus is spent
+
+
+def test_focus_explicit_target_wins_and_focus_persists_until_answered(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", text="ping", channel="C1"))
+
+    async def run() -> None:
+        await svc.focus("C1", "1700000002.000100")
+        await mtools.call_tool("messages_send", {"text": "elsewhere", "channel": "#forge-team"}, svc)
+        assert svc.open_draft is not None and svc.open_draft.thread_ts is None and svc.open_draft.reply_to is None
+        await mtools.call_tool("messages_confirm", {"send": True}, svc)
+        assert svc.focused is not None  # that send didn't answer the focused message
+        await mtools.call_tool("messages_send", {"text": "now you"}, svc)
+        assert svc.open_draft is not None and svc.open_draft.thread_ts == "1700000002.000100"
+
+    asyncio.run(run())
+
+
+def test_focus_without_voice_says_it_as_a_caption(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path, voice=False)
+    long = "word " * 80  # 400 chars
+    dm = msg("1700000003.000100", text=long, channel="D1").model_copy(update={"channel_name": "dm", "is_dm": True})
+    svc.store.add(dm)
+    found = asyncio.run(svc.focus("D1", "1700000003.000100", "bit"))
+    assert found is not None and spoken == []
+    assert bus.types() == ["pet.say"]
+    line = bus.events[0][1]["text"]
+    assert line.startswith("hudson in a DM says: word word") and line.endswith("... Want me to answer?")
+    assert len(line) < 200 + 60
+
+
+def test_focus_unknown_message_is_quiet(tmp_path: Path) -> None:
+    svc, bus, spoken = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", channel="C1"))
+    assert asyncio.run(svc.focus("C1", "1.0")) is None
+    assert asyncio.run(svc.focus("C9", "1700000002.000100")) is None  # right ts, wrong channel
+    assert spoken == [] and bus.events == [] and svc.focused is None
+
+
+def test_focus_from_ws_uses_the_sessions_pet(tmp_path: Path) -> None:
+    svc, _, spoken = make_service(tmp_path)
+    svc.store.add(msg("1700000002.000100", channel="C1"))
+
+    class Session:
+        pet_id = "bit"
+
+    asyncio.run(svc.focus_from_ws(Session(), {"channel": "C1", "ts": "1700000002.000100"}))
+    assert spoken[0][0] == "bit"
+    with pytest.raises(Exception):  # bad payload -> ValidationError, ws.py answers agent.error
+        asyncio.run(svc.focus_from_ws(Session(), {"channel": "C1"}))
+
+
 # ------------------------------------------------------------------ tools
 def test_tools_send_is_draft_then_confirm(tmp_path: Path) -> None:
     svc, bus, _ = make_service(tmp_path, as_user=True)
@@ -361,3 +443,8 @@ def test_router_enabled_draft_flow(api) -> None:
 
     r = c.post("/messages/digest", json={"pet_id": "bit"})
     assert r.status_code == 200 and r.json()["line"] == "You have 1 new message, and it mentions you."
+
+    r = c.post("/messages/focus", json={"pet_id": "bit", "channel": "C1", "ts": "1700000001.000100"})
+    assert r.status_code == 200 and r.json()["text"] == "first" and svc.focused is not None
+    assert c.post("/messages/focus", json={"channel": "C1", "ts": "nope"}).status_code == 404
+    assert api(False).post("/messages/focus", json={"channel": "C1", "ts": "1"}).status_code == 503

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -105,6 +106,30 @@ def test_bad_frame_and_unknown_project(client: TestClient) -> None:
         assert _collect(ws, {"agent.error"})[-1][0] == "agent.error"
         ws.send_json({"type": "agent.ask", "payload": {"text": "hi", "project_id": "nope"}})
         assert _collect(ws, {"agent.error"})[-1][0] == "agent.error"
+
+
+def test_client_handlers_extend_the_socket(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Other modules own their client -> hub messages (main.py registers messages.focus for hub/messaging)."""
+    import agent.ws as ws_mod
+    from pydantic import BaseModel
+
+    got: list[tuple[str, dict[str, Any]]] = []
+
+    class Payload(BaseModel):
+        channel: str
+
+    async def handler(session: ws_mod.Session, payload: dict[str, Any]) -> None:
+        Payload.model_validate(payload)
+        got.append((session.pet_id, payload))
+
+    monkeypatch.setitem(ws_mod.client_handlers, "messages.focus", handler)
+    with client.websocket_connect("/ws/agent") as ws:
+        _hello(ws)
+        ws.send_json({"type": "messages.focus", "payload": {"channel": "C1", "ts": "1.0"}})
+        ws.send_json({"type": "messages.focus", "payload": {"ts": "1.0"}})  # invalid -> agent.error, socket survives
+        err = _collect(ws, {"agent.error"})[-1][1]
+    assert got == [("bit", {"channel": "C1", "ts": "1.0"})]
+    assert err["message"] == "Bad messages.focus message."
 
 
 def test_post_agent_text(client: TestClient) -> None:

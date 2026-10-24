@@ -94,6 +94,12 @@ class WorkspaceMode(_Payload):  # client -> hub: which workspace view is open ("
     mode: str = ""
 
 
+class MessagesFocus(_Payload):  # client -> hub: "Reply with Bit" on a message card (handled by hub/messaging)
+    pet_id: str | None = None
+    channel: str
+    ts: str
+
+
 CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "hello": Hello,
     "agent.ask": AgentAsk,
@@ -104,6 +110,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "tts.stop": TtsStopRequest,
     "crew.roster": CrewRoster,
     "workspace.mode": WorkspaceMode,
+    "messages.focus": MessagesFocus,
 }
 
 

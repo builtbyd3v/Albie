@@ -14,7 +14,8 @@ Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, a
 gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
 run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
 shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
-Unknown message types are ignored (other modules may share the socket) and logged.
+Other modules own their client -> hub messages on this socket through ``client_handlers`` (main.py registers
+``messages.focus`` for hub/messaging). Unknown message types are ignored and logged.
 """
 
 from __future__ import annotations
@@ -22,7 +23,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -44,6 +47,9 @@ from .wake import WakeRouter
 log = logging.getLogger(__name__)
 
 CANCEL_GRACE_S = 3.0
+
+ClientHandler = Callable[["Session", dict[str, Any]], Awaitable[None]]
+client_handlers: dict[str, ClientHandler] = {}  # type -> handler(session, payload); the handler validates the payload
 
 
 @dataclass
@@ -172,6 +178,8 @@ async def _on_text(s: Session, raw: str) -> None:
             TtsStopRequest.model_validate(event.payload)
             if s.voice is not None:
                 await _voice_call(s, s.voice.stop_speech)
+        elif event.type in client_handlers:
+            await client_handlers[event.type](s, event.payload)
         else:
             log.debug("ignoring ws message type %s", event.type)
     except ValidationError as exc:

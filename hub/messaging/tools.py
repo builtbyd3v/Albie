@@ -51,7 +51,10 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService) -> dict[
             text = str(args.get("text") or "").strip()
             if not text:
                 return {"error": "text is empty"}
-            draft = await svc.create_draft(text, args.get("channel"), args.get("thread_ts"), args.get("reply_to_ts"))
+            reply_to_ts = args.get("reply_to_ts")
+            if not (reply_to_ts or args.get("thread_ts") or args.get("channel")) and svc.focused is not None:
+                reply_to_ts = svc.focused.ts  # "Reply with Bit": no target named -> the message in focus
+            draft = await svc.create_draft(text, args.get("channel"), args.get("thread_ts"), reply_to_ts)
             return {"draft_id": draft.draft_id, "status": "awaiting_confirmation", "channel_name": draft.channel_name,
                     "text": draft.text, "as": "you" if svc.as_user else "Bit",
                     "next": "Tell the user what you wrote and ask them to tap Send or say 'send it'. Not sent yet."}
