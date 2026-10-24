@@ -124,13 +124,15 @@ public class DigestTrigger : MonoBehaviour
     /// Instantiate <paramref name="prefab"/> beside Bit: a holder parented to the desk frame at <paramref name="offset"/>
     /// (m: right of the front edge midpoint, up, into the desk), turned to face the user. <paramref name="configure"/>
     /// runs on the instance while the holder is still inactive, so components can be set up before their OnEnable.
-    /// Returns the (active) holder; destroy it to remove the whole thing.
+    /// Returns the (active) holder; destroy it to remove the whole thing. The holder carries a <see cref="MessagesDeskZone"/>
+    /// so the pet keeps its gators out from under the floating cards.
     /// </summary>
     public static GameObject SpawnAtDesk(DeskPresence presence, GameObject prefab, Vector3 offset, string holderName,
         Action<GameObject> configure = null)
     {
         var holder = new GameObject(holderName);
         holder.SetActive(false);
+        holder.AddComponent<MessagesDeskZone>();
         holder.transform.SetParent(presence.Frame, false);
         holder.transform.localPosition = offset;
         var go = Instantiate(prefab, holder.transform);
