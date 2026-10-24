@@ -6,6 +6,7 @@ using UnityEngine.UI;
 /// <summary>
 /// Round mode buttons lying on the desk near its front edge. Press one (poke, ray + pinch/trigger, or mouse)
 /// to unfold that mode's workspace; press it again to fold it. Built from <see cref="Workspace.modes"/>.
+/// Two grey buttons after them work on the open mode: Flat / Curve switches the layout, Reset puts its panels back.
 /// </summary>
 [RequireComponent(typeof(Canvas))]
 public class DeskDock : MonoBehaviour
@@ -21,7 +22,11 @@ public class DeskDock : MonoBehaviour
 
     const float ButtonMm = 72f, SpacingMm = 22f, PaddingMm = 18f, HeightMm = 110f;
 
+    static readonly Color ToolColor = new Color(0.55f, 0.6f, 0.68f);
+
     readonly List<(string id, Image image, Color color)> buttons = new List<(string, Image, Color)>();
+    readonly List<Button> tools = new List<Button>();
+    TMP_Text layoutLabel;
     Coroutine anim;
 
     public bool IsShown { get; private set; }
@@ -45,7 +50,9 @@ public class DeskDock : MonoBehaviour
     public void Build(Workspace workspace)
     {
         foreach (var b in buttons) Destroy(b.image.gameObject);
+        foreach (var t in tools) Destroy(t.gameObject);
         buttons.Clear();
+        tools.Clear();
         buttonTemplate.gameObject.SetActive(false);
 
         foreach (var mode in workspace.modes)
@@ -61,7 +68,14 @@ public class DeskDock : MonoBehaviour
             buttons.Add((id, image, mode.color));
         }
 
-        int n = Mathf.Max(1, buttons.Count);
+        layoutLabel = AddTool("Dock layout", workspace.ToggleLayout);
+        AddTool("Dock reset", workspace.ResetLayout).text = "Reset";
+        workspace.layoutChanged.RemoveListener(ShowLayout);
+        workspace.layoutChanged.AddListener(ShowLayout);
+        ShowLayout(workspace.layout);
+        SetActiveMode(workspace.ActiveMode);
+
+        int n = Mathf.Max(1, buttons.Count + tools.Count);
         ((RectTransform)transform).sizeDelta = new Vector2(n * ButtonMm + (n - 1) * SpacingMm + PaddingMm * 2f, HeightMm);
     }
 
@@ -73,6 +87,30 @@ public class DeskDock : MonoBehaviour
             b.image.color = active ? b.color : Dim(b.color);
             b.image.transform.localScale = Vector3.one * (active ? 1.15f : 1f);
         }
+        // Layout and Reset only mean something while a mode is open.
+        foreach (var t in tools)
+        {
+            t.interactable = modeId != null;
+            t.image.color = modeId != null ? ToolColor : Dim(ToolColor);
+        }
+    }
+
+    TMP_Text AddTool(string name, UnityEngine.Events.UnityAction onClick)
+    {
+        var button = Instantiate(buttonTemplate, row);
+        button.gameObject.SetActive(true);
+        button.name = name;
+        button.onClick.AddListener(onClick);
+        tools.Add(button);
+        var label = button.GetComponentInChildren<TMP_Text>();
+        label.fontSize = 16f;
+        return label;
+    }
+
+    // The button says what pressing it does.
+    void ShowLayout(WorkspaceLayout layout)
+    {
+        if (layoutLabel != null) layoutLabel.text = layout == WorkspaceLayout.Curved ? "Flat" : "Curve";
     }
 
     /// <summary>Lay the dock flat on the desk, centered along the front edge, readable from the seat.</summary>

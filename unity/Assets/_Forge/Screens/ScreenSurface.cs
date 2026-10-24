@@ -14,6 +14,12 @@ public class ScreenSurface : MonoBehaviour
     [Tooltip("Keep the panel's height and set its width from the stream's aspect ratio.")]
     public bool fitAspect = true;
 
+    void Awake()
+    {
+        // Resizing the panel by hand keeps the stream's shape too.
+        if (image != null && fitAspect && TryGetComponent(out ForgePanel panel)) panel.KeepAspect = true;
+    }
+
     // Called on the first frame and whenever the stream changes size.
     public void Show(Texture texture)
     {
