@@ -5,8 +5,8 @@ VOICE_PROVIDER (env):
 * ``grok``  Grok Voice over raw websockets (``wss://api.x.ai/v1/realtime``), key ``XAI_API_KEY``.
 * ``fake``  canned reply from a bundled PCM file, no key, no network (Unity testing).
 
-Grok handles conversation itself and has one tool, ``delegate``: anything about the repo, runs, CAD or a
-code change goes to the Claude runner (the "brain"), whose answer is then spoken verbatim with
+Grok handles conversation itself. Quick actions (CAD params, VS Code highlight/open) are direct tools from
+agent/tools.py. ``delegate`` sends anything about the repo, runs or a code change to the Claude runner (the "brain"), whose answer is then spoken verbatim with
 ``force_message``. Push-to-talk is a manual turn:
 
     Unity stt.start     -> begin_turn()   (barge-in: cancel speech, clear the input buffer)
@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import events as ev
+from . import tools
 from .events import Event
 
 log = logging.getLogger(__name__)
@@ -68,11 +69,15 @@ PERSONA = (
     "plainly."
 )
 DELEGATE_RULES = (
-    " You have one tool, delegate. Call it for anything about the user's code, repository, files, project, "
-    "training runs or CAD part, and for any request to write, fix or change code; never guess those details "
+    " Your delegate tool is for anything needing real analysis of the user's code, repository, files, project "
+    "or training runs, and for any request to write, fix or change code; never guess those details "
     "yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
     "ready. Answer everything else yourself."
+)
+TOOL_RULES = (
+    " Use your other tools yourself for quick actions: read or change the rocket design, and open, highlight "
+    "or check code in VS Code. Call them instead of guessing, then say in one short line what you did."
 )
 DELEGATE_TOOL = {
     "type": "function",
@@ -251,7 +256,7 @@ class GrokVoiceSession(_Base):
             except ValueError:
                 log.warning("GROK_VOICE_SPEED=%r is not a number", self._speed)
         session: dict[str, Any] = {
-            "instructions": PERSONA + (DELEGATE_RULES if self._delegate else ""),
+            "instructions": PERSONA + (TOOL_RULES if tools.definitions() else "") + (DELEGATE_RULES if self._delegate else ""),
             "turn_detection": None,  # push-to-talk: we commit the turn ourselves
             "reasoning": {"effort": "none"},
             "audio": {
@@ -261,8 +266,9 @@ class GrokVoiceSession(_Base):
         }
         if self._voice:
             session["voice"] = self._voice
-        if self._delegate:
-            session["tools"] = [DELEGATE_TOOL]
+        offered = ([DELEGATE_TOOL] if self._delegate else []) + tools.grok_definitions()
+        if offered:
+            session["tools"] = offered
         return {"type": "session.update", "session": session}
 
     # ------------------------------------------------------------ turn API (called by ws.py)
@@ -424,6 +430,9 @@ class GrokVoiceSession(_Base):
             job = asyncio.create_task(self._run_delegate(str(args["task"]), mode))
             self._jobs.add(job)
             job.add_done_callback(self._jobs.discard)
+        elif tools.has(name):
+            # ponytail: awaited inline, so the reader waits on the tool (CAD regen about 1 s, VS Code under 5 s).
+            result = await tools.call(name, args, self.pet_id)
         else:
             result = {"error": f"unknown tool {name!r}"}
         self._pending_outputs.append({"type": "conversation.item.create", "item": {

@@ -37,6 +37,7 @@ from claude_agent_sdk import (
 )
 
 from . import events as ev
+from . import tools as forge_tools
 from .bus import Emit
 from .config import ProjectConfig
 from .events import AskMode
@@ -83,12 +84,13 @@ def _model() -> str:
     return os.getenv("AGENT_MODEL", "claude-sonnet-5-5")
 
 
-def _options(project: ProjectConfig, mode: ConcreteMode) -> ClaudeAgentOptions:
+def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit") -> ClaudeAgentOptions:
     tools = QA_TOOLS if mode == "qa" else CODE_TOOLS
     effort = os.getenv("AGENT_QA_EFFORT" if mode == "qa" else "AGENT_CODE_EFFORT")
     return ClaudeAgentOptions(
         tools=tools,  # built-in tools that exist at all
-        allowed_tools=tools,  # ...and are auto-approved
+        allowed_tools=tools + forge_tools.mcp_names(),  # ...and are auto-approved, plus Bit's CAD/VS Code tools
+        mcp_servers={forge_tools.SERVER: forge_tools.mcp_server(pet_id)},
         disallowed_tools=CODE_DENY if mode == "code" else [],
         permission_mode="dontAsk",  # never prompt: anything not pre-approved is denied
         cwd=str(project.path),
@@ -151,7 +153,7 @@ def describe_tool(block: ToolUseBlock, repo: Path) -> str:
     if name == "Bash":
         desc = inp.get("description") or str(inp.get("command", ""))[:50]
         return f"Running: {desc}"
-    return f"Using {name}"
+    return f"Using {name.removeprefix(f'mcp__{forge_tools.SERVER}__')}"
 
 
 # ---------------------------------------------------------------- the turn
@@ -182,10 +184,10 @@ async def run_turn(
 
 
 async def _stream(
-    project: ProjectConfig, mode: ConcreteMode, text: str, control: TurnControl | None
+    project: ProjectConfig, mode: ConcreteMode, text: str, control: TurnControl | None, pet_id: str = "bit"
 ):  # -> AsyncIterator[Message]
     """Connect a ClaudeSDKClient, send the prompt, yield messages until ResultMessage."""
-    client = ClaudeSDKClient(options=_options(project, mode))
+    client = ClaudeSDKClient(options=_options(project, mode, pet_id))
     await client.connect()
     if control is not None:
         control.set_interrupter(client.interrupt)
@@ -209,7 +211,7 @@ async def _run_qa(
     current = ""  # text of the current assistant message (reset on each new message)
     last_sent, last_t = "", 0.0
     final: str | None = None
-    async with contextlib.aclosing(_stream(project, "qa", text, control)) as stream:
+    async with contextlib.aclosing(_stream(project, "qa", text, control, pet_id)) as stream:
         async for msg in stream:
             if isinstance(msg, StreamEvent):
                 e = msg.event
@@ -258,7 +260,7 @@ async def _run_code(
 
     last_text = ""
     summary: str | None = None
-    async with contextlib.aclosing(_stream(project, "code", text, control)) as stream:
+    async with contextlib.aclosing(_stream(project, "code", text, control, pet_id)) as stream:
         async for msg in stream:
             if isinstance(msg, AssistantMessage) and not msg.parent_tool_use_id:
                 for block in msg.content:

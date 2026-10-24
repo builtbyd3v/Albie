@@ -414,7 +414,7 @@ def test_unknown_tool_gets_error_output() -> None:
         await _settle()
         out = [m for m in grok.sent if (m.get("item") or {}).get("type") == "function_call_output"]
         assert out and "unknown tool" in json.loads(out[0]["item"]["output"])["error"]
-        assert "tools" not in grok.sent[0]["session"]  # no delegate wired -> no tools offered
+        assert "delegate" not in [t["name"] for t in grok.sent[0]["session"]["tools"]]  # no delegate wired
         await s.close()
 
     asyncio.run(run())
@@ -435,3 +435,31 @@ def test_delegate_over_ws_uses_the_runner(client: TestClient, monkeypatch: pytes
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         ws.send_json({"type": "agent.cancel", "payload": {}})  # round-trip so hello is processed
         assert callable(seen.get("delegate"))
+
+
+def test_fast_tool_runs_inline_and_returns_its_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registry tool (agent/tools.py) is offered to Grok and its real result goes back as function_call_output."""
+    from agent import tools
+
+    async def call(name: str, args: dict[str, Any], pet_id: str) -> dict[str, Any]:
+        return {"highlighted": args["path"]}
+
+    monkeypatch.setattr(tools, "call", call)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        sess = grok.sent[0]["session"]
+        assert "vscode_highlight" in [t["name"] for t in sess["tools"]] and "quick actions" in sess["instructions"]
+        grok.push(type="response.created")
+        grok.push(type="response.function_call_arguments.done", name="vscode_highlight", call_id="h1",
+                  arguments=json.dumps({"path": "train.py", "start": 40}))
+        grok.push(type="response.done")
+        await _settle()
+        out = [m for m in grok.sent if (m.get("item") or {}).get("type") == "function_call_output"]
+        assert json.loads(out[0]["item"]["output"]) == {"highlighted": "train.py"}
+        assert grok.sent[-1]["type"] == "response.create"  # Grok then says what it did
+        await s.close()
+
+    asyncio.run(run())

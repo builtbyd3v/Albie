@@ -19,6 +19,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import handle_socket as agent_socket, router as agent_router
+from agent import tools as agent_tools
 from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
@@ -37,6 +38,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         bus = EventBus()
         cad = CadService(data_dir / "cad", cad_script, bus)
         app.state.bus, app.state.cad = bus, cad
+        agent_tools.register_cad(cad, bus)  # Bit's CAD tools for Grok and the Claude runner
         await cad.start()
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
         try:
