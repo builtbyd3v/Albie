@@ -1,8 +1,13 @@
 // One command for screen streaming: starts signaling.py and the JPEG fallback (stream.py), opens Chrome,
 // and shares the VS Code window over WebRTC.
 // No clicks: Chrome auto-picks the capture source named by SCREEN_SOURCE (default: VS Code's front window).
+// VS Code not open? It opens VSCODE_FOLDER (default: this repo) and waits for the window; it never shares the
+// whole screen unless SCREEN_SOURCE asks for it.
 // One-time setup: "window.titleSeparator": " | " in VS Code settings, so Chrome can tell VS Code apart (see below).
 //   npm start                                  # share VS Code
+//   VSCODE_FOLDER=~/cifar npm start            # open that project if VS Code isn't open yet
+//   VSCODE_SIZE=1440x900 npm start             # VS Code's window size in points (default 1280x800, see fitVsCode)
+//   VSCODE_ZOOM=2 npm start                    # bigger text on the headset (default 1 = 120%)
 //   SCREEN_SOURCE="Entire screen" npm start    # share the whole screen
 // A Quest plugged in over USB is wired up automatically (adb reverse, see below).
 // Ctrl+C stops everything.
@@ -14,10 +19,16 @@ const here = new URL(".", import.meta.url).pathname;
 // Chrome matches part of a window's name, but not across the "—" in VS Code's default title ("<file> — <repo>").
 // With "window.titleSeparator": " | " in VS Code settings the title is "<file> | <repo>", and "| <repo>" matches
 // only VS Code (a GitHub tab named after the repo doesn't), and survives switching files.
+// VS Code also owns a tiny untitled helper window ("Window", 66x20) that is sometimes its front window, so pick the
+// first window whose title has the separator instead of `front window`.
+const vsCodeWindow = 'first window of process "Code" whose name contains " | "';
+
 function vsCodeSource() {
   try {
-    const script = 'tell application "System Events" to get name of front window of process "Code"';
-    const title = execFileSync("osascript", ["-e", script], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const script = 'tell application "System Events" to get name of every window of process "Code"';
+    const titles = execFileSync("osascript", ["-e", script], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const title = titles.split(", ").find((t) => t.includes(" | ")) ?? titles.split(", ").find((t) => t !== "Window") ?? "";
+    if (!title) return null; // no window yet
     if (title.includes(" | ")) return "| " + title.split(" | ").pop();
     console.warn('VS Code\'s title uses "—", which Chrome can\'t match. Add "window.titleSeparator": " | " to');
     console.warn("VS Code settings (.vscode/settings.json). Matching the repo name instead, which can pick another window.");
@@ -27,7 +38,51 @@ function vsCodeSource() {
   }
 }
 
-const source = process.env.SCREEN_SOURCE || vsCodeSource() || "Entire screen";
+// Open VS Code when it has no window, then wait for its title (about 3 s on a cold start).
+async function openVsCode() {
+  let source = vsCodeSource();
+  if (source) return source;
+  const folder = process.env.VSCODE_FOLDER || new URL("..", import.meta.url).pathname;
+  console.log(`Opening VS Code on ${folder}`);
+  execFileSync("open", ["-a", "Visual Studio Code", folder]);
+  for (let i = 0; i < 60 && !source; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    source = vsCodeSource();
+  }
+  if (!source) {
+    console.error("VS Code didn't open a window in 30 s; not sharing anything. Open it, then restart.");
+    process.exit(1);
+  }
+  return source;
+}
+
+// Sized for the headset, not maximized: the stream is capped at 2048 px wide (Quest texture limit), so a full-screen
+// window gets shrunk and its text ends up small on the panel. 1280x800 pt is 2560x1600 px on Retina: shrunk only to
+// 0.8, 16:10 like the panel. Then the Forge Bit extension zooms to 120%, closes the side bars and the chat, and
+// sizes the terminal (vscode-bit/extension.js, layout).
+async function fitVsCode() {
+  const [width, height] = (process.env.VSCODE_SIZE || "1280x800").split("x").map(Number);
+  const script = `tell application "System Events" to tell ${vsCodeWindow}
+    set position to {0, 25}
+    set size to {${width}, ${height}}
+  end tell`;
+  try {
+    execFileSync("osascript", ["-e", script], { stdio: "ignore" });
+  } catch {
+    console.warn("Couldn't resize VS Code (full screen, or no Accessibility permission). Streaming it as it is.");
+  }
+  const url = `http://127.0.0.1:${process.env.BIT_VSCODE_PORT || 8770}/layout`;
+  for (let i = 0; i < 20; i++) {  // the extension starts a few seconds after the window on a cold start
+    const body = JSON.stringify({ zoom: Number(process.env.VSCODE_ZOOM || 1) });
+    const ok = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => r.ok, () => false);
+    if (ok) return console.log("VS Code laid out for the headset");
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  console.warn("Forge Bit extension didn't answer; side bars stay as they are.");
+}
+
+const source = process.env.SCREEN_SOURCE || (await openVsCode());
+if (!process.env.SCREEN_SOURCE) await fitVsCode();
 
 // Over USB, `adb reverse` makes localhost:<port> on the Quest reach this laptop, so ForgeNet's default
 // hubUrl (localhost) works with no IP to type: 8000 is the hub, 8766 signaling (video itself goes over Wi-Fi),
@@ -49,7 +104,7 @@ reversePorts();
 setInterval(reversePorts, 5000);
 
 const signaling = spawn(`${here}.venv/bin/python`, ["-u", `${here}signaling.py`], { stdio: ["ignore", "pipe", "inherit"] });
-// JPEG fallback server (whole screen, :8765), for Unity's JpegScreenReceiver if WebRTC shows no video.
+// JPEG fallback server (:8765, VS Code's window at Retina resolution), for Unity's JpegScreenReceiver if WebRTC shows no video.
 const jpeg = spawn(`${here}.venv/bin/python`, ["-u", `${here}stream.py`], { stdio: ["ignore", "inherit", "inherit"] });
 for (const [child, port] of [[signaling, 8766], [jpeg, 8765]])
   child.on("exit", (code) => {

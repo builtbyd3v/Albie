@@ -5,6 +5,7 @@ using UnityEngine;
 /// <see cref="Workspace"/> adds it to every volume it opens; it makes its own grab boxes, so prefabs need nothing.
 /// - Drag the base: slide it around (on the desk). Scroll wheel / thumbstick: raise or lower it.
 /// - Drag the model: spin it (sideways) and tilt it toward you (up and down). Scroll wheel / thumbstick: scale it.
+/// Hands have no thumbstick: reaching out (past a small dead zone) does what pushing the stick forward does.
 /// A line of help fades in under the label while it's pointed at (<see cref="ForgeVolume.SetHint"/>).
 /// </summary>
 [RequireComponent(typeof(ForgeVolume))]
@@ -17,6 +18,8 @@ public class VolumeManipulator : MonoBehaviour
     const float ScalePerNotch = 1.08f;
     const float MinScale = 0.4f, MaxScale = 3f;
     const float RaisePerNotch = 0.03f;  // m
+    const float ReachPerNotch = 0.02f;  // hands: 2 cm of reaching out = one notch
+    const float ReachDeadZone = 0.05f;  // hands: the arm drifts while it drags, so the first 5 cm do nothing
 
     public Transform Head { get; private set; }
     /// <summary>Moved, turned or scaled since it opened (Workspace remembers these per mode).</summary>
@@ -48,6 +51,7 @@ public class VolumeManipulator : MonoBehaviour
     Vector3 grabOffset;      // move: volume origin minus the grab point
     float grabHeight, raised;
     float yawAtGrab, tiltAtGrab, rayYawAtGrab, rayPitchAtGrab;
+    float reachAtGrab, reachUsed;
 
     /// <summary>Set up the grab boxes. <paramref name="eyes"/>: the player's head; <paramref name="deskFrame"/>: the desk top it rests on.</summary>
     public void Init(Transform eyes, Transform deskFrame)
@@ -104,6 +108,8 @@ public class VolumeManipulator : MonoBehaviour
         grab = handle.grab;
         heldHandle = handle;
         UserPlaced = true;
+        reachAtGrab = pointer.Reach;
+        reachUsed = 0f;
         Ray r = pointer.Ray;
         if (grab == Grab.Move)
         {
@@ -143,9 +149,20 @@ public class VolumeManipulator : MonoBehaviour
             return;
         }
         Ray r = pointer.Ray;
-        float notches = pointer.Notches(Time.deltaTime);
+        float notches = pointer.Notches(Time.deltaTime) + ReachNotches();
         if (grab == Grab.Move) Move(r, notches);
         else Turn(r, notches);
+    }
+
+    // Hands: notches from how far the hand has reached out (+) or pulled in (-) since the grab, past the dead zone.
+    float ReachNotches()
+    {
+        if (!pointer.IsHand) return 0f;
+        float d = pointer.Reach - reachAtGrab;
+        float past = Mathf.Sign(d) * Mathf.Max(0f, Mathf.Abs(d) - ReachDeadZone);
+        float notches = (past - reachUsed) / ReachPerNotch;
+        reachUsed = past;
+        return notches;
     }
 
     void Move(Ray r, float notches)
@@ -189,8 +206,10 @@ public class VolumeManipulator : MonoBehaviour
         if (over == Grab.None) return null;
         var rig = DesktopRig.Current;
         bool mouse = rig != null && rig.isActiveAndEnabled;
-        if (over == Grab.Move) return mouse ? "Drag to move  ·  Scroll to raise" : "Grab to move  ·  Thumbstick to raise";
-        return mouse ? "Drag to turn  ·  Scroll to resize" : "Grab to turn  ·  Thumbstick to resize";
+        bool hands = !mouse && ForgePointer.HandsActive;
+        if (over == Grab.Move)
+            return mouse ? "Drag to move  ·  Scroll to raise" : hands ? "Pinch to move  ·  Reach out to raise" : "Grab to move  ·  Thumbstick to raise";
+        return mouse ? "Drag to turn  ·  Scroll to resize" : hands ? "Pinch to turn  ·  Reach out to grow" : "Grab to turn  ·  Thumbstick to resize";
     }
 
     static void Angles(Vector3 dir, out float yaw, out float pitch)

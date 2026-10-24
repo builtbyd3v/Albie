@@ -1,6 +1,6 @@
 """Tiny in-process broadcast bus: every connected /ws socket gets every event.
 
-This is the only module-level mutable state in hub/agent (the ``bus`` singleton).
+Module-level mutable state in hub/agent: this ``bus`` singleton and ``watcher.watcher`` (proactive Bit).
 """
 
 from __future__ import annotations

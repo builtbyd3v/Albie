@@ -14,6 +14,7 @@ import json
 import logging
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,7 @@ class CadService:
         self._lock = asyncio.Lock()
         self._versions: dict[int, VersionRecord] = {}
         self.heads: dict[str, int] = {}
+        self.on_regen_failed: Callable[[CadRegenFailed], None] | None = None  # main.py: proactive Bit
 
     # lifecycle
 
@@ -342,6 +344,8 @@ class CadService:
                                      error_line=result.get("error_line"), kept_version=parent)
             log.warning("CAD regen of %s failed (%s): %s", part, source, failure.error)
             await self.bus.publish("cad.regen_failed", failure)
+            if self.on_regen_failed:
+                self.on_regen_failed(failure)
             raise RegenError(failure, result.get("traceback"))
         if label:
             label = " ".join(str(label).split())[:LABEL_MAX]
