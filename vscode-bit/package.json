@@ -5,7 +5,7 @@
   "publisher": "forge",
   "version": "0.1.0",
   "license": "MIT",
-  "engines": { "vscode": "^1.90.0" },
+  "engines": { "vscode": "^1.93.0" },
   "main": "./extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
@@ -16,6 +16,11 @@
           "type": "number",
           "default": 8770,
           "description": "Local HTTP port (127.0.0.1 only)."
+        },
+        "forgeBit.hubUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "Forge hub. Errors in a saved file and finished \"Bit\" terminal commands are POSTed to <hubUrl>/vscode/event."
         },
         "forgeBit.trainCommand": {
           "type": "string",

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -55,6 +55,17 @@ class CadView(BaseModel):
     focus_id: str | None = None
 
 
+class VscodeEvent(BaseModel):
+    """Pushed by the Forge Bit VS Code extension so Bit can speak up on its own."""
+    kind: Literal["errors", "command_finished"]
+    file: str | None = None           # workspace-relative
+    line: int | None = None           # 1-based, first error
+    message: str | None = None        # first error
+    count: int | None = None          # errors in the saved file; 0 = just fixed
+    command: str | None = None        # command_finished: the command line
+    exit_code: int | None = None
+
+
 class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
@@ -85,15 +96,22 @@ class EventBus:
                 dead.append(ws)
         self._clients.difference_update(dead)
 
+    async def attach(self, ws: WebSocket) -> None:
+        """Start publishing to an accepted socket (replays sticky state). Someone else owns its receive loop."""
+        self._clients.add(ws)
+        for message in list(self._last.values()):
+            await ws.send_json(message)
+
+    def detach(self, ws: WebSocket) -> None:
+        self._clients.discard(ws)
+
     async def serve(self, ws: WebSocket) -> None:
         await ws.accept()
-        self._clients.add(ws)
         try:
-            for message in list(self._last.values()):
-                await ws.send_json(message)
+            await self.attach(ws)
             while True:
                 await ws.receive_text()  # clients don't publish yet; keep the socket open
         except (WebSocketDisconnect, asyncio.CancelledError):
             pass
         finally:
-            self._clients.discard(ws)
+            self.detach(ws)

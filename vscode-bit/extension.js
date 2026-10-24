@@ -7,6 +7,10 @@
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
 //   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//
+// It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
+//   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
+//   command_finished  a command in the "Bit" terminal ended, with its exit code
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
@@ -141,7 +145,52 @@ function readBody(req) {
   });
 }
 
+function push(event) {
+  const req = http.request(new URL("/vscode/event", config().get("hubUrl")), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    timeout: 2000,
+  });
+  req.on("error", () => {}); // hub off: Bit just stays quiet
+  req.on("timeout", () => req.destroy());
+  req.end(JSON.stringify(event));
+}
+
+const lastErrors = new Map(); // file -> "line:message:count" last pushed, so re-saves stay quiet
+
+// Only on save: while typing, half-finished lines are errors and Bit would nag.
+function errorsOnSave(doc) {
+  if (doc.uri.scheme !== "file") return;
+  // ponytail: 1.5 s lets language servers re-check the saved file before we read diagnostics.
+  setTimeout(() => {
+    const file = relative(doc.uri);
+    const errs = vscode.languages.getDiagnostics(doc.uri)
+      .filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+    if (errs.length) {
+      const [d] = errs;
+      const line = d.range.start.line + 1;
+      const key = `${line}:${d.message}:${errs.length}`;
+      if (lastErrors.get(file) === key) return;
+      lastErrors.set(file, key);
+      push({ kind: "errors", file, line, message: d.message, count: errs.length });
+    } else if (lastErrors.delete(file)) {
+      push({ kind: "errors", file, count: 0 }); // fixed: Bit can say "nice"
+    }
+  }, 1500);
+}
+
+function watch(ctx) {
+  ctx.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(errorsOnSave),
+    vscode.window.onDidEndTerminalShellExecution((e) => {
+      if (e.terminal.name !== "Bit") return;
+      push({ kind: "command_finished", command: e.execution.commandLine.value, exit_code: e.exitCode ?? null });
+    }),
+  );
+}
+
 function activate(ctx) {
+  watch(ctx);
   const port = config().get("port");
   server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
