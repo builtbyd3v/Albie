@@ -73,6 +73,12 @@ namespace Forge.Pet
         string workTargetId;             // pet.state target_panel while Thinking / Working
         Transform workTarget;            // the open panel / volume it resolved to (PetWorkspace)
         Action workLanded;
+        bool stationed, stationArrived;  // StationAt: Wandering stays at one spot (the arrival greeting)
+        Vector3 stationPoint;
+        Transform stationFace;
+
+        /// <summary>Wandering is parked at a spot (StationAt) until ReleaseStation.</summary>
+        public bool Stationed => stationed;
 
         float StateElapsed => Time.time - stateEnterTime;
 
@@ -136,13 +142,65 @@ namespace Forge.Pet
         }
 
         /// <summary>
+        /// Wandering, parked: walk to <paramref name="point"/> (on the current surface, keep-out safe) and stay there,
+        /// facing <paramref name="face"/> (null = the user) and fidgeting in place, until <see cref="ReleaseStation"/>.
+        /// Survives a detour through other states (a question answered mid-greeting): back in Wandering it walks back.
+        /// The arrival greeting uses it; plain Wandering, not Listening, so the mood and the mic are untouched.
+        /// </summary>
+        public void StationAt(Vector3 point, Transform face = null)
+        {
+            stationed = true;
+            stationArrived = false;
+            stationPoint = point;
+            stationFace = face;
+            if (hopping) return;                      // Land() -> Wandering -> UpdateStation walks there
+            SetState(GatorState.Wandering);           // no-op if already Wandering: start the walk ourselves
+            StandUp();
+            tripActive = approachingUser = false;
+            faceTarget = null; faceUser = false;
+            nextActionTime = Time.time;
+        }
+
+        /// <summary>Leave the station spot: ordinary wandering resumes with the usual pause first.</summary>
+        public void ReleaseStation()
+        {
+            if (!stationed) return;
+            stationed = stationArrived = false;
+            if (faceTarget == stationFace) faceTarget = null;
+            stationFace = null;
+            faceUser = false;
+            tripActive = false;
+            nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
+        }
+
+        /// <summary>
+        /// Wandering, with the next trip chosen: walk to <paramref name="point"/> (clamped onto the current surface, keep-out
+        /// safe), then carry on wandering as usual. Releases a station. E.g. "move over to the right of the desk" after START.
+        /// </summary>
+        public void WanderTo(Vector3 point)
+        {
+            if (hopping) return;
+            ReleaseStation();
+            SetState(GatorState.Wandering);
+            faceTarget = null; faceUser = false; approachingUser = false;
+            StandUp();
+            if (OnDesk) point = KeepOutSafePoint(CurrentSurface, point);
+            if (MoveTo(point, false))
+            {
+                tripActive = true;
+                nextActionTime = Time.time + 10f;     // trip timeout, then the normal idle pause
+            }
+        }
+
+        /// <summary>
         /// "Done talking": Wandering, stop facing the user and walk (back turned) to the farthest of a few wander points
-        /// from the user, then idle there as usual. Makes it obvious the gator stopped listening.
+        /// from the user, then idle there as usual. Makes it obvious the gator stopped listening. Parked (StationAt): stays.
         /// </summary>
         public void WanderAway()
         {
             if (hopping) return;
             SetState(GatorState.Wandering);           // no-op if already Wandering, so reset the bits below ourselves
+            if (stationed) return;                    // the greeting spot wins: UpdateStation keeps / brings him there
             faceTarget = null; faceUser = false; approachingUser = false;
             SetMood(Mood.Neutral);
             Transform head = PetUser.Head;
@@ -168,6 +226,7 @@ namespace Forge.Pet
         {
             stateEnterTime = Time.time;
             tripActive = approachingUser = introGreeted = workTripActive = false;
+            stationArrived = false;             // StationAt: back in Wandering he walks to / turns to the spot again
             evacuating = false;                 // a state change cancels a keep-out run (re-checked within 0.5 s)
             needRepath = true;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
@@ -270,6 +329,7 @@ namespace Forge.Pet
         void UpdateWander()
         {
             if (approachingUser) return;
+            if (stationed) { UpdateStation(); return; }
             if (tripActive)
             {
                 if (HasArrived() || Time.time >= nextActionTime) { tripActive = false; StopMoving(); BeginPause(); }
@@ -283,10 +343,48 @@ namespace Forge.Pet
             bool run = UnityEngine.Random.value < runChance;
             if (TryPickWanderPoint(out Vector3 p) && MoveTo(p, run))
             {
+                faceUser = false;                     // a hop (HopToUserDesk) left him facing the user: the first trip ends that
                 tripActive = true;
                 nextActionTime = Time.time + 10f;     // trip timeout
             }
             else BeginPause();
+        }
+
+        // StationAt: get to the spot (walk, or re-walk after a keep-out scoot / a detour through another state), then
+        // stand there facing stationFace / the user, with an idle variant now and then. No rests: he is "presenting".
+        void UpdateStation()
+        {
+            if (tripActive)
+            {
+                if (!HasArrived() && Time.time < nextActionTime) return;
+                tripActive = false;
+                StopMoving();
+                stationArrived = true;
+                faceTarget = stationFace;
+                faceUser = stationFace == null;
+                nextActionTime = Time.time + UnityEngine.Random.Range(3f, 6f);
+                return;
+            }
+            if (!stationArrived || FlatDistance(stationPoint) > 0.12f)
+            {
+                if (Time.time < nextActionTime) return;
+                Vector3 goal = OnDesk ? KeepOutSafePoint(CurrentSurface, stationPoint) : stationPoint;
+                if (FlatDistance(goal) < 0.06f || !MoveTo(goal, false))
+                {
+                    stationArrived = true;            // there already, or no path: present from here
+                    faceTarget = stationFace;
+                    faceUser = stationFace == null;
+                    nextActionTime = Time.time + UnityEngine.Random.Range(3f, 6f);
+                    return;
+                }
+                StandUp();
+                tripActive = true;
+                nextActionTime = Time.time + 10f;
+                return;
+            }
+            if (Time.time < nextActionTime) return;
+            nextActionTime = Time.time + UnityEngine.Random.Range(3f, 6f);
+            if (UnityEngine.Random.value < 0.5f) PlayIdleVariant();
         }
 
         // Idle pause between trips: often a long rest (sit / lay / idle, see Antics.cs), else a short pause

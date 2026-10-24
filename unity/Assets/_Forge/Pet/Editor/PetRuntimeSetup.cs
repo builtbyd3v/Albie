@@ -10,7 +10,9 @@
 //   ├─ WhistleButton       desk puck (+ Interaction SDK poke / ray), the GatorMrukAdapter's whistleTemplate (one per table)
 //   ├─ GatorCrew           lead = GatorAssistant, crewPrefab = GatorAssistant.prefab
 //   ├─ GatorHatchery       the egg + picker (+ Interaction SDK poke / ray)
-//   └─ (root) ArrivalDirector   DeskPresence → hop / digest / code mode choreography, workspace.mode to the hub
+//   ├─ ArrivalGreeting     the first-arrival card + START ring (ArrivalSetup; inactive until used; ring = Core DockRing
+//   │                      + Interaction SDK ray / poke canvas interaction)
+//   └─ (root) ArrivalDirector   DeskPresence → hop / greeting / digest / START / code mode choreography, workspace.mode to the hub
 //
 // Built in a preview scene from the same helpers the "Add ... To Open Scene" menus use (WhistleSetup, CrewSetup) with Undo
 // off. Idempotent: re-running overwrites the prefab (GUID kept). Also the last step of Forge/Pet/Build All.
@@ -95,18 +97,20 @@ namespace Forge.Pet.Editor
                 GatorHatchery egg = CrewSetup.CreateHatchery(controller, root.transform);
                 string eggIsdk = CrewSetup.AddInteraction(egg);
 
-                // ---- Arrival choreography ----
+                // ---- Arrival choreography: greeting card + START ring, and the director ----
+                ArrivalGreeting greeting = ArrivalSetup.CreateGreeting(root.transform);
+                string greetingIsdk = ArrivalSetup.AddCanvasInteraction(greeting);
                 var director = root.AddComponent<ArrivalDirector>();
                 WhistleSetup.SetRef(director, "controller", controller);
                 if (bridge != null) WhistleSetup.SetRef(director, "bridge", bridge);
                 if (adapter != null) WhistleSetup.SetRef(director, "adapter", adapter);
-                WhistleSetup.SetRef(director, "tts", voice);
+                WhistleSetup.SetRef(director, "greeting", greeting);
 
                 GameObject saved = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out bool success);
                 if (!success || saved == null) throw new Exception("PrefabUtility.SaveAsPrefabAsset failed for " + PrefabPath);
 
                 int gatorComponents = gator.GetComponents<MonoBehaviour>().Length;
-                msg = $"{PrefabPath} (GatorAssistant with {gatorComponents} scripts + Voice; WhistleButton ({whistleIsdk}); GatorCrew; GatorHatchery ({eggIsdk}); ArrivalDirector)";
+                msg = $"{PrefabPath} (GatorAssistant with {gatorComponents} scripts + Voice; WhistleButton ({whistleIsdk}); GatorCrew; GatorHatchery ({eggIsdk}); ArrivalGreeting ({greetingIsdk}); ArrivalDirector)";
             }
             finally
             {

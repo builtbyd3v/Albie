@@ -7,16 +7,13 @@ using UnityEngine.Events;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
-/// <summary>How the dock comes in: Pop = scale and fade up in place (the default); SlideIn = the frame slides in along the
-/// front edge from the user's right, then the rings plop on left to right (the pet's START on the first arrival).</summary>
-public enum DockEntrance { Pop, SlideIn }
-
 /// <summary>
 /// The desk dock: light drawn on the desk near its front edge, no object. One rounded frame line of white light,
 /// the mode buttons as neon rings with glowing letters (each casting a faint pool of its mode color), then Flat / Curve
 /// and Reset for the open mode, and the hub status dot. Press a ring (poke, ray + pinch/trigger, or mouse) to unfold
 /// that mode: the ring rises off the desk on a column of light and turns toward the head. Press it again to fold it.
-/// Rings brighten as a pointer comes near and run a comet of light while hovered.
+/// Rings brighten as a pointer comes near and run a comet of light while hovered. The dock comes in in two beats: the
+/// frame slides along the front edge in from the user's right, then the rings plop on left to right (ForgeTheme.DockSlide*).
 /// Input stays flat: each button is an invisible raycast Image + Button on the dock canvas that never moves. The light
 /// is quads under "Light" (Forge/NeonFrame, NeonRing, LightPool) and 3D Inter labels, styled by <see cref="ForgeTheme"/>;
 /// the ring pieces come from <see cref="DockRing"/>, which also makes one on its own. Built from <see cref="Workspace.modes"/>.
@@ -49,7 +46,7 @@ public class DeskDock : MonoBehaviour
         public bool selected, enabled = true;
         public float near, hover, press, select, enable = 1f;
         public float liftFrom, liftTo, liftStart = -10f;
-        public float plopStart = -10f;  // SlideIn entrance: when this ring plops onto the dock (-10 = long landed)
+        public float plopStart = -10f;  // entrance: when this ring plops onto the dock (-10 = long landed)
         public Quaternion aimRotation = Quaternion.identity;
         public Vector4 shown = new Vector4(-1f, -1f, -1f, -1f);  // last values sent to the shaders
     }
@@ -222,9 +219,10 @@ public class DeskDock : MonoBehaviour
         if (layoutLabel != null) layoutLabel.text = layout == WorkspaceLayout.Curved ? "Flat" : "Curve";
     }
 
-    /// <summary>Lay the dock flat on the desk, centered along the front edge, readable from the seat.
-    /// <paramref name="entrance"/>: how it comes in (see <see cref="DockEntrance"/>); Pop is Hudson's usual show.</summary>
-    public void Show(Transform deskFrame, float deskWidth, float deskDepth, DockEntrance entrance = DockEntrance.Pop)
+    /// <summary>Lay the dock flat on the desk, centered along the front edge, readable from the seat, and bring it in: the
+    /// frame slides in from the user's right, then the rings plop on left to right. <paramref name="reposition"/>: already
+    /// showing and the front edge moved (the user went round the desk): just move it, no entrance.</summary>
+    public void Show(Transform deskFrame, float deskWidth, float deskDepth, bool reposition = false)
     {
         transform.SetParent(deskFrame, false);
         transform.localPosition = new Vector3(0f, 0.004f, Mathf.Min(inset, deskDepth * 0.5f));
@@ -234,22 +232,21 @@ public class DeskDock : MonoBehaviour
         Vector3 scale = Vector3.one * ForgePanel.MetersPerUnit * Mathf.Max(0.5f, fit);
         DockRing.FindInteractors(out rays, out pokes);
 
+        bool wasShown = IsShown && gameObject.activeInHierarchy;
         IsShown = true;
         gameObject.SetActive(true);
-        if (entrance == DockEntrance.SlideIn) { SlideIn(scale, deskWidth); return; }
-        foreach (var r in rings) r.plopStart = -10f;
-        Animate(scale * 0.6f, scale, 0f, 1f, 0.3f, null);
-    }
-
-    // SlideIn: full size and light from the start but no rings; the frame comes in along the front edge from +X (the
-    // user's right) over DockSlideTime, then each ring plops on in row order (Ring.plopStart, see Animate). Nothing is
-    // pressable until the last ring has landed.
-    void SlideIn(Vector3 scale, float deskWidth)
-    {
+        if (reposition && wasShown && anim == null)
+        {
+            transform.localScale = scale;
+            return;
+        }
         if (anim != null) StopCoroutine(anim);
         transform.localScale = scale;
         group.alpha = 1f;
         group.interactable = group.blocksRaycasts = false;
+        // Entrance: full size and light from the start but no rings; the frame comes in along the front edge from +X (the
+        // user's right) over DockSlideTime, then each ring plops on in row order (Ring.plopStart, see Animate). Nothing is
+        // pressable until the last ring has landed.
         float now = Time.time;
         float slide = deskWidth * 0.5f + ((RectTransform)transform).sizeDelta.x * scale.x * 0.5f;  // starts just off the desk's right end
         Vector3 end = transform.localPosition;
@@ -261,6 +258,7 @@ public class DeskDock : MonoBehaviour
             transform.localPosition = end + Vector3.right * (slide * (1f - ForgeTween.EaseOutCubic(s)));
         }, () =>
         {
+            anim = null;
             transform.localPosition = end;
             group.interactable = group.blocksRaycasts = true;
         }));
@@ -366,7 +364,7 @@ public class DeskDock : MonoBehaviour
         r.select = Mathf.MoveTowards(r.select, r.selected ? 1f : 0f, dt / ForgeTheme.SelectFade);
         r.enable = Mathf.MoveTowards(r.enable, r.enabled ? 1f : 0f, dt / ForgeTheme.HoverFade);
         float lift = Lift(r, now);
-        float plop = Mathf.Clamp01((now - r.plopStart) / ForgeTheme.DockPlopTime);  // SlideIn: 0 before its turn, 1 once landed
+        float plop = Mathf.Clamp01((now - r.plopStart) / ForgeTheme.DockPlopTime);  // entrance: 0 before its turn, 1 once landed
 
         // A raised ring turns a little toward the head (smoothed, so leaning moves it); lowered, it lies flat.
         Quaternion aimTarget = Quaternion.identity;

@@ -238,7 +238,7 @@ public class DockRing : MonoBehaviour
 
     void LateUpdate()
     {
-        if (ring == null || pool == null || label == null) return;
+        if (ring == null || pool == null || label == null || lift == null || input == null) return;
         if (block == null) block = new MaterialPropertyBlock();
         float dt = Time.deltaTime, now = Time.time;
         if (now >= nextInteractorSearch)  // the XR rig can appear after us; the arrays are tiny

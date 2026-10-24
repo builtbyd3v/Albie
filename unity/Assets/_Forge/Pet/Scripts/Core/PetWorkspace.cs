@@ -74,6 +74,16 @@ namespace Forge.Pet
         }
 
         /// <summary>
+        /// Keep the desk dock hidden (the arrival greeting owns the moment) or let it show. Releasing while at the desk
+        /// shows it with the dock's entrance (frame slides in from the right, rings plop on). No-op without a Workspace.
+        /// </summary>
+        public static void HoldDock(bool hold)
+        {
+            Workspace w = Current;
+            if (w != null) w.HoldDock(hold);
+        }
+
+        /// <summary>
         /// Transform of the open panel / volume for a workspace item id ("screen-main", "cad-viewer", "messages").
         /// False when nothing with that id is open right now.
         /// </summary>

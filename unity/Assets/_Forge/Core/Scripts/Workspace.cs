@@ -155,18 +155,20 @@ public class Workspace : MonoBehaviour
     // The user went round to another side of the desk: move the dock to the edge they're at.
     void OnFrameChanged()
     {
-        if (dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
+        if (dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth, reposition: true);
     }
 
     /// <summary>
     /// Hold the dock back (the pet's greeting owns the arrival until START) or let it go: releasing while at the desk
-    /// shows it right away, coming in as <paramref name="entrance"/>.
+    /// shows it right away.
     /// </summary>
-    public void HoldDock(bool hold, DockEntrance entrance = DockEntrance.Pop)
+    public void HoldDock(bool hold)
     {
         if (DockHeld == hold) return;
         DockHeld = hold;
-        if (!hold && presence.AtDesk && !dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth, entrance);
+        // Taking hold in the same Near that just showed it (handler order): nothing has rendered yet, so no flash.
+        if (hold && dock.IsShown && ActiveMode == null) dock.Hide(immediate: true);
+        if (!hold && presence.AtDesk && !dock.IsShown) dock.Show(presence.Frame, presence.FrameWidth, presence.FrameDepth);
     }
 
     public void Toggle(string modeId)

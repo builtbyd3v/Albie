@@ -26,11 +26,11 @@ Walk up, Bit hops on the desk, Bit tells you about Slack, the VS Code screen ris
 | Step | Trigger | Unity | Hub |
 |---|---|---|---|
 | 0 Boot | Play | `ForgeNet` connects `/ws`, `AgentClient` sends `hello`. Bit spawns on the floor and follows you. | Opens and pre-warms the Grok session. Starts the screen bridge (Chrome + VS Code share). Backfills unread Slack since `last_seen_ts`. |
-| 1 Approach | `DeskPresence` Near | Dock lights up (Core, as today). Director: `HopToUserDesk` onto `DeskPresence.Table`, the same table the dock uses. | nothing |
-| 2 Seated | `DeskPresence` Seated | Director waits for the hop to land, then `POST /messages/digest`, once per sit. Cards stack beside Bit. | `notify.digest`; Bit speaks the line through the voice session. |
-| 3 Hand-off | `tts.end` of the digest line, or 1.5 s if the count was zero | Director waits up to 3 s for `screen.status = sharing`, then `Workspace.Open("code")`. The VS Code screen rises. Cards fold after 20 s. | nothing |
+| 1 Approach | `DeskPresence` Near / Seated | **First arrival of the session:** the dock stays hidden (`Workspace.HoldDock`). Director: `HopToUserDesk` onto `DeskPresence.Table`, then Bit walks to the greeting spot (in front of the seated user, a little to their left, outside the dock keep-out) and faces them (`GatorController.StationAt`). Later arrivals: just the hop; the dock comes in on Near as Core always did. | nothing |
+| 2 Greeting | Bit at the spot | `POST /messages/digest` once per arrival. **Greeting card** beside Bit with the digest `line` (count 0 = "You have no new messages today."; hub never live = "Hub offline.") and a **START ring** to its right (one of Hudson's dock rings, mouse / ray / poke). The floating message cards still stack to the right when there are messages. | `notify.digest` + `pet.say`; Bit speaks the line (also the zero case). |
+| 3 START | The START ring | Card + ring fold; the dock comes in (frame slides in from the right, rings plop on left to right); Bit walks over to his side of the desk; once the dock has landed, `Workspace.Open("code")`. The VS Code screen rises. No timeout: the card stays up until START or Away. | nothing |
 | 4 Working | Dock ring or voice | `Workspace.modeChanged` → director sends `workspace.mode {mode}`. | Stores the mode on the session, tells Grok in one line. Crew tools only in `code`. |
-| 5 Away | `DeskPresence` Away | Workspace closes the mode (Core, as today). Bit hops down and follows. Digest re-arms. | Crew runs keep going. |
+| 5 Away | `DeskPresence` Away | Workspace closes the mode and hides the dock (Core). Card folds, hold released, Bit hops down and follows. The greeting re-arms after 120 s Away (a short step away, or walking round the desk, doesn't replay it). | Crew runs keep going. |
 
 **Crew lives on the CODE screen.** Egg, picker and the N/X keys are active only while the active mode is `code`. `spawn_agent` / `assign_task` are usable by Grok only in that mode. Crew runners get their kit plus `vscode_*`, never `cad_*` or `messages_*`. Leaving `code` keeps the crew gators on the desk in their working antics with captions muted; their hub runs continue. Returning surfaces whatever finished and Bit announces it as he does now.
 
@@ -54,6 +54,7 @@ screen.status    { state: "starting"|"sharing"|"stopped"|"error", source?, detai
 Removed: `POST /agent/text` (section 7 "typed fallback"), `/ws/agent`.
 
 Core API added in PR C: `Workspace.TryGetItemTransform(string itemId, out Transform)`, `Workspace.Current`, mode `code` (label CODE, item `screen-main` "VS Code") replacing `screens` / SCR. Panel ids are unchanged.
+Core API added for the arrival moment (feat/arrival-start): `Workspace.HoldDock(bool)` / `DockHeld` (the dock waits for START), `DockRing` (one dock ring on its own: `DockRing.Create(parent, label, hue, diameterMm, onClick)`, the pieces DeskDock itself is built from), and the dock's entrance (`DeskDock.Show`: frame slides in from the user's right, rings plop on left to right; `reposition: true` for the edge switch).
 
 Hub: `hub/screens/` supervises `screen-bridge/start.js` as a child of the hub process (restart with backoff, killed on shutdown). `SCREEN_BRIDGE=0` disables it.
 

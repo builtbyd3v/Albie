@@ -283,7 +283,7 @@ public class NotifyDigest
 {
     [JsonProperty("count")] public int count;
     [JsonProperty("mentions")] public int mentions;
-    [JsonProperty("line")] public string line;                // what Bit says; empty when count is 0
+    [JsonProperty("line")] public string line;                // what Bit says (and the arrival card shows); "You have no new messages today." when count is 0
     [JsonProperty("messages")] public List<NotifyMessage> messages = new List<NotifyMessage>();  // newest first, at most 4
 }
 
