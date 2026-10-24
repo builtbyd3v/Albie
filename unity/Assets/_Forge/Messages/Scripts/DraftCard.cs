@@ -73,7 +73,7 @@ public class DraftCard : MonoBehaviour
         if (hasReply) replying.text = $"Replying to {SlackText.SenderName(to)}: {FirstLine(to.text)}";
 
         body.text = d.text ?? "";
-        status.text = d.edited ? "Edited by Bit" : "Bit wrote this";
+        status.text = d.edited ? "Edited by Albie" : "Albie wrote this";
         SetButtons(true);
     }
 

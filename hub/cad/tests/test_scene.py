@@ -626,7 +626,7 @@ def test_change_labels_in_words():
         return VersionRecord(version=3, parent=parent, created_at=0.0, source=source, part="rocket", params={},
                              param_schema=[], analysis={}, fingerprints={}, script_sha="")
     assert [version_label(old(s)) for s in ("script", "reset", "pet", "api")] == \
-        ["Saved rocket.py", "Reset to defaults", "Changed by Bit", "Edited"]
+        ["Saved rocket.py", "Reset to defaults", "Changed by Albie", "Edited"]
     assert version_label(old("open", parent=None)) == "Defaults"
 
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.events import DISPLAY_NAME
+
 from .slack_client import SlackService
 
 TOOLS: list[dict[str, Any]] = [
@@ -88,7 +90,7 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService) -> dict[
                 reply_to_ts = svc.focused.ts  # "Reply with Bit": no target named -> the message in focus
             draft = await svc.create_draft(text, args.get("channel"), args.get("thread_ts"), reply_to_ts)
             return {"draft_id": draft.draft_id, "status": "awaiting_confirmation", "channel_name": draft.channel_name,
-                    "text": draft.text, "as": "you" if svc.as_user else "Bit",
+                    "text": draft.text, "as": "you" if svc.as_user else DISPLAY_NAME,
                     "next": "Tell the user what you wrote and ask them to tap Send or say 'send it'. Not sent yet."}
         if name == "messages_confirm":
             draft_id = args.get("draft_id") or None

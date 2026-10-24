@@ -11,7 +11,7 @@ namespace Forge.Pet
     [DisallowMultipleComponent]
     public class GatorNameTag : MonoBehaviour
     {
-        [SerializeField] string label = "Albie";
+        [SerializeField] string label = PetConfig.DisplayName;
         [SerializeField] Color color = new Color(0.25f, 0.75f, 0.4f);
         [SerializeField, Tooltip("Height above the gator's root (m, before the gator's own scale).")]
         float height = 0.14f;

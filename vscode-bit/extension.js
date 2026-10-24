@@ -6,17 +6,18 @@
 //   POST /open      { path, line }
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
-//   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /train                            types forgeBit.trainCommand into the "Albie" terminal
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
-//   command_finished  a command in the "Bit" terminal ended, with its exit code
+//   command_finished  a command in the "Albie" terminal ended, with its exit code
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
 
 let server;
 let terminal;
+const TERMINAL = "Albie"; // the pet's display name; the extension id and settings stay forge-bit / forgeBit
 
 const glow = vscode.window.createTextEditorDecorationType({
   isWholeLine: true,
@@ -121,7 +122,7 @@ async function run({ command, args = [] }) {
 function train() {
   const cmd = config().get("trainCommand");
   if (!cmd) throw new Error("set forgeBit.trainCommand first");
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal(TERMINAL);
   terminal.show(true);
   terminal.sendText(cmd);
 }
@@ -183,7 +184,7 @@ function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
     vscode.window.onDidEndTerminalShellExecution((e) => {
-      if (e.terminal.name !== "Bit") return;
+      if (e.terminal.name !== TERMINAL) return;
       push({ kind: "command_finished", command: e.execution.commandLine.value, exit_code: e.exitCode ?? null });
     }),
   );

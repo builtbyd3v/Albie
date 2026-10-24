@@ -20,7 +20,7 @@ All of them find or create one shared `CadSession`, so they work wherever they'r
 - **Auto** (default): follows `ForgeNet` (Core/Net). Hub live = hub mode, no hub = mocks; if the hub appears later it
   switches to the hub.
 - **Hub**: REST to the hub (`POST /cad/params` on slider release, `/cad/part` to open a design, `/cad/preset`,
-  undo, reset, view, flight). Every change, wherever it came from (the panel, Bit's tools, saving a part script),
+  undo, reset, view, flight). Every change, wherever it came from (the panel, Albie's tools, saving a part script),
   arrives as ForgeNet's `/ws` events (`cad.model_updated`, `cad.view`, `cad.regen_failed`). `GET /cad/latest` is only
   a fallback when the socket is down. The params for a version come from `GET /cad/params?v=N`.
 - **Mock**: `Assets/_Forge/Mocks/cad/` (a few stored versions of each design). Sliders and presets jump to the stored
@@ -60,7 +60,7 @@ layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is 
   banner over it when a build fails (Undo, Dismiss). Building: the card dims to 42% under "Rebuilding with ..." and a
   line of light runs along its top.
 - **Overview**: four tiles (rocket: Apogee, Top speed, To apogee, Off the rail from the flight; others: their first
-  four metrics after the verdict's), the demo's note, and Last change (the request, "v1 → v2 · by Bit · 4 min ago",
+  four metrics after the verdict's), the demo's note, and Last change (the request, "v1 → v2 · by Albie · 4 min ago",
   the parameter diffs, effect chips).
 - **Parameters**: presets and Reset all, then the hub's `groups` in order. Rows: label (orange dot once changed),
   − / + steppers (the hub's `step`, sent 0.4 s after the last tap), a slider whose whole 32 mm track takes the pointer

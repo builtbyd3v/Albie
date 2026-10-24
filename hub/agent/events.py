@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+DISPLAY_NAME = "Albie"  # what people see and hear; the lead's internal pet id stays "bit"
 AskMode = Literal["qa", "code", "auto"]
 PetMode = Literal["follow", "idle", "listening", "thinking", "working", "speaking"]
 

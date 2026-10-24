@@ -1,6 +1,6 @@
 # Messages module (Unity)
 
-Slack on the desk: a Slack-like panel in MSG mode, a "New for you" list beside it, and the arrival digest + Bit's
+Slack on the desk: a Slack-like panel in MSG mode, a "New for you" list beside it, and the arrival digest + Albie's
 Send / Cancel card that keep working while MSG mode is closed. Hub side: `hub/messaging/` (Socket Mode, no tunnel);
 spec: `PROJECT_CONTEXT.md` 7, 8.7 and 8.8; event shapes mirrored in `Core/Net/ForgeEvents.cs` (`NotifyMessage`,
 `SlackChannel` / `NotifyChannels`, `NotifyDraft`, `NotifySent`, `NotifyDraftCancelled`, `NotifyDigest`).
@@ -15,22 +15,22 @@ without a hub the panels show "Hub offline" and connect by themselves when it ap
   rendered as @name and your own mentions in the accent, "N replies", your own messages inset and tinted), "Load earlier"
   when the hub has more, and the composer. Opening a conversation GETs its history (cached per conversation for the
   session) and POSTs `/messages/channels/{id}/seen`; new messages in the open conversation are appended and marked seen;
-  the list follows new messages unless you scrolled up. Tapping a message = **Ask Bit about it** (`messages.focus`).
-- **Composer.** A multi-line Inter `TMP_InputField` + **Send** + **Ask Bit**. What you type becomes a draft
-  (`POST /messages/drafts {channel, text}`) that is sent at once (`POST .../send`), since you wrote it. A draft from Bit
+  the list follows new messages unless you scrolled up. Tapping a message = **Ask Albie about it** (`messages.focus`).
+- **Composer.** A multi-line Inter `TMP_InputField` + **Send** + **Ask Albie**. What you type becomes a draft
+  (`POST /messages/drafts {channel, text}`) that is sent at once (`POST .../send`), since you wrote it. A draft from Albie
   (`notify.draft`) lands in the field as editable text, the panel switches to its conversation, **Cancel** appears and the
-  caption says "Bit wrote this"; Send `PATCH`es the text first when you changed it (`SlackNet.Patch`, see Notes), Cancel
-  `POST`s `.../cancel`. The composer also closes the draft on `notify.sent` / `notify.draft_cancelled`, so "send it" to Bit
-  works. **Ask Bit** sends `messages.focus` for the conversation's latest message (Bit reads it aloud and offers to answer).
+  caption says "Albie wrote this"; Send `PATCH`es the text first when you changed it (`SlackNet.Patch`, see Notes), Cancel
+  `POST`s `.../cancel`. The composer also closes the draft on `notify.sent` / `notify.draft_cancelled`, so "send it" to Albie
+  works. **Ask Albie** sends `messages.focus` for the conversation's latest message (Albie reads it aloud and offers to answer).
   On the Quest the field opens the system keyboard when poked; on desktop the keyboard types into it (Enter sends).
 - **Mentions panel** (`MentionsPanel.prefab`, panel id `messages-mentions`, slot Left). "New for you": unread DMs and
   mentions across conversations as cards, newest first, 8 at most plus "+N more". Tapping a card opens that conversation
   in the Slack panel; the card clears once the conversation is seen. Replaces the old `MessagesPanel`.
 - **Arrival digest.** The pet's `ArrivalDirector` POSTs `/messages/digest` once per sit (`DigestTrigger.RequestDigest()`);
-  the hub answers with `notify.digest` and a `pet.say` line Bit speaks. With MSG mode closed, a floating `MentionsPanel`
-  (`floating = true`) shows the digest's cards (4 at most, "+N more") beside Bit at the desk's front-right and folds after
+  the hub answers with `notify.digest` and a `pet.say` line Albie speaks. With MSG mode closed, a floating `MentionsPanel`
+  (`floating = true`) shows the digest's cards (4 at most, "+N more") beside Albie at the desk's front-right and folds after
   20 s, when MSG mode opens, or when you leave the desk. Tapping a card opens MSG mode on that conversation.
-- **Send / Cancel card** (`DraftCard.prefab`). With the Slack panel closed, `notify.draft` pops a `DraftCard` beside Bit
+- **Send / Cancel card** (`DraftCard.prefab`). With the Slack panel closed, `notify.draft` pops a `DraftCard` beside Albie
   (or in front of the camera without a desk): recipient, what it answers, the exact text, Send and Cancel. With the panel
   open, `DraftPresenter` hands the draft to the composer instead (and a floating card moves into the composer when the
   panel opens).
@@ -50,7 +50,7 @@ fallback. Hover: Inbox cards lift 1 cm and go opaque; list rows and buttons brig
 | File | What |
 |---|---|
 | `Scripts/SlackPanel.cs` | The Slack panel: conversation list, message list, composer; `SlackPanel.Active`, `Open(channelId)`, `FocusBit`. UI built at runtime under Content. |
-| `Scripts/SlackComposer.cs` | The composer (field, Send / Ask Bit / Cancel, draft state, the OnUpdateSelected drive for typing). |
+| `Scripts/SlackComposer.cs` | The composer (field, Send / Ask Albie / Cancel, draft state, the OnUpdateSelected drive for typing). |
 | `Scripts/MentionsPanel.cs` | "New for you" + the floating digest copy. |
 | `Scripts/MessageCard.cs` | One message on a slate card (`MessageCard.prefab`): Inbox and Thread styles, `Measure` / `Layout`, hover, click. |
 | `Scripts/SlackStore.cs` | Static model: channels (`notify.channels`, GET), per-conversation history cache, user names, "me", recent messages; `MarkSeen`, `LoadHistory`. |
@@ -75,14 +75,14 @@ nothing in the scene: they add themselves at load when a `DeskPresence` exists.
 
 1. `hub/`: tokens in `.env`, `uvicorn main:app --host 0.0.0.0 --port 8000`.
 2. Unity: **Forge > Messages > Build Prefabs** once (and after script changes to the prefabs), **Forge > Build Main Scene**. Play `Main`.
-3. Sit at the desk (desktop: `E`). Bit says the digest line; the floating "New for you" cards appear beside him. Tap one: MSG
+3. Sit at the desk (desktop: `E`). Albie says the digest line; the floating "New for you" cards appear beside him. Tap one: MSG
    mode opens on that conversation. Or press **MSG** on the dock.
 4. Click conversations on the left; the unread pill clears. Scroll the list by dragging it (mouse or hand ray); "Load
    earlier" at the top when there is more. Type in the field, Enter or **Send**: the message appears in Slack under your
    name and comes back as your own (tinted) row.
 5. From your phone, post in a channel or DM Bit: the row lands at the bottom, the Mentions panel lists it, the pill counts.
-6. Say to Bit "reply that I'm on it": his draft lands in the composer with Cancel; edit it, Send. **Ask Bit** reads the newest
-   message aloud. Close MSG mode and ask for another reply: the Send / Cancel card floats beside Bit instead.
+6. Say to Albie "reply that I'm on it": his draft lands in the composer with Cancel; edit it, Send. **Ask Albie** reads the newest
+   message aloud. Close MSG mode and ask for another reply: the Send / Cancel card floats beside Albie instead.
 
 ## Notes
 
