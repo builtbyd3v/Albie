@@ -13,6 +13,10 @@ notify.message on the EventBus. Sending is two steps: `create_draft` emits notif
 `focus` is "Reply with Bit" on a message card (ws `messages.focus` / POST /messages/focus): Bit reads the message
 out loud and asks whether to answer; the next `messages_send` without a target replies in that thread.
 
+Once connected, `backfill` (a background task) reads what arrived while the hub was down: every conversation the
+user is in, `conversations.history` since `last_seen_ts` (or the last two hours), through the same filter as live
+events but without notify.message, so the sit-down digest counts them and Unity sees no flood.
+
 Without tokens the service stays disabled (one warning) and the hub boots as usual. Connection trouble is
 logged and retried; it never takes the hub down.
 """
@@ -21,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -40,10 +45,42 @@ FOCUS_TEXT_CHARS = 200
 ACCEPTED_SUBTYPES: tuple[str | None, ...] = (None, "thread_broadcast", "file_share")
 RECONNECT_S = (2, 5, 10, 30)
 DRAFT_EXPIRY_S = 120.0
+BACKFILL_TYPES = "public_channel,private_channel,im,mpim"
+BACKFILL_PAGES = 3           # users.conversations pages of 200
+BACKFILL_PER_CHANNEL = 20    # newest messages per conversation
+BACKFILL_WINDOW_S = 2 * 3600  # with no last_seen_ts: this far back
 
 
 class DraftError(LookupError):
     """No open draft with that id (never existed, already sent, cancelled or expired)."""
+
+
+def _ts(value: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _error_of(exc: Exception) -> str:
+    """Slack's error code ("missing_scope", "not_in_channel") when the exception carries a response, else str()."""
+    resp = getattr(exc, "response", None)
+    try:
+        code = resp["error"] if resp is not None else None
+    except (KeyError, TypeError):
+        code = None
+    return str(code or exc)
+
+
+def _retry_after(exc: Exception) -> float | None:
+    """Seconds to wait when `exc` is a Slack `ratelimited` error, else None."""
+    if _error_of(exc) != "ratelimited":
+        return None
+    headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+    try:
+        return max(1.0, float(headers.get("Retry-After", 1)))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def _trim(text: str, limit: int = FOCUS_TEXT_CHARS) -> str:
@@ -81,6 +118,10 @@ class SlackService:
         self._user_client: Any = None               # user AsyncWebClient when SLACK_USER_TOKEN is set
         self._handler: Any = None                   # AsyncSocketModeHandler
         self._task: asyncio.Task[None] | None = None
+        self._backfill: asyncio.Task[None] | None = None
+        self.backfilled: int | None = None          # messages recovered at startup (None = not run yet)
+        self._waited = False                        # backfill: one rate-limit wait per run...
+        self._gave_up = False                       # ...the second rate limit stops it
         self._user_names: dict[str, str] = {}
         self._channels: dict[str, tuple[str, bool]] = {}   # id -> (name, is_dm)
         self._channel_ids: dict[str, str] = {}             # "name" -> id
@@ -144,6 +185,7 @@ class SlackService:
                 await self._handler.connect_async()
                 self.connected = True
                 log.info("Slack Socket Mode connected (posting as %s)", "you" if self.as_user else "Bit")
+                self._backfill = asyncio.create_task(self.backfill(), name="slack-backfill")
                 return
             except asyncio.CancelledError:
                 raise
@@ -154,12 +196,12 @@ class SlackService:
                 await asyncio.sleep(delay)
 
     async def stop(self) -> None:
-        for task in (self._task, self._expiry):
+        for task in (self._task, self._backfill, self._expiry):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-        self._task = self._expiry = None
+        self._task = self._backfill = self._expiry = None
         if self._handler is not None and self.connected:
             with contextlib.suppress(Exception):
                 await self._handler.close_async()
@@ -190,8 +232,9 @@ class SlackService:
             return False  # bot + user subscriptions, or app_mention + message, deliver the same post twice
         return True
 
-    async def on_event(self, event: dict[str, Any]) -> SlackMessage | None:
-        """One Slack event dict -> stored SlackMessage + notify.message, or None when ignored."""
+    async def on_event(self, event: dict[str, Any], publish: bool = True) -> SlackMessage | None:
+        """One Slack event dict -> stored SlackMessage + notify.message, or None when ignored.
+        publish=False (the startup backfill) stores it for the digest without telling Unity."""
         if not self.accepts(event):
             return None
         self._recent.append((event.get("channel", ""), event.get("ts", "")))
@@ -210,9 +253,77 @@ class SlackService:
             mentions_me=is_dm or (bool(self.user_id) and f"<@{self.user_id}>" in text),
         )
         self.store.add(msg)
-        await self.bus.publish("notify.message", msg)
-        log.info("slack #%s %s: %.80s", msg.channel_name, msg.user_name, msg.text)
+        if publish:
+            await self.bus.publish("notify.message", msg)
+            log.info("slack #%s %s: %.80s", msg.channel_name, msg.user_name, msg.text)
         return msg
+
+    # ------------------------------------------------------------------ startup backfill
+    async def backfill(self, now: float | None = None) -> int:
+        """Pull what arrived while the hub was off into the store (no notify.message). Returns how many."""
+        oldest = self.store.last_seen_ts if _ts(self.store.last_seen_ts) > 0 else f"{(now or time.time()) - BACKFILL_WINDOW_S:.6f}"
+        self._waited = self._gave_up = False
+        channels: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(BACKFILL_PAGES):
+            page = await self._api("users.conversations", self._reader.users_conversations, types=BACKFILL_TYPES,
+                                   exclude_archived=True, limit=200, cursor=cursor)
+            if page is None:
+                break
+            channels.extend(page.get("channels", []))
+            cursor = (page.get("response_metadata") or {}).get("next_cursor") or None
+            if not cursor:
+                break
+        events: list[dict[str, Any]] = []
+        skipped = 0
+        for ch in channels:
+            cid = ch.get("id")
+            if not cid:
+                continue
+            if ch.get("is_im"):
+                self._channels.setdefault(cid, ("dm", True))
+            elif ch.get("is_mpim"):
+                self._channels.setdefault(cid, ("group-dm", True))
+            elif ch.get("name"):
+                self._channels.setdefault(cid, (ch["name"], False))
+                self._channel_ids.setdefault(ch["name"].lower(), cid)
+            history = await self._api(f"conversations.history {cid}", self._reader.conversations_history, channel=cid,
+                                      oldest=oldest, limit=BACKFILL_PER_CHANNEL)
+            if history is None:
+                skipped += 1
+                if self._gave_up:
+                    break
+                continue
+            events.extend({**m, "channel": cid} for m in history.get("messages", []) if isinstance(m, dict))
+        count = 0
+        for event in sorted(events, key=lambda e: _ts(e.get("ts", ""))):  # oldest first: the ring keeps the newest
+            if await self.on_event(event, publish=False) is not None:
+                count += 1
+        self.backfilled = count
+        log.info("Slack backfill: %d conversation(s), %d new message(s) since %s%s", len(channels), count, oldest,
+                 f", {skipped} skipped" if skipped else "")
+        return count
+
+    async def _api(self, what: str, call: Callable[..., Awaitable[Any]], **kwargs: Any) -> Any | None:
+        """One Slack Web API call for the backfill: wait out the first rate limit (once per run), stop on the
+        second, log and skip anything else (missing scope, not in channel, network)."""
+        while True:
+            try:
+                return await call(**kwargs)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 - slack_sdk.errors.SlackApiError or a network error
+                retry_after = _retry_after(e)
+                if retry_after is None:
+                    log.warning("Slack %s failed (%s); skipping", what, _error_of(e))
+                    return None
+                if self._waited:
+                    self._gave_up = True
+                    log.warning("Slack %s rate limited again; backfill stops here", what)
+                    return None
+                self._waited = True
+                log.warning("Slack %s rate limited; waiting %.0fs once", what, retry_after)
+                await asyncio.sleep(retry_after)
 
     async def user_display_name(self, user_id: str) -> str:
         if user_id not in self._user_names:

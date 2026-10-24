@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -34,12 +35,43 @@ class BusRecorder:
         return next(p for t, p in reversed(self.events) if t == type_)
 
 
+class SlackApiError(Exception):
+    """Shape of slack_sdk.errors.SlackApiError as the backfill reads it: .response["error"], .response.headers."""
+
+    def __init__(self, error: str, retry_after: str | None = None) -> None:
+        super().__init__(error)
+
+        class Resp(dict):
+            headers = {"Retry-After": retry_after} if retry_after else {}
+
+        self.response = Resp(error=error)
+
+
 class StubClient:
-    """Just enough of AsyncWebClient for the handler and posting paths."""
+    """Just enough of AsyncWebClient for the handler, posting and backfill paths."""
 
     def __init__(self, identity: str = "UBOT") -> None:
         self.identity = identity
         self.posted: list[dict[str, Any]] = []
+        self.conversations: list[dict[str, Any]] = []            # users.conversations pages (list of channel dicts)
+        self.history: dict[str, list[dict[str, Any]]] = {}       # channel -> messages (newest first, like Slack)
+        self.history_errors: dict[str, list[Exception]] = {}     # channel -> exceptions to raise first
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def users_conversations(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("users.conversations", kwargs))
+        page = int(kwargs.get("cursor") or 0)
+        chunk = self.conversations[page * 2:(page + 1) * 2]  # two per page so cursors get exercised
+        more = (page + 1) * 2 < len(self.conversations)
+        return {"channels": chunk, "response_metadata": {"next_cursor": str(page + 1) if more else ""}}
+
+    async def conversations_history(self, channel: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("conversations.history", {"channel": channel, **kwargs}))
+        queued = self.history_errors.get(channel)
+        if queued:
+            raise queued.pop(0)
+        oldest = float(kwargs.get("oldest") or 0)
+        return {"messages": [m for m in self.history.get(channel, []) if float(m["ts"]) > oldest]}
 
     async def auth_test(self) -> dict[str, Any]:
         return {"user_id": self.identity, "user": "bit" if self.identity == "UBOT" else "adrian", "team": "forge"}
@@ -196,6 +228,105 @@ def test_user_id_derived_from_user_token(tmp_path: Path) -> None:
     asyncio.run(svc._connect())
     assert (svc.user_id, svc.user_name, svc.connected, svc.as_user) == ("UME", "adrian", True, True)
     assert svc.health()["as_user"] is True and svc.health()["user_id"] == "UME"
+
+
+# ------------------------------------------------------------------ startup backfill
+def _hist(ts: str, text: str, user: str = "U1", **over: Any) -> dict[str, Any]:
+    return {"type": "message", "user": user, "text": text, "ts": ts, **over}
+
+
+def test_backfill_feeds_the_digest_without_notifying(tmp_path: Path) -> None:
+    svc, bus, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "C1", "name": "forge-team"}, {"id": "D1", "is_im": True},
+                            {"id": "C2", "name": "random"}]  # 3 -> two pages
+    reader.history = {
+        "C1": [_hist("1700007000.000100", "newest"), _hist("1700006000.000100", "mine", user="UME"),
+               _hist("1700005000.000100", "from a bot", bot_id="B1"), _hist("1700004000.000100", "older")],
+        "D1": [_hist("1700006500.000100", "dm for you")],
+        "C2": [],
+    }
+    n = asyncio.run(svc.backfill(now=1700008000.0))
+    assert n == 3 and svc.backfilled == 3
+    assert bus.events == []  # nothing told to Unity
+    assert [m.text for m in svc.store.latest(10)] == ["newest", "dm for you", "older"]
+    dm = svc.store.latest(10)[1]
+    assert (dm.channel_name, dm.is_dm, dm.mentions_me) == ("dm", True, True)  # names resolved like live events
+    assert svc.store.latest(10)[0].channel_name == "forge-team"
+    conv_calls = [kw for name, kw in reader.calls if name == "users.conversations"]
+    assert len(conv_calls) == 2 and conv_calls[0]["types"] == "public_channel,private_channel,im,mpim"
+    assert conv_calls[0]["exclude_archived"] is True and conv_calls[0]["limit"] == 200 and conv_calls[1]["cursor"] == "1"
+    hist = [kw for name, kw in reader.calls if name == "conversations.history"]
+    assert [h["channel"] for h in hist] == ["C1", "D1", "C2"] and all(h["limit"] == 20 for h in hist)
+    assert hist[0]["oldest"] == f"{1700008000.0 - 7200:.6f}"  # no last_seen_ts: the last two hours
+    # the digest counts them; a live duplicate of a backfilled message is dropped
+    assert asyncio.run(svc.on_event(event(channel="C1", text="newest", ts="1700007000.000100"))) is None
+    assert asyncio.run(svc.digest()).count == 3
+
+
+def test_backfill_starts_at_last_seen_and_uses_the_bot_without_a_user_token(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path)
+    svc.store.add(msg("1700000005.000100"))
+    svc.store.mark_seen()
+    bot: StubClient = svc._client
+    bot.conversations = [{"id": "C1", "name": "forge-team"}]
+    bot.history = {"C1": [_hist("1700000006.000100", "after"), _hist("1700000004.000100", "before")]}
+    assert asyncio.run(svc.backfill()) == 1
+    assert bot.calls[-1][1]["oldest"] == "1700000005.000100"
+    assert [m.text for m in svc.store.unread()] == ["after"]
+
+
+def test_backfill_rate_limit_waits_once_then_stops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "C1", "name": "a"}, {"id": "C2", "name": "b"}, {"id": "C3", "name": "c"}]
+    reader.history = {c: [_hist("1700000009.000100", c)] for c in ("C1", "C2", "C3")}
+    reader.history_errors = {"C1": [SlackApiError("ratelimited", retry_after="7")],
+                             "C2": [SlackApiError("ratelimited", retry_after="3")]}
+    slept: list[float] = []
+
+    async def fake_sleep(s: float) -> None:
+        slept.append(s)
+
+    monkeypatch.setattr("messaging.slack_client.asyncio.sleep", fake_sleep)
+    assert asyncio.run(svc.backfill(now=1700000010.0)) == 1  # C1 after the wait; C2 hit the limit again -> stop; C3 never asked
+    assert slept == [7.0]
+    assert [kw["channel"] for name, kw in reader.calls if name == "conversations.history"] == ["C1", "C1", "C2"]
+
+
+def test_backfill_missing_scope_skips_the_channel(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="forge.messaging")
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader: StubClient = svc._user_client
+    reader.conversations = [{"id": "G1", "is_mpim": True}, {"id": "C2", "name": "b"}]
+    reader.history = {"G1": [_hist("1700000009.000100", "secret")], "C2": [_hist("1700000009.000200", "fine")]}
+    reader.history_errors = {"G1": [SlackApiError("missing_scope")]}
+    assert asyncio.run(svc.backfill(now=1700000010.0)) == 1
+    assert "missing_scope" in caplog.text and "1 skipped" in caplog.text
+    assert [m.text for m in svc.store.latest(5)] == ["fine"]
+
+
+def test_backfill_runs_after_connect_and_survives_a_list_failure(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    svc.user_id = ""
+
+    class Handler:
+        async def connect_async(self) -> None:
+            pass
+
+    async def boom(**kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("network down")
+
+    svc._user_client.users_conversations = boom  # type: ignore[method-assign]
+    svc._handler = Handler()
+
+    async def run() -> int | None:
+        await svc._connect()
+        assert svc._backfill is not None
+        await svc._backfill
+        return svc.backfilled
+
+    assert asyncio.run(run()) == 0  # listed nothing, stored nothing, raised nothing
 
 
 # ------------------------------------------------------------------ drafts
