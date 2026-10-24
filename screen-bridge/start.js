@@ -7,7 +7,7 @@
 //   npm start                                  # share VS Code
 //   VSCODE_FOLDER=~/cifar npm start            # open that project if VS Code isn't open yet
 //   VSCODE_SIZE=1440x900 npm start             # VS Code's window size in points (default: fill the screen)
-//   VSCODE_ZOOM=3 npm start                    # bigger text on the headset (default 2 = 144%)
+//   VSCODE_ZOOM=4 npm start                    # bigger text on the headset (default 3 = 173%)
 //   SCREEN_SOURCE="Entire screen" npm start    # share the whole screen
 // A Quest plugged in over USB is wired up automatically (adb reverse, see below).
 // Ctrl+C stops everything.
@@ -58,7 +58,7 @@ async function openVsCode() {
 
 // Fills the screen (below the menu bar), so it reads as the real thing on the laptop too. Not macOS full screen: that
 // moves VS Code to its own Space, and a window on another Space can't be captured. The stream is capped at 1920 px
-// wide, so a full-size window gets shrunk to about half; the extension's 144% zoom keeps the text big on the panel.
+// wide, so a full-size window gets shrunk to about half; the extension's 173% zoom keeps the text big on the panel.
 // Then the Forge Bit extension closes the side bars and the chat, and sizes the terminal (vscode-bit/extension.js, layout).
 function screenArea() {
   const script = 'ObjC.import("AppKit"); const s = $.NSScreen.mainScreen, f = s.frame, v = s.visibleFrame;' +
@@ -81,7 +81,7 @@ async function fitVsCode() {
   }
   const url = `http://127.0.0.1:${process.env.BIT_VSCODE_PORT || 8770}/layout`;
   for (let i = 0; i < 20; i++) {  // the extension starts a few seconds after the window on a cold start
-    const body = JSON.stringify({ zoom: Number(process.env.VSCODE_ZOOM || 2) });
+    const body = JSON.stringify({ zoom: Number(process.env.VSCODE_ZOOM || 3) });
     const ok = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => r.ok, () => false);
     if (ok) return console.log("VS Code laid out for the headset");
     await new Promise((r) => setTimeout(r, 500));
@@ -152,6 +152,8 @@ setInterval(async () => {
 setInterval(async () => {
   const fps = await page.textContent("#fps").catch(() => "");
   if (fps) console.log(fps);
+  const encoder = await page.textContent("#encoder").catch(() => "");
+  if (encoder) console.log(encoder);
 }, 10000);
 
 process.on("SIGINT", async () => {
