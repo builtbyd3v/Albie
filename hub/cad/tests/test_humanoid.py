@@ -65,7 +65,7 @@ def test_a_deep_squat_runs_the_ankles_out_of_range_and_arms_forward_save_it(huma
 def test_carrying_with_forearms_out_overloads_the_wrists(humanoid):
     heavy = analysis(humanoid.PRESETS["Carry 15 kg"])
     load = metric(heavy, "joint_load")
-    assert load["value"] > 100 and "wrists" in load["display"] and heavy["verdict"]["headline"] == "Motors overloaded"
+    assert load["value"] > 100 and load["note"] == "wrists" and heavy["verdict"]["headline"] == "Motors overloaded"
     down = analysis(humanoid.PRESETS["Carry 10 kg, arms down"])
     assert metric(down, "joint_load")["value"] < 60 and down["verdict"]["status"] == "ok"
     assert any(row["label"] == "Load" and row["mass_g"] == pytest.approx(10000) for row in down["mass_breakdown"])

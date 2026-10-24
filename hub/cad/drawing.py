@@ -74,7 +74,7 @@ VIEWS = {"front": ((0, -1, 0), (0, 0, 1)), "top": ((0, 0, 1), (0, 1, 0)), "right
 VIEW_AXIS = {"front": 1, "top": 2, "right": 0}   # the model axis each orthographic view looks along
 COMPLEX_FACES = 100                # more faces than this: drawn as a box in views that see it edge-on
 CREASE_DEG = 35.0                  # mesh path: an edge between faces this far apart is drawn
-DEPTH_PIXELS = 700                 # mesh path: depth buffer cells along the model's longest side
+DEPTH_PIXELS = 600                 # mesh path: depth buffer cells along the model's longest side
 SCALES = (20, 10, 5, 4, 3, 2, 1.5, 1, 1 / 1.5, 1 / 2, 1 / 2.5, 1 / 3, 1 / 4, 1 / 5, 1 / 6, 1 / 8, 1 / 10, 1 / 15,
           1 / 20, 1 / 25, 1 / 30, 1 / 40, 1 / 50, 1 / 75, 1 / 100)
 

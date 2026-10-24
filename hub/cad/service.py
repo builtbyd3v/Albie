@@ -289,7 +289,7 @@ class CadService:
         path = self.path(record.version, f"drawing.{fmt}")
         if not path.exists():
             changed = self.diff(record.parent, record.version)[0] if record.parent in self._versions else []
-            await self._derive(record, "drawing", self.timeout_s * 2, done=path, version=record.version,
+            await self._derive(record, "drawing", self.timeout_s * 3, done=path, version=record.version,
                                created_at=record.created_at, highlight=changed)
         return path
 

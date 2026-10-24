@@ -360,6 +360,12 @@ def joint_words(name: str, loads: dict[str, float]) -> str:
     return f"{words} ({axis})" if axis else words
 
 
+def plural(words: str) -> bool:
+    """'knees', 'wrists (pitch)' are plural; 'waist (pitch)', 'left knee' aren't."""
+    part = words.split(" (")[0]
+    return not part.startswith(("left ", "right ")) and part.endswith("s")
+
+
 def limit_words(names: list[str]) -> str:
     """'The ankles (pitch, roll) are at their limits.' for joints held at their range's end, or ''."""
     axes: dict[str, list[str]] = {}
@@ -400,16 +406,19 @@ def verdict(st: Statics) -> Verdict:
     if st.margin < 0:
         return Verdict("bad", "Falls over", f"Its centre of mass is {-st.margin:.0f} mm {st.where}, so it tips over."
                        + st.limits, "balance")
+    many = plural(st.worst_words)
     if st.peak > 100:
-        return Verdict("bad", "Motors overloaded", f"The {st.worst_words} need {st.worst_torque:.1f} N·m, rated "
-                                                   f"{st.worst_rating:g}.", "joint_load")
+        return Verdict("bad", "Motors overloaded", f"The {st.worst_words} {'need' if many else 'needs'} "
+                                                   f"{st.worst_torque:.1f} N·m, rated {st.worst_rating:g}.", "joint_load")
     if st.margin < 25 or st.peak > 60:
         issue = (f"its centre of mass is only {st.margin:.0f} mm inside the edge of its feet" if st.margin < 25
-                 else f"the {st.worst_words} work at {st.peak:.0f}% of their rating")
+                 else f"the {st.worst_words} {'work' if many else 'works'} at {st.peak:.0f}% of "
+                      f"{'their' if many else 'its'} rating")
         return Verdict("warn", "Stands, barely", f"It holds, but {issue}.",
                        "balance" if st.margin < 25 else "joint_load")
     return Verdict("ok", "Stands steady", f"Centre of mass {st.margin:.0f} mm inside its feet; the hardest-working "
-                                          f"joints, the {st.worst_words}, at {st.peak:.0f}% of rating.", "balance")
+                                          f"{'joints' if many else 'joint'}, the {st.worst_words}, at {st.peak:.0f}% "
+                                          "of rating.", "balance")
 
 
 def analyze(result: BuildResult, masses) -> Analysis:
@@ -422,7 +431,7 @@ def analyze(result: BuildResult, masses) -> Analysis:
         Metric("balance", "Balance margin", st.margin, "mm", band(st.margin, BALANCE_BANDS), -60.0, 120.0,
                BALANCE_BANDS, note="falls" if st.margin < 0 else "barely" if st.margin < 25 else "steady"),
         Metric("joint_load", "Peak joint load", st.peak, "%", band(st.peak, LOAD_BANDS), 0.0, 150.0, LOAD_BANDS,
-               note=st.worst_words.split(" (")[0], display=f"{st.peak:.0f}% · {st.worst_words}"),
+               note=st.worst_words.split(" (")[0]),
         Metric("cg_height", "CG height", st.cg[2], "mm"),
         Metric("height", "Height", height, "mm"),
     ]
@@ -609,7 +618,8 @@ def walk_summary(p: dict, st: Statics) -> Demo:
         readouts=[Metric("speed", "Speed", lap["mean_speed_m_s"], "m/s", digits=2),
                   Metric("steps", "Step rate", lap["step_rate_hz"] * 60, "steps/min"),
                   Metric("walk_load", "Peak joint load", load.peak, "%", band(load.peak, LOAD_BANDS), 0.0, 150.0,
-                         LOAD_BANDS, display=f"{load.peak:.0f}% · {load.words}")],
+                         LOAD_BANDS, note=load.words.split(" (")[0],
+                         display=f"{load.peak:.0f}% · {load.words.split(' (')[0].split()[-1]}")],
         values={"speed_m_s": lap["mean_speed_m_s"], "step_rate_hz": lap["step_rate_hz"], "lap_s": lap["duration_s"],
                 "radius_mm": lap["radius_m"] * 1000, "peak_load_pct": load.peak},
         assumptions=["Legs from Unitree's walking policy (unitree_rl_gym), recorded once in MuJoCo; the arms "
