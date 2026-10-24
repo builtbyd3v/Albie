@@ -7,6 +7,11 @@
 
 ## 0. Status (update this as you go)
 
+**2026-10-24, Hudson (desk extras, branch `desk/timer-notes-movie`):**
+- **Done: hub side of the desk extras**, things Bit adds on top of any mode that stay open across mode switches: a **focus timer** ("Bit, set a focus timer for an hour": a pill above the screens, rings at the end until you turn it off), **notes** ("add that to my notes", "pull up my notes"; minimizes to a dot you can move), and a **movie screen** above the desk ("put the movie on"; resumes where you stopped). `hub/desk/`: REST `/timer`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timer.state`, `notes.updated`, `movie.state`, 11 Bit tools, mocks (`python -m desk.make_mocks`), tests. Proposed contract: hub/README "Desk (timer, notes, movie)".
+- **Movie:** files go in `hub/.data/media/` (gitignored; the Quest streams from the hub, nothing in the APK). Recipe for H.264 + English stereo in the README.
+- **Next: Unity** (mockups first): a pinned layer in `Workspace` for items outside the modes, the timer pill + chime, the notes panel + `PanelOrb` (tap to open, hold to move), the movie screen (VideoPlayer from `/movie/files/...`).
+
 **2026-10-24, Hudson (Core, UI round 2, branch `core/ui-restyle`):**
 - **Fixed: text and UI in XR.** In single-pass stereo (simulator, Quest), everything drawn with a built-in Unity shader rendered from the middle of the head into the left eye only: TextMeshPro, uGUI images, panel backgrounds and the Interaction SDK cursor. That's why dock labels sat off their rings, drifted with the head and were missing from the right eye. URP 17.6 leaves the engine's legacy stereo matrices on the mono camera. `Core/Scripts/ForgeXRStereoFix.cs` installs itself in every scene and fixes it for all modules; nothing to do on your side. Verified in the simulator (both eyes); still to check on the Quest (multiview).
 - **Done: polish.**
@@ -287,6 +292,8 @@ notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest f
 Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`.
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
+
+Proposed desk additions (focus timer, notes, movie screen: `/timer`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timer.state`, `notes.updated`, `movie.state`, panel IDs `timer`, `notes`, `movie`): `hub/README.md` "Desk (timer, notes, movie)".
 
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 

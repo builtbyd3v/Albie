@@ -1,6 +1,6 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Modules: CAD, agent (pet), VS Code push, messaging (Slack). The ML router is still to come.
+Modules: CAD, agent (pet), VS Code push, messaging (Slack), desk (timer, notes, movie). The ML router is still to come.
 `/ws` is shared: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. `/ws/agent` is the same agent protocol alone. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
@@ -23,6 +23,9 @@ from agent import speech, tools as agent_tools
 from agent.app import health_fields as agent_health, load_env
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
+from desk import DeskService
+from desk import tools as desk_tools
+from desk.router import router as desk_router
 from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
@@ -45,6 +48,9 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak)
         app.state.slack = slack
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
+        desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
+        app.state.desk = desk
+        agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         await cad.start()
         await slack.start()
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
@@ -55,6 +61,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
+            desk.stop()
             await slack.stop()
             await cad.stop()
 
@@ -64,6 +71,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(agent_router)
     app.include_router(vscode_router)
     app.include_router(messaging_router)
+    app.include_router(desk_router)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
@@ -82,7 +90,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.get("/health")
     def health():
-        return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(), **agent_health()}
+        return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
+                "desk": app.state.desk.health(), **agent_health()}
 
     return app
 
