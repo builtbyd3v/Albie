@@ -110,7 +110,21 @@ namespace Forge.Pet
             bool has = TryGetDockBounds(out Bounds b);
             bool changed = has != dockBaked || (has && (Vector3.Distance(b.center, dockBakedBounds.center) > 0.02f
                                                        || Vector3.Distance(b.size, dockBakedBounds.size) > 0.02f));
-            if (changed) RebuildKeepOut();
+            // No dock showing (user up and about): the keep-out follows the desk edge nearest the user *now*.
+            // Re-bake only when the resulting box actually moves (walking around the desk), not every poll.
+            if (!changed && !has)
+            {
+                Transform head = PetUser.Head;
+                if (head != null)
+                {
+                    keepOutViewer = head.position;
+                    hasKeepOutViewer = true;
+                    if (GatorNavSurface.ComputeEdgeKeepOut(deskNav.TopCenter, deskNav.Rotation, deskNav.Size, keepOutViewer,
+                            keepOutWidth, keepOutDepth, minSideStrip, default, false, out Bounds candidate, out _))
+                        changed = deskHoles.Count == 0 || Vector3.Distance(candidate.center, deskHoles[0].center) > 0.05f;
+                }
+            }
+            if (changed) RebuildKeepOut();   // the controller's keep-out check then scurries the gator out if it is inside
         }
 
         // ---------------------------------------------------------------- public API
@@ -260,16 +274,20 @@ namespace Forge.Pet
             deskHoles.Clear();
             dockBaked = TryGetDockBounds(out dockBakedBounds);
             if (!keepOutEnabled) return;
-            if (!hasKeepOutViewer)
-            {
-                Debug.LogWarning("[GatorMrukAdapter] No user head when the desk was built; keep-out skipped.", this);
-                return;
-            }
-            // A visible dock is unioned in only if it lies on this desk top.
+            // A visible dock is used only if it lies on this desk top.
             Vector3 dl = Quaternion.Inverse(yaw) * (dockBakedBounds.center - top);
             bool useDock = dockBaked && Mathf.Abs(dl.y) < 0.3f
                            && Mathf.Abs(dl.x) < size.x * 0.5f + 0.1f && Mathf.Abs(dl.z) < size.y * 0.5f + 0.1f;
-            if (!GatorNavSurface.ComputeEdgeKeepOut(top, yaw, size, keepOutViewer, keepOutWidth, keepOutDepth, minSideStrip,
+            if (!useDock && !hasKeepOutViewer)
+            {
+                Debug.LogWarning("[GatorMrukAdapter] No user head when the desk was built and no DeskDock; keep-out skipped.", this);
+                return;
+            }
+            // Hudson lays the DeskDock on the edge the user is actually at, so when it exists it decides which edge is
+            // the "front". The build-time head is only the fallback: from across the room it can pick a short end,
+            // and unioning that with a dock on another edge produced one huge box spanning the desk.
+            Vector3 viewer = useDock ? dockBakedBounds.center : keepOutViewer;
+            if (!GatorNavSurface.ComputeEdgeKeepOut(top, yaw, size, viewer, keepOutWidth, keepOutDepth, minSideStrip,
                     dockBakedBounds, useDock, out Bounds hole, out bool shrunk))
             {
                 Debug.LogWarning("[GatorMrukAdapter] Desk too small for a keep-out zone (" + size.x.ToString("F2") + " x " + size.y.ToString("F2") + " m).", this);
