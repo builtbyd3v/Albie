@@ -24,6 +24,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from . import events as ev
+from . import speech
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
 from .events import AgentAsk, AgentCancel, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
@@ -83,6 +84,7 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
     finally:
         bus.remove(ws)
         if s.voice is not None:
+            speech.unregister(s.pet_id, s.voice)
             await s.voice.close()
         # Drop a running Q&A (nobody is listening), but let a code task finish on its
         # branch: a flaky Quest Wi-Fi reconnect must not abort half-done edits.
@@ -227,6 +229,7 @@ async def _open_voice(s: Session, h: Hello) -> None:
     if voice is None:
         return
     s.voice = voice
+    speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))
     s.spawn(_voice_call(s, voice.start))
 
@@ -259,6 +262,7 @@ async def _voice_call(s: Session, fn) -> None:
         log.exception("voice session failed")
         if s.voice is voice and voice is not None:
             s.voice = None
+            speech.unregister(s.pet_id, voice)
             await voice.close()
             await s.reply_error(f"Voice is offline ({exc}). Push-to-talk still works without it.")
 

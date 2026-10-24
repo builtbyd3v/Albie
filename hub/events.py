@@ -77,22 +77,43 @@ class SlackMessage(BaseModel):
     """One Slack message as the hub saw it. Payload of notify.message; also what /messages/* return."""
     channel: str
     channel_name: str
+    is_dm: bool = False               # a DM to the user (channel_name is "dm")
     user: str
     user_name: str
     text: str
     ts: str                           # Slack message ts; reply thread key
     thread_ts: str | None = None
-    mentions_me: bool = False         # text contains <@SLACK_USER_ID>
+    mentions_me: bool = False         # a DM, or the text contains <@the user's id>
 
 
 NotifyMessage = SlackMessage          # same name as the C# DTO
 
 
+class Draft(BaseModel):
+    """A reply Bit wrote but has NOT sent. Payload of notify.draft; Unity shows it as a Send / Cancel card.
+
+    Nothing reaches Slack until POST /messages/drafts/{id}/send (the card's Send button) or the
+    messages_confirm tool ("yes, send it"). Posting uses the user's own token, so it lands under their name.
+    """
+    draft_id: str
+    channel: str
+    channel_name: str
+    text: str
+    thread_ts: str | None = None
+    reply_to: SlackMessage | None = None
+
+
 class NotifySent(BaseModel):
+    draft_id: str | None = None
     channel: str
     channel_name: str
     text: str
     ts: str
+
+
+class NotifyDraftCancelled(BaseModel):
+    draft_id: str
+    reason: str = "cancelled"         # cancelled | superseded | expired
 
 
 def digest_line(count: int, mentions: int) -> str:

@@ -1,6 +1,8 @@
 """notify.* contract (PROJECT_CONTEXT 7 + 8.8): payload key names, digest wording, digest building."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import events
@@ -33,14 +35,23 @@ def test_digest_line(count: int, mentions: int, line: str) -> None:
 
 def test_slack_message_keys_match_section_7() -> None:
     dumped = _msg("1700000000.000100").model_dump()
-    assert list(dumped) == ["channel", "channel_name", "user", "user_name", "text", "ts", "thread_ts", "mentions_me"]
+    assert list(dumped) == ["channel", "channel_name", "is_dm", "user", "user_name", "text", "ts", "thread_ts", "mentions_me"]
     assert dumped["thread_ts"] is None and dumped["mentions_me"] is False
     assert NotifyMessage is SlackMessage
 
 
 def test_notify_sent_keys() -> None:
     dumped = NotifySent(channel="C01", channel_name="forge-team", text="on it", ts="1.2").model_dump()
-    assert list(dumped) == ["channel", "channel_name", "text", "ts"]
+    assert list(dumped) == ["draft_id", "channel", "channel_name", "text", "ts"]
+    assert dumped["draft_id"] is None
+
+
+def test_draft_and_cancelled_keys() -> None:
+    from events import Draft, NotifyDraftCancelled
+
+    d = Draft(draft_id="d1", channel="C01", channel_name="forge-team", text="yes, by 3").model_dump()
+    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to"]
+    assert NotifyDraftCancelled(draft_id="d1").model_dump() == {"draft_id": "d1", "reason": "cancelled"}
 
 
 def test_digest_build_orders_newest_first_and_caps() -> None:
@@ -64,4 +75,4 @@ def test_digest_build_empty_is_quiet() -> None:
 
 def test_imports_worktree_copy() -> None:
     # pytest.ini sets pythonpath=.; guard against the venv's editable install shadowing this checkout.
-    assert "wt-slack" in events.__file__ or "gatorhack-dubz" in events.__file__
+    assert Path(events.__file__).resolve().parent == Path(__file__).resolve().parents[1]
