@@ -5,38 +5,42 @@ Open `Assets/_Forge/ML/MLSandbox.unity` and press Play. The builder uses the
 existing Core ForgePanel prefab and never edits Main, packages, or project settings.
 It replaces the generated ML prefabs and sandbox; save unrelated scene work first.
 
-The sandbox runs without the hub or a headset. Use a mouse to click buttons, scroll
-the results grid, and scroll or drag over the dataset stack. Hover the stack to
-scrub with a gamepad left stick or XR right controller thumbstick. XR hands use
-the inherited ForgePanel ray/poke canvas interaction and the same drag handlers.
-The sandbox itself uses a desktop UI event module and a transient in-memory XR
-settings clone to skip simulator startup; Main supplies the XR module. Saved XR
-settings are unchanged.
+The sandbox runs from local mocks without the hub or a headset. Use a mouse to
+click buttons, scroll the mistakes gallery, and scroll or drag over the dataset
+stack. Hover the stack to scrub with a gamepad left stick or XR right controller
+thumbstick. The inherited ForgePanel ray/poke canvas handles XR interaction.
+Desktop camera mode is the default. To test through the standalone Meta XR
+Simulator, select **Forge > ML > Use OpenXR Simulator**, then restart Play mode;
+the menu toggle is session-only. Saved XR settings are unchanged.
 
 - **DataStack:** atlas-backed GPU-instanced quads, fanning around the scrub position.
-  Inspect pulls the focused card forward; Put back returns it. Previous/Next also
-  work via ray/poke. Only nearby cards are drawn; all samples remain scrubbable.
+  Click a card or select Inspect to open a larger metadata card to its right. It
+  shows available name/path, split, source image shape, file size and model
+  prediction/confidence. Missing mock metadata is shown as unavailable. Put back,
+  desktop **X** or right-controller **B** returns it. Only nearby cards are drawn;
+  all samples remain scrubbable.
 - **Model3D:** one block per layer, logarithmic output-dimension sizing, type colors,
   input/output shape labels, sequential pulse on each metrics tick, and hover/select
   details for each layer.
 - **ResultsWall:** an atlas-backed GPU-instanced dot wall (up to 1,000 validation
-  images in one draw call) with green/red correctness tint. All/Wrong/most-confident
-  mistakes/class and
-  confusion-pair filters rebuild the wall without creating sample UI objects.
-  Click or poke a dot for the expanded image and per-class probabilities.
-  Relabel opens a class picker, Remove excludes the sample, Looks fine dismisses
-  inspection.
+  images in one draw call), ordered by true class and tinted green/red by correctness.
+  Hover shows a thumbnail. All/Wrong and confusion-pair filters update the wall.
+  **Show mistakes** and **Most confident** open a 24-image paged gallery; **By class**
+  opens a class picker for that gallery. Select a dot or image for the detail card,
+  predicted confidence and per-class probability bars. Relabel opens a class picker,
+  Remove excludes the sample, Looks fine closes the card, and **X / right B** returns
+  to the wall/gallery.
 - **TrainingDash:** train/val loss and accuracy curves, epoch progress, LR,
   overfit detection (two successive validation-loss increases as train loss falls),
   final confusion matrix and per-class accuracy. Click a matrix cell to filter
   ResultsWall by true/predicted pair. Replay restarts the training animation.
 - **VizCard:** reusable ForgePanel renderer with line, bar, heatmap, scatter,
-  table, image, and text modes. Configure its public fields, then call `Render()`
-  after changing data at runtime. Prev/Next cycles all seven renderers in the
-  sandbox; Image previews the first generated validation image by default.
+  table, image, and text modes. `LoadJson()` accepts the section 7.6 card contract;
+  scatter points emit their sample id. The sandbox's local `MLVizCardMocks.json`
+  exercises all seven kinds with Prev/Next.
 - **RegressionResults:** predicted-versus-actual scatter; selecting a point opens
-  a row card with actual, predicted, and residual values. It uses local deterministic
-  samples until the shared regression fixture lands.
+  a row card with actual, predicted, and residual values. It uses deterministic
+  local mock rows until the hub supplies the shared regression fixture.
 
 ## Mock data and scope
 
@@ -108,9 +112,11 @@ thread. The local fixture groups REST-shaped records into one file for replay.
 
 `MLLayoutController` consumes `ml.layout` through ForgeNet and maps `ml-dots`,
 `ml-live`, `ml-viz`, and `ml-regression` to module panels without modifying Core
-Workspace. `MLWorkspaceBridge` assigns Resources prefabs to Workspace's ML mode
-before it starts and rebuilds that mode when a layout event arrives. The prefab
-builder creates the runtime-loadable Resources copies.
+Workspace. The sandbox includes hidden VizCard and regression panels so switching
+from image classification to regression updates visible panels without a scene
+reload. `MLWorkspaceBridge` assigns Resources prefabs to Workspace's ML mode before
+it starts and rebuilds that mode when a layout event arrives. The prefab builder
+creates the runtime-loadable Resources copies.
 
 Live dataset/atlas fetching, Core WS
 subscriptions, and persistent edits are future adapter work. The mock atlas has
@@ -120,16 +126,20 @@ ID mapping together with the texture.
 ## Verification checklist
 
 1. Build assets; verify there are no C# or shader errors in the Console.
-2. In Play, scrub, inspect and return dataset cards; check model pulses each epoch.
+2. In Play, scrub, click/inspect and return dataset cards; check metadata and model pulses.
 3. Inspect a red result, Relabel to its prediction; verify green tint and counts.
-4. Remove a result; verify it disappears from the grid and dataset stack.
+4. Open Show mistakes, page, filter by class, inspect a sample and Remove it.
 5. At epoch 8+, verify overfit banner; at completion verify confusion and accuracy.
 6. Click a populated off-diagonal matrix cell; verify ResultsWall's pair filter.
 7. Use All to reset filters and Replay to restart curves.
-8. In Main/simulator, verify inherited ray/poke and thumbstick/drag on hardware.
+8. Switch to the regression layout and select scatter points; then cycle the seven VizCards.
+9. For XR Simulator, enable **Forge > ML > Use OpenXR Simulator**, restart Play,
+   and check Meta XR Simulator's connected-app status. A physical Quest is still
+   needed to check Quest performance and controller/hand behavior.
 
-Automated Play-mode check: invoke Unity with `-batchmode -nographics
--projectPath <repo>/unity -executeMethod MLSmokeCheck.Run -logFile <log>`.
+Automated Play-mode check (builds the scene/prefabs first):
+`Unity -batchmode -nographics -projectPath <repo>/unity
+-executeMethod MLSmokeCheck.BuildAndRun -logFile <log>`.
 Omit `-quit`; the check exits after initialization and assertions.
 
 Validated with Unity 6000.6.7f1 on 2026-10-23: asset generation and the batch
@@ -156,10 +166,17 @@ therefore used an isolated copy of the same project and copied back only ML-owne
 assets generated by the builder. Shared mock source hashes remained unchanged.
 
 Completion validation (2026-10-24): Unity 6000.6.7f1 compiled and ran the expanded
-ML smoke check in an isolated copy with Meta XR Simulator 81 omitted. It generated
-all six prefabs plus their Resources copies and passed layout visibility switching,
-all seven VizCard modes, regression row selection, 1,000-sample results, relabel,
-remove, pair filtering, replay completion, and restart. The editor logged a Unity
-Search indexing exception and exited with native code 134 after printing PASS.
-The shared project still includes the separately managed simulator package; no
-Quest headset was connected for ray/poke/thumbstick validation.
+ML smoke check in an isolated copy with the deprecated Meta XR Simulator 81 package
+omitted. It generated all six prefabs plus their Resources copies. Assertions
+passed for metadata-card selection, all seven VizCard JSON fixtures and scatter
+sample IDs, image/regression layout switching, regression row selection, the
+24-image paged mistakes gallery, class filtering, relabel/remove, pair filtering,
+replay completion and restart. Unity exited with native code 134 after printing
+PASS. The standalone Meta XR Simulator is active, but its XR session still needs
+manual verification with the new **Use OpenXR Simulator** toggle. On 2026-10-24,
+the toggle was enabled and Play restarted, but Unity reported `OpenXR is not
+available` and the simulator reported no app connected. No Quest headset was
+connected for ray/poke/thumbstick or performance validation. The editor log also
+showed repeated `MaterialPropertyBlock` null references in the two instanced panels
+from a prior no-domain-reload Play session; both now initialize the property block
+lazily, and the updated smoke run passed.

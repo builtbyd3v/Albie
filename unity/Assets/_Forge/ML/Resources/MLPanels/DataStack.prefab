@@ -34,7 +34,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6879995215226452, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: m_SizeDelta.x
-      value: 400
+      value: 600
       objectReference: {fileID: 0}
     - target: {fileID: 6879995215226452, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: m_SizeDelta.y
@@ -101,16 +101,8 @@ PrefabInstance:
       value: Dataset
       objectReference: {fileID: 0}
     - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
-      propertyPath: _size.x
-      value: 400
-      objectReference: {fileID: 0}
-    - target: {fileID: 6409264383709292510, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y
       value: 419.99997
-      objectReference: {fileID: 0}
-    - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
-      propertyPath: _size.x
-      value: 400
       objectReference: {fileID: 0}
     - target: {fileID: 8149732941777002001, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
       propertyPath: _size.y

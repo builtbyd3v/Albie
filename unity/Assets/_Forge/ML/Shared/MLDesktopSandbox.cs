@@ -2,6 +2,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.Management;
+using UnityEditor;
 
 namespace Forge.ML
 {
@@ -9,11 +10,34 @@ namespace Forge.ML
     // AfterAssembliesLoaded initializer. The saved XR settings asset is untouched.
     public static class MLDesktopSandbox
     {
+        const string SmokeKey = "Forge.ML.Smoke";
+        const string SimulatorKey = "Forge.ML.UseXrSimulator";
+        const string SimulatorMenu = "Forge/ML/Use OpenXR Simulator";
         static XRGeneralSettings original, transient;
+
+        [MenuItem(SimulatorMenu)]
+        static void ToggleSimulator()
+        {
+            bool enabled = !SessionState.GetBool(SimulatorKey, false);
+            SessionState.SetBool(SimulatorKey, enabled);
+            Menu.SetChecked(SimulatorMenu, enabled);
+            Debug.Log(enabled
+                ? "[ML] OpenXR Simulator enabled for MLSandbox. Restart Play mode to connect."
+                : "[ML] Desktop sandbox mode enabled. Restart Play mode to use the local camera.");
+        }
+
+        [MenuItem(SimulatorMenu, true)]
+        static bool ValidateSimulatorMenu()
+        {
+            Menu.SetChecked(SimulatorMenu, SessionState.GetBool(SimulatorKey, false));
+            return true;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void SkipXRForSandbox()
         {
-            if (!UnityEditor.SessionState.GetBool("Forge.ML.Smoke", false) && SceneManager.GetActiveScene().path != "Assets/_Forge/ML/MLSandbox.unity") return;
+            if (SceneManager.GetActiveScene().path != "Assets/_Forge/ML/MLSandbox.unity") return;
+            if (!SessionState.GetBool(SmokeKey, false) && SessionState.GetBool(SimulatorKey, false)) return;
             var settings = XRGeneralSettings.Instance;
             if (settings == null) return;
             original = settings;
@@ -23,13 +47,13 @@ namespace Forge.ML
             desktop.hideFlags = HideFlags.HideAndDontSave;
             desktop.InitManagerOnStart = false;
             XRGeneralSettings.Instance = desktop;
-            UnityEditor.EditorApplication.playModeStateChanged -= Restore;
-            UnityEditor.EditorApplication.playModeStateChanged += Restore;
+            EditorApplication.playModeStateChanged -= Restore;
+            EditorApplication.playModeStateChanged += Restore;
         }
-        static void Restore(UnityEditor.PlayModeStateChange state)
+        static void Restore(PlayModeStateChange state)
         {
-            if (state != UnityEditor.PlayModeStateChange.ExitingPlayMode) return;
-            UnityEditor.EditorApplication.playModeStateChanged -= Restore;
+            if (state != PlayModeStateChange.ExitingPlayMode) return;
+            EditorApplication.playModeStateChanged -= Restore;
             if (original != null) XRGeneralSettings.Instance = original;
             if (transient != null) Object.DestroyImmediate(transient);
             original = transient = null;

@@ -144,12 +144,17 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Forge.ML.VizCard
   kind: 0
   title: Validation trend
+  subtitle: 
+  body: Reusable visualization card
   labels:
   - A
   - B
   - C
   - D
   - E
+  xLabels: []
+  yLabels: []
+  columns: []
   values:
   - 0.15
   - 0.42
@@ -162,5 +167,9 @@ MonoBehaviour:
   - 0.5
   - 0.55
   - 0.68
-  body: Reusable visualization card
+  points: []
+  xLabel: 
+  yLabel: 
+  pngUrl: 
+  alt: 
   image: {fileID: 0}

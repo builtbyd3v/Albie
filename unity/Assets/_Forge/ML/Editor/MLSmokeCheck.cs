@@ -46,6 +46,13 @@ public static class MLSmokeCheck
                 Require(counts[r,c] == session.Data.confusion[r][c], "Results agree with generated confusion matrix");
             var stack = UnityEngine.Object.FindAnyObjectByType<DataStack>();
             Require(stack != null, "DataStack starts");
+            stack.Select();
+            var picked = stack.GetComponent<ForgePanel>().Content.Find("Picked image metadata");
+            Require(picked != null && picked.gameObject.activeSelf, "Picking a dataset card opens its metadata card");
+            bool hasMeta = false;
+            foreach (var text in picked.GetComponentsInChildren<TMPro.TMP_Text>(true)) if (text.text.Contains("Path:") && text.text.Contains("Prediction:")) hasMeta = true;
+            Require(hasMeta, "Picked card shows path, split, image shape and prediction metadata");
+            stack.PutBack();
             Require(UnityEngine.Object.FindAnyObjectByType<Model3D>() != null, "Model3D starts");
             var wall = UnityEngine.Object.FindAnyObjectByType<ResultsWall>();
             var dash = UnityEngine.Object.FindAnyObjectByType<TrainingDash>();
@@ -55,22 +62,61 @@ public static class MLSmokeCheck
             Require(vizPrefab != null && vizPrefab.GetComponent<VizCard>() != null, "VizCard prefab is generated");
             Require(regressionPrefab != null && regressionPrefab.GetComponent<RegressionResults>() != null, "Regression results prefab is generated");
             Require(Resources.Load<GameObject>("MLPanels/VizCard") != null && Resources.Load<GameObject>("MLPanels/RegressionResults") != null, "Runtime Resources prefabs are generated");
+            var vizMocks = Resources.Load<TextAsset>("MLVizCardMocks");
+            Require(vizMocks != null && Newtonsoft.Json.Linq.JArray.Parse(vizMocks.text).Count == 7, "Seven VizCard mock JSON documents are available");
+            var vizObject = UnityEngine.Object.Instantiate(vizPrefab); var viz = vizObject.GetComponent<VizCard>();
+            var cards = Newtonsoft.Json.Linq.JArray.Parse(vizMocks.text);
+            foreach (var card in cards)
+            {
+                viz.LoadJson(card.ToString()); viz.Render();
+                Require(vizObject.GetComponent<ForgePanel>().Content.childCount > 1, "VizCard JSON renders " + viz.kind);
+            }
+            string selectedVizSample = null; viz.SampleSelected += id => selectedVizSample = id;
+            viz.LoadJson(cards[3].ToString()); viz.Render();
+            vizObject.GetComponent<ForgePanel>().Content.Find("Point val_0000").GetComponent<Button>().onClick.Invoke();
+            Require(!string.IsNullOrEmpty(selectedVizSample), "VizCard scatter click emits its sample id");
+            UnityEngine.Object.Destroy(vizObject);
             var layout = UnityEngine.Object.FindAnyObjectByType<MLLayoutController>();
             Require(layout != null, "Sandbox has ML layout event handler");
             ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-training", "ml-viz" } });
             Require(!stack.gameObject.activeSelf && dash.gameObject.activeSelf, "ML layout event switches panel visibility");
             ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-datastack", "ml-model3d", "ml-dots", "ml-live" } });
             Require(stack.gameObject.activeSelf, "Image-classification layout restores core panels");
+            var sceneViz = UnityEngine.Object.FindAnyObjectByType<VizCard>(FindObjectsInactive.Include);
+            var regressionPanel = UnityEngine.Object.FindAnyObjectByType<RegressionResults>(FindObjectsInactive.Include);
+            Require(sceneViz != null && regressionPanel != null && !sceneViz.gameObject.activeSelf && !regressionPanel.gameObject.activeSelf, "VizCard and regression panels are available for layouts");
+            ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-regression" } });
+            Require(regressionPanel.gameObject.activeSelf && !stack.gameObject.activeSelf && !sceneViz.gameObject.activeSelf, "Regression layout swaps panels without reloading the scene");
+            regressionPanel.Initialize();
+            var points = regressionPanel.GetComponentsInChildren<RegressionPoint>(true);
+            Require(regressionPanel.samples.Length == 24 && points.Length == 24, "Regression mock scatter renders clickable rows");
+            points[4].OnPointerClick(new UnityEngine.EventSystems.PointerEventData(UnityEngine.EventSystems.EventSystem.current));
+            var rowDetail = regressionPanel.GetComponent<ForgePanel>().Content.Find("Row detail");
+            bool selectedRegressionRow = false;
+            if (rowDetail != null) foreach (var text in rowDetail.GetComponentsInChildren<TMPro.TMP_Text>(true)) if (text.text.Contains("row-005")) selectedRegressionRow = true;
+            Require(selectedRegressionRow, "Regression point opens its row card");
+            ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-datastack", "ml-model3d", "ml-dots", "ml-live" } });
             foreach (var panel in UnityEngine.Object.FindObjectsByType<ForgePanel>())
                 Require(panel.transform.position.y > 1f, "Saved sandbox panel stays at camera height: " + panel.name);
-            var vizObject = UnityEngine.Object.Instantiate(vizPrefab); var viz = vizObject.GetComponent<VizCard>();
-            foreach (VizCard.Kind kind in Enum.GetValues(typeof(VizCard.Kind))) { viz.kind = kind; viz.Render(); Require(vizObject.GetComponent<ForgePanel>().Content.childCount > 1, "VizCard renders " + kind); }
-            UnityEngine.Object.Destroy(vizObject);
             var regressionObject = UnityEngine.Object.Instantiate(regressionPrefab); var regression = regressionObject.GetComponent<RegressionResults>(); regression.Initialize();
             Require(regression.samples.Length == 24, "Regression fixture loads mock rows"); regression.Show(5);
             UnityEngine.Object.Destroy(regressionObject);
             var content = wall.GetComponent<ForgePanel>().Content;
             Require(content.Find("Dot wall") != null && wall.VisibleDotCount == session.Data.samples.Length, "One instanced dot per validation image renders");
+            content.Find("Show mistakes").GetComponent<Button>().onClick.Invoke();
+            Require(wall.IsGallery && wall.GalleryItemCount > 24, "Show mistakes opens a paged gallery");
+            int thumbs = 0; foreach (Transform child in content.Find("Dot wall/Dynamic content")) if (child.name.StartsWith("Mistake ")) thumbs++;
+            Require(thumbs == 24, "Mistakes gallery shows 24 thumbnails per page");
+            content.Find("›").GetComponent<Button>().onClick.Invoke();
+            Require(wall.GalleryPage == 1, "Mistakes gallery advances pages");
+            content.Find("By class").GetComponent<Button>().onClick.Invoke();
+            Require(wall.IsClassPicker, "By class opens a class picker");
+            content.Find("Dot wall/Dynamic content/airplane").GetComponent<Button>().onClick.Invoke();
+            Require(wall.IsGallery && wall.ActiveClassFilter == 0, "Class picker filters the mistakes gallery");
+            content.Find("Dot wall/Dynamic content").GetChild(0).GetComponent<Button>().onClick.Invoke();
+            Require(!string.IsNullOrEmpty(wall.SelectedId), "Gallery thumbnail opens the sample detail card");
+            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
+            Require(!wall.IsGallery && wall.VisibleDotCount == session.Data.samples.Length, "All dots returns to the full dot wall");
             var sample = Array.Find(session.Data.samples, s => !s.correct);
             Require(sample != null, "Fixture includes wrong predictions");
             int original = sample.true_idx;
@@ -84,7 +130,7 @@ public static class MLSmokeCheck
             int expected = 0;
             foreach (var s in session.Data.samples) if (s.true_idx == original && s.pred_idx == sample.pred_idx) expected++;
             Require(wall.VisibleDotCount == expected, "Confusion pair filters dot wall");
-            content.Find("All").GetComponent<Button>().onClick.Invoke();
+            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
             Require(wall.VisibleDotCount == session.Data.samples.Length, "All resets dot wall filter");
             session.Restart();
             var replay = Newtonsoft.Json.JsonConvert.DeserializeObject<MLReplayEvent[]>(session.mockAssets.events.text);

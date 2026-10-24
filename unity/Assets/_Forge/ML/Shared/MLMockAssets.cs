@@ -6,7 +6,12 @@ using UnityEngine;
 namespace Forge.ML
 {
     public class MLAtlasMetadata { public string atlas_url; public int[] cell; public int cols; public Dictionary<string, int> index; }
-    [Serializable] public class MLDatasetEntry { public string id, thumb_url; public int label_idx; }
+    [Serializable] public class MLDatasetEntry
+    {
+        public string id, thumb_url, name, path, split;
+        public int label_idx, width, height, channels;
+        public long file_size;
+    }
     [Serializable] public class MLGraph { public MLLayer[] layers; }
     [Serializable] public class MLResults { public MLSample[] samples; }
     public class MLConfusion { public string[] labels; public int[][] matrix; }
@@ -34,6 +39,13 @@ namespace Forge.ML
             {
                 var entry = entries[i]; var sample = byId[entry.id];
                 sample.label_idx = entry.label_idx;
+                sample.name = string.IsNullOrEmpty(entry.name) ? entry.id : entry.name;
+                sample.path = entry.path;
+                sample.split = string.IsNullOrEmpty(entry.split) ? "val" : entry.split;
+                sample.width = entry.width > 0 ? entry.width : 32;
+                sample.height = entry.height > 0 ? entry.height : 32;
+                sample.channels = entry.channels > 0 ? entry.channels : 3;
+                sample.file_size = entry.file_size;
                 if (sample.true_idx != entry.label_idx) throw new InvalidOperationException("Dataset/result label mismatch for " + entry.id);
                 samples[i] = sample; cells[i] = metadata.index[entry.id];
             }

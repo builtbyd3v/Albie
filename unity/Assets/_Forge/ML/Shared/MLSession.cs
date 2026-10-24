@@ -3,7 +3,15 @@ using UnityEngine;
 
 namespace Forge.ML
 {
-    [Serializable] public class MLSample { public string id; public int label_idx, true_idx, pred_idx; public float[] probs; public bool correct; [NonSerialized] public bool removed; }
+    [Serializable] public class MLSample
+    {
+        public string id, name, path, split;
+        public int label_idx, true_idx, pred_idx, width, height, channels;
+        public long file_size;
+        public float[] probs;
+        public bool correct;
+        [NonSerialized] public bool removed;
+    }
     [Serializable] public class MLLayer { public string name, type; public int[] in_shape, out_shape; public int @params; }
     [Serializable] public class MLMetrics { public string run_id; public int epoch, step; public float train_loss, train_acc, val_loss, val_acc, lr; }
     [Serializable] public class MLFixture { public string[] classes; public MLSample[] samples; public MLLayer[] layers; public MLMetrics[] metrics; [NonSerialized] public int[][] confusion; }

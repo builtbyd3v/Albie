@@ -21,7 +21,7 @@ public static class MLSandboxBuilder
         var atlas = new Material(Shader.Find("Forge/ML/InstancedAtlas")) { enableInstancing = true };
         var block = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
         SaveMaterial(atlas, Folder+"Atlas.mat"); SaveMaterial(block, Folder+"Layer.mat");
-        var stack = Panel<DataStack>("DataStack", "ml-datastack", "Dataset", new Vector2(.40f,.42f));
+        var stack = Panel<DataStack>("DataStack", "ml-datastack", "Dataset", new Vector2(.60f,.42f));
         stack.GetComponent<DataStack>().atlasMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Atlas.mat");
         Save(stack,"DataStack");
         var model = Panel<Model3D>("Model3D", "ml-model3d", "Model architecture", new Vector2(.48f,.60f));
@@ -44,10 +44,12 @@ public static class MLSandboxBuilder
 #endif
         events.AddComponent<PointableCanvasModule>().ExclusiveMode = false;
         var session = new GameObject("Shared ML session"); session.AddComponent<MLSession>(); session.AddComponent<MLLayoutController>();
-        Place("DataStack", new Vector3(-.88f,1.35f,0), camera);
+        Place("DataStack", new Vector3(-.93f,1.35f,0), camera);
         Place("Model3D", new Vector3(-.39f,1.35f,0), camera);
         Place("ResultsWall", new Vector3(.26f,1.35f,0), camera);
         Place("TrainingDash", new Vector3(.02f,1.95f,.15f), camera);
+        Place("VizCard", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
+        Place("RegressionResults", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
         EditorSceneManager.SaveScene(scene, "Assets/_Forge/ML/MLSandbox.unity");
         AssetDatabase.SaveAssets();
         Debug.Log("[ML] Built six prefabs and MLSandbox. Open sandbox and press Play; hub is not required.");
@@ -95,7 +97,7 @@ public static class MLSandboxBuilder
         if (existing != null) { EditorUtility.CopySerialized(material, existing); Object.DestroyImmediate(material); }
         else AssetDatabase.CreateAsset(material,path);
     }
-    static void Place(string name, Vector3 position, Camera camera)
+    static GameObject Place(string name, Vector3 position, Camera camera)
     {
         var go = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(Folder+name+".prefab"));
         ((RectTransform)go.transform).anchoredPosition3D = position;
@@ -103,5 +105,6 @@ public static class MLSandboxBuilder
         PrefabUtility.RecordPrefabInstancePropertyModifications(go.transform);
         PrefabUtility.RecordPrefabInstancePropertyModifications(go.GetComponent<Canvas>());
         if (go.GetComponent<UnityEngine.UI.GraphicRaycaster>() == null) go.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+        return go;
     }
 }
