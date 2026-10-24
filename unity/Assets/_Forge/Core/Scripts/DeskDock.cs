@@ -4,6 +4,7 @@ using Oculus.Interaction.Surfaces;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 
@@ -14,6 +15,10 @@ using UnityEngine.UI;
 /// that mode: the ring rises off the desk on a column of light and turns toward the head. Press it again to fold it.
 /// Rings brighten as a pointer comes near and run a comet of light while hovered. The dock comes in in two beats: the
 /// frame slides along the front edge in from the user's right, then the rings plop on left to right (ForgeTheme.DockSlide*).
+/// It comes in centered on the edge and slides along it, keeping <see cref="endRoom"/> free at each end of the desk (the
+/// gator's whistle sits just past its right end: <see cref="TryGetRightSide"/>): ‹ and › at its ends (they fade in only
+/// while a pointer is on them) move it a step, and holding the right controller's grip (middle mouse button in desktop
+/// mode) while pointing anywhere on it drags it.
 /// Input stays flat: each button is an invisible raycast Image + Button on the dock canvas that never moves. The light
 /// is quads under "Light" (Forge/NeonFrame, NeonRing, LightPool) and 3D Inter labels, styled by <see cref="ForgeTheme"/>;
 /// the ring pieces come from <see cref="DockRing"/>, which also makes one on its own. Built from <see cref="Workspace.modes"/>.
@@ -27,6 +32,10 @@ public class DeskDock : MonoBehaviour
 
     [Tooltip("Distance from the desk's front edge to the row of buttons (m).")]
     public float inset = 0.09f;
+    [Tooltip("How far one press of ‹ or › slides the dock along the front edge (m).")]
+    public float nudgeStep = 0.15f;
+    [Tooltip("Desk kept free past each end of the dock when it slides (m): the whistle sits past the right end, the crew egg on the near-left corner.")]
+    public float endRoom = 0.12f;
 
     const float GlowPad = DockRing.GlowPad;  // room around each ring's quad for its glow (mm)
     const float IconFill = 1.05f;  // icon size as a multiple of the ring's radius (about half the ring across)
@@ -36,6 +45,8 @@ public class DeskDock : MonoBehaviour
     {
         public string modeId;  // null for a tool
         public bool isMode;
+        public bool nudge;  // ‹ ›: pressable with no mode open, dimmed only at the end of the desk
+        public float reveal = 1f, shownReveal = -1f;  // ‹ ›: 0 hidden .. 1 shown (a pointer is on it)
         public Button button;
         public DockButton input;
         public Color hue;
@@ -77,6 +88,20 @@ public class DeskDock : MonoBehaviour
     float hubShown, hubAttentionUntil;
     const float HubLabelMm = 10f, HubAttention = 4f, HubNearRange = 80f;
 
+    // Sliding along the front edge (‹ ›, grip drag): the dock's offset from the edge's middle (m, + = the user's right).
+    // Kept while it comes and goes at the same edge, back to the middle at another edge or table.
+    Ring nudgeLeft, nudgeRight;
+    Coroutine nudgeAnim;
+    float offset, edgeWidth, shownScale = ForgePanel.MetersPerUnit;
+    Vector3 offsetEdge;
+    const float NudgeReveal = 15f;  // a ‹ › fades in while a pointer is within this of its ring (mm)
+    // Grip drag: the right controller's ray (or the desktop mouse) holding the dock, and the dock's x minus where that
+    // pointer met the desk when the grip closed (m, desk frame), so the dock keeps its place under the pointer.
+    RayInteractor dragRay;
+    bool dragging, dragMouse;
+    float dragGrab;
+    const float DragMargin = 15f;  // the grip catches this far outside the frame too (mm)
+
     // Interaction SDK pointers, found when the dock shows (the rig is picked by then).
     RayInteractor[] rays = new RayInteractor[0];
     PokeInteractor[] pokes = new PokeInteractor[0];
@@ -117,10 +142,14 @@ public class DeskDock : MonoBehaviour
         lightRoot.SetParent(transform, false);
         lightRoot.gameObject.layer = gameObject.layer;
 
-        // Row: modes, divider, tools, spaced evenly and centered.
+        // Row: ‹, modes, divider, tools, ›, spaced evenly and centered.
         int modeCount = workspace.modes.Count;
-        float width = modeCount * ForgeTheme.DockModeRing + 2f * ForgeTheme.DockToolRing + 1.2f + (modeCount + 2) * ForgeTheme.DockGap;
+        float width = modeCount * ForgeTheme.DockModeRing + 2f * ForgeTheme.DockToolRing + 2f * ForgeTheme.DockNudgeRing + 1.2f
+                    + (modeCount + 4) * ForgeTheme.DockGap;
         float x = -width * 0.5f;
+        nudgeLeft = AddRing("Dock left", "‹", false, ForgeTheme.Tool, ForgeTheme.DockNudgeRing, ForgeTheme.DockNudgeLabel, ref x, () => Nudge(-1f));
+        nudgeLeft.nudge = true;
+        nudgeLeft.reveal = 0f;
         foreach (var mode in workspace.modes)
         {
             string id = mode.id;
@@ -132,6 +161,9 @@ public class DeskDock : MonoBehaviour
         x += 1.2f + ForgeTheme.DockGap;
         layoutLabel = AddRing("Dock layout", "", false, ForgeTheme.Tool, ForgeTheme.DockToolRing, ForgeTheme.DockToolLabel, ref x, workspace.ToggleLayout).text;
         AddRing("Dock reset", "Reset", false, ForgeTheme.Tool, ForgeTheme.DockToolRing, ForgeTheme.DockToolLabel, ref x, workspace.ResetLayout);
+        nudgeRight = AddRing("Dock right", "›", false, ForgeTheme.Tool, ForgeTheme.DockNudgeRing, ForgeTheme.DockNudgeLabel, ref x, () => Nudge(1f));
+        nudgeRight.nudge = true;
+        nudgeRight.reveal = 0f;
 
         var size = new Vector2(width + 2f * ForgeTheme.DockPadding, ForgeTheme.DockHeight);
         ((RectTransform)transform).sizeDelta = size;
@@ -224,7 +256,7 @@ public class DeskDock : MonoBehaviour
                 if (selected != r.selected) StartLift(r, selected, now);
                 r.selected = selected;
             }
-            else
+            else if (!r.nudge)
             {
                 // Layout and Reset only mean something while a mode is open.
                 r.enabled = modeId != null;
@@ -239,17 +271,28 @@ public class DeskDock : MonoBehaviour
         if (layoutLabel != null) layoutLabel.text = layout == WorkspaceLayout.Curved ? "Flat" : "Curve";
     }
 
-    /// <summary>Lay the dock flat on the desk, centered along the front edge, readable from the seat, and bring it in: the
-    /// frame slides in from the user's right, then the rings plop on left to right. <paramref name="reposition"/>: already
-    /// showing and the front edge moved (the user went round the desk): just move it, no entrance.</summary>
+    /// <summary>Lay the dock flat on the desk along the front edge (centered, or where ‹ › last slid it at this edge),
+    /// readable from the seat, and bring it in: the frame slides in from the user's right, then the rings plop on left to
+    /// right. <paramref name="reposition"/>: already showing and the front edge moved (the user went round the desk): just
+    /// move it, no entrance.</summary>
     public void Show(Transform deskFrame, float deskWidth, float deskDepth, bool reposition = false)
     {
+        if ((deskFrame.position - offsetEdge).sqrMagnitude > 0.1f * 0.1f) offset = 0f;  // another edge or table
+        offsetEdge = deskFrame.position;
+        edgeWidth = deskWidth;
+        if (nudgeAnim != null) StopCoroutine(nudgeAnim);
+        nudgeAnim = null;
+        dragging = false;
+        dragRay = null;
         transform.SetParent(deskFrame, false);
-        transform.localPosition = new Vector3(0f, 0.004f, Mathf.Min(inset, deskDepth * 0.5f));
-        transform.localRotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
         float width = ((RectTransform)transform).sizeDelta.x * ForgePanel.MetersPerUnit;
         float fit = Mathf.Min(1f, (deskWidth - 0.04f) / Mathf.Max(width, 0.01f));
-        Vector3 scale = Vector3.one * ForgePanel.MetersPerUnit * Mathf.Max(0.5f, fit);
+        shownScale = ForgePanel.MetersPerUnit * Mathf.Max(0.5f, fit);
+        Vector3 scale = Vector3.one * shownScale;
+        offset = Mathf.Clamp(offset, -SlideReach(), SlideReach());
+        ShowNudgeLimits();
+        transform.localPosition = new Vector3(offset, 0.004f, Mathf.Min(inset, deskDepth * 0.5f));
+        transform.localRotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
         DockRing.FindInteractors(out rays, out pokes);
 
         bool wasShown = IsShown && gameObject.activeInHierarchy;
@@ -268,7 +311,7 @@ public class DeskDock : MonoBehaviour
         // user's right) over DockSlideTime, then each ring plops on in row order (Ring.plopStart, see Animate). Nothing is
         // pressable until the last ring has landed.
         float now = Time.time;
-        float slide = deskWidth * 0.5f + ((RectTransform)transform).sizeDelta.x * scale.x * 0.5f;  // starts just off the desk's right end
+        float slide = deskWidth * 0.5f + ((RectTransform)transform).sizeDelta.x * scale.x * 0.5f - offset;  // starts just off the desk's right end
         Vector3 end = transform.localPosition;
         float total = ForgeTheme.DockSlideTime + Mathf.Max(0, rings.Count - 1) * ForgeTheme.DockPlopStagger + ForgeTheme.DockPlopTime;
         for (int i = 0; i < rings.Count; i++) rings[i].plopStart = now + ForgeTheme.DockSlideTime + i * ForgeTheme.DockPlopStagger;
@@ -310,11 +353,129 @@ public class DeskDock : MonoBehaviour
         }, done));
     }
 
+    // ---- Sliding along the desk (‹ ›) ----
+
+    // One step left (-1) or right (+1), eased; stops where endRoom starts.
+    void Nudge(float direction)
+    {
+        float reach = SlideReach();
+        float to = Mathf.Clamp(offset + direction * nudgeStep, -reach, reach);
+        if (Mathf.Approximately(to, offset)) return;
+        offset = to;
+        ShowNudgeLimits();
+        if (nudgeAnim != null) StopCoroutine(nudgeAnim);
+        float from = transform.localPosition.x;
+        nudgeAnim = StartCoroutine(ForgeTween.Run(ForgeTheme.DockNudgeTime, 0f, k =>
+        {
+            Vector3 p = transform.localPosition;
+            p.x = Mathf.LerpUnclamped(from, to, ForgeTween.EaseOutCubic(k));
+            transform.localPosition = p;
+        }, () => nudgeAnim = null));
+    }
+
+    // How far the dock may sit from the edge's middle (m) and leave endRoom at both ends; 0 on a desk too short for that.
+    float SlideReach()
+    {
+        float half = ((RectTransform)transform).sizeDelta.x * 0.5f * shownScale;
+        return Mathf.Max(0f, edgeWidth * 0.5f - endRoom - half);
+    }
+
+    // ‹ and › dim at the end they can't go past.
+    void ShowNudgeLimits()
+    {
+        if (nudgeLeft == null || nudgeRight == null) return;
+        float reach = SlideReach();
+        nudgeLeft.enabled = nudgeLeft.button.interactable = offset > -reach + 0.001f;
+        nudgeRight.enabled = nudgeRight.button.interactable = offset < reach - 0.001f;
+    }
+
+    // Grip drag. Starts when the right controller's grip (or the middle mouse button in desktop mode) closes while its
+    // ray points at the dock; then every frame the dock follows where that ray meets the desk, along the edge only, until
+    // the button opens. Not during the entrance.
+    void UpdateDrag()
+    {
+        var rig = DesktopRig.Current;
+        var mouse = Mouse.current;
+        bool desktop = rig != null && rig.isActiveAndEnabled && mouse != null;
+        if (!dragging)
+        {
+            if (!IsShown || anim != null) return;
+            bool grip = OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
+            bool middle = !grip && desktop && mouse.middleButton.wasPressedThisFrame;
+            if (!grip && !middle) return;
+            dragRay = grip ? RightRay() : null;
+            if (grip && dragRay == null) return;
+            Ray ray = grip ? dragRay.Ray : rig.PointerRay;
+            if (!PointsAtDock(ray) || !TryDeskX(ray, out float x)) return;
+            dragging = true;
+            dragMouse = middle;
+            dragGrab = transform.localPosition.x - x;
+            if (nudgeAnim != null) StopCoroutine(nudgeAnim);
+            nudgeAnim = null;
+            return;
+        }
+
+        bool held = dragMouse
+            ? desktop && mouse.middleButton.isPressed
+            : dragRay != null && dragRay.isActiveAndEnabled && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
+        if (!held || !IsShown || anim != null)
+        {
+            dragging = false;
+            dragRay = null;
+            return;
+        }
+        if (!TryDeskX(dragMouse ? rig.PointerRay : dragRay.Ray, out float at)) return;  // pointing off the desk: stay put
+        float reach = SlideReach();
+        offset = Mathf.Clamp(at + dragGrab, -reach, reach);
+        Vector3 p = transform.localPosition;
+        p.x = offset;
+        transform.localPosition = p;
+        ShowNudgeLimits();
+    }
+
+    // The right controller's ray, if it's the one in use (the rig has a hand ray on that side too).
+    RayInteractor RightRay()
+    {
+        foreach (var r in rays)
+            if (r != null && r.isActiveAndEnabled && r.State != InteractorState.Disabled
+                && ForgePointer.HandOf(r.transform) == OVRInput.Controller.RTouch)
+                return r;
+        return null;
+    }
+
+    // The ray meets the dock's plane on its frame (or just around it).
+    bool PointsAtDock(Ray ray)
+    {
+        Vector3 o = transform.InverseTransformPoint(ray.origin), d = transform.InverseTransformVector(ray.direction);
+        if (Mathf.Abs(d.z) < 1e-6f) return false;
+        float t = -o.z / d.z;
+        if (t <= 0f) return false;
+        Vector2 hit = o + d * t;
+        Vector2 half = ((RectTransform)transform).sizeDelta * 0.5f;
+        return Mathf.Abs(hit.x) <= half.x + DragMargin && Mathf.Abs(hit.y) <= half.y + DragMargin;
+    }
+
+    // Where a ray meets the desk top, as x along the front edge (m, desk frame). False if it never does (level or
+    // pointing up) or only far away.
+    bool TryDeskX(Ray ray, out float x)
+    {
+        x = 0f;
+        Transform edge = transform.parent;
+        if (edge == null) return false;
+        Vector3 o = edge.InverseTransformPoint(ray.origin), d = edge.InverseTransformDirection(ray.direction);
+        if (d.y > -0.02f) return false;
+        float t = (transform.localPosition.y - o.y) / d.y;
+        if (t <= 0f || t > 5f) return false;
+        x = o.x + d.x * t;
+        return true;
+    }
+
     // ---- Light ----
 
     void LateUpdate()
     {
         if (block == null || frame == null) return;
+        UpdateDrag();
         float dt = Time.deltaTime, now = Time.time, fade = group.alpha;
         bool fadeChanged = !Mathf.Approximately(fade, shownFade);
         shownFade = fade;
@@ -329,16 +490,17 @@ public class DeskDock : MonoBehaviour
     // Hub light position (dock canvas mm), the same spot ShowFrame draws the dot at.
     static Vector2 HubDot(Vector2 size) => new Vector2(size.x * 0.5f - 21.3f, size.y * 0.5f - 16.4f);
 
-    // Just outside the dock's right edge, level with the light, so it never sits over a ring.
+    // Just past the frame's far edge, ending over the light, so it never sits over a ring or behind the whistle (which
+    // sits past the right end).
     void BuildHubLabel(Vector2 size)
     {
         hubLabel = new GameObject("Hub status", typeof(RectTransform)).AddComponent<TextMeshPro>();
         hubLabel.gameObject.layer = gameObject.layer;
         hubLabel.transform.SetParent(lightRoot, false);
         var rt = hubLabel.rectTransform;
-        rt.pivot = new Vector2(0f, 0.5f);
+        rt.pivot = new Vector2(1f, 0.5f);
         rt.sizeDelta = new Vector2(120f, HubLabelMm * 2f);
-        rt.localPosition = new Vector3(size.x * 0.5f + 10f, HubDot(size).y, -0.8f);
+        rt.localPosition = new Vector3(HubDot(size).x + 6f, size.y * 0.5f + HubLabelMm, -0.8f);
         if (ForgeTheme.Font != null)
         {
             hubLabel.font = ForgeTheme.Font;
@@ -346,7 +508,7 @@ public class DeskDock : MonoBehaviour
         }
         hubLabel.fontSize = HubLabelMm * 10f;  // TextMeshPro (3D) is 0.1 unit per point
         hubLabel.characterSpacing = 4f;
-        hubLabel.alignment = TextAlignmentOptions.MidlineLeft;
+        hubLabel.alignment = TextAlignmentOptions.MidlineRight;
         hubLabel.textWrappingMode = TextWrappingModes.NoWrap;
         hubLabel.color = new Color(1f, 1f, 1f, 0.7f);
         hubLabel.alpha = 0f;
@@ -385,6 +547,12 @@ public class DeskDock : MonoBehaviour
         r.enable = Mathf.MoveTowards(r.enable, r.enabled ? 1f : 0f, dt / ForgeTheme.HoverFade);
         float lift = Lift(r, now);
         float plop = Mathf.Clamp01((now - r.plopStart) / ForgeTheme.DockPlopTime);  // entrance: 0 before its turn, 1 once landed
+        if (r.nudge)
+        {
+            // ‹ › stay hidden until a pointer is right on them (hovering, or within NudgeReveal of the ring).
+            float reach = r.radius + NudgeReveal;
+            r.reveal = Mathf.MoveTowards(r.reveal, r.input.Hovered || closest < reach * reach ? 1f : 0f, dt / ForgeTheme.HoverFade);
+        }
 
         // A raised ring turns a little toward the head (smoothed, so leaning moves it); lowered, it lies flat.
         Quaternion aimTarget = Quaternion.identity;
@@ -399,11 +567,13 @@ public class DeskDock : MonoBehaviour
 
         var state = new Vector4(r.near, r.hover + 2f * r.press, r.select + 2f * r.enable, lift + 4f * plop);
         bool moving = Quaternion.Angle(r.aim.localRotation, r.aimRotation) > 0.05f;
-        if (!force && !moving && (state - r.shown).sqrMagnitude < 1e-7f) return;
+        if (!force && !moving && (state - r.shown).sqrMagnitude < 1e-7f && r.reveal == r.shownReveal) return;
         r.shown = state;
+        r.shownReveal = r.reveal;
 
         float scale = (1f + 0.05f * r.near * (1f - r.select)) * (1f + 0.06f * r.select) * (1f - 0.05f * r.press);
         if (plop < 1f) scale *= Mathf.Max(0f, ForgeTween.EaseOutBack(plop));  // plops on from nothing with a small overshoot
+        if (r.nudge) scale *= Mathf.Lerp(0.8f, 1f, r.reveal);  // and a ‹ › grows a little as it fades in
         r.lift.localPosition = new Vector3(0f, 0f, -ForgeTheme.DockRise * lift);
         r.lift.localScale = Vector3.one * scale;
         r.aim.localRotation = r.aimRotation;
@@ -414,7 +584,7 @@ public class DeskDock : MonoBehaviour
             r.column.transform.localScale = new Vector3(s.x, s.y, Mathf.Max(lift, 0.001f));
         }
 
-        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade, plop, r.icon);
+        DockRing.SetLook(block, r.ring, r.column, r.pool, r.label, r.hue, r.radius, r.near, r.hover, r.press, r.select, r.enable, fade * r.reveal, plop, r.icon);
     }
 
     void StartLift(Ring r, bool up, float now)
@@ -508,5 +678,24 @@ public class DeskDock : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Where a desk prop sits beside the dock (the gator's whistle): on the desk top, <paramref name="gap"/> m past the
+    /// frame's right end, level with the row; <paramref name="inward"/> points into the desk. While the dock comes in it is
+    /// where the dock lands; after that it moves with the dock as ‹ › slide it, so asking every frame keeps the prop stuck
+    /// to it. False while the dock is hidden.
+    /// </summary>
+    public bool TryGetRightSide(float gap, out Vector3 point, out Vector3 inward)
+    {
+        point = inward = default;
+        Transform edge = transform.parent;
+        if (!IsShown || edge == null) return false;
+        Vector3 p = transform.localPosition;
+        float x = anim != null ? offset : p.x;  // anim while shown = the entrance
+        float half = ((RectTransform)transform).sizeDelta.x * 0.5f * shownScale;
+        point = edge.TransformPoint(new Vector3(x + half + gap, 0f, p.z));
+        inward = edge.forward;
+        return true;
     }
 }
