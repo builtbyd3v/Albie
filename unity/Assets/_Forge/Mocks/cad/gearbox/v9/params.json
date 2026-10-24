@@ -1,0 +1,91 @@
+{
+  "part": "gearbox",
+  "title": "Gearbox",
+  "description": "Spur gear reducer: pinion, gear, shafts, bearings, split housing. Ratio = gear teeth / pinion teeth.",
+  "version": 9,
+  "params": [
+    {
+      "name": "pinion_teeth",
+      "value": 12,
+      "min": 8,
+      "max": 40,
+      "unit": "",
+      "step": 1,
+      "options": null,
+      "label": "Pinion teeth"
+    },
+    {
+      "name": "gear_teeth",
+      "value": 72,
+      "min": 16,
+      "max": 100,
+      "unit": "",
+      "step": 1,
+      "options": null,
+      "label": "Gear teeth"
+    },
+    {
+      "name": "module",
+      "value": 1.5,
+      "min": 0.75,
+      "max": 3.0,
+      "unit": "mm",
+      "step": 0.25,
+      "options": null,
+      "label": "Gear module"
+    },
+    {
+      "name": "face_width",
+      "value": 10.0,
+      "min": 4,
+      "max": 30,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Face width"
+    },
+    {
+      "name": "shaft_diameter",
+      "value": 8.0,
+      "min": 4,
+      "max": 16,
+      "unit": "mm",
+      "step": 1,
+      "options": null,
+      "label": "Shaft diameter"
+    }
+  ],
+  "presets": [
+    {
+      "name": "High reduction",
+      "params": {
+        "pinion_teeth": 12,
+        "gear_teeth": 72
+      }
+    },
+    {
+      "name": "1:1 transfer",
+      "params": {
+        "pinion_teeth": 30,
+        "gear_teeth": 30
+      }
+    },
+    {
+      "name": "Heavy duty",
+      "params": {
+        "module": 2.5,
+        "face_width": 18,
+        "shaft_diameter": 12
+      }
+    },
+    {
+      "name": "Compact",
+      "params": {
+        "module": 1.0,
+        "face_width": 6,
+        "shaft_diameter": 5
+      }
+    }
+  ],
+  "features": []
+}

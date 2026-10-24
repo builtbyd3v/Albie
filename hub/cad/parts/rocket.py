@@ -8,9 +8,15 @@ import math
 from build123d import (Axis, BuildLine, BuildSketch, Color, Compound, Cylinder, Location, Plane, Polygon,
                        Polyline, Spline, Align, extrude, make_face, revolve)
 
-from cad.part_api import BuildResult, FinSet, Param, PointMass, RocketSpec, ShellMass, SolidMass
+from cad.analysis import (MARGIN_BANDS, MARGIN_GAUGE_MAX, STABILITY_ASSUMPTIONS, STABILITY_STATUS, barrowman,
+                          center_of_mass, on_axis_gltf, stability_label)
+from cad.flight import simulate as simulate_flight  # noqa: F401 - the Fly button (GET /cad/flight)
+from cad.part_api import (Analysis, BuildResult, FinSet, Metric, Param, PointMass, RocketSpec, ShellMass,
+                          SolidMass)
 
 PART = "rocket"
+TITLE = "Model rocket"
+DESCRIPTION = "Estes C6 model rocket: nose cone, body tube, motor mount, fins. Live Barrowman stability."
 
 PARAMS = [
     Param("body_length", 300.0, 150, 600, "mm", 5, label="Body length"),
@@ -23,6 +29,14 @@ PARAMS = [
     Param("fin_span", 60.0, 15, 100, "mm", 1, label="Fin span"),
     Param("fin_sweep", 35.0, 0, 100, "mm", 1, label="Fin sweep"),
 ]
+
+# Applied on top of the current values. "Smaller fins" is the demo's 60% fins (goes unstable).
+PRESETS = {
+    "Smaller fins": {"fin_root": 42, "fin_tip": 21, "fin_span": 36, "fin_sweep": 21},
+    "Four fins": {"fin_count": 4},
+    "Longer body": {"body_length": 360},
+    "Cone nose": {"nose_shape": "cone"},
+}
 
 BODY_WALL = 0.8        # kraft paper tube
 NOSE_WALL = 1.5        # blow-moulded polystyrene
@@ -103,3 +117,23 @@ def build(p) -> BuildResult:
         rocket=RocketSpec(length_mm=body_len + nose_len, diameter_mm=2 * r, nose_length_mm=nose_len,
                           nose_shape=p["nose_shape"], fins=fins, motor="Estes C6"),
     )
+
+
+def analyze(result: BuildResult, masses) -> Analysis:
+    """Static stability: CP from Barrowman, CG at liftoff, margin in calibers (body diameters)."""
+    spec = result.rocket
+    _, (_, _, cg_z) = center_of_mass(result, masses)
+    cp_from_tip, cna = barrowman(spec)
+    cg_from_tip = spec.length_mm - cg_z
+    margin = (cp_from_tip - cg_from_tip) / spec.diameter_mm
+    stability = stability_label(margin)
+    return Analysis(
+        metrics=[Metric("margin", "Static margin", margin, "cal", STABILITY_STATUS[stability], 0.0, MARGIN_GAUGE_MAX,
+                        MARGIN_BANDS, note=stability, digits=2),
+                 Metric("cg", "CG from tip", cg_from_tip, "mm"),
+                 Metric("cp", "CP from tip", cp_from_tip, "mm")],
+        extra={"length_mm": round(spec.length_mm, 1), "diameter_mm": round(spec.diameter_mm, 1),
+               "cg_mm": round(cg_from_tip, 1), "cp_mm": round(cp_from_tip, 1), "margin_cal": round(margin, 2),
+               "stable": stability != "unstable", "stability": stability, "cna_per_rad": round(cna, 2), "motor": spec.motor,
+               "markers_gltf": {"cg": on_axis_gltf(cg_z), "cp": on_axis_gltf(spec.length_mm - cp_from_tip)},
+               "assumptions": STABILITY_ASSUMPTIONS})

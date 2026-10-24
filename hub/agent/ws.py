@@ -10,6 +10,9 @@ Per socket: hello -> (pet_id, project_id); agent.ask -> background turn streamin
 events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.stop
 -> stt.partial / stt.final. With VOICE_PROVIDER=grok|fake the same stt.* frames drive a
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
+Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
+gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
+run that member's own background turn instead of the socket's turn.
 Unknown message types are ignored (other modules may share the socket) and logged.
 """
 
@@ -27,11 +30,13 @@ from . import events as ev
 from . import speech
 from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
-from .events import AgentAsk, AgentCancel, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
+from .crew import Member, crew, spoken
+from .events import AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
 from .turn import TurnControl, classify_mode
 from .voice import VoiceSession, make_voice
+from .wake import WakeRouter
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +55,9 @@ class Session:
     stt_busy: bool = False
     stt_cancelled: bool = False  # stt.cancel: ignore audio until the next stt.start
     voice: VoiceSession | None = None
+    crew_listener: object | None = None  # announces finished crew work through this socket's voice
+    wake: WakeRouter | None = None
+    wake_turn: bool = False  # the open stt turn is a wake turn (decided by s.wake on its transcript)
     tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def spawn(self, coro) -> None:  # fire-and-forget helper that keeps a reference
@@ -69,6 +77,11 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
         await ws.accept()
     bus.add(ws)
     s = Session(ws=ws)
+
+    async def send_owner(event: Event) -> None:
+        await bus.send(ws, event)
+
+    s.wake = WakeRouter(lead_pet_id=s.pet_id, emit_for=lambda pid: Emitter(pid), send_owner=send_owner, spawn=s.spawn)
     log.info("ws connected (%d total)", bus.count)
     try:
         while True:
@@ -83,6 +96,8 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
         pass
     finally:
         bus.remove(ws)
+        if s.crew_listener is not None:
+            crew.remove_listener(s.crew_listener)  # type: ignore[arg-type]
         if s.voice is not None:
             speech.unregister(s.pet_id, s.voice)
             await s.voice.close()
@@ -104,20 +119,35 @@ async def _on_text(s: Session, raw: str) -> None:
         if event.type == "hello":
             h = Hello.model_validate(event.payload)
             s.pet_id, s.project_id = h.pet_id, h.project_id
+            if s.wake is not None:
+                s.wake.lead = h.pet_id
+            if h.project_id:
+                crew.project_id = h.project_id
             log.info("hello client=%s pet=%s project=%s", h.client, h.pet_id, h.project_id)
             await _open_voice(s, h)
         elif event.type == "agent.ask":
             await _on_ask(s, AgentAsk.model_validate(event.payload))
         elif event.type == "agent.cancel":
-            AgentCancel.model_validate(event.payload)
-            s.spawn(_cancel(s))
+            cancel = AgentCancel.model_validate(event.payload)
+            if cancel.pet_id and cancel.pet_id != s.pet_id:  # a crew gator's task (never Bit's turn)
+                member = crew.get(cancel.pet_id)  # resolved now: a roster that follows may drop it
+                if member is not None:
+                    s.spawn(crew.cancel_member(member))
+            else:
+                s.spawn(_cancel(s))
+        elif event.type == "crew.roster":
+            roster = CrewRoster.model_validate(event.payload)
+            crew.set_roster([m.model_dump() for m in roster.members])
         elif event.type == "stt.start":
             start = SttStart.model_validate(event.payload)
             if start.sample_rate != 16000:
                 log.warning("stt.start sample_rate=%s; expected 16000", start.sample_rate)
             s.stt_cancelled = False
+            s.wake_turn = start.wake and s.wake is not None
+            if s.wake_turn:
+                s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None)  # type: ignore[union-attr]
             if s.voice is not None:
-                await _voice_call(s, s.voice.begin_turn)
+                await _voice_call(s, lambda: s.voice.begin_turn(require_name=start.require_name, wake=s.wake_turn))
             else:
                 s.stt = await asyncio.to_thread(make_stt, _project_path(s))
         elif event.type == "stt.cancel":
@@ -154,6 +184,13 @@ async def _on_ask(s: Session, ask: AgentAsk) -> None:
     pet_id = ask.pet_id or s.pet_id
     if not ask.text.strip():
         await s.reply_error("I didn't catch that.", pet_id)
+        return
+    if pet_id != s.pet_id and crew.get(pet_id) is not None:  # asked a crew gator directly
+        if ask.project_id:
+            crew.project_id = ask.project_id
+        started = await crew.assign(pet_id, ask.text, ask.mode)
+        if "error" in started:
+            await s.reply_error(str(started["error"]), pet_id)
         return
     if s.voice is not None and s.voice.is_echo(ask.text):
         log.info("ignoring agent.ask that repeats the voice transcript (voice answers it)")
@@ -228,10 +265,20 @@ async def _open_voice(s: Session, h: Hello) -> None:
                        send_bytes=send_bytes, emit=Emitter(s.pet_id), repo=_project_path(s), delegate=delegate)
     if voice is None:
         return
+    voice.wake_router = s.wake
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
     await bus.send(ws, ev.voice_ready(s.pet_id, voice.provider, voice.sample_rate))
     s.spawn(_voice_call(s, voice.start))
+
+    say = getattr(voice, "say", None)
+    if say is not None:
+        async def announce(member: Member, result: str) -> None:  # Bit relays finished crew work out loud
+            if s.voice is voice:
+                s.spawn(say(f"{member.type.name} says: {spoken(result)}"))
+
+        s.crew_listener = announce
+        crew.add_listener(announce)
 
 
 async def _run_delegate(s: Session, task: str, mode: str) -> str:
@@ -286,7 +333,10 @@ async def _stt_partial(s: Session, stt: SpeechToText) -> None:
     try:
         text = await asyncio.to_thread(stt.partial)
         if text and s.stt is stt:
-            await Emitter(s.pet_id)(ev.stt_partial(s.pet_id, text))
+            if s.wake_turn and s.wake is not None:
+                await s.wake.partial(text)  # captions only once a gator is named
+            else:
+                await Emitter(s.pet_id)(ev.stt_partial(s.pet_id, text))
     except Exception:
         log.exception("stt partial failed")
     finally:
@@ -301,6 +351,15 @@ async def _on_stt_stop(s: Session) -> None:
             text = await asyncio.to_thread(stt.finish)
         except Exception:
             log.exception("stt finish failed")
-            await s.reply_error("I couldn't hear that, try again?")
+            if not s.wake_turn:
+                await s.reply_error("I couldn't hear that, try again?")
             return
+    if s.wake_turn and s.wake is not None:  # text path: Bit answers through the runner like agent.ask
+        s.wake_turn = False
+        if s.stt_cancelled:
+            return
+        decision = await s.wake.final(text)
+        if decision.respond:
+            await _on_ask(s, AgentAsk(pet_id=s.pet_id, text=decision.rest or text))
+        return
     await Emitter(s.pet_id)(ev.stt_final(s.pet_id, text))

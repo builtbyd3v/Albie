@@ -6,7 +6,7 @@ VOICE_PROVIDER (env):
 * ``fake``  canned reply from a bundled PCM file, no key, no network (Unity testing).
 
 Grok handles conversation itself. Quick actions (CAD params, VS Code highlight/open) are direct tools from
-agent/tools.py. ``delegate`` sends anything about the repo, runs or a code change to the Claude runner
+agent/tools.py (incl. the crew tools: spawn_agent, assign_task, ... from agent/crew.py). ``delegate`` sends anything about the repo, runs or a code change to the Claude runner
 (the "brain"), whose answer is then spoken verbatim with ``force_message``. Push-to-talk is a manual turn:
 
     Unity stt.start     -> begin_turn()   (barge-in: cancel speech, clear the input buffer)
@@ -22,6 +22,10 @@ Grok -> our events (docs/PET_AGENT_CONTRACT.md, Addendum B):
     response.done                                 -> tts.end
     response.function_call_arguments.done         -> agent.tool_call; delegate -> runner (see _on_function_call)
     error                                         -> agent.error
+
+Wake turns (``begin_turn(wake=True)``, Unity's always-on WakeListener, see agent/wake.py): no barge-in, no stt.*
+and no response until ``wake_router`` has read the transcript; it answers only if a gator was named, otherwise
+the committed item is deleted so room chatter never reaches the conversation.
 
 Transcripts and agent.* go through the broadcast Emitter (other viewers stay in sync); tts.* and
 audio go to the owning socket only. The reader is the only task that sends tts.*/audio, so the
@@ -44,6 +48,7 @@ from typing import Any, Protocol
 
 from . import events as ev
 from . import tools
+from .crew import lead_rules
 from .events import Event
 
 log = logging.getLogger(__name__)
@@ -64,9 +69,10 @@ FAKE_ANSWER = "Hi! I'm Bit. I'm right here on your desk, ready to help."
 
 PERSONA = (
     "You are Bit, a small, cute and very competent alligator who lives on the user's desk in Forge, "
-    "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: bouncy, expressive "
-    "and playful, with the odd little 'ooh!' or 'hehe', but always helpful. No lists, no markdown, never "
-    "read code aloud; say file and function names plainly."
+    "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
+    "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
+    "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
+    "function names plainly."
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
 BREVITY = (
@@ -112,6 +118,7 @@ STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermi
 STOP_FILLER = {"bit", "okay", "ok", "please", "hey", "be", "that", "it", "never", "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
+WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
 
 
 def provider() -> str:
@@ -130,8 +137,10 @@ class VoiceSession(Protocol):
     provider: str
     sample_rate: int
 
+    wake_router: Any
+
     async def start(self) -> None: ...
-    async def begin_turn(self) -> None: ...
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None: ...
     async def feed(self, pcm16: bytes) -> None: ...
     async def commit_turn(self) -> None: ...
     async def cancel_turn(self) -> None: ...
@@ -156,9 +165,13 @@ class _Base:
         self._final_sent = True  # no turn open yet
         self._committed = False  # Grok confirmed the turn's audio (input_audio_buffer.committed)
         self._turn_seq = 0
+        self._require_name = False  # look-to-talk: user wasn't facing Bit, so only a turn naming him counts
+        self._named = False  # an interim transcript of this turn named him (the final can drop a leading "Bit")
         self._cancelled = False  # stt.cancel: drop audio, commit nothing, empty final on stt.stop
         self._last_final = ""
         self._last_final_t = 0.0
+        self.wake_router: Any = None  # agent/wake.py WakeRouter, set by ws.py
+        self._wake = False  # the open turn is a wake turn
 
     def is_echo(self, text: str) -> bool:
         """True if an agent.ask just repeats the transcript this session is already answering."""
@@ -168,17 +181,25 @@ class _Base:
             and time.monotonic() - self._last_final_t < ECHO_WINDOW_S
         )
 
-    def _open_turn(self) -> None:
+    def _open_turn(self, wake: bool = False) -> None:
         self._turn_seq += 1
+        self._named = False
         self._partial = ""
         self._final_sent = False
         self._committed = False
         self._cancelled = False
+        self._wake = wake and self.wake_router is not None
 
     async def _transcript(self, text: str) -> None:
         if self._final_sent or not text or text == self._partial:
             return
         self._partial = text
+        self._named = self._named or has_name(text)
+        if self._wake:
+            await self.wake_router.partial(text)  # captions only once a gator is named
+            return
+        if self._require_name and not self._named:
+            return  # maybe side conversation: no captions until he's named
         await self._emit(ev.stt_partial(self.pet_id, text))
 
     async def _final(self, text: str | None = None) -> None:
@@ -187,7 +208,15 @@ class _Base:
         self._final_sent = True
         final = (text if text is not None else self._partial).strip()
         self._last_final, self._last_final_t = final, time.monotonic()
+        if self._wake:
+            self._wake = False
+            decision = await self.wake_router.final(final)
+            await self._wake_decided(decision.respond)
+            return
         await self._emit(ev.stt_final(self.pet_id, final, voice=True))
+
+    async def _wake_decided(self, respond: bool) -> None:
+        """Wake turn routed: answer it (respond) or forget it."""
 
 
 class GrokVoiceSession(_Base):
@@ -214,7 +243,7 @@ class GrokVoiceSession(_Base):
         self._dropping = False  # that reply is being cancelled (until its response.done)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
-        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))
+        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "20"))
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
         self._watchdog: asyncio.Task[None] | None = None
@@ -222,6 +251,7 @@ class GrokVoiceSession(_Base):
         self._connect_lock = asyncio.Lock()
         self._last_activity = time.monotonic()
         self._fed = 0
+        self._last_item: str | None = None  # item id of the last committed user turn (wake turns may delete it)
         # current response
         self._utt: str | None = None
         self._audio_started = False
@@ -272,7 +302,8 @@ class GrokVoiceSession(_Base):
                 pass
 
     def _instructions(self) -> str:
-        return PERSONA + (TOOL_RULES if tools.definitions() else "") + (DELEGATE_RULES if self._delegate else "") + BREVITY
+        return (PERSONA + (TOOL_RULES if tools.definitions(lead=False) else "") + (DELEGATE_RULES if self._delegate else "")
+                + (lead_rules() if tools.has("spawn_agent") else "") + BREVITY)
 
     def _session_update(self) -> dict[str, Any]:
         transcription: dict[str, Any] = {"model": "grok-transcribe"}
@@ -301,13 +332,15 @@ class GrokVoiceSession(_Base):
         return {"type": "session.update", "session": session}
 
     # ------------------------------------------------------------ turn API (called by ws.py)
-    async def begin_turn(self) -> None:
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
-        await self.stop_speech("barge_in")
+        if not wake:  # room chatter must not cut Bit off; a named turn barges in once it's routed
+            await self.stop_speech("barge_in")
         await self._send({"type": "input_audio_buffer.clear"})
         self._fed = 0
         self._drop_reply = False
-        self._open_turn()
+        self._open_turn(wake)
+        self._require_name = require_name and not self._wake  # a wake turn routes by name itself (agent/wake.py)
 
     async def feed(self, pcm16: bytes) -> None:
         if self._ws is None or self._cancelled:
@@ -324,6 +357,11 @@ class GrokVoiceSession(_Base):
             await self._final("")
             return
         await self._send({"type": "input_audio_buffer.commit"})
+        if self._wake:  # wait for the transcript (wake_router decides in _final)
+            job = asyncio.create_task(self._wake_timeout())
+            self._jobs.add(job)
+            job.add_done_callback(self._jobs.discard)
+            return
         await self._request_response()
         await self._emit(ev.thinking(self.pet_id))
         guard = asyncio.create_task(self._no_reply_guard(self._turn_seq))
@@ -338,6 +376,20 @@ class GrokVoiceSession(_Base):
             log.info("grok sent nothing for %.0f s after commit: empty turn", NO_REPLY_S)
             self._response_requested = False
             await self._final("")
+
+    async def _wake_timeout(self) -> None:
+        await asyncio.sleep(WAKE_FINAL_TIMEOUT_S)
+        if self._wake and not self._final_sent:
+            await self._final()
+
+    async def _wake_decided(self, respond: bool) -> None:
+        if respond:
+            await self.stop_speech("barge_in")
+            await self._request_response()
+            await self._emit(ev.thinking(self.pet_id))
+        elif self._last_item:
+            await self._send({"type": "conversation.item.delete", "item_id": self._last_item})
+            self._last_item = None
 
     async def cancel_turn(self) -> None:
         self._cancelled = True
@@ -407,6 +459,7 @@ class GrokVoiceSession(_Base):
             await self._transcript(text)
         elif t == "input_audio_buffer.committed":
             self._committed = True
+            self._last_item = msg.get("item_id") or self._last_item  # a dropped wake turn deletes it
         elif t == "conversation.item.input_audio_transcription.completed":
             # Grok also sends .completed per segment while the user is still talking; only the one after commit is final.
             if self._committed:
@@ -529,7 +582,7 @@ class GrokVoiceSession(_Base):
 
     async def _final(self, text: str | None = None) -> None:
         final = (text if text is not None else self._partial).strip()
-        if not self._final_sent and is_stop(final):
+        if not self._final_sent and (is_stop(final) or (self._require_name and not (self._named or has_name(final)))):
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         await super()._final(text)
@@ -576,10 +629,11 @@ class FakeVoiceSession(_Base):
                 log.warning("fake voice: %s missing, speaking silence", FAKE_PCM)
                 self._pcm = bytes(FAKE_RATE * 2)
 
-    async def begin_turn(self) -> None:
+    async def begin_turn(self, require_name: bool = False, wake: bool = False) -> None:
         await self.start()
-        await self.stop_speech("barge_in")
-        self._open_turn()
+        if not wake:
+            await self.stop_speech("barge_in")
+        self._open_turn(wake)
 
     async def feed(self, pcm16: bytes) -> None:
         return None
@@ -591,10 +645,17 @@ class FakeVoiceSession(_Base):
         if self._cancelled:
             await self._final("")
             return
+        wake = self._wake
         await self._transcript(FAKE_TRANSCRIPT)
         await self._final(FAKE_TRANSCRIPT)
-        await self._emit(ev.thinking(self.pet_id))
-        self._reply = asyncio.create_task(self._speak())
+        if not wake:  # a wake turn answers from _wake_decided
+            await self._wake_decided(True)
+
+    async def _wake_decided(self, respond: bool) -> None:
+        if respond:
+            await self.stop_speech("barge_in")
+            await self._emit(ev.thinking(self.pet_id))
+            self._reply = asyncio.create_task(self._speak())
 
     async def _speak(self) -> None:
         pcm = self._pcm or b""
@@ -662,6 +723,18 @@ def is_stop(text: str) -> bool:
     """Only stop words and filler ("Wait, stop, Bit.", "Never mind."): the user wants silence, not an answer."""
     words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
+
+
+NAME_WORDS = {"bit", "bid"}
+# How grok-transcribe mishears a leading "Bit," (live: "Sit"). Only as the first word: accepts a rare "Sit down".
+FIRST_WORD_NAMES = NAME_WORDS | {"sit", "pit", "bet"}
+
+
+def has_name(text: str) -> bool:
+    """Bit is addressed: "Bit, ...", "Hey Bit ...", "..., Bit?". Only the first two words or the last one,
+    so "I'm a bit tired" doesn't count."""
+    words = re.findall(r"[a-z]+", text.lower())
+    return bool(words) and (words[0] in FIRST_WORD_NAMES or any(w in NAME_WORDS for w in words[1:2] + words[-1:]))
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

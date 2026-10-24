@@ -10,6 +10,7 @@
 // Idempotent: re-running reuses what exists and re-wires it. Interaction SDK types are looked up by name so this
 // file compiles without the SDK (the button then works with mouse / F / controller B only).
 // Save the scene yourself afterwards. -executeMethod Forge.Pet.Editor.WhistleSetup.AddWhistleToOpenScene
+// (The internal helpers are shared with CrewSetup.)
 
 using System;
 using System.Reflection;
@@ -151,7 +152,7 @@ namespace Forge.Pet.Editor
             return button;
         }
 
-        static Renderer Disc(Transform parent, string name, Vector3 scale, Vector3 localPos, Material mat)
+        internal static Renderer Disc(Transform parent, string name, Vector3 scale, Vector3 localPos, Material mat)
         {
             GameObject d = GameObject.CreatePrimitive(PrimitiveType.Cylinder);   // 2 units tall: scale.y = half height
             d.name = name;
@@ -165,7 +166,7 @@ namespace Forge.Pet.Editor
             return r;
         }
 
-        static Material LoadOrCreateMaterial(string path, Color color)
+        internal static Material LoadOrCreateMaterial(string path, Color color)
         {
             var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (mat != null) return mat;
@@ -250,7 +251,7 @@ namespace Forge.Pet.Editor
             EditorUtility.SetDirty(wrapper);
         }
 
-        static void AddListener(Component wrapper, string fieldName, UnityAction call)
+        internal static void AddListener(Component wrapper, string fieldName, UnityAction call)
         {
             FieldInfo field = wrapper.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
             if (field == null || !typeof(UnityEvent).IsAssignableFrom(field.FieldType))
@@ -279,7 +280,7 @@ namespace Forge.Pet.Editor
             return b.center + gator.transform.forward * (b.extents.z * 0.6f) + Vector3.up * (b.extents.y * 0.4f);
         }
 
-        static GameObject Child(Transform parent, string name)
+        internal static GameObject Child(Transform parent, string name)
         {
             Transform t = parent.Find(name);
             if (t != null) return t.gameObject;
@@ -289,20 +290,20 @@ namespace Forge.Pet.Editor
             return go;
         }
 
-        static Component Ensure(GameObject go, Type t)
+        internal static Component Ensure(GameObject go, Type t)
         {
             Component c = go.GetComponent(t);
             return c != null ? c : Undo.AddComponent(go, t);
         }
 
-        static Type FindType(string fullName)
+        internal static Type FindType(string fullName)
         {
             foreach (Type t in TypeCache.GetTypesDerivedFrom<Component>())
                 if (t.FullName == fullName && !t.IsAbstract) return t;
             return null;
         }
 
-        static Transform FindChild(Transform root, string name)
+        internal static Transform FindChild(Transform root, string name)
         {
             if (root.name == name) return root;
             for (int i = 0; i < root.childCount; i++)
@@ -313,14 +314,14 @@ namespace Forge.Pet.Editor
             return null;
         }
 
-        static void SetRef(Object target, string field, Object value)
+        internal static void SetRef(Object target, string field, Object value)
         {
             var so = new SerializedObject(target);
             SetRef(so, field, value);
             so.ApplyModifiedProperties();
         }
 
-        static void SetRef(SerializedObject so, string field, Object value)
+        internal static void SetRef(SerializedObject so, string field, Object value)
         {
             SerializedProperty p = so.FindProperty(field);
             if (p == null || p.propertyType != SerializedPropertyType.ObjectReference)
@@ -331,7 +332,7 @@ namespace Forge.Pet.Editor
             p.objectReferenceValue = value;
         }
 
-        static void SetVector(SerializedObject so, string field, Vector3 value)
+        internal static void SetVector(SerializedObject so, string field, Vector3 value)
         {
             SerializedProperty p = so.FindProperty(field);
             if (p != null && p.propertyType == SerializedPropertyType.Vector3) p.vector3Value = value;

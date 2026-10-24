@@ -5,7 +5,7 @@ Source of truth: docs/PET_AGENT_CONTRACT.md. Every frame is
 
 Hub -> client events come in two flavours:
 * existing contract: ``pet.state``, ``pet.say``
-* proposed (hub/agent): ``stt.*``, ``agent.*``, ``tts.*`` and ``voice.ready``
+* proposed (hub/agent): ``stt.*``, ``agent.*``, ``tts.*``, ``voice.ready`` and ``crew.*``
 
 Speech audio (``tts.start`` -> binary PCM16 frames -> ``tts.end``) goes only to the
 socket that owns the voice session, never broadcast (see agent/voice.py).
@@ -61,9 +61,11 @@ class AgentCancel(_Payload):
 
 
 class SttStart(_Payload):
-    pet_id: str | None = None
+    pet_id: str | None = None  # wake turns: the gator a wake.listen opened (no name needed then)
     sample_rate: int = 16000
     encoding: Literal["pcm16"] = "pcm16"
+    require_name: bool = False  # proposed: look-to-talk turn opened while the user wasn't facing Bit
+    wake: bool = False  # proposed: always-on VAD segment; only answered if it names a gator (agent/wake.py)
 
 
 class SttStop(_Payload):
@@ -78,6 +80,15 @@ class TtsStopRequest(_Payload):  # client -> hub: stop the current utterance
     pet_id: str | None = None
 
 
+class CrewEntry(_Payload):
+    pet_id: str
+    agent_type: str
+
+
+class CrewRoster(_Payload):  # client -> hub: every crew gator that exists in Unity (on change and on reconnect)
+    members: list[CrewEntry] = Field(default_factory=list)
+
+
 CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "hello": Hello,
     "agent.ask": AgentAsk,
@@ -86,6 +97,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "stt.stop": SttStop,
     "stt.cancel": SttCancel,
     "tts.stop": TtsStopRequest,
+    "crew.roster": CrewRoster,
 }
 
 
@@ -209,6 +221,29 @@ VOICE_MESSAGES: dict[str, type[_Payload]] = {
     "tts.stop": TtsStop,
 }
 
+class CrewSpawn(_Payload):  # hub -> clients: hatch this crew gator (Bit's spawn_agent tool)
+    agent_type: str
+
+
+class CrewDismiss(_Payload):  # hub -> clients: send this crew gator home
+    pet_id: str
+
+
+class WakeListen(_Payload):  # hub -> owner socket: "Hey <name>" alone; that gator listens for the next segment
+    pet_id: str
+
+
+# Sent to the Unity socket that heard it (bus.send), no companion: Unity switches the gator to Listening itself.
+WAKE_MESSAGES: dict[str, type[_Payload]] = {
+    "wake.listen": WakeListen,
+}
+
+# Crew membership (agent/crew.py): bookkeeping, no pet.state companion.
+CREW_MESSAGES: dict[str, type[_Payload]] = {
+    "crew.spawn": CrewSpawn,
+    "crew.dismiss": CrewDismiss,
+}
+
 # Companion pet.state mode for each proposed event (existing-contract fallback).
 PET_STATE_FOR_EVENT: dict[str, PetMode] = {
     "stt.partial": "listening",
@@ -231,7 +266,8 @@ def make(type_: str, payload: _Payload) -> Event:
 
 def parse_payload(event: Event) -> _Payload:
     """Validate an incoming or outgoing event against its payload model."""
-    model = CLIENT_MESSAGES.get(event.type) or HUB_MESSAGES.get(event.type) or VOICE_MESSAGES.get(event.type)
+    model = (CLIENT_MESSAGES.get(event.type) or HUB_MESSAGES.get(event.type) or VOICE_MESSAGES.get(event.type)
+             or CREW_MESSAGES.get(event.type) or WAKE_MESSAGES.get(event.type))
     if model is None:
         raise ValueError(f"unknown event type: {event.type}")
     return model.model_validate(event.payload)
@@ -305,3 +341,15 @@ def tts_end(pet_id: str, utterance_id: str) -> Event:
 
 def tts_stop(pet_id: str, utterance_id: str, reason: str = "cancel") -> Event:
     return make("tts.stop", TtsStop(pet_id=pet_id, utterance_id=utterance_id, reason=reason))
+
+
+def crew_spawn(agent_type: str) -> Event:
+    return make("crew.spawn", CrewSpawn(agent_type=agent_type))
+
+
+def crew_dismiss(pet_id: str) -> Event:
+    return make("crew.dismiss", CrewDismiss(pet_id=pet_id))
+
+
+def wake_listen(pet_id: str) -> Event:
+    return make("wake.listen", WakeListen(pet_id=pet_id))

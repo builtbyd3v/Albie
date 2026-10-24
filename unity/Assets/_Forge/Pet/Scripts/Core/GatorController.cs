@@ -7,7 +7,8 @@ namespace Forge.Pet
     /// <summary>
     /// Gator pet brain: a small timer-driven state machine over a NavMeshAgent + Animator.
     /// Public API per docs/PET_AGENT_CONTRACT.md. Locomotion/animator helpers live in
-    /// GatorController.Motion.cs, surfaces/desk hop in GatorController.Surfaces.cs. No allocations in Update.
+    /// GatorController.Motion.cs, surfaces/desk hop in GatorController.Surfaces.cs, the crew area in
+    /// GatorController.Territory.cs. No allocations in Update.
     /// </summary>
     [RequireComponent(typeof(NavMeshAgent))]
     [DisallowMultipleComponent]
@@ -163,7 +164,8 @@ namespace Forge.Pet
                 case GatorState.Thinking:
                 case GatorState.Working:
                     faceUser = true; SetMood(Mood.Squint);
-                    if (IsFarFromUser(nearUserDistance)) ComeToUser(); else StopMoving();
+                    if (BusyInTerritory) GoToTerritoryFront();       // crew: work at the front of its own area
+                    else if (IsFarFromUser(nearUserDistance)) ComeToUser(); else StopMoving();
                     if (s == GatorState.Working && workingBlobMorph)
                     {
                         // TODO(blob): morph into the blob and arc-jump into target_panel here.
@@ -243,7 +245,10 @@ namespace Forge.Pet
                 if (HasArrived() || Time.time >= nextActionTime) { tripActive = false; StopMoving(); BeginPause(); }
                 return;
             }
-            if (Time.time < nextActionTime) return;
+            // Outside its own area (just hatched, after a summon): walk home now, rest once there.
+            bool homesick = HasTerritory && OnTerritorySurface && !InTerritory(transform.position, 0.05f);
+            if (!homesick && Time.time < nextActionTime) return;
+            if (ReturnToTerritory()) return;          // crew: on the wrong surface, head home first
 
             bool run = UnityEngine.Random.value < runChance;
             if (TryPickWanderPoint(out Vector3 p) && MoveTo(p, run))
@@ -258,6 +263,7 @@ namespace Forge.Pet
         // with an occasional fidget or emote.
         void BeginPause()
         {
+            if (HasTerritory && !InTerritory(transform.position, 0.05f)) { nextActionTime = Time.time + 0.3f; return; }   // not home yet
             if (TryBeginRest()) return;
             nextActionTime = Time.time + UnityEngine.Random.Range(idlePause.x, idlePause.y);
             float r = UnityEngine.Random.value;
@@ -286,7 +292,7 @@ namespace Forge.Pet
         void UpdateFidget()
         {
             if (approachingUser) return;
-            if (IsFarFromUser(nearUserDistance + 1f)) { ComeToUser(); return; }
+            if (!BusyInTerritory && IsFarFromUser(nearUserDistance + 1f)) { ComeToUser(); return; }
             if (Time.time < nextActionTime) return;
             nextActionTime = Time.time + UnityEngine.Random.Range(3f, 6f);
             if (UnityEngine.Random.value < 0.5f) PlayIdleVariant();

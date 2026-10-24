@@ -7,7 +7,8 @@ using UnityEngine;
 /// Shows the CadSession's current version. On a change: the changed parts glow (cad-vision's outline),
 /// a ghost of what they were fades out, and the CG (blue) and CP (red) collars slide to their new
 /// heights. cad.view explodes the assembly or focuses one part.
-/// The first model is fitted to the volume and later versions keep that scale, so "20% longer" looks longer.
+/// The first model of each design is fitted to the volume and later versions keep that scale, so "20% longer"
+/// looks longer. Opening another design fits it afresh and puts its title on the volume.
 /// </summary>
 [RequireComponent(typeof(ForgeVolume))]
 public class CadViewer : MonoBehaviour
@@ -74,6 +75,7 @@ public class CadViewer : MonoBehaviour
     string focusId;
     int loadToken;
     bool fitted;
+    string part, title;  // the design shown; a different one is fitted afresh
 
     void Awake()
     {
@@ -94,6 +96,12 @@ public class CadViewer : MonoBehaviour
         session.ViewChanged += OnViewChanged;
         if (session.Latest != null) OnModelChanged(session.Latest);  // spawned after the first version arrived
         OnViewChanged(session.View);
+    }
+
+    void Start()
+    {
+        // Workspace names the volume after spawning it; the open design's title wins.
+        if (!string.IsNullOrEmpty(title)) volume.Title = title;
     }
 
     void OnDisable()
@@ -137,7 +145,11 @@ public class CadViewer : MonoBehaviour
     {
         var previous = current;
         current = model;
-        bool animate = previous != null && info.previousVersion.HasValue;
+        bool samePart = previous != null && info.part == part;
+        bool animate = samePart && info.previousVersion.HasValue;  // glow and ghost compare versions of one design
+        if (!samePart) fitted = false;
+        part = info.part;
+        if (!string.IsNullOrEmpty(info.title)) volume.Title = title = info.title;
         EndGlow();
         ClearDim();
         DropGhost();

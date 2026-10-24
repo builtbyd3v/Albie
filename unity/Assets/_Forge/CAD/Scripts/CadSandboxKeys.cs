@@ -2,7 +2,8 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// CADSandbox shortcuts: 1-4 jump to a mock design, Left/Right step, E explode, U undo, R reset, F fly.
+/// CADSandbox shortcuts: P next design, 1-4 jump to a stored version of it (mock mode), Left/Right step,
+/// E explode, U undo, R reset, F fly.
 /// </summary>
 public class CadSandboxKeys : MonoBehaviour
 {
@@ -21,5 +22,6 @@ public class CadSandboxKeys : MonoBehaviour
         if (k.uKey.wasPressedThisFrame) s.Undo();
         if (k.rKey.wasPressedThisFrame) s.ResetDesign();
         if (k.fKey.wasPressedThisFrame) s.RequestFlight();
+        if (k.pKey.wasPressedThisFrame) s.NextPart();
     }
 }
