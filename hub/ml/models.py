@@ -58,11 +58,14 @@ class GitHubImportResponse(BaseModel):
     files: list[str] = Field(default_factory=list)
     reason: str | None = None
     file_shas: dict[str, str] = Field(default_factory=dict)
+    mode: str = "preset"           # "preset": trains the checked-in CIFAR-10 copy; "clone": cold-open setup of the repo
+    path: str | None = None        # clone: the folder the setup opened
+    runs: str | None = None        # the code a Train press runs, for the panel
 
 
 class GitHubTrainRequest(BaseModel):
     import_id: str = Field(min_length=1, max_length=32)
-    epochs: int = Field(default=10, ge=5, le=10)
+    epochs: int = Field(default=10, ge=1, le=50)  # the preset itself allows 5-10 (MLService)
 
 
 class TrainResponse(BaseModel):

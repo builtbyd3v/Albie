@@ -1,7 +1,10 @@
-"""Read-only importer for the one supported public PyTorch repository format.
+"""GitHub import: the CIFAR-10 preset fast path, and a shallow clone for any other public repo.
 
-Repository files are fetched for static inspection only. They are never imported or executed; training uses
-the checked-in CIFAR-10/SmallCNN implementation in ``ml-examples/cifar10``.
+`inspect_repository` reads four files through the Contents API, statically, to spot the preset CIFAR-10 +
+SmallCNN layout; a match trains the checked-in ``ml-examples/cifar10`` copy (and says so). Any other public repo
+is `clone_repository`'d (shallow, size-capped, symlinks checked out as plain files) into its own folder under
+`import_root()`, then goes through the same cold-open setup as a local repo (ML_PLAN 6): its code runs only in
+`forge.check` and, after the patch is accepted, in its own training command.
 """
 
 from __future__ import annotations
@@ -12,7 +15,11 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -24,6 +31,10 @@ MAX_RESPONSE_BYTES = 2_000_000
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 SUPPORTED_FORMAT = "cifar10-smallcnn-v1"
 SUPPORTED_FILES = ("train.py", "model.py", "data.py", "requirements.txt")
+CLONE_FORMAT = "cold-open"
+MAX_REPO_KB = 200_000      # GitHub's own size estimate, checked before cloning
+MAX_CHECKOUT_BYTES = 300_000_000  # the files actually checked out, checked after
+CLONE_TIMEOUT_S = 180
 
 
 class GitHubImportError(ValueError):
@@ -178,3 +189,88 @@ def inspect_repository(url: str) -> dict:
     result.update(supported=True, format=SUPPORTED_FORMAT, model="SmallCNN", dataset="CIFAR-10",
                   reason=None, files=list(SUPPORTED_FILES), file_shas=hashes)
     return result
+
+
+# --- any other public repo: a shallow clone for the cold-open setup ---------------------------------------------
+
+def import_root() -> Path:
+    """Where clones live: FORGE_ML_IMPORT_DIR, else <system temp>/forge-ml-imports (outside every repo here)."""
+    return Path(os.environ.get("FORGE_ML_IMPORT_DIR") or Path(tempfile.gettempdir()) / "forge-ml-imports").resolve()
+
+
+def _git(args: list[str], cwd: Path | None = None) -> None:
+    """git over https only, no prompts, no credential helpers, no LFS downloads, symlinks as plain files."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "GIT_CONFIG_NOSYSTEM": "1"}
+    cmd = ["git", "-c", "core.symlinks=false", "-c", "credential.helper=", "-c", "protocol.allow=never",
+           "-c", "protocol.https.allow=always", *args]
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=CLONE_TIMEOUT_S)
+    except FileNotFoundError as exc:
+        raise GitHubImportError("git isn't installed on the hub's laptop, so the repository can't be cloned.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GitHubImportError(f"Cloning took longer than {CLONE_TIMEOUT_S} s; try a smaller repository or folder.") from exc
+    if proc.returncode != 0:
+        lines = [line for line in proc.stderr.strip().splitlines() if line.strip()]
+        raise GitHubImportError("Could not clone the repository: " + (lines[-1] if lines else "git failed"))
+
+
+def _check_checkout(root: Path) -> None:
+    """Refuse a checkout that is too big, links outside itself, or has no Python to train."""
+    total, python_files = 0, 0
+    for folder, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in dirs + files:
+            path = Path(folder) / name
+            if path.is_symlink() and not path.resolve().is_relative_to(root.resolve()):
+                raise GitHubImportError(f"The repository has a link pointing outside itself ({path.relative_to(root)}); "
+                                        "it wasn't imported.")
+        for name in files:
+            path = Path(folder) / name
+            if not path.is_symlink():
+                total += path.stat().st_size
+            python_files += name.endswith(".py")
+        if total > MAX_CHECKOUT_BYTES:
+            raise GitHubImportError(f"The checked-out files are over {MAX_CHECKOUT_BYTES // 1_000_000} MB; "
+                                    "pick a smaller repository or one folder of it.")
+    if python_files == 0:
+        raise GitHubImportError("The repository (or folder) has no Python files, so there is nothing to train.")
+
+
+def clone_repository(url: str) -> dict:
+    """Shallow-clone a public repo (only the selected folder for a /tree/<ref>/<folder> URL) into its own folder
+    under `import_root()` and return {import_id, repository, url, ref, path}. A folder cloned before is reused, so
+    its `.forge/` setup is too ("look again" on the panel redoes the setup; delete the folder for a fresh copy)."""
+    owner, repo, requested_ref, directory = _parse_url(url)
+    metadata = _get_json(f"/repos/{quote(owner)}/{quote(repo)}")
+    if not isinstance(metadata, dict) or metadata.get("private"):
+        raise GitHubImportError("Only public GitHub repositories are supported.")
+    size_kb = metadata.get("size") if isinstance(metadata.get("size"), int) else 0
+    if not directory and size_kb > MAX_REPO_KB:  # a folder is fetched on its own (sparse), so only its size counts
+        raise GitHubImportError(f"{owner}/{repo} is about {size_kb // 1000} MB, over the {MAX_REPO_KB // 1000} MB "
+                                "import limit; import one folder of it (a /tree/<branch>/<folder> URL).")
+    ref = requested_ref or str(metadata.get("default_branch") or "main")
+    import_id = hashlib.sha256(f"{owner}/{repo}@{ref}/{directory}".encode()).hexdigest()[:12]
+    root = import_root()
+    dest = root / f"{owner}__{repo}__{import_id}"
+    if not (dest / ".git").is_dir():
+        root.mkdir(parents=True, exist_ok=True)
+        partial = dest.with_name(dest.name + ".partial")
+        shutil.rmtree(partial, ignore_errors=True)
+        args = ["clone", "--depth", "1", "--single-branch", "--no-tags", "--branch", ref]
+        if directory:
+            args += ["--filter=blob:none", "--sparse"]
+        try:
+            _git(args + [f"https://github.com/{owner}/{repo}.git", str(partial)])
+            if directory:
+                _git(["sparse-checkout", "set", "--", directory], cwd=partial)
+            _check_checkout(partial)
+        except GitHubImportError:
+            shutil.rmtree(partial, ignore_errors=True)
+            raise
+        shutil.rmtree(dest, ignore_errors=True)
+        partial.rename(dest)
+    project = (dest / directory).resolve() if directory else dest
+    if not project.is_relative_to(dest.resolve()) or not project.is_dir():
+        raise GitHubImportError(f"There is no folder {directory!r} on {ref} in {owner}/{repo}.")
+    return {"import_id": import_id, "repository": f"{owner}/{repo}", "url": url.strip(), "ref": ref,
+            "path": str(project)}

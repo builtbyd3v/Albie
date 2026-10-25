@@ -129,6 +129,7 @@ public static class MLSmokeCheck
             ForgeNet.Emit("ml.layout", new { panels = new[] { "ml-regression" } });
             Require(regressionPanel.gameObject.activeSelf && !stack.gameObject.activeSelf && !sceneViz.gameObject.activeSelf, "Regression layout swaps panels without reloading the scene");
             regressionPanel.Initialize();
+            regressionPanel.ShowMockRows();
             var points = regressionPanel.GetComponentsInChildren<RegressionPoint>(true);
             Require(regressionPanel.samples.Length == 24 && points.Length == 24, "Regression mock scatter renders clickable rows");
             points[4].OnPointerClick(new UnityEngine.EventSystems.PointerEventData(UnityEngine.EventSystems.EventSystem.current));
@@ -140,7 +141,12 @@ public static class MLSmokeCheck
             foreach (var panel in UnityEngine.Object.FindObjectsByType<ForgePanel>())
                 Require(panel.transform.position.y > 1f, "Saved sandbox panel stays at camera height: " + panel.name);
             var regressionObject = UnityEngine.Object.Instantiate(regressionPrefab); var regression = regressionObject.GetComponent<RegressionResults>(); regression.Initialize();
-            Require(regression.samples.Length == 24, "Regression fixture loads mock rows"); regression.Show(5);
+            if (ForgeNet.Status == ForgeNetStatus.Connecting)
+                Require(regression.samples.Length == 0 && regressionObject.GetComponentsInChildren<RegressionPoint>(true).Length == 0, "Regression panel starts with a message, no points");
+            regression.ShowMockRows();
+            bool labeled = false;
+            foreach (var text in regressionObject.GetComponentsInChildren<TMPro.TMP_Text>(true)) if (text.text.StartsWith("Mock rows")) labeled = true;
+            Require(regression.samples.Length == 24 && labeled, "Regression mock rows are labeled as mock"); regression.Show(5);
             UnityEngine.Object.Destroy(regressionObject);
             var content = wall.GetComponent<ForgePanel>().Content;
             Require(wall.ActiveTab == ResultsWall.Tab.Overview && wall.Report != null && wall.Report.evaluated > 0, "Results opens on the Overview tab with a report");

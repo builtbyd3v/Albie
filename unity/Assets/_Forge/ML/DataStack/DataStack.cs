@@ -102,7 +102,7 @@ namespace Forge.ML
             label.overflowMode = TextOverflowModes.Truncate;
             prediction = MLUI.Text(preview, "", 116, 66, PreviewWidth - 128, 50, 10.5f); prediction.lineSpacing = 10;
             metadata = MLUI.Text(preview, "", 14, 128, PreviewWidth - 28, 62, 9.5f); metadata.color = MLUI.Sub; metadata.lineSpacing = 6;
-            metadata.overflowMode = TextOverflowModes.Truncate;
+            metadata.overflowMode = TextOverflowModes.Ellipsis;
             MLUI.Pill(preview, "Put back", 14, PreviewHeight - 32, 84, 22, PutBack);
             var keep = MLUI.Text(preview, "or keep scrolling", 106, PreviewHeight - 28, 140, 14, 9.5f); keep.color = MLUI.Faint;
             preview.gameObject.SetActive(false);
@@ -124,8 +124,9 @@ namespace Forge.ML
         void SetHeader()
         {
             var samples = session.Data.samples;
-            string size = samples.Length > 0 && samples[0].width > 0 ? $"  ·  {samples[0].width}×{samples[0].height}" : "";
-            header.text = $"{samples.Length:N0} images  ·  {session.Data.classes.Length} classes{size}".ToUpperInvariant();
+            bool texts = samples.Length > 0 && !string.IsNullOrEmpty(samples[0].text);  // a text classifier: cards are its texts
+            string size = !texts && samples.Length > 0 && samples[0].width > 0 ? $"  ·  {samples[0].width}×{samples[0].height}" : "";
+            header.text = $"{samples.Length:N0} {(texts ? "texts" : "images")}  ·  {session.Data.classes.Length} classes{size}".ToUpperInvariant();
         }
 
         void Refresh()
@@ -154,8 +155,11 @@ namespace Forge.ML
                 imageRim.color = picked.pred_idx < 0 ? new Color(1, 1, 1, 0.12f) : picked.correct ? new Color(MLUI.Good.r, MLUI.Good.g, MLUI.Good.b, 0.3f) : new Color(MLUI.Bad.r, MLUI.Bad.g, MLUI.Bad.b, 0.3f);
                 string path = string.IsNullOrEmpty(picked.path) ? "Not available" : picked.path;
                 string bytes = picked.file_size > 0 ? $"{picked.file_size:N0} bytes" : "Not available";
-                metadata.text = $"Path: <color=#FFFFFFCC>{path}</color>\nSplit: <color=#FFFFFFCC>{picked.split ?? "val"}  ·  {picked.width} × {picked.height}  ·  {picked.channels} channels</color>\n" +
-                    $"File size: <color=#FFFFFFCC>{bytes}</color>\nPrediction: <color=#FFFFFFCC>{session.Data.classes[pred]}{(known ? "  ·  " + confidence.ToString("0.0%") : "")}</color>";
+                if (!string.IsNullOrEmpty(picked.text))  // the whole text: the card above only fits its first words
+                    metadata.text = $"<color=#FFFFFFCC>{picked.text}</color>";
+                else
+                    metadata.text = $"Path: <color=#FFFFFFCC>{path}</color>\nSplit: <color=#FFFFFFCC>{picked.split ?? "val"}  ·  {picked.width} × {picked.height}  ·  {picked.channels} channels</color>\n" +
+                        $"File size: <color=#FFFFFFCC>{bytes}</color>\nPrediction: <color=#FFFFFFCC>{session.Data.classes[pred]}{(known ? "  ·  " + confidence.ToString("0.0%") : "")}</color>";
             }
         }
 

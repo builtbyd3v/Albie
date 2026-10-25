@@ -8,7 +8,7 @@ namespace Forge.ML
     public class MLAtlasMetadata { public string atlas_url; public int[] cell; public int cols; public Dictionary<string, int> index; }
     [Serializable] public class MLDatasetEntry
     {
-        public string id, thumb_url, name, path, split;
+        public string id, thumb_url, name, path, split, kind, text;
         public int label_idx, width, height, channels;
         public long file_size;
         public bool removed;

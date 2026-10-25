@@ -19,21 +19,29 @@ pytest ml/tests
 | `GET /ml/sample/{id}` | detail card: metadata + latest prediction |
 | `GET /ml/runs`, `/ml/results/{run}`, `/ml/confusion/{run}`, `/ml/summary/{run}` | results reflect relabel/remove (`relabeled`, `removed`, recomputed `correct`) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running |
-| `POST /ml/github/import {url}` | inspect a public GitHub repo or selected folder through the Contents API; supports CIFAR-10 + SmallCNN |
-| `POST /ml/github/train {import_id, epochs}` | runs the approved local CIFAR-10/SmallCNN worker for 5–10 epochs; GitHub source is never executed |
+| `POST /ml/github/import {url}` | a public repo or `/tree/<branch>/<folder>` URL. The CIFAR-10 + SmallCNN preset layout: `mode: "preset"`, ready at once. Anything else: `mode: "clone"`, cloned and set up like `POST /ml/project` (`ml.project_state` on `/ws`). `runs` says whose code Train runs. 422 with the reason for a private, too big or unsafe repo |
+| `POST /ml/github/train {import_id, epochs}` | a clone: its own `train_cmd` once setup is ready (409 before; 1–50 epochs). The preset: the checked-in CIFAR-10/SmallCNN worker, 5–10 epochs |
 | `GET /ml/viz?run_id=` | chart cards: the archetype's built-ins plus `.forge/extra_viz.py` output (PNG or VizCard, A7) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running. A script without forge calls still gets live curves (log tail, below) |
 | `POST /ml/samples/{id}/relabel {label_idx}`, `/remove` | write `.forge/labels_override.json`, broadcast `ml.sample_updated` |
 | `POST /ml/ingest {run_id, events}` | forge SDK → `/ws`, `ml.*` only |
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
-The Training panel accepts a public GitHub repository URL or a folder URL such as
-`https://github.com/Satyabratadas/forge-cifar10-demo` (public, the default "Forge CIFAR demo" preset).
-Import inspects `train.py`, `model.py`, `data.py`, and `requirements.txt` from the selected folder and statically
-checks for the supported `SmallCNN` + CIFAR-10
-structure. It does not clone, import, or run repository code. A supported import selects the reviewed local
-`ml-examples/cifar10` trainer and dataset. That worker records epoch, train/validation loss and accuracy, and
-learning rate through Forge SDK; the SDK streams `ml.metrics`, `ml.class_acc`, and `ml.probe` events to the hub.
+The Training panel accepts a public GitHub repository URL or a folder URL, or one press on a preset ("Forge CIFAR
+demo", "PyTorch MNIST" = `https://github.com/pytorch/examples/tree/main/mnist`; `FORGE_ML_GITHUB_PRESETS` overrides).
+- **Preset fast path:** `github_import.inspect_repository` reads `train.py`, `model.py`, `data.py` and
+  `requirements.txt` through the Contents API and statically checks for the `SmallCNN` + CIFAR-10 layout. A match
+  trains the reviewed local `ml-examples/cifar10` copy; it never runs the GitHub files, and the panel says so
+  ("Runs the checked-in CIFAR-10 copy").
+- **Any other repo (issue #70):** `github_import.clone_repository` makes a shallow clone (`--depth 1`, only the
+  selected folder for a `/tree/` URL, via sparse checkout) into `FORGE_ML_IMPORT_DIR` (default
+  `<system temp>/forge-ml-imports/<owner>__<repo>__<id>`). Guardrails: public repos only, at most 200 MB by GitHub's
+  estimate before cloning and 300 MB checked out, https only, no prompts or credential helpers, no LFS downloads,
+  symlinks checked out as plain files (and any link out of the checkout refused), and at least one `.py` file. Then the
+  normal cold-open setup runs on it: pre-scan, classify, the Claude-written `.forge/adapter.py`, `forge.check` (this
+  runs the repo's code, in its own Python: its `.venv` if it has one), and the patch waits for Accept / Skip on the
+  Training panel (or in VS Code with "Show patch"). Train then runs the repo's own `train_cmd` in the clone. A folder
+  imported before is reused with its `.forge/`; delete it for a fresh copy.
 Set optional `GITHUB_TOKEN` in the hub environment to raise GitHub API rate limits for public repository reads.
 
 **Mounted in `hub/main.py`:** the ML router uses `app.state.bus`, which main.py sets, and creates its service on first use.
@@ -91,7 +99,7 @@ A small network learning a 2D dataset live, for the "turn off a neuron, ask Albi
   **Training story** (above, `NeuralStory`): train / test accuracy over the whole session with numbered markers (stuck,
   auto-paused, Albie's changes, neurons off), and a Why card that explains what's on screen now (`NNExplain`).
 - **On the panel:** Play (stops by itself once test accuracy reaches 92%; Play again keeps going) / Step / Reset; dataset (circle, XOR, Gauss, spiral), activation, learning rate, noise and
-  layers. Tap an input to use it. **Tap a neuron to switch it off**: the boundary and test accuracy change at once.
+  hidden layers (up to 6); under each layer's name, − n + sets its neurons (1 to 8). Tap an input to use it. **Tap a neuron to switch it off**: the boundary and test accuracy change at once.
   Each neuron shows what it has learned; links are blue (positive) or orange (negative), thicker = larger.
 - **In 3D on the desk** (`ML/NeuralLab/NeuralNet3D`, volume `ml-neural-3d`): inputs → layers → output left to right,
   each layer a ring of neurons, links blue / orange by weight. Every second a data point flows through and the

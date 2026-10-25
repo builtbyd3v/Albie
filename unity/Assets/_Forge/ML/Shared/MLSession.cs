@@ -7,7 +7,7 @@ namespace Forge.ML
 {
     [Serializable] public class MLSample
     {
-        public string id, name, path, split;
+        public string id, name, path, split, text;  // text: a text classifier's sample (GET /ml/dataset kind "text")
         public int label_idx, true_idx, pred_idx, width, height, channels;
         public long file_size;
         public float[] probs;
@@ -43,6 +43,7 @@ namespace Forge.ML
     [Serializable] public class MLGitHubImport
     {
         public string import_id, repository, url, @ref, format, model, dataset, reason;
+        public string mode, path, runs;  // mode "preset": trains the checked-in CIFAR-10 copy; "clone": the repo's own code
         public bool supported;
         public string[] files;
     }
@@ -81,6 +82,15 @@ namespace Forge.ML
         public bool HubData { get; private set; }
         public string RunId { get; private set; }
         public string GitHubImportId { get; private set; }
+        // The open project's setup, from ml.project_state: needs_approval and confirm_type wait for the user
+        // (Accept / Skip, or a type), shown on the Training panel. Source says whose code a Train press runs.
+        public string ProjectStatus { get; private set; }
+        public string ProjectRepository { get; private set; }
+        public string[] ProjectCandidates { get; private set; }
+        public string ProjectSource { get; private set; }
+        // Setup is working, or waiting on the user (Accept / Skip, a type): no new import and no Train until it's done.
+        public bool ProjectSettingUp => ProjectStatus == "scanning" || ProjectStatus == "classifying" || ProjectStatus == "confirm_type"
+            || ProjectStatus == "adapting" || ProjectStatus == "checking" || ProjectStatus == "needs_approval";
         // One line for the Training panel: why there's no live data, or what Train is doing.
         public string Notice { get; private set; }
         // POST /ml/train sent, no answer yet. Train ignores presses until it clears, or while a run trains.
@@ -103,11 +113,11 @@ namespace Forge.ML
         MLReplayEvent[] timeline;
         int[] atlasCells;
         int nextEvent;
-        bool ownsAtlas, loading, reloadQueued;
+        bool ownsAtlas, loading, reloadQueued, importPending;  // importPending: POST /ml/github/import sent, no answer yet
         string atlasUrl;
         IDisposable epochPreds, metricsEvents;
         IDisposable classAccEvents;
-        IDisposable probeEvents;
+        IDisposable probeEvents, projectEvents;
         public const int AtlasColumns = 8;
         public bool HasReplayLiveGraphs => timeline != null && Array.Exists(timeline, e => e != null && (e.type == "ml.class_acc" || e.type == "ml.probe"));
 
@@ -134,6 +144,7 @@ namespace Forge.ML
             epochPreds = ForgeNet.On("ml.epoch_preds", OnLiveEpochPreds);
             classAccEvents = ForgeNet.On("ml.class_acc", OnLiveClassAccuracy);
             probeEvents = ForgeNet.On("ml.probe", OnLiveProbe);
+            projectEvents = ForgeNet.On("ml.project_state", OnProjectState);
         }
         void Start() { if (IsLive) OnNetStatus(ForgeNetStatus.Live); }
         void OnDisable()
@@ -148,6 +159,7 @@ namespace Forge.ML
             epochPreds?.Dispose(); epochPreds = null;
             classAccEvents?.Dispose(); classAccEvents = null;
             probeEvents?.Dispose(); probeEvents = null;
+            projectEvents?.Dispose(); projectEvents = null;
         }
         public void EnsureLoaded()
         {
@@ -239,6 +251,11 @@ namespace Forge.ML
                 return;
             }
             if (TrainBusy) return;  // a second POST only gets the hub's 409 "still training"
+            if (ProjectSettingUp)  // the hub refuses too: Train before Accept would run the script without its forge calls
+            {
+                Notice = ProjectStatus == "needs_approval" ? "Accept or Skip the patch first, then Train." : $"{ProjectRepository} is still being set up.";
+                Changed?.Invoke(); return;
+            }
             TrainPending = true; Notice = "Starting training..."; Changed?.Invoke();
             if (!string.IsNullOrEmpty(GitHubImportId))
             {
@@ -246,11 +263,11 @@ namespace Forge.ML
                 {
                     TrainPending = false; Changed?.Invoke();
                     if (response != null) { RunId = response.run_id; LoadFromHub(RunId); }
-                }, e => { TrainPending = false; Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+                }, e => { TrainPending = false; Notice = "Train failed: " + HubDetail(e); Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
                 return;
             }
             ForgeNet.Post("/ml/train", new { epochs }, _ => { TrainPending = false; Changed?.Invoke(); },
-                e => { TrainPending = false; Notice = "Training didn't start."; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+                e => { TrainPending = false; Notice = "Training didn't start: " + HubDetail(e); Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
         }
         public void ImportGitHub(string url)
         {
@@ -260,17 +277,79 @@ namespace Forge.ML
                 Changed?.Invoke(); return;
             }
             if (string.IsNullOrWhiteSpace(url)) { Notice = "Paste a public GitHub repository URL first."; Changed?.Invoke(); return; }
-            Notice = "Inspecting public GitHub repository..."; Changed?.Invoke();
+            if (ProjectSettingUp)
+            {
+                Notice = ProjectStatus == "needs_approval" ? $"{ProjectRepository} is waiting for Accept or Skip first."
+                    : $"Still setting up {ProjectRepository}: one import at a time.";
+                Changed?.Invoke(); return;
+            }
+            if (importPending) return;  // a second press before the hub answered the first
+            importPending = true;
+            Notice = "Reading the public GitHub repository..."; Changed?.Invoke();
             ForgeNet.Post<MLGitHubImport>("/ml/github/import", new { url = url.Trim() }, result =>
             {
+                importPending = false;
                 GitHubImportId = result != null && result.supported ? result.import_id : null;
-                Notice = result == null ? "GitHub import returned no result." : result.supported
-                    ? $"Supported: {result.repository} · {result.model} on {result.dataset}. Train is ready."
-                    : $"Unsupported repository: {result.reason}";
-                if (GitHubImportId != null) LoadFromHub(null);
+                if (result == null) Notice = "GitHub import returned no result.";
+                else if (!result.supported) Notice = $"Unsupported repository: {result.reason}";
+                else if (result.mode == "clone")
+                {
+                    // Setup follows on ml.project_state (OnProjectState); Train waits until it's ready.
+                    ProjectRepository = result.repository; ProjectSource = $"Runs the code from {result.repository}";
+                    Notice = $"Cloned {result.repository}. Setting it up...";
+                }
+                else
+                {
+                    ProjectRepository = result.repository; ProjectSource = "Runs the checked-in CIFAR-10 copy";
+                    Notice = $"{result.repository} has the preset CIFAR-10 layout: Train runs our checked-in copy of it.";
+                    LoadFromHub(null);
+                }
                 Changed?.Invoke();
-            }, error => { GitHubImportId = null; Notice = "GitHub import failed: " + HubDetail(error); Changed?.Invoke(); });
+            }, error =>
+            {
+                importPending = false;
+                // 409: something else is running (setup, training); the import already there stays the one Train uses.
+                if (error == null || !error.StartsWith("409")) GitHubImportId = null;
+                Notice = "GitHub import failed: " + HubDetail(error); Changed?.Invoke();
+            });
         }
+        // ml.project_state {path, status, archetype?, candidates?, summary?, error?, repository?}: one line per setup step.
+        void OnProjectState(Newtonsoft.Json.Linq.JToken p)
+        {
+            if (!IsLive || p == null) return;
+            string status = p.Value<string>("status"), path = p.Value<string>("path") ?? "";
+            string name = p.Value<string>("repository") ?? System.IO.Path.GetFileName(path.TrimEnd('/', '\\'));
+            ProjectStatus = status; ProjectRepository = name;
+            ProjectSource = p["repository"] != null ? $"Runs the code from {name}" : $"Runs {name}";
+            ProjectCandidates = status == "confirm_type" ? p["candidates"]?.ToObject<string[]>() : null;
+            switch (status)
+            {
+                case "scanning": Notice = $"Setting up {name}: reading the code..."; break;
+                case "classifying": Notice = $"Setting up {name}: working out what kind of project it is..."; break;
+                case "confirm_type": Notice = $"Not sure what kind of project {name} is: pick its type."; break;
+                case "adapting": Notice = $"Setting up {name}: writing the glue code..."; break;
+                case "checking": Notice = $"Setting up {name}: fixing the glue code (try {p.Value<int?>("round") ?? 2})..."; break;
+                case "needs_approval": Notice = $"{name} needs a small patch so training streams live: look at it, then Accept or Skip."; break;
+                case "ready": Notice = $"{name} is ready to train."; LoadFromHub(null); break;
+                case "failed": Notice = $"Setting up {name} failed: {p.Value<string>("error")}"; break;
+            }
+            Changed?.Invoke();
+        }
+        public void ConfirmProjectType(string archetype) =>
+            ForgeNet.Post("/ml/project/type", new { archetype }, null, e => { Notice = "Couldn't set the type: " + HubDetail(e); Changed?.Invoke(); });
+        // The proposed patch in the laptop's VS Code (the CODE screen), or a summary when VS Code isn't there.
+        public void ShowPatch() =>
+            ForgeNet.Post("/ml/project/diff", null, text =>
+            {
+                bool opened = false; int files = 0;
+                try { var o = Newtonsoft.Json.Linq.JObject.Parse(text); opened = o.Value<bool>("opened"); files = (o["files"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0; }
+                catch (Exception) { }
+                Notice = opened ? "The patch is open in VS Code on the laptop (the CODE screen)." : $"No VS Code on the laptop: the patch adds forge calls to {files} file(s).";
+                Changed?.Invoke();
+            }, e => { Notice = "Couldn't open the patch: " + HubDetail(e); Changed?.Invoke(); });
+        // The user's confirmation step (PROJECT_CONTEXT 12): only Accept writes the patch into the repo.
+        public void ApprovePatch(bool accept) =>
+            ForgeNet.Post("/ml/project/patch", new { accept }, null, e => { Notice = "The patch wasn't applied: " + HubDetail(e); Changed?.Invoke(); });
         // "422 HTTP/1.1 422 Unprocessable Entity {"detail":"..."}" -> the hub's own sentence, for the panel's banner.
         static string HubDetail(string error)
         {
@@ -493,7 +572,7 @@ namespace Forge.ML
                 sample.removed = entry.removed;
                 sample.correct = sample.pred_idx == entry.label_idx;
                 sample.name = string.IsNullOrEmpty(entry.name) ? entry.id : entry.name;
-                sample.path = entry.path; sample.split = string.IsNullOrEmpty(entry.split) ? "val" : entry.split;
+                sample.path = entry.path; sample.text = entry.text; sample.split = string.IsNullOrEmpty(entry.split) ? "val" : entry.split;
                 sample.width = entry.width > 0 ? entry.width : 32; sample.height = entry.height > 0 ? entry.height : 32;
                 sample.channels = entry.channels > 0 ? entry.channels : 3; sample.file_size = entry.file_size;
                 samples[i] = sample; cells[i] = meta.index != null && meta.index.TryGetValue(entry.id, out int cell) ? cell : 0;

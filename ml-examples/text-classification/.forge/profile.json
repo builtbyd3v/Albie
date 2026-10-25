@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "archetype": "text_classification",
+  "confidence": 1.0,
+  "framework": "pytorch",
+  "python": "python",
+  "entry_points": { "train": "train.py", "model": "model.py:BagOfWords", "data": "data.py:get_loaders" },
+  "train_cmd": "python train.py --epochs 8",
+  "classes": ["World", "Sports", "Business", "Sci/Tech"],
+  "target": null,
+  "input_shape": [48],
+  "checkpoint": "checkpoints/best.pt",
+  "existing_logs": [],
+  "extra_viz": [],
+  "summary": "Text classifier, 4 news topics, bag-of-words embeddings on AG News.",
+  "notes": "Hand-written golden example. 3% of val labels are flipped on purpose (data.flip_labels)."
+}

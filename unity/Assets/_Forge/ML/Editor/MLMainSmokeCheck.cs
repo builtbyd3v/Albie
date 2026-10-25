@@ -110,6 +110,7 @@ public static class MLMainSmokeCheck
                 point.onClick.Invoke();
                 Require(selected == "val_0000", "Main scatter selects the correct sample");
                 var regression = regressionPanel.GetComponent<RegressionResults>();
+                regression.ShowMockRows();  // the 24 labeled editor rows, whatever the hub has: this checks drawing and selection
                 var points = regressionPanel.GetComponentsInChildren<RegressionPoint>();
                 Require(regression.samples.Length == 24 && points.Length == 24, "Main regression scatter renders 24 rows");
                 points[4].OnPointerClick(new PointerEventData(EventSystem.current));

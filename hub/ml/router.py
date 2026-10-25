@@ -115,7 +115,7 @@ async def train(req: TrainRequest, request: Request) -> TrainResponse:
 # them without a rebuild: "Label|https://github.com/...;Label|https://github.com/...".
 DEFAULT_GITHUB_PRESETS = [
     {"label": "Forge CIFAR demo", "url": "https://github.com/Satyabratadas/forge-cifar10-demo"},
-    {"label": "PyTorch examples", "url": "https://github.com/pytorch/examples"},
+    {"label": "PyTorch MNIST", "url": "https://github.com/pytorch/examples/tree/main/mnist"},
 ]
 
 
@@ -149,18 +149,28 @@ def get_github_presets() -> list[dict]:
 
 
 @router.post("/github/import", response_model=GitHubImportResponse)
-def import_github(req: GitHubImportRequest, request: Request) -> GitHubImportResponse:
-    """Inspect a public repository's Contents API files against the supported static PyTorch format."""
+async def import_github(req: GitHubImportRequest, request: Request) -> GitHubImportResponse:
+    """The CIFAR-10 preset layout (read statically) is ready at once and trains the checked-in copy. Any other
+    public repo is cloned and set up like `POST /ml/project`: ml.project_state on /ws until ready (or failed)."""
+    svc = _svc(request)
+    running = getattr(request.app.state, "ml_setup", None)
+    if running is not None and not running.done():
+        raise HTTPException(status_code=409, detail="project setup already running")
     try:
-        result = _svc(request).import_github(req.url)
+        result = await asyncio.to_thread(svc.import_github, req.url)
     except GitHubImportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result.get("mode") == "clone":
+        _stop_tail(request.app.state)
+        _start_setup(request)
     return GitHubImportResponse(**result)
 
 
 @router.post("/github/train", response_model=TrainResponse)
 def train_github(req: GitHubTrainRequest, request: Request) -> TrainResponse:
-    """Run the approved local CIFAR-10/SmallCNN worker for a supported GitHub import."""
+    """A cloned import: its own train_cmd once setup is ready. The preset: the checked-in CIFAR-10 worker."""
     run_id = _call(_svc(request).start_github_training, req.import_id, req.epochs, str(request.base_url))
     return TrainResponse(run_id=run_id)
 

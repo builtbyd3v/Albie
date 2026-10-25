@@ -10,20 +10,36 @@ namespace Forge.ML
     public sealed class RegressionResults : MonoBehaviour
     {
         [System.Serializable] public class Sample { public string id; public float yTrue, yPred; }
-        public Sample[] samples;
+        public Sample[] samples = new Sample[0];
         RectTransform root, detail;
         string message;  // shown instead of the scatter while the hub has no regression results
+        bool mockRows;   // the editor's labeled demo rows (hub off); a player build never draws them
+        const string Waiting = "Waiting for a regression run…";
+        const string NoRun = "No predicted-vs-actual results yet: they appear after a run that evaluates on validation rows.";
+        const string Offline = "The hub isn't connected, so there are no regression results to show.";
         void Start() => Initialize();
         void OnEnable() { ForgeEvents.OnMlResultsReady += OnResultsReady; ForgeNet.StatusChanged += OnNetStatus; }
         void OnDisable() { ForgeEvents.OnMlResultsReady -= OnResultsReady; ForgeNet.StatusChanged -= OnNetStatus; }
+        // Starts with a message and no points: points come only from the hub's /ml/results (or, in the editor with
+        // the hub off, the labeled mock rows), so nothing on screen passes for a result it isn't.
         public void Initialize()
         {
             root = GetComponent<ForgePanel>().Content;
-            if (samples == null || samples.Length == 0) samples = DemoSamples();
+            if (samples == null) samples = new Sample[0];
+            if (samples.Length == 0 && message == null) message = Waiting;
             Draw();
-            if (ForgeNet.Status == ForgeNetStatus.Live) LoadFromHub(null);
+            OnNetStatus(ForgeNet.Status);
         }
-        void OnNetStatus(ForgeNetStatus status) { if (status == ForgeNetStatus.Live && root != null) LoadFromHub(null); }
+        void OnNetStatus(ForgeNetStatus status)
+        {
+            if (root == null) return;
+            if (status == ForgeNetStatus.Live) LoadFromHub(null);
+            else if (status == ForgeNetStatus.Mock && (samples.Length == 0 || mockRows))  // keep real rows already loaded
+            {
+                if (Application.isEditor) ShowMockRows();
+                else ShowMessage(Offline);
+            }
+        }
         void OnResultsReady(global::MlResultsReady ready) { if (ready != null && root != null) LoadFromHub(ready.runId); }
         // Live hub: the run's GET /ml/results ({samples: [{id, y_true, y_pred, residual}]}); without a run id the
         // latest finished one. A run that never evaluated (a backtest) has none: say so instead of demo points.
@@ -34,8 +50,8 @@ namespace Forge.ML
             {
                 foreach (var run in JArray.Parse(text))
                     if (run.Value<string>("status") == "done") { FetchResults(run.Value<string>("run_id")); return; }
-                ShowMessage("No predicted-vs-actual results yet: they appear after a run that evaluates on validation rows.");
-            }, _ => { });
+                ShowMessage(NoRun);
+            }, error => ShowMessage("Couldn't load the runs from the hub: " + error));
         }
         void FetchResults(string runId)
         {
@@ -49,13 +65,16 @@ namespace Forge.ML
                     loaded.Add(new Sample { id = row.Value<string>("id"), yTrue = yTrue.Value<float>(), yPred = yPred.Value<float>() });
                 }
                 if (loaded.Count == 0) { ShowMessage($"Run {runId} has no regression results."); return; }
-                samples = loaded.ToArray(); message = null; Draw();
-            }, _ => ShowMessage("No predicted-vs-actual results yet: they appear after a run that evaluates on validation rows."));
+                samples = loaded.ToArray(); message = null; mockRows = false; Draw();
+            }, _ => ShowMessage(NoRun));
         }
-        void ShowMessage(string text) { message = text; Draw(); }
+        void ShowMessage(string text) { samples = new Sample[0]; mockRows = false; message = text; Draw(); }
+        /// <summary>Editor / sandbox only (hub off): deterministic demo rows, labeled as mock rows on the panel.</summary>
+        public void ShowMockRows() { samples = DemoSamples(); mockRows = true; message = null; Draw(); }
         void Draw()
         {
             MLUI.Clear(root); MLUI.Text(root, "Predicted vs actual", 8, 4, 450, 25, 16);
+            if (mockRows) MLUI.Text(root, "Mock rows: hub offline (editor only)", 448, 6, 280, 25, 12).color = new Color(1f,.75f,.3f);
             if (message != null) { MLUI.Text(root, message, 14, 60, 700, 60, 16); detail = null; return; }
             var plot = MLUI.Rect("Regression scatter", root, 14, 38, 420, 280);
             MLUI.Fill(plot, 0, 274, 410, 2, new Color(.45f,.55f,.65f)); MLUI.Fill(plot, 0, 0, 2, 276, new Color(.45f,.55f,.65f));
