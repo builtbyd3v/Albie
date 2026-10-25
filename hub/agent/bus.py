@@ -121,6 +121,8 @@ class Emitter:
         mode = ev.PET_STATE_FOR_EVENT.get(event.type) if self._companion else None
         if event.type == "stt.final" and not str(event.payload.get("text") or "").strip():
             mode = None  # nothing heard: no state change for the pet
+        elif event.type == "stt.final" and event.payload.get("voice") and mode is not None:
+            mode = "thinking"  # voice: the turn was committed (thinking); its transcript lands after, no flick back to listening
         if mode is not None and mode != self._last_mode:
             self._last_mode = mode
             await self._bus.broadcast(ev.pet_state(self.pet_id, mode))

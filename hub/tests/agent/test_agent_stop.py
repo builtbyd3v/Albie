@@ -23,7 +23,8 @@ def test_more_ways_to_say_stop(text: str) -> None:
 @pytest.mark.parametrize("text, choice", [
     ("Undo it.", "undo"), ("Yeah, revert that.", "undo"), ("Continue.", "continue"), ("Keep going.", "continue"),
     ("Go on.", "continue"), ("Pick up where you left off.", "continue"), ("Leave it.", "leave"), ("No.", "leave"),
-    ("What time is it?", None),
+    ("What time is it?", None), ("Don't undo, keep going.", "continue"), ("No, don't undo it.", "leave"),
+    ("Do not revert anything.", "leave"), ("Don't go back, leave it.", "leave"), ("No, undo it.", "undo"),
 ])
 def test_the_answer_to_the_stop_question(text: str, choice: str | None) -> None:
     assert voice_mod.stop_choice(text) == choice

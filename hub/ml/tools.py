@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from agent import events as ev
+from agent import speech as agent_speech
 
 from . import github, improve
 from .router import _stop_tail, service, start_run, start_setup
@@ -263,6 +264,9 @@ class MLTools:
             log.info("no diff window for the improvement", exc_info=True)
         self.offer += 1
         await self.say(spoken(plan), card(plan, self.offer))
+        # Lab 2026-10-25 (2 of 2 runs): "go for it" after this offer ran ml_train, not the change. Same note as the NN lab.
+        await agent_speech.note(self.pet_id, "You just offered this code change for the ML project. A yes ('do it', "
+                                             "'go for it', 'sounds good') means ml_apply; a no means say okay.")
 
     async def card_action(self, action_id: str) -> bool:
         """A tap on the proposal card ("ml:apply:N" / "ml:dismiss:N"). Apply is ml_apply; Not now discards the
@@ -299,6 +303,9 @@ class MLTools:
         svc = self.svc
         if svc.training_active():
             raise Conflict("a run is still training; wait for it to finish")
+        # A spoken yes: fold the Apply / Not now card now and caption the work (a card-less pet.say folds it).
+        self.offer = 0
+        await self.state.bus.publish("pet.say", {"pet_id": self.pet_id, "text": "Applying the change and retraining..."})
         plan = await asyncio.to_thread(improve.apply, svc)
         run_id = start_run(self.state, plan["epochs"])
         self._announce(run_id, plan["baseline"])
@@ -351,8 +358,11 @@ class MLTools:
             return
         new, old = d.get("best_val_acc"), baseline.get("best_val_acc")
         if new is not None and old is not None:
-            verb = "went up" if new > old else "went down" if new < old else "stayed"
-            await self.say(f"Done! Validation accuracy {verb} from {old:.1%} to {new:.1%}.")
+            if f"{new:.1%}" == f"{old:.1%}":
+                await self.say(f"Done! Validation accuracy stayed at {new:.1%}.")
+            else:
+                verb = "went up" if new > old else "went down"
+                await self.say(f"Done! Validation accuracy {verb} from {old:.1%} to {new:.1%}.")
         else:
             await self.say(f"Done! {improve.headline(d)}.")
 

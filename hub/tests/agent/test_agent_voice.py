@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import time
 from typing import Any
 
 import pytest
@@ -113,7 +114,7 @@ def test_push_to_talk_turn_maps_to_our_events() -> None:
         await s.feed(b"\x00\x00" * 1600)
         await s.commit_turn()
         assert grok.types() == ["session.update", "input_audio_buffer.clear", "input_audio_buffer.append",
-                                "input_audio_buffer.append", "input_audio_buffer.commit", "response.create"]
+                                "input_audio_buffer.append", "input_audio_buffer.commit"]  # Grok answers the commit
         assert base64.b64decode(grok.sent[2]["audio"]) == b"\x00\x00" * 1600
 
         T = "conversation.item.input_audio_transcription"
@@ -759,10 +760,29 @@ def test_a_half_thought_is_held_then_answered_if_nothing_follows(monkeypatch: py
         grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Can you open the, um")
         await _settle()
         assert [v.payload["text"] for k, v in sink.log if v.type == "stt.final"] == [""]  # Unity: listen again
-        assert grok.types().count("response.create") == 1  # the one sent at commit
+        assert grok.types().count("response.create") == 0  # Grok's own reply to the commit was cancelled
         assert not any(m.get("type") == "conversation.item.delete" for m in grok.sent)  # its words stay as context
         await asyncio.sleep(0.1)
-        assert grok.types().count("response.create") == 2  # nothing followed: answered as it is
+        assert grok.types().count("response.create") == 1  # nothing followed: answered as it is
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_yeah_after_a_long_offer_counts_from_when_it_finished_playing() -> None:
+    """Live 11:06: Grok streams a 13 s "Want me to try it?" in ~1 s; "Yeah." after it must answer, not be held as filler."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        s.last_reply, s.last_reply_t = "I'd lengthen the body. Want me to try it?", time.monotonic() - 14
+        s._play_until = time.monotonic() - 1  # Unity finished playing it a second ago
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Yeah.")
+        await _settle()
+        assert [v.payload["text"] for k, v in sink.log if v.type == "stt.final"] == ["Yeah."]
         await s.close()
 
     asyncio.run(run())
@@ -886,18 +906,41 @@ def test_a_reply_grok_starts_on_its_own_is_cancelled_and_its_tools_skipped() -> 
     asyncio.run(run())
 
 
-def test_a_left_over_ask_lets_only_one_reply_through() -> None:
-    """Live 01:40: a turn that got no reply left its ask counted, so the next turn was answered twice."""
+def test_after_a_tool_turn_the_next_command_gets_its_own_reply_and_tool() -> None:
+    """Live 03:56: after a tool turn, a response.create sent with the next commit was answered from the old context
+    (the previous line again, no tool). The commit's own reply is the answer; the hub sends no create with it."""
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
-        await s.start()
-        s._expected = 2  # this turn's ask plus one left over
-        grok.push(type="response.created")
-        grok.push(type="response.done")
-        grok.push(type="response.created")  # a second reply to the same turn
-        await _settle()
-        assert grok.sent.count({"type": "response.cancel"}) == 1
+        ran: list[str] = []
+
+        async def fake_call(name: str, args: dict, pet_id: str) -> dict:
+            ran.append(name)
+            return {"ok": True}
+
+        voice_mod.tools.call, real = fake_call, voice_mod.tools.call  # type: ignore[assignment]
+        voice_mod.tools.has, real_has = (lambda name: True), voice_mod.tools.has  # type: ignore[assignment]
+        try:
+            for name, said in (("ml_open", "Open the ML desk."), ("movie_play", "Play Iron Man for me.")):
+                await s.begin_turn()
+                await s.feed(b"\x10\x00" * 9600)
+                n = len(grok.types())
+                await s.commit_turn()
+                assert "response.create" not in grok.types()[n:]
+                grok.push(type="input_audio_buffer.committed", item_id=f"u_{name}")
+                grok.push(type="conversation.item.input_audio_transcription.completed", item_id=f"u_{name}",
+                          transcript=said)
+                grok.push(type="response.created")  # Grok's reply to the commit: calls the tool
+                grok.push(type="response.function_call_arguments.done", name=name, call_id=f"c_{name}",
+                          arguments="{}")
+                grok.push(type="response.done")
+                grok.push(type="response.created")  # the follow-up the hub asked for after the tool output
+                grok.push(type="response.done")
+                await _settle()
+        finally:
+            voice_mod.tools.call, voice_mod.tools.has = real, real_has  # type: ignore[assignment]
+        assert ran == ["ml_open", "movie_play"]
+        assert {"type": "response.cancel"} not in grok.sent
         await s.close()
 
     asyncio.run(run())
@@ -975,3 +1018,219 @@ def test_verbatim_lines_are_cut_to_whole_sentences() -> None:
     out = voice_mod.short_line(long)
     assert len(out) <= voice_mod.SAY_MAX and out.endswith(".")
     assert voice_mod.short_line("Done.") == "Done."
+
+
+def test_a_cut_reply_tells_grok_what_the_user_heard() -> None:
+    """Live 2026-10-25: after "stop", the next answer picked up the cut one. Grok gets a note with the heard words."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink, rate=1000)
+        await s.begin_turn()
+        await s.feed(b"\x00\x00" * 4000)
+        await s.commit_turn()
+        grok.push(type="response.created")
+        grok.push(type="response.output_audio_transcript.delta", delta="one two three four five six seven eight nine ten")
+        grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 10000))  # 10 s of audio at 1 kHz
+        await _settle()
+        s._utt_t0 -= 2.5  # 2.5 s played x 1.2 = 3 s of 10 heard
+        await s.begin_turn()
+        notes = [m for m in grok.sent if m["type"] == "conversation.item.create" and m["item"]["role"] == "system"]
+        assert len(notes) == 1 and '"one two three ..."' in notes[0]["item"]["content"][0]["text"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text, stop", [
+    ("Albie, stop the training. Actually, never mind, let it run.", False),
+    ("Albie, stop. Don't stop the music though, keep going.", False),
+    ("No, no. Albie, stop. You are talking too much.", True),
+])
+def test_a_named_stop_taken_back_later_is_not_a_stop(text: str, stop: bool) -> None:
+    assert voice_mod.has_named_stop(text) is stop
+
+
+def test_a_long_reply_ends_at_a_sentence_break() -> None:
+    text = "One two three four. Five six seven eight. Nine ten eleven twelve. Want the details?"
+    cut = voice_mod.sentence_cut(text, 20.0, 13.0)
+    assert cut is not None and cut[1] == "One two three four. Five six seven eight." and cut[0] <= 13.0
+    assert voice_mod.sentence_cut(text, 12.0, 13.0) is None
+    assert voice_mod.sentence_cut("no sentence break in this whole long answer at all", 30.0, 13.0) is None
+
+
+@pytest.mark.parametrize("text, answered", [("Pause it.", True), ("Turn it down a bit.", True), ("Louder.", True),
+                                            ("How much time is left on my timer?", True), ("Save this spot as the cave scene.", True),
+                                            ("I am Iron Man.", False), ("Get me out of here, I need a suit, now.", False),
+                                            ("Get me out of here, Pepper.", False)])
+def test_while_the_movie_plays_only_desk_requests_skip_the_name(monkeypatch: pytest.MonkeyPatch, text: str,
+                                                                 answered: bool) -> None:
+    """The film's soundtrack reaches the headset mic: free speech would answer Tony Stark."""
+    from agent import wake as wake_mod
+
+    monkeypatch.setattr(wake_mod, "name_needed", lambda: True)
+
+    async def film(text: str, last: str | None = None) -> bool:
+        return False  # the Haiku film judge says "film" for everything here: only desk requests get through
+
+    monkeypatch.setattr(voice_mod.addressed, "said_to_albie", film)
+    s = _session(MockGrok(), Sink())
+    assert asyncio.run(s.addressed(text)) is answered
+
+
+def test_while_the_movie_plays_the_film_judge_decides_the_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+    from agent import wake as wake_mod
+
+    monkeypatch.setattr(wake_mod, "name_needed", lambda: True)
+    asked: list[str] = []
+
+    async def judge(text: str, last: str | None = None) -> bool:
+        asked.append(text)
+        return True
+
+    monkeypatch.setattr(voice_mod.addressed, "said_to_albie", judge)
+    s = _session(MockGrok(), Sink())
+    assert asyncio.run(s.addressed("Is it still stable?")) is True and asked == ["Is it still stable?"]
+    assert asyncio.run(s.addressed("Pause it.")) is True and len(asked) == 1  # a desk request needs no model call
+
+
+def test_a_bare_stop_still_stops_him_while_the_movie_plays(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lab demo run 1: the movie was on (name needed), and "Stop." over Albie was ignored."""
+    from agent import wake as wake_mod
+    from agent.wake import WakeRouter
+
+    async def run() -> None:
+        monkeypatch.setattr(wake_mod, "name_needed", lambda: True)
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        s.wake_router = WakeRouter(lead_pet_id="bit", emit_for=lambda pid: sink.emit, send_owner=sink.owner,
+                                   spawn=lambda c: asyncio.ensure_future(c))
+        stopped: list[str] = []
+
+        async def fake_stop(reason: str = "cancel") -> None:
+            stopped.append(reason)
+
+        s.stop_speech = fake_stop  # type: ignore[method-assign]
+        await s.begin_turn(require_name=True)
+        s.wake_router.begin(None, gated=True)
+        await s.feed(b"\x00\x00" * 4000)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type="conversation.item.input_audio_transcription.completed", item_id="item_1", transcript="Stop.")
+        await _settle()
+        assert "barge_in" in stopped
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_while_the_movie_plays_a_half_thought_is_held_and_its_rest_answered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lab 07:0x: movie on, "Close the ... movie." was answered as "Close the what?"."""
+    from agent import wake as wake_mod
+    from agent.wake import WakeRouter
+
+    async def film(text: str, last: str | None = None) -> bool:
+        return False
+
+    async def run() -> None:
+        monkeypatch.setattr(wake_mod, "name_needed", lambda: True)
+        monkeypatch.setattr(voice_mod.addressed, "said_to_albie", film)
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        s.wake_router = WakeRouter(lead_pet_id="bit", emit_for=lambda pid: sink.emit, send_owner=sink.owner,
+                                   spawn=lambda c: asyncio.ensure_future(c))
+        s.wake_router.judge = s.addressed
+        T = "conversation.item.input_audio_transcription"
+        for n, said in ((1, "Close the"), (2, "movie.")):
+            await s.begin_turn(wake=True)
+            s.wake_router.begin(None)
+            await s.feed(b"\x00\x00" * 4000)
+            await s.commit_turn()
+            grok.push(type="input_audio_buffer.committed", item_id=f"item_{n}")
+            grok.push(type=f"{T}.completed", item_id=f"item_{n}", transcript=said)
+            await _settle()
+            if n == 1:
+                assert "response.create" not in grok.types()
+                assert not any(m["type"] == "conversation.item.delete" for m in grok.sent)  # held, not forgotten
+        assert grok.types()[-1] == "response.create"
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_an_empty_transcript_gets_no_reply() -> None:
+    """Lab 07:3x: grok-transcribe returned nothing for "Make it walk.", and Grok's own reply guessed ("not MegaGrok")."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x00\x00" * 4000)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        grok.push(type="conversation.item.input_audio_transcription.completed", item_id="item_1", transcript="")
+        grok.push(type="response.created")
+        await _settle()
+        assert grok.types()[-1] == "response.cancel"
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_a_response_asked_while_an_unasked_reply_is_cancelled_waits_for_it() -> None:
+    """Lab 07:34: Grok's own reply was being cancelled when the hub asked for the real one; Grok rejected the create
+    and the turn got no answer."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.start()
+        grok.push(type="response.created")  # nobody asked: cancelled, _dropping until its done
+        await _settle()
+        assert grok.types()[-1] == "response.cancel"
+        await s._request_response()
+        assert "response.create" not in grok.types()
+        grok.push(type="response.done", response={"status": "cancelled"})
+        await _settle()
+        assert grok.types()[-1] == "response.create"
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_a_confirmed_turn_grok_ignores_is_asked_again_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(voice_mod, "NO_REPLY_S", 0.1)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed", item_id="item_1")
+        await asyncio.sleep(0.3)
+        assert grok.types().count("response.create") == 1
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_a_tool_reply_ending_while_an_unasked_reply_is_cancelled_keeps_its_results() -> None:
+    """Lab 08:25 (movie on): "How much time is left?" called timer_status, an unasked reply was being cancelled when the
+    tool reply ended, its done was taken for the cancelled one, the tool output was dropped and Albie never answered."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.start()
+        await s._request_response()
+        grok.push(type="response.created", response={"id": "r1"})
+        grok.push(type="response.function_call_arguments.done", name="no_such_tool", call_id="c1", arguments="{}")
+        grok.push(type="response.created", response={"id": "r2"})  # unasked: cancelled
+        grok.push(type="response.done", response={"id": "r1"})  # the tool reply ends first
+        await _settle()
+        assert any(m["type"] == "conversation.item.create" and m["item"].get("type") == "function_call_output"
+                   for m in grok.sent)
+        grok.push(type="response.done", response={"id": "r2", "status": "cancelled"})
+        await _settle()
+        assert grok.types()[-1] == "response.create"
+        await s.close()
+
+    asyncio.run(run())
