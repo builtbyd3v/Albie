@@ -10,6 +10,7 @@ pillow==13.0.0
 scipy==1.18.1  # convex hulls in cad/parts/humanoid.py; rocketpy pulls it too, but we import it directly
 # Agent module (pet: Q&A + coding tasks). The SDK bundles its own Claude Code CLI.
 claude-agent-sdk==0.2.173
+anthropic==2.3.0  # Claude Haiku check of who a sentence is for while a movie plays (agent/addressed.py)
 PyYAML==6.0.3
 python-dotenv==1.2.4
 websockets==17.3  # Grok Voice client (VOICE_PROVIDER=grok); uvicorn[standard] pulls it too
