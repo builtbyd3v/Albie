@@ -29,6 +29,8 @@ public class CadTakeApart : MonoBehaviour
     public float homeSeconds = 0.35f;
     [Tooltip("Albie handing you a part: seconds for each flight (to his jaw, from his jaw to you).")]
     public float fetchSeconds = 0.5f;
+    [Tooltip("A part riding in Albie's mouth shrinks to this longest side (m); it is its own size again for you.")]
+    public float carrySize = 0.035f;
     [Tooltip("Where a handed-over part waits: this far in front of your eyes (m)...")]
     public float handOverDistance = 0.4f;
     [Tooltip("...and this far below them (m).")]
@@ -47,6 +49,7 @@ public class CadTakeApart : MonoBehaviour
         public CadPartHandle handle;
         public Vector3 centre;           // visual centre, in the part's own space
         public Quaternion homeRotation;
+        public Vector3 homeScale;
         public bool off;                 // taken off: held, left somewhere (or flying home, until it lands)
         public Coroutine homing;
     }
@@ -72,6 +75,7 @@ public class CadTakeApart : MonoBehaviour
     Transform fetchCarrier;          // null: flying to the hand-over spot
     Vector3 fetchFrom, handOverAt;   // the part's centre when the flight began; where it waits for you
     Quaternion fetchFromRotation, carryRotation;  // carryRotation: in the carrier's space
+    Vector3 fetchFromScale, fetchScale;           // local scales: when the flight began, at its end
     float fetchT;
     string pendingTake;              // asked before the parts had grab shapes: Attach takes it
 
@@ -125,7 +129,8 @@ public class CadTakeApart : MonoBehaviour
             var handle = shape.AddComponent<CadPartHandle>();
             handle.Init(this, id, mesh, owns: filters.Count > 1);
             PartBounds(t, out Bounds b);
-            pieces.Add(new Piece { id = id, transform = t, handle = handle, centre = b.center, homeRotation = t.localRotation });
+            pieces.Add(new Piece { id = id, transform = t, handle = handle, centre = b.center, homeRotation = t.localRotation,
+                homeScale = t.localScale });
         }
         if (take != null) TakeOff(take, session != null ? session.PartCarrier : null);
     }
@@ -221,6 +226,14 @@ public class CadTakeApart : MonoBehaviour
         fetchFromRotation = t.rotation;
         carryRotation = carrier != null ? Quaternion.Inverse(carrier.rotation) * t.rotation : Quaternion.identity;
         handOverAt = HandOverSpot();
+        fetchFromScale = t.localScale;
+        fetchScale = p.homeScale;
+        if (carrier != null && p.handle != null)
+        {
+            Vector3 size = p.handle.Shape.bounds.size;  // in the room, at the current scale
+            float longest = Mathf.Max(size.x, Mathf.Max(size.y, size.z)) * p.homeScale.x / Mathf.Max(t.localScale.x, 1e-6f);
+            if (longest > carrySize) fetchScale = p.homeScale * (carrySize / longest);
+        }
         session.SetPartsOff(CountOff());
         if (carrier != null) session.ReportPartTaken(p.id);
         return true;
@@ -283,6 +296,7 @@ public class CadTakeApart : MonoBehaviour
         fetchT = Mathf.Min(1f, fetchT + Time.deltaTime / Mathf.Max(fetchSeconds, 0.01f));
         bool riding = fetchCarrier != null;
         float e = ForgeTween.EaseOutCubic(fetchT);
+        t.localScale = Vector3.LerpUnclamped(fetchFromScale, fetchScale, e);
         t.rotation = Quaternion.SlerpUnclamped(fetchFromRotation, riding ? fetchCarrier.rotation * carryRotation : fetchFromRotation, e);
         Vector3 centre = Vector3.LerpUnclamped(fetchFrom, riding ? fetchCarrier.position : handOverAt, e);
         t.position += centre - t.TransformPoint(p.centre);
@@ -425,21 +439,25 @@ public class CadTakeApart : MonoBehaviour
         if (t == null) return;
         if (!viewer.TryGetSlot(t, out Vector3 slot)) slot = t.localPosition;
         Quaternion rotation = p.homeRotation;
+        Vector3 scale = p.homeScale;
         if (instant || !isActiveAndEnabled)
         {
             t.localPosition = slot;
             t.localRotation = rotation;
+            t.localScale = scale;
             viewer.SetDetached(t, false);
             return;
         }
         Vector3 p0 = t.localPosition;
         Quaternion r0 = t.localRotation;
+        Vector3 s0 = t.localScale;
         p.homing = StartCoroutine(ForgeTween.Run(homeSeconds, 0f, k =>
         {
             if (t == null) return;
             float e = ForgeTween.EaseOutCubic(k);
             t.localPosition = Vector3.LerpUnclamped(p0, slot, e);
             t.localRotation = Quaternion.SlerpUnclamped(r0, rotation, e);
+            t.localScale = Vector3.LerpUnclamped(s0, scale, e);
         }, () =>
         {
             p.homing = null;
