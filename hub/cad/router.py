@@ -179,6 +179,36 @@ async def drawing_svg(v: int | None = None, cad: CadService = Depends(service)):
     return await drawing_file(cad, v, "svg", "image/svg+xml")
 
 
+async def package_rows(cad: CadService, v: int | None) -> tuple[VersionRecord, list[dict[str, Any]]]:
+    r = record(cad, v)
+    try:
+        return r, await cad.package(r.version)
+    except LookupError as e:
+        raise HTTPException(409, str(e)) from None
+    except RegenError as e:
+        raise regen_error(e) from None
+
+
+@router.get("/files")
+async def files(v: int | None = None, cad: CadService = Depends(service)):
+    """A version's files for a supplier (what Bit attaches to a Slack message): the CAD model (STEP), an STL for 3D
+    printing, the drawing as PDF and the parts list as CSV -> {part, version, files: [{kind, name, title, bytes}]}.
+    Made on first request (a few seconds), then cached. 409 if the version was built from an older part script."""
+    r, rows = await package_rows(cad, v)
+    return {"part": r.part, "version": r.version,
+            "files": [{k: row[k] for k in ("kind", "name", "title", "bytes")} for row in rows]}
+
+
+@router.get("/files/{name}")
+async def file_download(name: str, v: int | None = None, cad: CadService = Depends(service)):
+    """One of those files, by the name /cad/files lists."""
+    _, rows = await package_rows(cad, v)
+    row = next((row for row in rows if row["name"] == name), None)
+    if row is None:
+        raise HTTPException(404, f"No file {name!r}; the files are {[row['name'] for row in rows]}")
+    return FileResponse(row["path"], filename=row["name"])
+
+
 @router.get("/flight")
 async def flight(v: int | None = None, cad: CadService = Depends(service)):
     """Simulated flight on an Estes C6 (rocket designs): apogee, speeds, a trajectory for the room arc, and the
@@ -225,7 +255,8 @@ def latest(request: Request):
 @router.post("/view")
 async def view(body: CadView, request: Request, cad: CadService = Depends(service)):
     """UI-only: explode the assembly or focus a part. Doesn't change the design."""
-    if body.focus_id is not None and body.focus_id not in cad.current.fingerprints:
-        raise HTTPException(404, f"No object {body.focus_id!r}; objects: {sorted(cad.current.fingerprints)}")
+    for focus in ([body.focus_id] if body.focus_id is not None else []) + body.focus_ids:
+        if focus not in cad.current.fingerprints:
+            raise HTTPException(404, f"No object {focus!r}; objects: {sorted(cad.current.fingerprints)}")
     await request.app.state.bus.publish("cad.view", body)
     return {"ok": True}

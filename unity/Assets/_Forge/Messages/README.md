@@ -43,10 +43,12 @@ without a hub the panels show "Hub offline" and connect by themselves when it ap
   (or in front of the camera without a desk): recipient, what it answers, the exact text, Send and Cancel. Sent, it says
   "Sent to #x" in green for ~2 s before it folds; the message is in that conversation when you open it. With the panel
   open, `DraftPresenter` hands the draft to the composer instead (and a floating card moves into the composer when the
-  panel opens).
+  panel opens). A draft with files (`NotifyDraft.attachments`, e.g. a CAD design's STEP / STL / drawing / parts list) shows
+  them as one line on the card and on the composer's "Albie drafted this" banner; the hub uploads them with the text on Send.
 - **Albie opens a conversation** ("open my chat with Adrian", "pull up #general": the hub's `messages_open` tool, or
   `POST /messages/open {channel}`). `SlackRemote` (self-installing, like `DraftPresenter`) takes the hub's
-  `messages.open`, shows that conversation on the Slack panel, opening MSG mode when it is closed (like tapping a Mentions
+  `messages.open`, shows that conversation on its provider's panel
+  (`SlackPanel.ForChannel`: Slack, or the iMessage panel for an `im:` chat), opening MSG mode when it is closed (like tapping a Mentions
   card), and answers `messages.opened {ok, reason?}` in the same frame (`not_at_desk` away from the desk), so Albie says
   what really happened. A DM the hub just opened gets a row at once (`SlackStore.Provisional`).
 
@@ -82,7 +84,8 @@ Core/Resources/ForgeLook); TMP's default font is the fallback. One canvas per pa
 | `Scripts/DraftCard.cs` | The Send / Cancel card. |
 | `Scripts/MessagesDeskZone.cs` | Marker + desk-frame `Footprint` the pet keeps clear of while cards float (unchanged). |
 | `Editor/MessagesPrefabBuilder.cs` | **Forge > Messages > Build Prefabs** builds the four prefabs below (and deletes the old MessagesPanel.prefab). |
-| `Resources/SlackPanel.prefab`, `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Resources/SlackPanel.prefab`, `IMessagePanel.prefab` (panel id `messages-imessage`), `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Scripts/MessagesLayout.cs` | Adds the iMessage panel to MSG mode at runtime (center, Slack moves right) only when the hub's `/health` reports `imessage.available`; otherwise MSG is unchanged. No scene edit. |
 
 ## Slotting it into Main (Hudson)
 

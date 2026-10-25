@@ -2303,6 +2303,8 @@ MonoBehaviour:
   spawnRightOffset: 0.3
   gator: {fileID: 4881072429429037500}
   leftHanded: 0
+  besideDock: 1
+  dockGap: 0.015
   idleColor: {r: 1, g: 0.62, b: 0.15, a: 1}
   activeColor: {r: 0.35, g: 0.85, b: 0.45, a: 1}
   busyColor: {r: 0.55, g: 0.55, b: 0.6, a: 1}
@@ -5434,6 +5436,12 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 275768685626357008, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4743101170165081428}
+    - targetCorrespondingSourceObject: {fileID: 275768685626357008, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 612942480473611363}
+    - targetCorrespondingSourceObject: {fileID: 275768685626357008, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5082417721028782837}
   m_SourcePrefab: {fileID: 100100000, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
 --- !u!4 &852566386528534302 stripped
 Transform:
@@ -5530,10 +5538,11 @@ MonoBehaviour:
   listenForNames: 1
   bridge: {fileID: 0}
   pushToTalk: {fileID: 0}
+  followUp: {fileID: 0}
   minLevel: 0.02
   noiseRatio: 3
   startSeconds: 0.2
-  endSilence: 1
+  endSilence: 2
   prerollSeconds: 0.5
   minSpeech: 0.35
   maxSegment: 12
@@ -5588,6 +5597,43 @@ MonoBehaviour:
   loudSeconds: 0.15
   lookToTalk: 1
   lookAngle: 40
+  lookGrace: 1.5
+  lookCountsAsName: 0
+--- !u!114 &612942480473611363
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5760713368187174452}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e10a380a24c0b44d89d520af25ec6dc1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorFetch
+  jawBone: {fileID: 0}
+  jawBoneName: jaw
+  mouth: {x: 0, y: 0.04, z: 0.13}
+  standOff: 0.25
+  maxTripSeconds: 5
+--- !u!114 &5082417721028782837
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5760713368187174452}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2de062f4ba71846e2afc61ff5e31818c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorFixCard
+  panelPrefab: {fileID: 3969253326686314734, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+  client: {fileID: 0}
+  petId: bit
+  size: {x: 0.3, y: 0.18}
+  above: 0.2
+  showSeconds: 20
 --- !u!114 &6704805732026713637 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 1237875458703887617, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}

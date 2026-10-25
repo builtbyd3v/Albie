@@ -2,8 +2,9 @@
 
 Every message is {"type": ..., "payload": {...}}. Models so far: CAD, ui.highlight, the VS Code push event,
 the Slack notify.* events (PROJECT_CONTEXT 7 + 8.8), screen.status (the screen-bridge supervisor, hub/screens;
-docs/PET_AGENT_CONTRACT.md Addendum F) and the desk extras (ui.widgets, timers.updated, notes.updated,
-movie.state). The ML and pet models from section 7 still belong to their owners; add them next to these.
+docs/PET_AGENT_CONTRACT.md Addendum F), the desk extras (ui.widgets, timers.updated, notes.updated, movie.state),
+and Albie driving the views: ui.mode, cad.action, draft attachments (Addendum H).
+The ML and pet models from section 7 still belong to their owners; add them next to these.
 """
 from __future__ import annotations
 
@@ -174,6 +175,22 @@ class CadRegenFailed(BaseModel):
 class CadView(BaseModel):
     explode: bool | None = None
     focus_id: str | None = None
+    focus_ids: list[str] = []         # proposed: several parts lit at once (all the fins); focus_id is the first of
+                                      # them, so a build without focus_ids still lights one
+
+
+class CadAction(BaseModel):
+    """Bit pressing a button in the CAD view (docs/PET_AGENT_CONTRACT.md Addendum H). One-off, not sticky: a client
+    that connects later must not replay it. Unity applies it once the model of `version` is on screen."""
+    action: Literal["expand", "demo", "markers", "dimensions", "tab", "reassemble", "take_off", "put_back"]
+    on: bool | None = None            # expand (Inspect: the model big in front of the user) / demo (Fly, Hover, Run) /
+                                      # markers / dimensions: true = turn it on, false = off
+    tab: str | None = None            # tab: overview | parameters | analysis | history (the design panel)
+    part_id: str | None = None        # proposed, take_off: the part Albie takes off and hands you (taken already: the
+                                      # next one of its group, FIN_2 after FIN_1); put_back: that part, none = the last
+    part: str = ""                    # the design it is for
+    version: int | None = None        # the version it is for: wait until that version is loaded
+    seq: int = 0                      # increasing per hub run: a CadSession that starts late applies the last one once
 
 
 class VscodeEvent(BaseModel):
@@ -201,6 +218,11 @@ class ScreenStatus(BaseModel):
     detail: str | None = None         # last status line ("signaling: connected", "video: connected h264", an error)
 
 
+class UiMode(BaseModel):
+    """hub -> clients: Bit opens a workspace view (Addendum H). Unity answers with workspace.mode {mode, reason?}."""
+    mode: str                         # cad | code | ml | messages; "" closes the open view
+
+
 class UiHighlight(BaseModel):
     panel: str
     item_ids: list[str] | None = None
@@ -222,6 +244,7 @@ class SlackMessage(BaseModel):
     edited: bool | None = None        # Slack marked it edited
     is_me: bool | None = None         # the user's own message: shown in history, skipped by digest / unread
     user_initials: str | None = None  # two letters for the avatar bubble
+    source: Literal["slack", "imessage"] = "slack"
 
 
 NotifyMessage = SlackMessage          # same name as the C# DTO
@@ -238,11 +261,23 @@ class ChannelSummary(BaseModel):
     last_text: str | None = None
     topic: str | None = None
     is_default: bool = False          # SLACK_DEFAULT_CHANNEL
+    source: Literal["slack", "imessage"] = "slack"
 
 
 class NotifyChannels(BaseModel):
     """The whole channel list, sorted: DMs / group DMs with unread first, then by last_ts desc. Sticky on /ws."""
     channels: list[ChannelSummary] = []
+
+
+class Attachment(BaseModel):
+    """A file on a draft (Addendum H). The hub keeps the file; clients only see what to show on the card."""
+    id: str
+    name: str                         # file name as it lands in Slack: rocket_v12.step
+    title: str = ""                   # what it is, in words: "CAD model (STEP)"
+    kind: str = "file"                # step | stl | drawing | parts | file: picks the chip's icon
+    bytes: int = 0
+    source: str = ""                  # where it came from: "cad rocket v12"
+    path: str = Field(default="", exclude=True)  # on the hub's disk; never serialized
 
 
 class Draft(BaseModel):
@@ -258,6 +293,8 @@ class Draft(BaseModel):
     thread_ts: str | None = None
     reply_to: SlackMessage | None = None
     edited: bool = False              # the user changed the text (PATCH /messages/drafts/{id}); same draft_id re-emitted
+    attachments: list[Attachment] = []  # files uploaded with the message when it is sent (Addendum H); [] = text only
+    source: Literal["slack", "imessage"] = "slack"
 
 
 class MessagesOpen(BaseModel):
@@ -276,6 +313,7 @@ class NotifySent(BaseModel):
     channel_name: str
     text: str
     ts: str
+    source: Literal["slack", "imessage"] = "slack"
 
 
 class NotifyDraftCancelled(BaseModel):

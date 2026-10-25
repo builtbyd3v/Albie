@@ -34,8 +34,11 @@ from claude_agent_sdk import (
     ResultMessage,
     StreamEvent,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
+from vscode import live as vscode_live
 
 from . import events as ev
 from . import tools as forge_tools
@@ -106,6 +109,15 @@ CODE_PROMPT = (
 )
 
 
+EDIT_IN_PLACE_PROMPT = (
+    PERSONA
+    + " You are making a change in the folder the user has open in VS Code right now, in place: no branch, no "
+    "commit. Create or edit the files directly; each one opens live in VS Code as you change it. Keep changes "
+    "minimal and focused, and do not delete anything you were not asked to. When done, finish with a 1-2 sentence "
+    "plain-text summary of what you changed, naming files relative to the folder."
+)
+
+
 def _model() -> str:
     return os.getenv("AGENT_MODEL", "claude-sonnet-5-5")
 
@@ -146,7 +158,8 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
         approved = tools
         from .crew import lead_rules  # registers the crew tools; imported late (crew imports this module lazily)
 
-        prompt = (QA_PROMPT if mode == "qa" else CODE_PROMPT) + lead_rules()
+        code_prompt = EDIT_IN_PLACE_PROMPT if project.edit_in_place else CODE_PROMPT  # the sandbox has no branch
+        prompt = (QA_PROMPT if mode == "qa" else code_prompt) + lead_rules()
     else:
         tools, approved = _crew_tools(agent, mode)
         prompt = crew_prompt(agent, mode)
@@ -162,7 +175,7 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
         cwd=str(cwd or project.path),
         system_prompt=prompt,
         model=_model(),
-        effort=effort or ("low" if mode == "qa" else "medium"),  # type: ignore[arg-type]
+        effort=effort or "low",  # code too (Dev, 2026-10-24): faster small edits beat a more careful plan in the demo  # type: ignore[arg-type]
         setting_sources=["project"],  # load the repo's CLAUDE.md, not the user's global settings
         include_partial_messages=(mode == "qa"),  # token deltas -> smooth captions
         max_turns=12 if mode == "qa" else 40,
@@ -378,7 +391,9 @@ async def _run_code(
     task_id = uuid.uuid4().hex[:8]
     cwd: Path | None = None
     base: str | None = None
-    if agent is None:  # Bit: a branch in the main checkout (unchanged)
+    if project.edit_in_place:  # the sandbox: edit what VS Code shows, no branch to switch to
+        branch = None
+    elif agent is None:  # Bit: a branch in the main checkout (unchanged)
         branch = await asyncio.to_thread(create_task_branch, project.path, text, task_id)
     else:  # crew: its own worktree, so parallel members never share a checkout
         made = await asyncio.to_thread(create_task_worktree, project.path, text, task_id, pet_id)
@@ -386,21 +401,38 @@ async def _run_code(
     title = text if len(text) <= 60 else text[:57] + "..."
     await emit(ev.task_started(pet_id, task_id, title))
     if branch is None:
-        await emit(ev.task_progress(pet_id, task_id, "Not a git repo, editing in place"))
+        await emit(ev.task_progress(pet_id, task_id, "Editing in place" if project.edit_in_place
+                                    else "Not a git repo, editing in place"))
     else:
         await emit(ev.task_progress(pet_id, task_id, f"Working on branch {branch}"))
 
     root = cwd or project.path
     last_text = ""
     summary: str | None = None
+    edits: dict[str, ToolUseBlock] = {}  # edit tool uses waiting for their result, by id
+    live: set[asyncio.Task[None]] = set()
+
+    def show(coro: Any) -> None:  # VS Code open / glow in the background: never slows the turn
+        task = asyncio.create_task(coro)
+        live.add(task)
+        task.add_done_callback(live.discard)
+
     async with contextlib.aclosing(_stream(project, "code", text, control, pet_id, agent, cwd)) as stream:
         async for msg in stream:
             if isinstance(msg, AssistantMessage) and not msg.parent_tool_use_id:
                 for block in msg.content:
                     if isinstance(block, ToolUseBlock):
                         await emit(ev.task_progress(pet_id, task_id, describe_tool(block, root)))
+                        if block.name in vscode_live.EDIT_TOOLS:  # the file opens on the stream as Albie edits it
+                            edits[block.id] = block
+                            show(vscode_live.opening(block.name, block.input))
                     elif isinstance(block, TextBlock) and block.text.strip():
                         last_text = block.text.strip()
+            elif isinstance(msg, UserMessage) and edits and isinstance(msg.content, list):
+                for result in msg.content:  # an edit landed: glow its lines
+                    if isinstance(result, ToolResultBlock) and (done := edits.pop(result.tool_use_id, None)):
+                        if not result.is_error:
+                            show(vscode_live.edited(done.name, done.input))
             elif isinstance(msg, ResultMessage):
                 if _cancelled(control):
                     return ""

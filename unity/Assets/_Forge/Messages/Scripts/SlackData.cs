@@ -80,6 +80,35 @@ public static class SlackText
         return ((int)(age / 86400)) + "d";
     }
 
+    /// <summary>A draft's files in one line: "4 files · STEP, STL, Drawing PDF, Parts list · 1.2 MB"; "" for none.</summary>
+    public static string Attachments(System.Collections.Generic.List<DraftAttachment> files)
+    {
+        if (files == null || files.Count == 0) return "";
+        sb.Clear();
+        sb.Append(files.Count == 1 ? "1 file · " : files.Count + " files · ");
+        long bytes = 0;
+        for (int i = 0; i < files.Count; i++)
+        {
+            var f = files[i];
+            if (i > 0) sb.Append(", ");
+            sb.Append(f.kind switch
+            {
+                "step" => "STEP",
+                "stl" => "STL",
+                "drawing" => "Drawing PDF",
+                "parts" => "Parts list",
+                _ => f.name,
+            });
+            bytes += Math.Max(0, f.bytes);
+        }
+        return sb.Append(" · ").Append(Size(bytes)).ToString();
+    }
+
+    /// <summary>"820 KB" / "1.2 MB".</summary>
+    public static string Size(long bytes) =>
+        bytes >= 1_000_000 ? (bytes / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + " MB"
+        : Math.Max(1, (bytes + 999) / 1000) + " KB";
+
     public static string FirstLine(string text)
     {
         if (string.IsNullOrEmpty(text)) return "";

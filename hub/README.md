@@ -79,6 +79,11 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
 - `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
   views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
   Mesh designs take a mesh path (visible edges and silhouettes, no dashed hidden lines), about 6 s for the humanoid.
+- `GET /cad/files?v=N`: a version's **files for a supplier** (`cad/package.py`): `<part>_vN.step` (the CAD model,
+  AP214, mm), `.stl` (3D printing), `_drawing.pdf` (the drawing, no orange) and `_parts.csv` (part, material, qty,
+  mass) -> `{part, version, files: [{kind: step|stl|drawing|parts, name, title, bytes}]}`; `GET /cad/files/{name}?v=N`
+  downloads one. Made in one worker job on first request (a few seconds), cached in the version's `package/` folder.
+  Bit attaches them to Slack drafts (`messages_send` `attach`, see "Bit runs the workspace").
 
 ## Test
 
@@ -113,8 +118,9 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 | `cad/flight.py` | RocketPy launch-to-apogee sim on an Estes C6 (`cad/data/estes_c6.eng`), then parachute descent to landing; fixed-rate samples + events. |
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
 | `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
+| `cad/package.py` | The supplier files of a version: STEP, STL, drawing PDF, parts CSV (`GET /cad/files`, Slack attachments). |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
-| `cad/tools.py` | Albie's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+| `cad/tools.py` | Albie's CAD tools (JSON schemas + `call_tool`) for the agent module; `attachments()` for Slack drafts. |
 
 ## Agent module (pet)
 
@@ -139,6 +145,7 @@ agent/
   crew.py     Albie's crew: agent types, roster, parallel member turns, the lead-only crew tools
   wake.py     "Hey Albie" / "<Crew name>, ..." routing for always-on wake turns
   speech.py   live voice sessions by pet id: speak(text) and note(text) for other modules (digest, focus)
+  workspace.py Bit opens views: ui.mode out, workspace.mode back (the ui_open_view tool; CAD/Slack tools use ensure)
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
   stt.py      SpeechToText: NoneSTT, WhisperSTT (faster-whisper, optional)
@@ -178,7 +185,7 @@ events, task_complete (branch `pet/fake-123`). The text `error` gives agent.erro
 (seconds, default 0.6) sets the pacing.
 
 Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
-`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`medium`).
+`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`low`).
 
 - **qa**: tools `Read, Grep, Glob` only, `permission_mode="dontAsk"`, `cwd` = repo, short spoken persona.
 - **code**: the hub checks out `pet/<slug>-<id>` first (skipped, and said so, if not a git repo), then runs
@@ -230,6 +237,32 @@ branch are kept and named in the summary. Albie says so out loud (voice mode) an
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
 that member's turn without touching Albie's.
 
+### Bit runs the workspace (views, CAD, files to Slack)
+
+From the desk with nothing open: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the
+shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Make it shorter. Send it." Each
+sentence is one or two of Bit's fast tools, called straight from Grok (no `delegate`), so each answers in about a
+second. The contract is `docs/PET_AGENT_CONTRACT.md` Addendum H; `tests/test_bit_script.py` runs that whole script.
+
+- **Views.** `ui_open_view {view: cad|code|ml|messages|none}`. The hub sends `ui.mode {mode}`; Unity opens the view
+  (only at the desk) and answers with `workspace.mode {mode, reason?}`, so Bit's result says what really happened
+  (`reason: "not_at_desk"` -> "sit down at the desk first"). `agent/workspace.py` waits 1.5 s for that answer, and only
+  0.4 s while the Unity build in use never answers (one without the handler), so no tool stalls on it.
+- **CAD tools open the CAD view themselves** (`cad_open_part`, `cad_set_params`, presets, undo/reset, `cad_view`,
+  `cad_demo`, `cad_restore_version`), so you never have to say "open CAD" first. If it can't open, the change still
+  happens and the result carries `view_error`. New: `cad_open_part` takes what people say ("the drone", "gear box");
+  `cad_view` also does `expand` (the model big in front of you), `markers`, `dimensions` and `tab`; `cad_demo {run}`
+  presses the design's Fly / Hover / Run (the rocket's flight numbers come back too); `cad_list_versions`,
+  `cad_restore_version {version}`; `cad_export_files` (the supplier files). Unity's buttons are pressed with
+  `cad.action {action, on?, tab?, part, version, seq}` (not sticky).
+- **Slack with files.** `messages_send {..., attach: [all|step|stl|drawing|parts], open_messenger?}` puts the open
+  design's current files on the draft (`Draft.attachments`: name, title, kind, bytes; the hub keeps the paths) and, with
+  files, opens the messenger first so the draft shows in its conversation. `messages_edit_draft {text}` rewords the open
+  draft in place (same id, same files). Send (the card, or "send it" -> `messages_confirm`) uploads text and files in one
+  `files_upload_v2` under your name. If Slack refuses, the draft stays open for another try. **Needs `files:write`**
+  (and `files:read`, for the message's ts): added to `manifest.json`, so run `slack run` once in `hub/` and re-copy the
+  User OAuth Token into `SLACK_USER_TOKEN` (README "Messaging"). Drafts now expire after 5 minutes, not 2.
+
 ### Test
 
 ```bash
@@ -262,7 +295,7 @@ The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` / `w
 The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
 pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
 
-## Messaging (Slack)
+## Messaging (Slack and iMessage)
 
 Albie reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
 `hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
@@ -293,8 +326,41 @@ SLACK_USER_ID=U...              # optional, derived from the user token; only ne
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```
 
-Bot + app tokens empty = messaging disabled (one warning at startup, every `/messages/*` endpoint but `/digest` answers
-503; `/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, channels, open_draft}`.
+### Optional iMessage (macOS)
+
+Off by default. With `IMESSAGE_ENABLED=1` on macOS, the hub reads `~/Library/Messages/chat.db` read-only (texts from
+the last `IMESSAGE_RECENT_DAYS`, default 3) and adds those conversations to the shared inbox and Albie's messaging tools.
+
+**Privacy allowlist (required).** `IMESSAGE_ALLOW` is a comma-separated list of phone numbers (any format: `(352)
+555-0123`, `352.555.0123` and `+1 352 555 0123` are the same; a bare 10-digit number is US, `+1`) or emails (case does
+not matter). Only 1:1 chats with those handles are read, filtered in the SQL query itself, so no other text ever reaches
+the hub, events, headset, Albie, the digest or logs. Group chats are always hidden, even when every member is allowed.
+Sending is refused for anything else before `imsg` runs. Enabled with an empty or missing `IMESSAGE_ALLOW` loads
+nothing (`/health`: `enabled, no allowed contacts (set IMESSAGE_ALLOW)`). Logs carry counts only.
+It starts in the background, so it never delays Slack, screens or `/health`. Sending needs the `imsg` CLI, which the
+hub never installs: without it iMessage is read-only, and the startup log and `/health` (`send_error`) say to run
+`brew install steipete/tap/imsg` (a third-party tap) yourself. On macOS 26, `imsg` verifies sends against the Messages database because
+AppleScript can report success without a real outgoing row.
+
+In the Unity MSG mode, mentions and unread notifications appear on the left and Slack (`messages`) in the center. Only
+when `/health` reports `imessage.available` does `MessagesLayout` add the iMessage panel (`messages-imessage`) in the
+center and move Slack to the right. Selecting an unread item opens its conversation in the matching provider panel.
+
+The first startup also checks whether the hub can read Messages. If macOS blocks access, grant **Full Disk Access**
+to the app running the hub (for example Terminal, iTerm, or VS Code) in **System Settings > Privacy & Security >
+Full Disk Access**, then restart the hub. macOS requires this explicit user action; `/health` returns the setup
+instructions and a direct link to that Settings pane. The first send may prompt for **Automation** permission to
+control Messages; allow it. Set `IMESSAGE_CLI` only when you intentionally use a custom `imsg` executable.
+`/health` exposes `imessage.available` and `imessage.send_available` separately.
+
+Albie uses the same confirmation flow for both providers: `messages_send` creates a draft, then only `messages_confirm`
+after a clear user confirmation sends it. For an iMessage reply, pass the source message's `ts` as `reply_to_ts`; for
+a chosen conversation, pass its `im:<chat-guid>` id as `channel`. To start a new draft, set `via: "imessage"` and
+name an existing conversation. The current CLI adapter targets existing chats; it does not start a brand-new chat.
+`IMESSAGE_DIGEST=false` keeps texts out of the spoken sit-down digest while leaving their unread marks intact.
+
+Bot + app tokens empty = Slack is disabled, but iMessage (when enabled) can still power supported inbox and draft endpoints.
+Slack-specific endpoints return 503. `/health` reports Slack and iMessage separately.
 
 Live check without Unity:
 
@@ -318,26 +384,26 @@ of every conversation and a seen mark per conversation, so a second open is inst
 /messages/drafts/{id}` re-emits `notify.draft` with the same `draft_id` and `edited: true`. Only `POST
 /messages/drafts/{id}/send` (the button) or the `messages_confirm` tool ("send it") posts it, with your token, then
 `notify.message` (the post, `is_me`, so the open conversation shows it at once) and `notify.sent`. One open draft at a time: a new one supersedes it (`notify.draft_cancelled`, reason `superseded`);
-unsent drafts expire after 120 s (`expired`, an edit restarts the clock); Cancel gives `cancelled`. The composer
+unsent drafts expire after 300 s (`expired`, an edit restarts the clock); Cancel gives `cancelled`. The composer
 clears on `notify.sent` or `notify.draft_cancelled`, whichever path confirmed. A draft's `channel` is an id, a `#name`,
 or a person's name: "tell Hudson ..." drafts into their DM (opened with `conversations.open` if there is none yet).
 
 | | |
 |---|---|
-| `GET /messages/channels` | `{channels: ChannelSummary[]}`: every conversation you are in (`id, name, kind: channel\|private\|dm\|group-dm, unread, mentions, last_ts, last_text, topic, is_default`), DMs / group DMs with unread first, then by `last_ts` desc. `name` is `#forge-team`, the person (dm) or the people (group-dm). |
-| `GET /messages/history?channel=&limit=50&before=` | `{channel, channel_name, kind, messages: SlackMessage[], has_more}`: the conversation's top-level messages oldest -> newest (limit max 100; `before` = a ts, pages backwards). Threaded messages carry `reply_count`; your own posts are there with `is_me`. From the store when it has the page, else `conversations.history` merged into it. |
+| `GET /messages/channels` | `{channels: ChannelSummary[]}`: Slack and available iMessage conversations, with provider `source`; DMs / group DMs include unread counts, sorted by `last_ts` desc. iMessage IDs start with `im:`. |
+| `GET /messages/history?channel=&limit=50&before=` | `{channel, channel_name, kind, messages: SlackMessage[], has_more}`: Slack or iMessage history oldest -> newest; iMessage uses `chat.db` and `im:<chat-guid>`. |
 | `POST /messages/channels/{id}/seen` | the conversation is open in the panel -> `{ok, unread: 0}`; `notify.channels` follows |
 | `GET /messages/users/me` | `{user_id, name, display_name, team}`: who the hub posts as, and the workspace's name (the panel's sidebar header; `""` until Slack connects) |
-| `POST /messages/open {channel, pet_id?}` | show a conversation in Unity (same as the `messages_open` tool): `channel` is an id, `#name` or a person's name (their DM, opened if needed; nothing is posted). Publishes `notify.channels` then `messages.open`, waits up to 1.5 s for Unity's `messages.opened` -> `{ok, channel, channel_name, kind}`; 409 with the reason when Unity refused (not at the desk) or didn't answer, 404 for an unknown channel or person |
-| `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me, reply_count, edited, is_me, user_initials) |
-| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
+| `POST /messages/open {channel, pet_id?}` | show a conversation in Unity (same as the `messages_open` tool): `channel` is an id, `#name`, a person's name (their Slack DM, opened if needed) or an iMessage `im:` chat; nothing is posted. Publishes `notify.channels` then `messages.open`, waits up to 1.5 s for Unity's `messages.opened` -> `{ok, channel, channel_name, kind}`; 409 with the reason when Unity refused (not at the desk) or didn't answer, 404 for an unknown channel or person |
+| `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage` includes `source: slack\|imessage`) |
+| `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited, attachments, source}` (`attachments`: files Albie put on it, `[{id, name, title, kind, bytes, source}]`, uploaded with the text on send; `[]` for typed drafts); `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
 | `PATCH /messages/drafts/{id} {text?, channel?, thread_ts?}` | the user edited the draft -> the `Draft` again, same `draft_id`, `edited: true`, `notify.draft` re-emitted; 404 if it is gone, 422 for empty text |
-| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
+| `POST /messages/drafts/{id}/send` | post it as you -> `{ts}` (with files: one `files_upload_v2`, the text as its comment; `ts` from `files.info`, `""` if Slack hasn't shared it yet); 404 if the draft is gone (sent, cancelled, expired, superseded); if Slack refuses it (502), the draft stays open so Send can try again |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
 | `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Albie" on a message (same as the ws message `messages.focus`): Albie says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
 | `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`, `messages.open {pet_id, request_id, channel, channel_name, kind}`; client -> hub: `messages.focus {pet_id, channel, ts}`, `messages.opened {pet_id, request_id, channel, ok, reason?}` (reason `not_at_desk` \| `no_workspace`) |
-| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_open {channel}` (shows it on the Slack panel, opening MSG mode), `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
+| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_open {channel, via?}` (shows a Slack channel / DM or an iMessage chat in MSG mode), `messages_send {text, reply_to_ts?, channel?, thread_ts?, via?, attach?, open_messenger?}` (draft only; no target = the message in focus; a person's name = their DM; iMessage replies route by source; `via: imessage` starts a new iMessage draft; `attach`: the open CAD design's files on a Slack draft, `all` or `step`/`stl`/`drawing`/`parts`; with files the messenger opens first), `messages_edit_draft {text}` (reword the open Slack draft, keeps its files), `messages_confirm {send, draft_id?}` |
 | Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
 **Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's
@@ -378,11 +444,12 @@ remaining time and the movie's position are computed at that moment, not copied 
 | `GET /movie` · `GET /movie/library` | `MovieState {status: closed\|playing\|paused, movie?, position_s, volume, seek_rev}` · `MovieInfo[] {movie_id, title, year, duration_s, url, subtitles_url}` |
 | `GET /movie/files/<id>.mp4` · `<id>.en.srt` | the file, with byte ranges (seeking); subtitles |
 | `POST /movie/play {movie_id?, from_start?}` | opens the screen; resumes where you stopped (a movie stopped in its last 2 min starts over) |
-| `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s}` · `/volume {volume}` | close keeps your place |
+| `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s \| mark}` · `/volume {volume}` | close keeps your place; seek to a `mark` (id, label or its words) plays it, putting its movie on |
+| `GET /movie/marks?movie_id=` · `POST /movie/marks {label, position_s?, movie_id?}` · `POST /movie/marks/{mark_id}/remove` | `MovieMark {mark_id, label, position_s}`: named spots per movie, by time (hub only, nothing on `/ws`; model in `desk/movie.py`). No position = a few seconds before where it is now; a label that exists moves |
 | `POST /movie/position {position_s, duration_s?, ended?}` | Unity's player reports where it is (every few s, on pause, at the end). No event back: Unity is the clock |
 | `GET /ui/widgets` · `POST /ui/widgets {timer?, notes?, movie?}` | `UiWidgets`, each `open\|minimized\|closed` (minimized = the dot). Closing the timers stops them, closing the movie closes it |
 | `/ws` events | `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; `pet.say` "Time's up! ..." when a timer rings (also spoken) |
-| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, volume?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
+| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, mark?, volume?, by?}`, `movie_marks {action: save\|list\|remove, label?, seconds?, title?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
 
 Unity, for the panels: count each timer down locally from `remaining_s` when `timers.updated` arrives (the Quest's
 clock isn't the laptop's); play the chime while `status` is `ringing`. Seek the VideoPlayer only when `seek_rev`
@@ -409,6 +476,6 @@ movie/library, ui/widgets REST answers) and `desk/sequence.json` (a ForgeMockPla
 notes in, notes to a dot, movie on, the tea timer rings and is stopped). Copy both into `unity/Assets/_Forge/Mocks/`.
 
 Map: `desk/timer.py` (`TimerBoard`, the spoken line), `notes.py` (`NotesStore`, `.data/desk/notes.json`), `movie.py`
-(`MovieService`: library, places per movie and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
+(`MovieService`: library, places per movie, marks and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
 widgets, events, Bit's voice), `router.py`, `tools.py`, `make_mocks.py`. Tests: `pytest tests/test_desk.py`. Not saved:
 running timers (a hub restart forgets them).

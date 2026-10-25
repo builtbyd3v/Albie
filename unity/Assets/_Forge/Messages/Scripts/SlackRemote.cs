@@ -4,8 +4,8 @@ using UnityEngine;
 
 /// <summary>
 /// Albie opens a conversation ("open my chat with Adrian", "pull up #general": the hub's messages_open tool). The hub's
-/// ws <c>messages.open {pet_id, request_id, channel, channel_name, kind}</c> shows it on the Slack panel, opening MSG mode
-/// when it is closed (like tapping a Mentions card does), and this answers <c>messages.opened {pet_id, request_id,
+/// ws <c>messages.open {pet_id, request_id, channel, channel_name, kind}</c> shows it on its provider's panel (Slack, or
+/// iMessage for an <c>im:</c> chat; <see cref="SlackPanel.ForChannel"/>), opening MSG mode when it is closed (like tapping a Mentions card does), and this answers <c>messages.opened {pet_id, request_id,
 /// channel, ok, reason?}</c> in the same frame, so Albie says what really happened. reason: <c>not_at_desk</c> (the
 /// Workspace only opens at a desk) or <c>no_workspace</c>. A conversation the list doesn't have yet (a DM the hub just
 /// opened) gets a row right away (<see cref="SlackStore.Provisional"/>). Installs itself on scene load into any scene
@@ -38,7 +38,8 @@ public class SlackRemote : MonoBehaviour
         SlackStore.Provisional(req.channel, req.channelName, req.kind);
         string reason = null;
         var ws = Workspace.Current;
-        if (SlackPanel.Active != null) SlackPanel.Active.Open(req.channel);
+        var panel = SlackPanel.ForChannel(req.channel);
+        if (panel != null) panel.Open(req.channel);
         else if (ws == null) reason = "no_workspace";
         else if (ws.presence == null || !ws.presence.AtDesk) reason = "not_at_desk";
         else
@@ -58,7 +59,7 @@ public class SlackRemote : MonoBehaviour
         if (reason != null)
         {
             answer["reason"] = reason;
-            if (SlackPanel.Active == null) SlackPanel.PendingChannel = null;
+            if (panel == null) SlackPanel.PendingChannel = null;
         }
         ForgeNet.Send(OpenedType, answer);
         Debug.Log($"[SlackRemote] Albie opened {req.channelName ?? req.channel}: {(reason ?? "ok")}.");

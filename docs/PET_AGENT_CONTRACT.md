@@ -369,8 +369,9 @@ is missing), `SCREEN_BRIDGE_DIR`. `GET /health` has `screen {enabled, state, sou
 |---|---|---|
 | client → hub | `workspace.mode` | `{pet_id, mode}`: the workspace view Unity shows, `"code"`, `"cad"`, `"ml"`, `"messages"`, or `""` when closed. Send on every change. |
 | client → hub | `messages.focus` | `{pet_id, channel, ts}`: "Reply with Albie" on a message card (also `POST /messages/focus {pet_id, channel, ts}` → the `SlackMessage`, 404 if it isn't one of the last 50). |
-| hub → clients | `messages.open` | `{pet_id, request_id, channel, channel_name, kind}`: Albie's `messages_open` ("open my chat with Adrian"): show that conversation on the Slack panel, opening MSG mode if it is closed. `notify.channels` goes out first, so the list has a new DM. |
+| hub → clients | `messages.open` | `{pet_id, request_id, channel, channel_name, kind}`: Albie's `messages_open` ("open my chat with Adrian"): show that conversation on its provider's panel (Slack, or iMessage for `im:`), opening MSG mode if it is closed. `notify.channels` goes out first, so the list has a new DM. |
 | client → hub | `messages.opened` | `{pet_id, request_id, channel, ok, reason?}`: Unity's answer, sent at once; `reason` `not_at_desk` (the workspace only opens at a desk) or `no_workspace`. The tool waits 1.5 s for it and tells Albie what really happened. |
+| client → hub | `pet.card_action` | proposed: `{pet_id?, action_id}`: a button on a `pet.say` card. Albie's fix offers carry `Fix it` (`fix:N`, runs the code fix as `agent.ask` mode code) and `Not now` (`dismiss:N`). |
 | hub → clients | `screen.status` | `{state: "starting"\|"sharing"\|"stopped"\|"error", source?, detail?}`: the screen bridge. **Sticky**: replayed on connect like `cad.model_updated`. `source` is what Chrome shares, `detail` the last status line (`signaling: connected`, `video: connected h264`, the error when restarts are exhausted). |
 
 * `workspace.mode`: kept on the hub session. The Grok voice session gets a one-line system note ("The user
@@ -424,3 +425,69 @@ public event Action StartPressed;   public DockRing StartRing { get; }
 Core (Hudson agreed): `Workspace.HoldDock(bool)` / `DockHeld`; `DockRing.Create(Transform parent, string label, Color hue,
 float diameterMm, UnityAction onClick)` (+ the static `Layer` / `Label` / `SetLook` / `Pointers` DeskDock is built from);
 `DeskDock.Show(frame, width, depth, bool reposition = false)` always enters as frame slide-in + ring plops.
+
+## Addendum H (2026-10-24): Bit runs the workspace (views, CAD buttons, files on Slack drafts)
+
+All **proposed**, additive; old clients ignore the new types and fields. Goal: from the desk with nothing open,
+"Bit, open the quadcopter, expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to
+Adrian with all the files for the supplier. Rephrase it. Send it." works by voice alone. Hub: `hub/agent/workspace.py`,
+`hub/cad/tools.py`, `hub/cad/package.py`, `hub/messaging/`; `hub/tests/test_bit_script.py` runs that script. Unity:
+below; play-tested in desktop mode against the real hub (CAD worker, Slack on stubs), every step of the script.
+
+| direction | type | payload |
+|---|---|---|
+| hub → clients | `ui.mode` | `{mode}`: open that workspace view, `"cad"`, `"code"`, `"ml"`, `"messages"`; `""` closes the open one. Not sticky. |
+| client → hub | `workspace.mode` | unchanged, plus optional `reason`: when answering `ui.mode`, why `mode` (what is open now) isn't the view asked for. `"not_at_desk"` (Workspace refuses away from a desk), `"unknown_mode"`. |
+| hub → clients | `cad.action` | `{action, on?, tab?, part, version, seq}`: Bit pressing a CAD button. `action`: `expand` (Inspect: the model big in front of the user; `on` false puts it back), `demo` (the design's Fly / Hover / Run; `on` false stops it), `markers`, `dimensions` (the analysis overlays, `on`), `tab` (`tab`: overview \| parameters \| analysis \| history), `reassemble` (snap pulled-off parts back). `version`: the version it is for. `seq` increases per hub run. Not sticky. |
+| hub → clients | `notify.draft` | `Draft` gains `attachments: [{id, name, title, kind, bytes, source}]` (`kind`: step \| stl \| drawing \| parts \| file). `[]` for plain drafts. The hub keeps the files; Send uploads them with the text. |
+
+**Hub behaviour.**
+* `ui_open_view {view}` (Bit's tool) publishes `ui.mode` and waits up to 1.5 s for a `workspace.mode` naming that view
+  or carrying a `reason`; the tool answers `{ok, view}` or `{error, view}` ("sit down at the desk first"). Already open:
+  no `ui.mode`. A Unity build without the handler never answers: after one 1.5 s timeout the hub waits only 0.4 s until
+  a client reports a mode again.
+* CAD tools that change what is on screen open the CAD view first (`cad_set_params`, presets, undo, reset,
+  `cad_view`, `cad_demo`, `cad_restore_version`; `cad_open_part` opens the design first, then the view, so the view comes
+  up on the new design). If the view can't open, the design change still happens and the tool result has
+  `view_error`; the view-only tools (`cad_view`, `cad_demo`) answer an error and publish nothing.
+* `cad_view {expand?, explode?, focus_id?, markers?, dimensions?, tab?}`: explode / focus_id stay on the sticky
+  `cad.view` (only published when asked for, so `expand` alone leaves the explode state alone; `focus_id: ""` clears;
+  proposed: `focus_id` may be a list (`FIN_1,NOSE_CONE`) or a group (`FIN_*`, `fins`), sent as `cad.view.focus_ids`
+  with `focus_id` its first part;
+  proposed: `cad_take_part {part_id?, put_back?}` sends `cad.action take_off|put_back` with `part_id` (Unity: the model
+  goes up, the part flies to Albie's jaw and then to the user; taken already = the next of its group);
+  `explode: false` also sends `cad.action reassemble`, so parts pulled off in Expand go back too); the rest are
+  `cad.action`s. `cad_demo {run?}`: `cad.action demo`; for a `launch` demo the hub computes
+  `/cad/flight` for that version first, so Unity's fetch is a cache hit. Blocked (`analysis.demo.blocked`) or `kind:
+  none`: an error, nothing published.
+* New CAD tools: `cad_list_versions`, `cad_restore_version {version}` (that version's values become a new head, label
+  "Back to vN"; another design's version opens that design first), `cad_export_files`. `cad_open_part` resolves what
+  people say ("the drone", "gear box").
+* `messages_send` gains `attach: [all|step|stl|drawing|parts]` (the open design's current version: `GET /cad/files`)
+  and `open_messenger` (default: true when files are attached). With it, the hub sends `ui.mode messages` **before**
+  `notify.draft`, so the open Slack panel's composer takes the draft. `messages_edit_draft {text}` rewords the open
+  draft in place (= `PATCH /messages/drafts/{id}`: same `draft_id`, `edited: true`, files kept). Sending a draft with
+  files is one `files_upload_v2` as the user (text = its comment, in the thread if it has one), needs the `files:write`
+  user scope (`hub/manifest.json`; re-run `slack run`, re-copy the user token). `notify.sent.ts` is the shared
+  message's ts from `files.info` (`files:read`), `""` if Slack hasn't shared it within ~3 s.
+* Send failures keep the draft open (same id, fresh expiry), so the card's Send works again once the cause is fixed;
+  drafts expire after 5 minutes (was 2).
+
+**Unity (done; no scene or prefab changes):**
+* Core: `Core/Scripts/WorkspaceRemote.cs` installs itself on the scene's `Workspace` when Play starts (a scene without
+  one gets nothing). `ui.mode`: `""` → `Close()`, a known mode → `Open(mode)` (not `Toggle`: asking for the open view
+  keeps it open); then it sends `workspace.mode {pet_id, mode: ActiveMode ?? "", reason?}` at once, `reason:
+  "not_at_desk"` when `presence.AtDesk` is false, `"unknown_mode"` for an id `modes` doesn't have. (`ArrivalDirector`
+  still sends its own `workspace.mode` on every change; the duplicate is harmless.) `ForgeEvents.cs`: `UiMode`,
+  `CadAction`, `DraftAttachment` + `NotifyDraft.attachments`, `OnUiMode`, `OnCadAction`.
+* CAD: `CadSession` routes `cad.action` to what the buttons call: `expand` → `SetInspecting(on)`, `demo` →
+  `RequestDemo(on)`, `reassemble` → `Reassemble()`, `tab` → `TabRequested` (the panel's `SetTab`), and at once (session
+  state, any version) `markers` → `SetMarkersShown`, `dimensions` → `SetMeasuring`. The others wait, in order, until the
+  viewer shows that `part` at `>= version` (`CadViewer` reports every swap with `CadSession.ReportShown`; a demo started
+  on the old model would stop at the swap), and are dropped after 15 s if it never shows. A static listener keeps the
+  last `cad.action`, so a session the CAD prefabs create just after it (Bit opened the view and pressed in one breath)
+  applies it on start if it came within 4 s.
+* Messages: `DraftCard` and the Slack panel's composer show the draft's files as one line ("4 files · STEP, STL, Drawing
+  PDF, Parts list · 1.2 MB", `SlackText.Attachments`), made at runtime; the composer grows by the line. The composer now
+  takes Bit's rewording of the open draft (an edited `notify.draft` whose text differs from the field); before, it only
+  expected its own PATCH echo and kept the old text on screen. Send / Cancel / PATCH are the same calls.

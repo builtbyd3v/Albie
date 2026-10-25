@@ -420,6 +420,19 @@ def test_delegate_round_trip() -> None:
     asyncio.run(run())
 
 
+def test_say_sends_its_context_as_a_system_note_right_before_the_line() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await asyncio.wait_for(s.say("Line 3 broke the rocket. Want me to fix it?", "line 3 of rocket.py: boom"), 2)
+        items = [m["item"] for m in grok.sent if m["type"] == "conversation.item.create"]
+        assert items[-2]["role"] == "system" and items[-2]["content"][0]["text"] == "line 3 of rocket.py: boom"
+        assert items[-1]["type"] == "force_message"
+        await s.close()
+
+    asyncio.run(run())
+
+
 def test_unknown_tool_gets_error_output() -> None:
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
@@ -783,5 +796,36 @@ def test_voice_stays_on_after_a_network_error() -> None:
 
         await ws_mod._voice_call(s, blip)
         assert s.voice is voice and errors == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text, tidy", [
+    ("Editing /Users/dev/Documents/GitHub/albie-sandbox/ml/train.py now", "Editing train.py now"),
+    ("I made ~/Documents/GitHub/albie-sandbox/frog.py for you.", "I made frog.py for you."),
+    ("ml/train.py is fine", "ml/train.py is fine"),
+    ("open http://localhost:8000/ml/x", "open http://localhost:8000/ml/x"),
+])
+def test_paths_in_the_bubble_and_speech_are_file_names(text: str, tidy: str) -> None:
+    """Live 20:0x: Albie's bubble showed /Users/dev/Documents/GitHub/albie-sandbox/ml/train.py."""
+    from agent.bus import tidy_paths
+
+    assert tidy_paths(text) == tidy
+
+
+def test_voice_delegate_steps_stay_out_of_the_bubble() -> None:
+    from agent.ws import _QuietSteps
+
+    async def run() -> None:
+        sent: list[Event] = []
+
+        async def emit(e: Event) -> None:
+            sent.append(e)
+
+        quiet = _QuietSteps(emit, "bit")  # type: ignore[arg-type]
+        await quiet(voice_mod.ev.task_started("bit", "t1", "Create frog.py in /Users/dev/x"))
+        await quiet(voice_mod.ev.task_progress("bit", "t1", "Editing frog.py"))
+        await quiet(voice_mod.ev.task_complete("bit", "t1", "Made frog.py."))
+        assert [(e.type, e.payload.get("mode")) for e in sent] == [("pet.state", "working"), ("agent.task_complete", None)]
 
     asyncio.run(run())

@@ -13,9 +13,14 @@ using UnityEngine.UI;
 /// header ('#' name or avatar + person, topic), the messages as <see cref="SlackRow"/>s (oldest at the top, grouped
 /// by sender, day dividers, a red "New" line above what was unread when it opened, "Load earlier" when the hub has
 /// more, auto-scroll to the bottom unless you scrolled up) and the <see cref="SlackComposer"/>.
+/// The same component with <see cref="iMessagePanel"/> on is the iMessage panel (IMessagePanel.prefab, added to MSG mode
+/// by <see cref="MessagesLayout"/> when the hub has iMessage): only iMessage conversations, Messages' look (a "Messages"
+/// list with round avatars and the last line, blue selection, the conversation as <see cref="MessageCard"/> bubbles,
+/// yours blue on the right).
 /// Data comes from <see cref="SlackStore"/> (notify.channels / notify.message / GET history); showing a conversation
 /// and new messages in it POST /seen. A message's hover "Ask Albie" (and the composer's) sends messages.focus.
-/// One open panel at a time is <see cref="Active"/>: the Mentions panel, DraftPresenter and SlackRemote (Albie's
+/// Each provider has one open panel (<see cref="Active"/> for Slack, <see cref="IMessageActive"/>; pick with
+/// <see cref="ForChannel"/> / <see cref="ForSource"/>): the Mentions panel, DraftPresenter and SlackRemote (Albie's
 /// messages_open) route through it. Lists are rebuilt only when data or the panel's size changes; rows are pooled.
 /// Live hub only: offline it says so.
 /// </summary>
@@ -28,24 +33,32 @@ public class SlackPanel : MonoBehaviour
     const float WindowCorner = 12f, PaneInset = 6f, PaneCorner = 10f;
     const float TeamH = 44f, SectionH = 28f, SideRowH = 28f, SideRowGap = 2f, SidePad = 8f;
     const float HeaderH = 48f, DayH = 36f, NewH = 22f, ComposerPad = 14f, GroupSeconds = 300f;
+    const float IMessageRowH = 50f, BubbleGap = 6f;
+    static readonly Color IMessageWindow = new Color(0.11f, 0.11f, 0.12f), IMessagePane = new Color(0.04f, 0.04f, 0.05f);
 
     /// <summary>The open Slack panel (MSG mode open), or null.</summary>
     public static SlackPanel Active { get; private set; }
+    /// <summary>The open iMessage panel (MSG mode open on a hub with iMessage), or null.</summary>
+    public static SlackPanel IMessageActive { get; private set; }
     /// <summary>Enabled Slack panels in the scene.</summary>
     public static int ActiveCount { get; private set; }
     public static event Action ActiveChanged;
     /// <summary>A conversation to open as soon as a panel comes up (set by a Mentions row before opening MSG mode).</summary>
     public static string PendingChannel { get; set; }
 
+    [Tooltip("When enabled, this panel only shows iMessage conversations. Leave disabled for Slack.")]
+    public bool iMessagePanel;
+
     /// <summary>The ForgePanel this lives on; null in a bare test scene.</summary>
     public ForgePanel Panel { get; private set; }
     /// <summary>Id of the open conversation, or null.</summary>
     public string Selected => selected;
+    public bool IsIMessagePanel => iMessagePanel;
 
     sealed class SideRow
     {
         public SlackButton button;
-        public TextMeshProUGUI glyph, name, count;
+        public TextMeshProUGUI glyph, name, count, preview;
         public Image lockIcon;
         public ForgeSurface avatar, pill;
         public TextMeshProUGUI avatarText;
@@ -59,12 +72,12 @@ public class SlackPanel : MonoBehaviour
         public TextMeshProUGUI label;
     }
 
-    enum ItemKind : byte { Message, Day, New }
+    enum ItemKind : byte { Message, Bubble, Day, New }
 
     struct Item
     {
         public ItemKind kind;
-        public int index;  // into rows / days
+        public int index;  // into rows (Message), cards (Bubble) or days
     }
 
     RectTransform content;
@@ -92,6 +105,10 @@ public class SlackPanel : MonoBehaviour
     ForgeSurface newLine;
     TextMeshProUGUI newLabel;
     int shownRows, shownDays;
+    // iMessage bubbles (MessageCard.prefab, IMessage style).
+    MessageCard template;
+    readonly List<MessageCard> cards = new List<MessageCard>(MaxRows);
+    int shownCards;
     SlackComposer composer;
 
     // Rendered rich text per message (the store's objects are stable), so a refresh re-renders only new ones.
@@ -112,6 +129,7 @@ public class SlackPanel : MonoBehaviour
     static void ResetStatics()
     {
         Active = null;
+        IMessageActive = null;
         ActiveCount = 0;
         ActiveChanged = null;
         PendingChannel = null;
@@ -129,7 +147,8 @@ public class SlackPanel : MonoBehaviour
     void OnEnable()
     {
         ActiveCount++;
-        if (Active == null) Active = this;
+        if (iMessagePanel) IMessageActive = this;
+        else Active = this;
         SlackStore.Ensure();
         SlackStore.ChannelsChanged += OnChannels;
         SlackStore.HistoryChanged += OnHistory;
@@ -139,7 +158,7 @@ public class SlackPanel : MonoBehaviour
         ForgeEvents.OnNotifyDraftCancelled += OnDraftCancelled;
         ForgeNet.StatusChanged += OnStatus;
         SlackStore.RefreshChannels();
-        if (!string.IsNullOrEmpty(PendingChannel))
+        if (!string.IsNullOrEmpty(PendingChannel) && MatchesChannel(PendingChannel))
         {
             Open(PendingChannel);
             PendingChannel = null;
@@ -161,8 +180,17 @@ public class SlackPanel : MonoBehaviour
         composer?.Disabled();
         ActiveCount = Mathf.Max(0, ActiveCount - 1);
         if (Active == this) Active = null;
+        if (IMessageActive == this) IMessageActive = null;
         ActiveChanged?.Invoke();
     }
+
+    /// <summary>The open panel that shows <paramref name="channel"/> ("im:..." is iMessage), or null.</summary>
+    public static SlackPanel ForChannel(string channel) => SlackStore.IsIMessageSource(null, channel) ? IMessageActive : Active;
+
+    /// <summary>The open panel for a draft's or message's source ("imessage" or Slack), or null.</summary>
+    public static SlackPanel ForSource(string source) => source == "imessage" ? IMessageActive : Active;
+
+    bool MatchesChannel(string channel) => SlackStore.IsIMessageSource(null, channel) == iMessagePanel;
 
     // ---- Build (once) ----
 
@@ -170,14 +198,15 @@ public class SlackPanel : MonoBehaviour
     {
         if (built) return;
         built = true;
-        // The window: aubergine everywhere, the conversation a dark rounded pane on it.
-        window = SlackUi.Surface(content, "Window", SlackUi.SkWindow, WindowCorner);
+        // The window: aubergine everywhere (Messages: near-black), the conversation a dark rounded pane on it.
+        window = SlackUi.Surface(content, "Window", iMessagePanel ? IMessageWindow : SlackUi.SkWindow, WindowCorner);
         SlackUi.Stretch(window.rectTransform, 0f, 0f, 0f, 0f);
 
         // Sidebar.
         team = SlackUi.Text(content, "Team", 15f, Color.white, bold: true);
         team.overflowMode = TextOverflowModes.Ellipsis;
         teamCaret = SlackUi.Icon(content, "TeamCaret", "caret", SlackUi.SkSideText);
+        SlackUi.Show(teamCaret, !iMessagePanel);
         sideScroll = SlackUi.ScrollList(content, "Conversations", out sideContent);
         channelsHead = SlackUi.Text(sideContent, "ChannelsHead", 12.5f, SlackUi.SkSideText);
         channelsHead.text = "Channels";
@@ -188,7 +217,7 @@ public class SlackPanel : MonoBehaviour
         leftEmpty = SlackUi.Text(content, "LeftEmpty", SlackUi.Small, SlackUi.SkSideText, wrap: true);
 
         // Conversation.
-        pane = SlackUi.Surface(content, "Pane", SlackUi.SkPane, PaneCorner);
+        pane = SlackUi.Surface(content, "Pane", iMessagePanel ? IMessagePane : SlackUi.SkPane, PaneCorner);
         headGlyph = SlackUi.Text(content, "HeadGlyph", 17f, SlackUi.SkName, bold: true, align: TextAlignmentOptions.Center);
         headGlyph.text = "#";
         headLock = SlackUi.Icon(content, "HeadLock", "lock", SlackUi.SkName);
@@ -210,6 +239,11 @@ public class SlackPanel : MonoBehaviour
         newLabel.text = "New";
         SlackUi.Show(newRoot, false);
         rightEmpty = SlackUi.Text(content, "RightEmpty", 13f, SlackUi.SkMuted, align: TextAlignmentOptions.Center, wrap: true);
+        if (iMessagePanel)
+        {
+            template = Resources.Load<MessageCard>("MessageCard");
+            if (template == null) Debug.LogWarning("[SlackPanel] Resources/MessageCard.prefab not found; run Forge > Messages > Build Prefabs.");
+        }
         composer = new SlackComposer(content, this);
     }
 
@@ -234,7 +268,7 @@ public class SlackPanel : MonoBehaviour
 
     void OnDraft(NotifyDraft d)
     {
-        if (Active == this) composer.ReceiveDraft(d);
+        if (ForSource(d != null ? d.source : null) == this) composer.ReceiveDraft(d);
     }
 
     void OnSent(NotifySent s) => composer.OnSent(s);
@@ -254,7 +288,7 @@ public class SlackPanel : MonoBehaviour
     /// <summary>Show a conversation: load its history if needed, mark it seen, scroll to the newest message.</summary>
     public void Open(string channelId)
     {
-        if (string.IsNullOrEmpty(channelId)) return;
+        if (string.IsNullOrEmpty(channelId) || !MatchesChannel(channelId)) return;
         bool changed = channelId != selected;
         selected = channelId;
         scrollToBottom = true;
@@ -330,20 +364,30 @@ public class SlackPanel : MonoBehaviour
 
         if (selected == null)
         {
-            var first = SlackStore.DefaultChannel();
+            var first = SlackStore.DefaultChannel(iMessagePanel);
             if (first != null) { Open(first.id); dataDirty = false; }
         }
         var channel = SlackStore.Find(selected);
 
-        // Sidebar: the workspace, channels A-Z, then DMs in the hub's order (unread first, then most recent).
-        team.text = string.IsNullOrEmpty(SlackStore.TeamName) ? "Slack" : SlackStore.TeamName;
+        // Sidebar. Slack: the workspace, channels A-Z, then DMs in the hub's order (unread first, then most recent).
+        // iMessage: "Messages", every chat in the hub's order, no sections.
+        team.text = iMessagePanel ? "Messages" : string.IsNullOrEmpty(SlackStore.TeamName) ? "Slack" : SlackStore.TeamName;
         order.Clear();
-        for (int i = 0; i < SlackStore.Channels.Count; i++)
-            if (!SlackText.IsDmKind(SlackStore.Channels[i].kind)) order.Add(SlackStore.Channels[i]);
-        order.Sort(ByName);
+        if (!iMessagePanel)
+        {
+            for (int i = 0; i < SlackStore.Channels.Count; i++)
+            {
+                var c = SlackStore.Channels[i];
+                if (SlackStore.IsProvider(c, false) && !SlackText.IsDmKind(c.kind)) order.Add(c);
+            }
+            order.Sort(ByName);
+        }
         channelSide = order.Count;
         for (int i = 0; i < SlackStore.Channels.Count; i++)
-            if (SlackText.IsDmKind(SlackStore.Channels[i].kind)) order.Add(SlackStore.Channels[i]);
+        {
+            var c = SlackStore.Channels[i];
+            if (SlackStore.IsProvider(c, iMessagePanel) && (iMessagePanel || SlackText.IsDmKind(c.kind))) order.Add(c);
+        }
         shownSide = order.Count;
         for (int i = 0; i < shownSide; i++)
         {
@@ -353,8 +397,8 @@ public class SlackPanel : MonoBehaviour
         for (int i = shownSide; i < sideRows.Count; i++) SlackUi.Show(sideRows[i].button, false);
         SlackUi.Show(channelsHead, channelSide > 0);
         SlackUi.Show(channelsCaret, channelSide > 0);
-        SlackUi.Show(dmsHead, shownSide > channelSide);
-        SlackUi.Show(dmsCaret, shownSide > channelSide);
+        SlackUi.Show(dmsHead, !iMessagePanel && shownSide > channelSide);
+        SlackUi.Show(dmsCaret, !iMessagePanel && shownSide > channelSide);
         bool noList = shownSide == 0;
         SlackUi.Show(leftEmpty, noList);
         if (noList) leftEmpty.text = !live ? "Hub offline" : SlackStore.ChannelsKnown ? "No conversations" : "Loading…";
@@ -363,18 +407,22 @@ public class SlackPanel : MonoBehaviour
         bool dm = channel != null && SlackText.IsDmKind(channel.kind);
         bool locked = channel != null && channel.kind == "private";
         headName.text = channel != null ? SlackText.PlainName(channel) : "";
-        headTopic.text = channel != null && !string.IsNullOrEmpty(channel.topic) ? channel.topic : "";
-        SlackUi.Show(headGlyph, channel != null && !dm && !locked);
+        headTopic.text = channel == null ? "" : iMessagePanel ? "iMessage" : !string.IsNullOrEmpty(channel.topic) ? channel.topic : "";
+        SlackUi.Show(headGlyph, channel != null && !dm && !locked && !iMessagePanel);
         SlackUi.Show(headLock, locked);
-        SlackUi.Show(headAvatar, dm);
-        if (dm)
+        bool avatar = dm || (iMessagePanel && channel != null);
+        SlackUi.Show(headAvatar, avatar);
+        if (avatar)
         {
+            headAvatar.Pill = iMessagePanel;  // Messages' contacts are round, Slack's squares
             headAvatarText.text = channel.kind == "group-dm" ? GroupCount(channel) : SlackText.Initials(channel.name);
             headAvatar.color = SlackUi.BubbleColor(channel.name ?? channel.id);
         }
         if (Panel != null)
         {
-            int unread = SlackStore.TotalUnread;
+            int unread = 0;
+            for (int i = 0; i < SlackStore.Channels.Count; i++)
+                if (SlackStore.IsProvider(SlackStore.Channels[i], iMessagePanel)) unread += SlackStore.Channels[i].unread;
             Panel.Subtitle = channel == null ? (live ? "" : "Hub offline")
                 : SlackText.DisplayName(channel) + " · " + (unread == 0 ? "all read" : unread == 1 ? "1 unread" : unread + " unread");
         }
@@ -389,7 +437,7 @@ public class SlackPanel : MonoBehaviour
             unreadAtOpen = 0;
         }
         items.Clear();
-        shownRows = shownDays = 0;
+        shownRows = shownDays = shownCards = 0;
         bool newShown = false;
         if (list != null)
         {
@@ -415,6 +463,20 @@ public class SlackPanel : MonoBehaviour
                     newShown = true;
                     items.Add(new Item { kind = ItemKind.New });
                 }
+                if (iMessagePanel)
+                {
+                    if (template != null)
+                    {
+                        while (cards.Count <= shownCards) cards.Add(NewCard());
+                        var card = cards[shownCards];
+                        SlackUi.Show(card, true);
+                        card.Bind(m, MessageCard.Style.IMessage, Rendered(m));
+                        items.Add(new Item { kind = ItemKind.Bubble, index = shownCards++ });
+                    }
+                    prev = m;
+                    prevDay = day;
+                    continue;
+                }
                 bool grouped = !newDay && !isNew && prev != null && prev.user == m.user && !string.IsNullOrEmpty(m.user)
                                && SlackText.Ts(m.ts) - SlackText.Ts(prev.ts) < GroupSeconds && !SlackText.IsThreadReply(m)
                                && !SlackText.IsThreadReply(prev);
@@ -428,6 +490,7 @@ public class SlackPanel : MonoBehaviour
             }
         }
         for (int i = shownRows; i < rows.Count; i++) SlackUi.Show(rows[i], false);
+        for (int i = shownCards; i < cards.Count; i++) SlackUi.Show(cards[i], false);
         for (int i = shownDays; i < days.Count; i++) SlackUi.Show(days[i].root, false);
         SlackUi.Show(newRoot, newShown);
         bool more = list != null && SlackStore.HasMore(selected);
@@ -437,14 +500,15 @@ public class SlackPanel : MonoBehaviour
             loadEarlier.SetText(loading ? "Loading…" : "Load earlier messages");
             loadEarlier.Interactable = !loading;
         }
-        bool empty = shownRows == 0;
+        bool empty = shownRows == 0 && shownCards == 0;
         SlackUi.Show(rightEmpty, empty);
         if (empty)
         {
             rightEmpty.text = !live ? "Hub offline\n<size=85%><alpha=#AA>Start the hub (uvicorn main:app) and this connects by itself."
                 : selected == null ? "Pick a conversation"
                 : loading || list == null ? "Loading…"
-                : dm ? "This conversation is just between you and " + SlackText.PlainName(channel) + ".\n<size=85%><alpha=#AA>Say hi below."
+                : iMessagePanel ? "No messages here yet"
+                : dm ?"This conversation is just between you and " + SlackText.PlainName(channel) + ".\n<size=85%><alpha=#AA>Say hi below."
                 : "This is the very beginning of " + SlackText.DisplayName(channel) + ".";
         }
     }
@@ -474,7 +538,8 @@ public class SlackPanel : MonoBehaviour
     {
         if (rendered.TryGetValue(m, out string s)) return s;
         if (rendered.Count > 400) rendered.Clear();
-        s = SlackText.RenderSlack(m.text, SlackStore.MeId, SlackStore.NameOf);
+        s = iMessagePanel ? SlackText.Render(m.text, SlackStore.MeId, SlackStore.NameOf, SlackUi.Accent)
+            : SlackText.RenderSlack(m.text, SlackStore.MeId, SlackStore.NameOf);
         rendered[m] = s;
         return s;
     }
@@ -482,17 +547,22 @@ public class SlackPanel : MonoBehaviour
     SideRow NewSideRow()
     {
         var r = new SideRow();
-        r.button = SlackButton.Create(sideContent, "Conversation", SlackButton.SideRow, 6f, null);
+        r.button = SlackButton.Create(sideContent, "Conversation", iMessagePanel ? SlackButton.IMessageRow : SlackButton.SideRow,
+            iMessagePanel ? 10f : 6f, null);
         r.button.Button.onClick.AddListener(() => Open(r.id));
         r.glyph = SlackUi.Text(r.button.transform, "Hash", 14f, SlackUi.SkSideText, align: TextAlignmentOptions.Center);
         r.glyph.text = "#";
         r.lockIcon = SlackUi.Icon(r.button.transform, "Lock", "lock", SlackUi.SkSideText);
         r.avatar = SlackUi.Surface(r.button.transform, "Avatar", SlackUi.BubbleColors[0], 4f);
-        r.avatarText = SlackUi.Text(r.avatar.transform, "Initials", 8f, Color.white, bold: true, align: TextAlignmentOptions.Center);
+        r.avatar.Pill = iMessagePanel;
+        r.avatarText = SlackUi.Text(r.avatar.transform, "Initials", iMessagePanel ? 12f : 8f, Color.white, bold: true, align: TextAlignmentOptions.Center);
         SlackUi.Stretch(r.avatarText.rectTransform, 0f, 0f, 0f, 0f);
         r.name = SlackUi.Text(r.button.transform, "Name", 13f, SlackUi.SkSideText);
         r.name.overflowMode = TextOverflowModes.Ellipsis;
-        r.pill = SlackUi.PillSurface(r.button.transform, "Unread", SlackUi.SkBadge);
+        r.preview = SlackUi.Text(r.button.transform, "Preview", 11f, SlackUi.SkMuted);
+        r.preview.overflowMode = TextOverflowModes.Ellipsis;
+        SlackUi.Show(r.preview, iMessagePanel);
+        r.pill = SlackUi.PillSurface(r.button.transform, "Unread", iMessagePanel ? SlackUi.IMessageBlue : SlackUi.SkBadge);
         r.count = SlackUi.Text(r.pill.transform, "Count", 10.5f, Color.white, bold: true, align: TextAlignmentOptions.Center);
         SlackUi.Stretch(r.count.rectTransform, 0f, 0f, 0f, 0f);
         return r;
@@ -510,16 +580,26 @@ public class SlackPanel : MonoBehaviour
         r.name.color = ink;
         r.glyph.color = ink;
         r.lockIcon.color = ink;
-        SlackUi.Show(r.glyph, !dm && !locked);
+        SlackUi.Show(r.glyph, !dm && !locked && !iMessagePanel);
         SlackUi.Show(r.lockIcon, locked);
-        SlackUi.Show(r.avatar, dm);
-        if (dm)
+        bool avatar = dm || iMessagePanel;
+        SlackUi.Show(r.avatar, avatar);
+        if (avatar)
         {
             r.avatarText.text = c.kind == "group-dm" ? GroupCount(c) : SlackText.Initials(c.name);
             r.avatar.color = SlackUi.BubbleColor(c.name ?? c.id);
         }
+        if (iMessagePanel)
+        {
+            // Messages' list: the last line under the name.
+            var history = SlackStore.History(c.id);
+            var latest = history != null && history.Count > 0 ? history[history.Count - 1] : null;
+            string last = latest != null ? (latest.isMe ? "You: " : "") + latest.text : c.lastText;
+            r.preview.text = string.IsNullOrEmpty(last) ? "iMessage" : last.Replace('\n', ' ');
+            r.preview.color = on ? SlackUi.White(0.8f) : SlackUi.SkMuted;
+        }
         // Like Slack: a count for DMs and for mentions; a channel that is only unread just goes bold.
-        bool badge = unread && (dm || c.mentions > 0);
+        bool badge = unread && (dm || c.mentions > 0 || iMessagePanel);
         SlackUi.Show(r.pill, badge);
         if (badge)
         {
@@ -535,10 +615,21 @@ public class SlackPanel : MonoBehaviour
         return row;
     }
 
-    void OnAskAlbie(SlackRow row)
+    void OnAskAlbie(SlackRow row) => AskAlbie(row.Message);
+
+    void AskAlbie(NotifyMessage m)
     {
-        if (!FocusBit(row.Message)) composer.ShowStatus("Hub offline");
+        if (!FocusBit(m)) composer.ShowStatus("Hub offline");
         else composer.ShowStatus("Albie is reading it…");
+    }
+
+    // An iMessage bubble; tapping it asks Albie about it, like a Slack row's toolbar.
+    MessageCard NewCard()
+    {
+        var card = Instantiate(template, msgContent);
+        card.name = "Bubble";
+        card.Clicked += c => AskAlbie(c.Message);
+        return card;
     }
 
     DayDivider NewDay()
@@ -546,7 +637,7 @@ public class SlackPanel : MonoBehaviour
         var d = new DayDivider { root = SlackUi.Rect(msgContent, "Day") };
         d.line = SlackUi.Surface(d.root, "Line", SlackUi.SkLine, 0f);
         d.edge = SlackUi.PillSurface(d.root, "Edge", SlackUi.White(0.16f));
-        d.fill = SlackUi.PillSurface(d.edge.transform, "Fill", SlackUi.SkPane);
+        d.fill = SlackUi.PillSurface(d.edge.transform, "Fill", iMessagePanel ? IMessagePane : SlackUi.SkPane);
         SlackUi.Stretch(d.fill.rectTransform, 1.2f, 1.2f, 1.2f, 1.2f);
         d.label = SlackUi.Text(d.edge.transform, "Label", 11f, SlackUi.SkName, bold: true, align: TextAlignmentOptions.Center);
         SlackUi.Stretch(d.label.rectTransform, 0f, 0f, 0f, 0f);
@@ -573,20 +664,27 @@ public class SlackPanel : MonoBehaviour
             if (i == 0 && channelSide > 0) y = Section(channelsHead, channelsCaret, y);
             if (i == channelSide) y = Section(dmsHead, dmsCaret, y + (i > 0 ? 8f : 0f));
             var r = sideRows[i];
-            SlackUi.Band(r.button.Rect, y, SideRowH, SidePad, SidePad);
-            float iconX = 10f, iconW = 16f;
-            SlackUi.Place(r.glyph.rectTransform, iconX, 0f, iconW, SideRowH);
-            SlackUi.Place(r.lockIcon.rectTransform, iconX + 2f, (SideRowH - 12f) * 0.5f, 12f, 12f);
-            SlackUi.Place(r.avatar.rectTransform, iconX, (SideRowH - 17f) * 0.5f, 17f, 17f);
+            float rowH = iMessagePanel ? IMessageRowH : SideRowH;
+            SlackUi.Band(r.button.Rect, y, rowH, SidePad, SidePad);
+            float iconX = 10f, iconW = iMessagePanel ? 34f : 16f, avatarS = iMessagePanel ? 34f : 17f;
+            SlackUi.Place(r.glyph.rectTransform, iconX, 0f, iconW, rowH);
+            SlackUi.Place(r.lockIcon.rectTransform, iconX + 2f, (rowH - 12f) * 0.5f, 12f, 12f);
+            SlackUi.Place(r.avatar.rectTransform, iconX - (iMessagePanel ? 4f : 0f), (rowH - avatarS) * 0.5f, avatarS, avatarS);
             float right = 8f;
             if (r.pill.gameObject.activeSelf)
             {
                 float pw = Mathf.Max(20f, SlackUi.Width(r.count, r.count.text) + 12f);
-                SlackUi.PlaceRight(r.pill.rectTransform, right, (SideRowH - 17f) * 0.5f, pw, 17f);
+                SlackUi.PlaceRight(r.pill.rectTransform, right, (rowH - 17f) * 0.5f, pw, 17f);
                 right += pw + 6f;
             }
-            SlackUi.Band(r.name.rectTransform, 0f, SideRowH, iconX + iconW + 8f, right);
-            y += SideRowH + SideRowGap;
+            float textX = iconX + iconW + (iMessagePanel ? 4f : 8f);
+            if (iMessagePanel)
+            {
+                SlackUi.Band(r.name.rectTransform, 7f, 19f, textX, right);
+                SlackUi.Band(r.preview.rectTransform, 27f, 17f, textX, right);
+            }
+            else SlackUi.Band(r.name.rectTransform, 0f, rowH, textX, right);
+            y += rowH + SideRowGap;
         }
         sideContent.sizeDelta = new Vector2(0f, Mathf.Max(h - TeamH, y + 8f));
         SlackUi.Place(leftEmpty.rectTransform, SidePad + 6f, TeamH + 8f, sideW - 2f * SidePad - 6f, 60f);
@@ -596,10 +694,11 @@ public class SlackPanel : MonoBehaviour
         SlackUi.Place(pane.rectTransform, px, py, pw2, ph);
         float hx = px + 18f;
         bool avatarHead = headAvatar.gameObject.activeSelf;
-        float iconW2 = avatarHead ? 24f : 16f;
+        float headS = iMessagePanel ? 30f : 24f;
+        float iconW2 = avatarHead ? headS : 16f;
         SlackUi.Place(headGlyph.rectTransform, hx - 2f, py, iconW2, HeaderH);
         SlackUi.Place(headLock.rectTransform, hx, py + (HeaderH - 15f) * 0.5f, 15f, 15f);
-        SlackUi.Place(headAvatar.rectTransform, hx, py + (HeaderH - 24f) * 0.5f, 24f, 24f);
+        SlackUi.Place(headAvatar.rectTransform, hx, py + (HeaderH - headS) * 0.5f, headS, headS);
         float nameX = hx + iconW2 + 6f;
         float nameW = Mathf.Min(SlackUi.Width(headName, headName.text) + 2f, pw2 * 0.55f);
         SlackUi.Place(headName.rectTransform, nameX, py, nameW, HeaderH);
@@ -639,6 +738,19 @@ public class SlackPanel : MonoBehaviour
                     SlackUi.PlaceRight(newLabel.rectTransform, 12f, 0f, 30f, NewH);
                     y += NewH;
                     break;
+                case ItemKind.Bubble:
+                {
+                    // Messages: as wide as the text needs, at most three quarters; yours on the right.
+                    var card = cards[it.index];
+                    float maxW = Mathf.Min(pw2 * 0.76f, 360f);
+                    float bw = Mathf.Min(maxW, Mathf.Max(90f, card.PreferredBubbleWidth(maxW)));
+                    float bh = card.Measure(bw);
+                    float bx = card.Message != null && card.Message.isMe ? pw2 - bw - 14f : 14f;
+                    SlackUi.Place((RectTransform)card.transform, bx, y, bw, bh);
+                    card.Layout(bw, bh);
+                    y += bh + BubbleGap;
+                    break;
+                }
                 default:
                 {
                     var row = rows[it.index];

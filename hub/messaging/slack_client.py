@@ -11,7 +11,8 @@ notify.message on the EventBus. The user's own posts are kept too (`is_me`, so t
 the digest and the unread counts skip them. Sending is two steps: `create_draft` emits notify.draft and nothing
 leaves; `update_draft` (the composer's edit) re-emits it with `edited`; `send_draft` (the Send button or the
 messages_confirm tool) posts it, stores the post and emits notify.message (is_me) then notify.sent, so the panel
-shows it at once whichever way it was sent.
+shows it at once whichever way it was sent. A draft may carry files (`Draft.attachments`, e.g. a CAD design's
+STEP / STL / drawing / parts list): they go up with the message in one files_upload_v2 (needs files:write).
 `open_conversation` is Albie's "open my chat with Adrian" (messages_open): Unity opens the MSG view on it
 (ws `messages.open`, answered by `messages.opened`).
 `digest` is the sit-down summary across every conversation: notify.digest, pet.say and the spoken greeting.
@@ -42,10 +43,12 @@ import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from agent.events import DISPLAY_NAME, MessagesFocus, MessagesOpened
-from events import (ChannelSummary, Draft, EventBus, MessagesOpen, NotifyChannels, NotifyDigest, NotifyDraftCancelled,
+from events import (Attachment, ChannelSummary, Draft, EventBus, MessagesOpen, NotifyChannels, NotifyDigest,
+                    NotifyDraftCancelled,
                     NotifySent, SlackMessage)
 
 from .settings import SlackSettings
@@ -59,7 +62,10 @@ NOTIFY_CHANNELS = "notify.channels"
 FOCUS_TEXT_CHARS = 200
 ACCEPTED_SUBTYPES: tuple[str | None, ...] = (None, "thread_broadcast", "file_share")
 RECONNECT_S = (2, 5, 10, 30)
-DRAFT_EXPIRY_S = 120.0
+DRAFT_EXPIRY_S = 300.0       # time to look a draft (and its files) over and have Bit reword it; an edit restarts it
+SHARE_POLLS, SHARE_POLL_S = 6, 0.5  # files.info tries for the ts of a message sent with files
+FILES_SCOPE_HELP = ("Slack needs the files:write permission to send files: in hub/ run `slack run` (it syncs "
+                    "manifest.json), then copy the new User OAuth Token into SLACK_USER_TOKEN and restart the hub")
 CONVERSATION_TYPES = "public_channel,private_channel,im,mpim"
 LIST_PAGES = 5               # conversations.list / users.list pages of 200
 BACKFILL_PER_CHANNEL = 20    # newest messages per conversation
@@ -207,6 +213,13 @@ def _error_of(exc: Exception) -> str:
     return str(code or exc)
 
 
+def _refused(exc: BaseException) -> bool:
+    """Nothing was posted: Slack answered with an error (the exception, or what it wraps, carries the response), or a
+    file to upload was gone before the call."""
+    return isinstance(exc, FileNotFoundError) or any(
+        getattr(e, "response", None) is not None for e in (exc, exc.__cause__) if e is not None)
+
+
 def _retry_after(exc: Exception) -> float | None:
     """Seconds to wait when `exc` is a Slack `ratelimited` error, else None."""
     if _error_of(exc) != "ratelimited":
@@ -273,14 +286,17 @@ class SlackService:
         self._has_more: dict[str, bool] = {}
         self._recent: deque[tuple[str, str]] = deque(maxlen=200)  # (channel, ts) already recorded live
         self._warned_as_bot = False
+        self.extra_channel_summaries: Callable[[], list[ChannelSummary]] | None = None
         self.channels_debounce_s = CHANNELS_DEBOUNCE_S
         self.channels_refresh_s = CHANNELS_REFRESH_S
         # drafts: exactly one open at a time
         self.open_draft: Draft | None = None
         self.draft_expiry_s = DRAFT_EXPIRY_S
+        self.share_poll_s = SHARE_POLL_S
         self._expiry: asyncio.Task[None] | None = None
         self.open_ack_s = OPEN_ACK_S
         self._open_waiters: dict[str, asyncio.Future[MessagesOpened]] = {}  # messages.open request_id -> Unity's answer
+        self._sending: Draft | None = None          # the draft send_draft is posting right now
         make_sticky = getattr(bus, "make_sticky", None)
         if make_sticky is not None:
             make_sticky(NOTIFY_CHANNELS)  # late joiners get the channel list on connect
@@ -579,12 +595,15 @@ class SlackService:
                                        last_ts=last.ts if last else None, last_text=last.text if last else None,
                                        topic=rec.topic, is_default=rec.id == default))
         rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
+        if self.extra_channel_summaries is not None:
+            rows.extend(self.extra_channel_summaries())
+            rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
         return rows
 
     def channels_changed(self) -> None:
         """Something in the channel list moved (a message, a seen mark, the list itself): push notify.channels soon.
         Debounced: one push per `channels_debounce_s`, always with the state at that moment."""
-        if not self.enabled or (self._push is not None and not self._push.done()):
+        if (not self.enabled and self.extra_channel_summaries is None) or (self._push is not None and not self._push.done()):
             return
         try:
             self._push = asyncio.get_running_loop().create_task(self._push_channels(), name="slack-notify-channels")
@@ -777,8 +796,9 @@ class SlackService:
 
     # ------------------------------------------------------------------ drafts (the only way out)
     async def create_draft(self, text: str, channel: str | None = None, thread_ts: str | None = None,
-                           reply_to_ts: str | None = None) -> Draft:
-        """Write a reply and show it (notify.draft). Nothing is posted until send_draft. Replaces any open draft."""
+                           reply_to_ts: str | None = None, attachments: list[Attachment] | None = None) -> Draft:
+        """Write a reply and show it (notify.draft). Nothing is posted until send_draft. Replaces any open draft.
+        `attachments` (files on the hub's disk) are uploaded with the message when it is sent."""
         if not self.enabled:
             raise RuntimeError("Slack is not configured on this hub")
         text = text.strip()
@@ -792,10 +812,11 @@ class SlackService:
         channel_id = await self.resolve_channel(channel)
         await self._clear_draft("superseded")
         draft = Draft(draft_id=uuid.uuid4().hex[:8], channel=channel_id, channel_name=await self._draft_name(channel_id),
-                      text=text, thread_ts=thread_ts, reply_to=reply_to)
+                      text=text, thread_ts=thread_ts, reply_to=reply_to, attachments=list(attachments or []))
         self._open(draft)
         await self.bus.publish("notify.draft", draft)
-        log.info("draft %s -> %s: %.80s", draft.draft_id, draft.channel_name, draft.text)
+        log.info("draft %s -> %s: %.80s%s", draft.draft_id, draft.channel_name, draft.text,
+                 f" (+{len(draft.attachments)} files)" if draft.attachments else "")
         return draft
 
     async def update_draft(self, draft_id: str, changes: dict[str, Any]) -> Draft:
@@ -835,14 +856,34 @@ class SlackService:
         self._expiry = asyncio.create_task(self._expire(draft.draft_id), name=f"draft-expiry-{draft.draft_id}")
 
     async def send_draft(self, draft_id: str | None = None) -> tuple[Draft, str]:
-        """Post the open draft (the Send button / "yes, send it"). Returns (draft, ts) and emits notify.sent."""
+        """Post the open draft (the Send button / "yes, send it"). Returns (draft, ts) and emits notify.sent.
+        If Slack refuses it (an error answer, or a file gone from disk: nothing was posted), the draft stays open (same
+        id, a fresh expiry) so the card's Send can try again. Anything else (a timeout, a cancel) may have posted it,
+        so the draft is dropped as before rather than risk sending it twice."""
+        sending = self._sending
+        if sending is not None and self.open_draft is None and draft_id in (None, sending.draft_id):
+            raise DraftError("That message is already being sent")
         draft = self._take(draft_id)
         if self._user_client is None and not self._warned_as_bot:
             self._warned_as_bot = True
             log.warning("posting as Bit (no SLACK_USER_TOKEN)")
-        res = await (self._user_client or self._client).chat_postMessage(channel=draft.channel, text=draft.text,
-                                                                           thread_ts=draft.thread_ts)
-        ts = res["ts"]
+        self._sending = draft
+        try:
+            ts, file_ids = await self._post(draft)
+        except BaseException as exc:
+            if _refused(exc) and self.open_draft is None:  # and nothing newer took its place meanwhile
+                self._open(draft)
+            elif not _refused(exc):
+                log.warning("sending draft %s ended without an answer (%r); it may have been posted", draft.draft_id, exc)
+            raise
+        finally:
+            self._sending = None
+        # It's out: finish (the files' message ts, notify.sent) even if our caller is cancelled meanwhile.
+        return draft, await asyncio.shield(asyncio.ensure_future(self._sent(draft, ts, file_ids)))
+
+    async def _sent(self, draft: Draft, ts: str, file_ids: list[str]) -> str:
+        if file_ids:
+            ts = await self._share_ts(self._user_client or self._client, file_ids[0], draft.channel)
         if self.focused is not None and draft.reply_to is not None and draft.reply_to.ts == self.focused.ts:
             self.focused = None  # answered
         try:
@@ -851,12 +892,55 @@ class SlackService:
             log.exception("recording sent draft %s failed", draft.draft_id)
         await self.bus.publish("notify.sent", NotifySent(draft_id=draft.draft_id, channel=draft.channel,
                                                          channel_name=draft.channel_name, text=draft.text, ts=ts))
-        log.info("sent draft %s as %s, ts=%s", draft.draft_id, "you" if self.as_user else "Bit", ts)
-        return draft, ts
+        log.info("sent draft %s as %s, ts=%s%s", draft.draft_id, "you" if self.as_user else DISPLAY_NAME, ts,
+                 f", {len(draft.attachments)} files" if draft.attachments else "")
+        return ts
+
+    async def _post(self, draft: Draft) -> tuple[str, list[str]]:
+        """chat.postMessage -> (ts, []), or for a draft with files one files_upload_v2 (the text as its comment, so the
+        message and its files land together, in the thread if it has one) -> ("", file ids): Slack shares uploads
+        asynchronously, so the message's ts comes from files.info afterwards (`_share_ts`)."""
+        client = self._user_client or self._client
+        if not draft.attachments:
+            res = await client.chat_postMessage(channel=draft.channel, text=draft.text, thread_ts=draft.thread_ts)
+            return res["ts"], []
+        missing = [a.name for a in draft.attachments if not a.path or not Path(a.path).is_file()]
+        if missing:
+            raise FileNotFoundError(f"These files are gone from the hub: {', '.join(missing)}")
+        extra = {"thread_ts": draft.thread_ts} if draft.thread_ts else {}
+        try:
+            res = await client.files_upload_v2(
+                file_uploads=[{"file": a.path, "filename": a.name, "title": a.title or a.name} for a in draft.attachments],
+                channel=draft.channel, initial_comment=draft.text, request_file_info=False, **extra)
+        except Exception as exc:
+            if _error_of(exc) == "missing_scope":
+                raise RuntimeError(FILES_SCOPE_HELP) from exc
+            raise
+        return "", [f.get("id") for f in (res.get("files") or []) if isinstance(f, dict) and f.get("id")]
+
+    async def _share_ts(self, client: Any, file_id: str, channel: str) -> str:
+        """The ts of the message an uploaded file was shared in (files.info; Slack shares uploads asynchronously)."""
+        for _ in range(SHARE_POLLS):
+            try:
+                res = await client.files_info(file=file_id)
+            except Exception as exc:  # noqa: BLE001 - the message is out; only its ts is missing
+                log.info("files.info %s: %s; sent without a ts", file_id, _error_of(exc))
+                return ""
+            shares = (res.get("file") or {}).get("shares") or {}
+            for kind in ("public", "private"):
+                rows = (shares.get(kind) or {}).get(channel) or []
+                if rows:
+                    return str(rows[0].get("ts") or "")
+            await asyncio.sleep(self.share_poll_s)
+        log.info("files.info %s: not shared in %s yet; sent without a ts", file_id, channel)
+        return ""
 
     async def _record_sent(self, draft: Draft, ts: str) -> None:
         """A post the hub just made: into the store and out as notify.message (is_me), so the open conversation shows
-        it at once. Slack's own echo of it, if a subscription delivers one, is then a duplicate and dropped."""
+        it at once. Slack's own echo of it, if a subscription delivers one, is then a duplicate and dropped. A post with
+        files whose share ts never came back (files.info) is left to that echo or the next history load."""
+        if not ts:
+            return
         if self.as_user and self.user_id:
             uid, who = self.user_id, (await self.user(self.user_id)).label
         else:  # bot fallback: the hub posts as Bit, which is "me" for /messages/users/me
@@ -920,14 +1004,18 @@ class SlackService:
             return {"error": "Slack is not configured on this hub"}
         cid = await self.resolve_channel(channel)
         rec = await self.record(cid)
-        label = rec.label or rec.short_name
+        return await self.show_conversation(cid, rec.label or rec.short_name, rec.kind, pet_id)
+
+    async def show_conversation(self, cid: str, label: str, kind: str, pet_id: str = "bit") -> dict[str, Any]:
+        """The Unity half of open_conversation, for any provider (an iMessage chat is `im:<guid>`): the list first, then
+        `messages.open`, then wait for `messages.opened`. Works with Slack itself disabled (an iMessage-only hub)."""
         await self.bus.publish(NOTIFY_CHANNELS, NotifyChannels(channels=self.channel_summaries()))
         request_id = uuid.uuid4().hex[:8]
         fut: asyncio.Future[MessagesOpened] = asyncio.get_running_loop().create_future()
         self._open_waiters[request_id] = fut
         try:
             await self.bus.publish("messages.open", MessagesOpen(pet_id=pet_id, request_id=request_id, channel=cid,
-                                                                 channel_name=label, kind=rec.kind))  # type: ignore[arg-type]
+                                                                 channel_name=label, kind=kind))  # type: ignore[arg-type]
             ack = await asyncio.wait_for(fut, self.open_ack_s)
         except asyncio.TimeoutError:
             log.warning("messages.open %s (%s): no answer from Unity", cid, label)
@@ -939,7 +1027,7 @@ class SlackService:
         if not ack.ok:
             return {"error": OPEN_REASONS.get(ack.reason or "", ack.reason or "Unity couldn't open it"),
                     "channel": cid, "channel_name": label}
-        return {"ok": True, "channel": cid, "channel_name": label, "kind": rec.kind}
+        return {"ok": True, "channel": cid, "channel_name": label, "kind": kind}
 
     async def opened_from_ws(self, session: Any, payload: dict[str, Any]) -> None:
         """ws `messages.opened {request_id, channel, ok, reason?}`: Unity's answer to messages.open."""
