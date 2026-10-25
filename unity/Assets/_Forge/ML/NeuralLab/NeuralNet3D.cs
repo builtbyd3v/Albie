@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Oculus.Interaction;
+using Oculus.Interaction.Input;
 using UnityEngine;
 
 namespace Forge.ML
@@ -9,13 +10,14 @@ namespace Forge.ML
     /// to right, each layer a ring of glowing neurons, the connections blue (positive) or orange (negative) and thicker
     /// for larger weights. Every <see cref="PulseSeconds"/> it feeds one training point through: the neurons light up
     /// with their activation and a wave of light runs along the connections, layer by layer. A switched-off neuron goes
-    /// dark with its connections. Touch a hidden neuron with a fingertip, point a ray at it or click it to switch it off
+    /// dark with its connections. The point is the sim's (<see cref="NeuralLabSim.PulseIndex"/>), the one the
+    /// "How it learns" panel walks through step by step. Touch a hidden neuron with a fingertip, point a ray at it or click it to switch it off
     /// and on (<see cref="NeuronTouch"/>). Drawn from <see cref="NeuralLabSim"/>; it stands on a <see cref="ForgeVolume"/>.
     /// </summary>
     [RequireComponent(typeof(ForgeVolume))]
     public sealed class NeuralNet3D : MonoBehaviour
     {
-        const float LayerGap = 1f, RingRadius = 0.5f, SwayDegrees = 22f, PokeRefresh = 3f, PulseSeconds = 0.9f, WaveSeconds = 0.5f;
+        const float LayerGap = 1f, RingRadius = 0.5f, SwayDegrees = 22f, PokeRefresh = 3f, WaveSeconds = 1f;
         static readonly Color Blue = new Color32(0x4C, 0x9B, 0xFF, 0xFF), Orange = new Color32(0xFF, 0x9A, 0x3C, 0xFF);
         static readonly Color Dim = new Color(0.16f, 0.17f, 0.2f), Mid = new Color(0.22f, 0.24f, 0.3f);
         static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
@@ -35,9 +37,10 @@ namespace Forge.ML
         readonly List<Edge> edges = new List<Edge>();
         MaterialPropertyBlock block;
         Material ownNode, ownEdge;
-        float pulseStart = -10f, pokesFound = -100f;
-        int sample;
+        float pokesFound = -100f;
         PokeInteractor[] pokes = new PokeInteractor[0];
+        Hand[] hands = new Hand[0];
+        readonly List<Vector3> tips = new List<Vector3>(8);
 
         void Start()
         {
@@ -89,7 +92,6 @@ namespace Forge.ML
             var root = volume.ContentRoot;
             root.localScale = Vector3.one * scale;
             root.localPosition = new Vector3(0, b.extents.y * scale + 0.02f, 0);  // standing just above the base
-            pulseStart = Time.time;
         }
 
         // Layer l along x; its neurons on a ring across y/z (a line when there are 1-2), so it reads in depth.
@@ -137,17 +139,15 @@ namespace Forge.ML
             if (sim == null || sim.Net == null || net == null) return;
             // A gentle sway instead of a full turntable: the layers stay readable left to right, and it still looks 3D.
             pivot.localRotation = Quaternion.Euler(0, SwayDegrees * Mathf.Sin(Time.time * 0.35f), 0);
-            if (Time.time - pulseStart >= PulseSeconds)
-            {
-                pulseStart = Time.time;
-                if (sim.Train.Count > 0) { sample = (sample + 37) % sim.Train.Count; var p = sim.Train[sample]; sim.Predict(p.x, p.y); }
-            }
-            else if (sim.Train.Count > 0) { var p = sim.Train[sample]; sim.Predict(p.x, p.y); }  // keep the activations of this point
-            float wave = (Time.time - pulseStart) / WaveSeconds * (sim.Hidden.Count + 1);  // which layer the light is at
+            if (sim.Train.Count > 0) { var p = sim.Train[sim.PulseIndex % sim.Train.Count]; sim.Predict(p.x, p.y); }  // this point's activations
+            float wave = (Time.unscaledTime - sim.PulseStart) / WaveSeconds * (sim.Hidden.Count + 1);  // which layer the light is at
             Paint(wave);
         }
 
-        // Fingertips (the hands' PokeInteractors, looked up every few seconds): touching a hidden neuron switches it.
+        // Fingertips: touching a hidden neuron switches it. The tracked hands' index tips are read straight from the
+        // hand data (a hand's PokeInteractor can be idle or switched off by its interactor group while the hand is
+        // tracked), plus every active PokeInteractor's origin (the controllers' poke tips, the simulator). Both are
+        // looked up every few seconds.
         void LateUpdate()
         {
             if (neurons.Count == 0) return;
@@ -155,17 +155,25 @@ namespace Forge.ML
             {
                 pokesFound = Time.unscaledTime;
                 pokes = FindObjectsByType<PokeInteractor>(FindObjectsSortMode.None);
+                hands = FindObjectsByType<Hand>(FindObjectsSortMode.None);
+            }
+            tips.Clear();
+            for (int i = 0; i < hands.Length; i++)
+            {
+                var hand = hands[i];
+                if (hand == null || !hand.isActiveAndEnabled || !hand.IsTrackedDataValid) continue;
+                if (hand.GetJointPose(HandJointId.HandIndexTip, out var tip)) tips.Add(tip.position);
+            }
+            for (int i = 0; i < pokes.Length; i++)
+            {
+                var poke = pokes[i];
+                if (poke != null && poke.isActiveAndEnabled && poke.State != InteractorState.Disabled) tips.Add(poke.Origin);
             }
             foreach (var n in neurons)
             {
                 if (n.touch == null) continue;
                 float radius = n.t.lossyScale.x * 0.5f, nearest = float.MaxValue;
-                for (int i = 0; i < pokes.Length; i++)
-                {
-                    var poke = pokes[i];
-                    if (poke == null || !poke.isActiveAndEnabled || poke.State == InteractorState.Disabled) continue;
-                    nearest = Mathf.Min(nearest, Vector3.Distance(poke.Origin, n.t.position) - radius);
-                }
+                for (int i = 0; i < tips.Count; i++) nearest = Mathf.Min(nearest, Vector3.Distance(tips[i], n.t.position) - radius);
                 n.touch.Poke(nearest);
             }
         }

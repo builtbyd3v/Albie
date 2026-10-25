@@ -20,9 +20,10 @@ namespace Forge.ML
         // Play stops by itself once test accuracy reaches this (pressing Play again trains on past it).
         public const float AutoPauseAccuracy = 0.92f;
         // ...or once it's stuck: no 1% gain in test accuracy for this many epochs (5 s). The demo starts here: the
-        // default spiral on a small x, y network stalls around 55-60%, and Albie offers to fix it.
+        // default spiral on a small x, y network stalls around 55-60%, and Albie offers to fix it. He offers after an
+        // auto-pause below 98% too: the circle and XOR on x, y stop at 92%, and his fix takes them to 100%.
         public const int StallEpochs = 150;
-        public static readonly float[] Rates = { 0.001f, 0.003f, 0.01f, 0.03f, 0.1f, 0.3f, 1f };
+        public static readonly float[] Rates = { 0.0001f, 0.0003f, 0.001f, 0.003f, 0.01f, 0.03f, 0.1f, 0.3f, 1f };
 
         public NNDataset Dataset { get; private set; } = NNDataset.Spiral;
         public NNActivation Activation { get; private set; } = NNActivation.Tanh;
@@ -35,6 +36,8 @@ namespace Forge.ML
         public int AutoPausedAt { get; private set; } = -1;
         /// <summary>Epoch where Play stopped itself because test accuracy stopped improving, or -1.</summary>
         public int StalledAt { get; private set; } = -1;
+        /// <summary>How many times Play stopped by itself (either way): the hub offers Albie's fix once per stop.</summary>
+        public int StopCount { get; private set; }
         public int Epoch { get; private set; }
         public float TrainLoss { get; private set; }
         public float TestLoss { get; private set; }
@@ -43,6 +46,24 @@ namespace Forge.ML
         public NNNetwork Net { get; private set; }
         public readonly List<NNPoint> Train = new List<NNPoint>(), Test = new List<NNPoint>();
         public readonly List<float> LossHistory = new List<float>(256);
+
+        // The training point the 3D net and "How it learns" walk through together: a new one every PulseSeconds.
+        public const float PulseSeconds = 4f;
+        public int PulseIndex { get; private set; }
+        public float PulseStart { get; private set; } = -10f;
+        public int PulseCount { get; private set; }
+
+        /// <summary>Something that happened while training (the "Training story" panel's markers).</summary>
+        public struct StoryEvent { public int at; public string text; public bool albie; }
+        /// <summary>Epochs trained since the Lab started, across rebuilds (the story's time axis).</summary>
+        public int TotalEpochs { get; private set; }
+        /// <summary>(total epoch, train accuracy, test accuracy), thinned out as it grows so it covers the whole session.</summary>
+        public readonly List<Vector3> Story = new List<Vector3>(StoryMax);
+        public readonly List<StoryEvent> Events = new List<StoryEvent>(MaxEvents);
+        const int StoryMax = 240, MaxEvents = 12;
+        int storyStride = 1;
+        string[] lastConfig;  // what the last config event described, to say only what changed
+        bool configPending, inCommand;
 
         /// <summary>The network was rebuilt (shape, features, dataset): panels redraw their graph.</summary>
         public event Action Rebuilt;
@@ -70,6 +91,7 @@ namespace Forge.ML
         int seed = 1, appliedSeq, lastPostedEpoch = -1;
         float nextPost, epochBudget;
         bool autoPause;  // armed by a Play that starts below the threshold; Albie's fix turns it off
+        bool stallStop;  // armed by every Play (also one past 92%, so it still stops once stuck); Albie's fix turns it off
         float bestAccuracy; int bestEpoch;  // for the stall check
         bool dirty;
         IDisposable commands;
@@ -98,6 +120,11 @@ namespace Forge.ML
         void Update()
         {
             EnsureReady();
+            if (Train.Count > 0 && Time.unscaledTime - PulseStart >= PulseSeconds)
+            {
+                PulseIndex = (PulseIndex + 37) % Train.Count; PulseStart = Time.unscaledTime; PulseCount++;
+            }
+            if (configPending && !inCommand) FlushConfig(false);
             if (Playing)
             {
                 epochBudget = Mathf.Min(epochBudget + Time.unscaledDeltaTime * EpochsPerSecond, 3f);
@@ -108,13 +135,13 @@ namespace Forge.ML
                     if (TestAccuracy >= bestAccuracy + 0.01f) { bestAccuracy = TestAccuracy; bestEpoch = Epoch; }
                     if (autoPause && TestAccuracy >= AutoPauseAccuracy)
                     {
-                        Playing = autoPause = false; AutoPausedAt = Epoch;
+                        Playing = autoPause = stallStop = false; AutoPausedAt = Epoch; StopCount++;
                         Remember("auto_pause", "", TestAccuracy);
                         Changed();
                     }
-                    else if (autoPause && Epoch - bestEpoch >= StallEpochs)
+                    else if (stallStop && Epoch - bestEpoch >= StallEpochs)
                     {
-                        Playing = autoPause = false; StalledAt = Epoch;
+                        Playing = autoPause = stallStop = false; StalledAt = Epoch; StopCount++;
                         Remember("stalled", "", TestAccuracy);  // the hub sees it and Albie offers his fix
                         Changed();
                     }
@@ -133,12 +160,13 @@ namespace Forge.ML
             if (on)
             {
                 autoPause = stopAtTarget && TestAccuracy < AutoPauseAccuracy;
+                stallStop = stopAtTarget;
                 AutoPausedAt = StalledAt = -1; bestAccuracy = TestAccuracy; bestEpoch = Epoch;
             }
             Changed();
         }
         public void StepOnce() { Playing = false; TrainEpoch(); Evaluate(); RecordLoss(); Changed(); }
-        public void ResetWeights() { seed++; Rebuild(); }
+        public void ResetWeights() { seed++; Rebuild(); Mark("Weights reset to random", inCommand); }
         public void Regenerate()
         {
             var points = NNData.Generate(Dataset, PointCount, Noise, 7 + (int)Dataset);
@@ -149,11 +177,14 @@ namespace Forge.ML
         public void SetDataset(NNDataset d) { if (d == Dataset) return; Dataset = d; Regenerate(); }
         public void SetNoise(float noise) { Noise = Mathf.Clamp(noise, 0, 0.5f); Regenerate(); }
         public void SetActivation(NNActivation a) { Activation = a; Rebuild(); }
-        public void SetLearningRate(float rate) { LearningRate = Mathf.Clamp(rate, 0.0001f, 3f); Changed(); }
+        public void SetLearningRate(float rate) { LearningRate = Mathf.Clamp(rate, 0.0001f, 3f); configPending = true; Changed(); }
         public void ShiftLearningRate(int step)
         {
-            int i = Array.IndexOf(Rates, LearningRate); if (i < 0) i = 3;
-            SetLearningRate(Rates[Mathf.Clamp(i + step, 0, Rates.Length - 1)]);
+            // The next rate up or down from the current one, also from one that isn't in the list (Albie's 0.005).
+            float next = LearningRate;
+            if (step > 0) { foreach (float r in Rates) if (r > LearningRate * 1.0001f) { next = r; break; } }
+            else for (int i = Rates.Length - 1; i >= 0; i--) if (Rates[i] < LearningRate * 0.9999f) { next = Rates[i]; break; }
+            SetLearningRate(next);
         }
         public void ToggleFeature(NNFeature f)
         {
@@ -196,6 +227,7 @@ namespace Forge.ML
             Net = new NNNetwork(inputs, Hidden.ToArray(), Activation, seed);
             Epoch = 0; LossHistory.Clear(); AutoPausedAt = StalledAt = -1;
             Evaluate();
+            AddStoryPoint(); configPending = true;  // the new network starts from scratch: the curve drops here
             Rebuilt?.Invoke();
             Changed();
         }
@@ -219,7 +251,7 @@ namespace Forge.ML
                 Net.Accumulate(FeaturesOf(p.x, p.y), p.label);
                 if ((i + 1) % BatchSize == 0 || i == Train.Count - 1) Net.Apply(LearningRate);
             }
-            Epoch++;
+            Epoch++; TotalEpochs++;
         }
 
         void Evaluate()
@@ -228,7 +260,53 @@ namespace Forge.ML
             Measure(Test, out float testLoss, out float testAcc);
             TrainLoss = trainLoss; TrainAccuracy = trainAcc; TestLoss = testLoss; TestAccuracy = testAcc;
         }
-        void RecordLoss() { if (LossHistory.Count == 256) LossHistory.RemoveAt(0); LossHistory.Add(TestLoss); }
+        void RecordLoss()
+        {
+            if (LossHistory.Count == 256) LossHistory.RemoveAt(0);
+            LossHistory.Add(TestLoss);
+            if (TotalEpochs % storyStride == 0) AddStoryPoint();
+        }
+        void AddStoryPoint()
+        {
+            if (Story.Count == StoryMax)  // keep every other point and sample half as often from now on
+            {
+                for (int i = 0; i < StoryMax / 2; i++) Story[i] = Story[i * 2 + 1];
+                Story.RemoveRange(StoryMax / 2, StoryMax / 2);
+                storyStride *= 2;
+            }
+            Story.Add(new Vector3(TotalEpochs, TrainAccuracy, TestAccuracy));
+        }
+
+        void Mark(string text, bool albie)
+        {
+            if (Events.Count == MaxEvents) Events.RemoveAt(0);
+            Events.Add(new StoryEvent { at = TotalEpochs, text = text, albie = albie });
+        }
+
+        // One event per change of setup, naming only what changed ("inputs x, y, x² · layers [8, 8]"); Albie's
+        // commands flush right after they apply, the panel's buttons on the next frame.
+        string[] Config() => new[]
+        {
+            Dataset == NNDataset.Xor ? "XOR" : Dataset.ToString().ToLowerInvariant(),
+            "inputs " + FeatureList(), "layers [" + string.Join(", ", Hidden) + "]", Activation.ToString().ToLowerInvariant(),
+            "learning rate " + LearningRate.ToString("0.####"), "noise " + Mathf.RoundToInt(Noise * 100) + "%",
+        };
+        public string FeatureList()
+        {
+            var names = new List<string>();
+            for (int f = 0; f < Features.Length; f++) if (Features[f]) names.Add(NNData.Label((NNFeature)f));
+            return string.Join(", ", names);
+        }
+        void FlushConfig(bool albie)
+        {
+            configPending = false;
+            var now = Config();
+            if (lastConfig == null) { lastConfig = now; return; }
+            var changed = new List<string>();
+            for (int i = 0; i < now.Length; i++) if (now[i] != lastConfig[i]) changed.Add(now[i]);
+            lastConfig = now;
+            if (changed.Count > 0) Mark(string.Join(" · ", changed), albie);
+        }
         void Measure(List<NNPoint> points, out float loss, out float accuracy)
         {
             float sum = 0; int right = 0;
@@ -242,12 +320,22 @@ namespace Forge.ML
             accuracy = points.Count == 0 ? 0 : right / (float)points.Count;
         }
         float TestAccuracyNow() { Measure(Test, out _, out float acc); return acc; }
+        /// <summary>Test accuracy if hidden neuron (layer 1.., neuron from 0) were switched the other way: how much it matters.</summary>
+        public float AccuracyIfToggled(int layer, int neuron)
+        {
+            bool off = Net.disabled[layer][neuron];
+            Net.disabled[layer][neuron] = !off;
+            float acc = TestAccuracyNow();
+            Net.disabled[layer][neuron] = off;
+            return acc;
+        }
 
         // ---- Albie: commands in, state out ----------------------------------------------------------------
 
         void OnCommand(JToken c)
         {
             EnsureReady();
+            inCommand = true;
             try
             {
                 string dataset = c.Value<string>("dataset");
@@ -282,6 +370,8 @@ namespace Forge.ML
                 else if (view == "project") MLWorkspaceBridge.ShowLab(false);
             }
             catch (Exception e) { Debug.LogWarning("[NeuralLab] Bad ml.nn_command: " + e.Message); }
+            inCommand = false;
+            if (configPending) FlushConfig(true);
             appliedSeq = Math.Max(appliedSeq, c.Value<int?>("seq") ?? 0);
             PostState();
         }
@@ -305,6 +395,14 @@ namespace Forge.ML
 
         void Remember(string action, string target, float before)
         {
+            switch (action)
+            {
+                case "auto_pause": Mark($"Auto-paused at {TestAccuracy:0%}", false); break;
+                case "stalled": Mark($"Stuck at {TestAccuracy:0%}", false); break;
+                case "neuron_off": Mark($"{target} off: {before:0%} → {TestAccuracy:0%}", inCommand); break;
+                case "neuron_on": Mark($"{target} back on: {before:0%} → {TestAccuracy:0%}", inCommand); break;
+                case "restore_all": Mark($"All neurons on: {before:0%} → {TestAccuracy:0%}", inCommand); break;
+            }
             history.Add(new JObject { ["action"] = action, ["target"] = target, ["epoch"] = Epoch,
                 ["test_accuracy_before"] = Round(before), ["test_accuracy_after"] = Round(TestAccuracy) });
             if (history.Count > 12) history.RemoveAt(0);
@@ -322,9 +420,7 @@ namespace Forge.ML
                 for (int i = 1; i <= Hidden[l - 1]; i++)
                 {
                     bool off = Net.disabled[l][i - 1];
-                    Net.disabled[l][i - 1] = !off;
-                    float flipped = TestAccuracyNow();  // what the test accuracy would be with this neuron switched
-                    Net.disabled[l][i - 1] = off;
+                    float flipped = AccuracyIfToggled(l, i - 1);
                     neurons.Add(new JObject { ["id"] = NeuronId(l, i), ["layer"] = l, ["index"] = i, ["enabled"] = !off,
                         ["test_accuracy_if_toggled"] = Round(flipped), ["detects"] = DetectsAsIfOn(l, i - 1),
                         ["outgoing_weight"] = Round(OutgoingWeight(l, i - 1)) });
@@ -337,7 +433,7 @@ namespace Forge.ML
             {
                 ["applied_seq"] = appliedSeq, ["playing"] = Playing, ["epoch"] = Epoch,
                 ["auto_paused_at_epoch"] = AutoPausedAt >= 0 ? AutoPausedAt : (JToken)null, ["auto_pause_accuracy"] = AutoPauseAccuracy,
-                ["stalled_at_epoch"] = StalledAt >= 0 ? StalledAt : (JToken)null,
+                ["stalled_at_epoch"] = StalledAt >= 0 ? StalledAt : (JToken)null, ["stop_count"] = StopCount,
                 ["dataset"] = Dataset.ToString().ToLowerInvariant(), ["noise"] = Round(Noise),
                 ["activation"] = Activation.ToString().ToLowerInvariant(), ["learning_rate"] = LearningRate,
                 ["features"] = features, ["hidden"] = new JArray(Hidden.ToArray()),
@@ -366,7 +462,7 @@ namespace Forge.ML
         }
 
         // A switched-off neuron outputs 0; what it detected is what it would output if it were on (the "why").
-        string DetectsAsIfOn(int layer, int neuron)
+        public string DetectsAsIfOn(int layer, int neuron)
         {
             bool off = Net.disabled[layer][neuron];
             Net.disabled[layer][neuron] = false;

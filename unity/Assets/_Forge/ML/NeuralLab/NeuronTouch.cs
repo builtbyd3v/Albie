@@ -8,8 +8,8 @@ using UnityEngine.InputSystem.UI;
 namespace Forge.ML
 {
     /// <summary>
-    /// One hidden neuron of <see cref="NeuralNet3D"/> you can switch off and on: touch it with a fingertip (any
-    /// PokeInteractor, checked by NeuralNet3D), select it with a controller or hand ray (its RayInteractable), or click
+    /// One hidden neuron of <see cref="NeuralNet3D"/> you can switch off and on: touch it with a fingertip (a tracked
+    /// hand's index tip or any PokeInteractor, checked by NeuralNet3D), select it with a controller or hand ray (its RayInteractable), or click
     /// it with the mouse (<see cref="NeuronRaycaster"/>). Same rules as CAD's Expand ring (CadExpandButton).
     /// </summary>
     public sealed class NeuronTouch : MonoBehaviour, IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
