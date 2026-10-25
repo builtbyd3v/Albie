@@ -9,7 +9,7 @@
     "m_AllowBrowserClients": false,
     "m_MethodReloadRepushOnConnect": true,
     "m_RunInBackgroundInPlayMode": false,
-    "m_RunInBackgroundOverridden": true,
-    "m_RunInBackgroundOriginal": false,
-    "m_RunInBackgroundCommandOverride": true
+    "m_RunInBackgroundOverridden": false,
+    "m_RunInBackgroundOriginal": true,
+    "m_RunInBackgroundCommandOverride": false
 }
