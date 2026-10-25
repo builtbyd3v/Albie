@@ -15,11 +15,12 @@ namespace Forge.ML
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
-        [Tooltip("Epochs for the Train button (POST /ml/train).")] public int trainEpochs = 10;
-        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, BannerY = 204, SectionY = 242, SummaryY = 260;
+        [Tooltip("Epochs for the Train button (5–10 for imported GitHub repositories).")][Range(5, 10)] public int trainEpochs = 10;
+        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, ImportY = 204, BannerY = 238, SectionY = 276, SummaryY = 294;
         TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, bannerLabel, bannerText, sectionTitle, lossMax, runMetrics;
         ForgeSurface progress, statusChip, banner, bannerDot;
         ForgePill train;
+        TMP_InputField githubUrl;
         MLCurve loss, accuracy;
         RectTransform root, summary;
         float width;
@@ -51,6 +52,10 @@ namespace Forge.ML
             var top = MLUI.Text(root, "100%", chart + 24, ChartY + 24, 40, 12, 8.5f); top.color = MLUI.Faint;
             // A run that logs neither loss nor accuracy (a backtest, a regression with only r2) shows its own numbers here.
             runMetrics = MLUI.Text(root, "", 12, ChartY + 34, width - 24, ChartHeight - 40, 13);
+
+            // Import a public GitHub repository (POST /ml/github/import); Train then trains it (5–10 epochs).
+            githubUrl = MLUI.Input(root, "Public GitHub repository", "https://github.com/owner/repository", 0, ImportY, width - 110, 28);
+            MLUI.Button(root, "Import", width - 100, ImportY, 100, 28, () => session.ImportGitHub(githubUrl.text));
 
             // One banner line: overfitting, a hub notice, or the finished run.
             banner = MLUI.Surface(root, 0, BannerY, width, 28, Color.clear, 10, 0.5f);

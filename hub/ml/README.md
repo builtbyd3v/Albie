@@ -4,10 +4,11 @@ The ML endpoints: PROJECT_CONTEXT section 7 plus ML_PLAN 7.4. Serves one project
 
 ```bash
 # from hub/, in an env that has the repo's packages (for CIFAR: conda activate gatorhack-dubz)
+uvicorn main:app --host 0.0.0.0 --port 8000
 uvicorn main:app --host 0.0.0.0 --port 8000           # the one hub: /ml is mounted in main.py
 uvicorn ml.dev_server:app --port 8000                  # ML only (/ml + /ws), no CAD/pet/Slack
 python -m ml.make_mocks                                # .data/mocks/ml/{image_classification,regression}
-FORGE_ML_REPO=.data/mocks/ml/image_classification uvicorn ml.dev_server:app --port 8000   # mock mode
+FORGE_ML_REPO=.data/mocks/ml/image_classification uvicorn main:app --host 0.0.0.0 --port 8000   # mock mode
 pytest ml/tests
 ```
 
@@ -17,12 +18,25 @@ pytest ml/tests
 | `GET /ml/files/atlas.png`, `/ml/image/{id}` | full-size image if the dataset runner saved one, else the atlas cell |
 | `GET /ml/sample/{id}` | detail card: metadata + latest prediction |
 | `GET /ml/runs`, `/ml/results/{run}`, `/ml/confusion/{run}`, `/ml/summary/{run}` | results reflect relabel/remove (`relabeled`, `removed`, recomputed `correct`) |
+| `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running |
+| `POST /ml/github/import {url}` | inspect a public GitHub repo or selected folder through the Contents API; supports CIFAR-10 + SmallCNN |
+| `POST /ml/github/train {import_id, epochs}` | runs the approved local CIFAR-10/SmallCNN worker for 5–10 epochs; GitHub source is never executed |
 | `GET /ml/viz?run_id=` | chart cards: the archetype's built-ins plus `.forge/extra_viz.py` output (PNG or VizCard, A7) |
 | `POST /ml/train {epochs}` | runs the repo's train command with `FORGE_RUN_ID` + `FORGE_HUB`; 409 while one is running. A script without forge calls still gets live curves (log tail, below) |
 | `POST /ml/samples/{id}/relabel {label_idx}`, `/remove` | write `.forge/labels_override.json`, broadcast `ml.sample_updated` |
 | `POST /ml/ingest {run_id, events}` | forge SDK → `/ws`, `ml.*` only |
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
+The Training panel accepts a public GitHub repository URL or a folder URL such as
+`https://github.com/hudmarr/gatorhack-dubz/tree/b8c66ef08a05fc9ad3bfcdc94f5eab5e270e3924/ml-examples/cifar10`.
+Import inspects `train.py`, `model.py`, `data.py`, and `requirements.txt` from the selected folder and statically
+checks for the supported `SmallCNN` + CIFAR-10
+structure. It does not clone, import, or run repository code. A supported import selects the reviewed local
+`ml-examples/cifar10` trainer and dataset. That worker records epoch, train/validation loss and accuracy, and
+learning rate through Forge SDK; the SDK streams `ml.metrics`, `ml.class_acc`, and `ml.probe` events to the hub.
+Set optional `GITHUB_TOKEN` in the hub environment to raise GitHub API rate limits for public repository reads.
+
+**Mounted in `hub/main.py`:** the ML router uses `app.state.bus`, which main.py sets, and creates its service on first use.
 **Mounted in `hub/main.py`:** `app.include_router(ml_router)`; it uses `app.state.bus` and creates its service on first use (`app.state.ml`).
 
 **Log tail (A6, `logtail.py`):** for a training script that doesn't call forge (the user picked Skip). While `POST /ml/train`'s process runs, the hub reads the repo's own logs every 2 s and sends them as `ml.run_state` / `ml.metrics` / `ml.overfit_alert`, then `done` when it exits; after Skip it keeps following, and each new log file is a new run. Reads HF `trainer_state.json`, Lightning `metrics.csv` and TensorBoard `events.out.tfevents.*` (own decoder, no tensorboard package). Tailed runs are saved to `.forge/runs/<id>/events.jsonl` (`run.json` has `source: logtail`), so replay and `/ml/metrics` work. If the forge SDK writes the run's `run.json`, the tail stands down.

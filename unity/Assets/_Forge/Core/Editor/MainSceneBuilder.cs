@@ -79,7 +79,9 @@ public static class MainSceneBuilder
         PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(MrukPath));
 
         // UI events from Interaction SDK rays/pokes
-        new GameObject("EventSystem", typeof(EventSystem), typeof(PointableCanvasModule));
+        var eventSystem = new GameObject("EventSystem", typeof(EventSystem), typeof(PointableCanvasModule));
+        // Keep other UI input modules usable alongside controller rays, pinching-hand rays and fingertip pokes.
+        eventSystem.GetComponent<PointableCanvasModule>().ExclusiveMode = false;
 
         // Hub connection (live, or mocks when the hub isn't running)
         new GameObject("ForgeNet", typeof(ForgeNet));
