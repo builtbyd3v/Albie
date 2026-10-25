@@ -112,7 +112,7 @@ async def train(req: TrainRequest, request: Request) -> TrainResponse:
 # Preset buttons on the Training panel, so nobody types a URL in the headset. FORGE_ML_GITHUB_PRESETS overrides
 # them without a rebuild: "Label|https://github.com/...;Label|https://github.com/...".
 DEFAULT_GITHUB_PRESETS = [
-    {"label": "Forge CIFAR demo", "url": "https://github.com/hudmarr/gatorhack-dubz/tree/main/ml-examples/cifar10"},
+    {"label": "Forge CIFAR demo", "url": "https://github.com/Satyabratadas/forge-cifar10-demo"},
     {"label": "PyTorch examples", "url": "https://github.com/pytorch/examples"},
 ]
 

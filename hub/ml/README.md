@@ -28,7 +28,7 @@ pytest ml/tests
 | `POST /ml/replay {run_id, speed}` | stream a recorded run onto `/ws` |
 
 The Training panel accepts a public GitHub repository URL or a folder URL such as
-`https://github.com/hudmarr/gatorhack-dubz/tree/b8c66ef08a05fc9ad3bfcdc94f5eab5e270e3924/ml-examples/cifar10`.
+`https://github.com/Satyabratadas/forge-cifar10-demo` (public, the default "Forge CIFAR demo" preset).
 Import inspects `train.py`, `model.py`, `data.py`, and `requirements.txt` from the selected folder and statically
 checks for the supported `SmallCNN` + CIFAR-10
 structure. It does not clone, import, or run repository code. A supported import selects the reviewed local
