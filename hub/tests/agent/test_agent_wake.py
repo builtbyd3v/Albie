@@ -26,6 +26,18 @@ def fresh_crew() -> None:
 
 
 @pytest.mark.parametrize("text, who, rest", [
+    ("Switch to code. Albie, switch to code.", "bit", "Switch to code. switch to code."),  # live 19:55:09
+    ("Yes, Albie. Find the repo files using Scout.", "bit", "Find the repo files using Scout."),  # live 19:54:55
+    ("Okay. Albi", "bit", ""),  # just his name: opens a listen
+    ("Open train.py.", None, "Open train.py."),
+    ("Hey Albie, what's in ws.py?", "bit", "what's in ws.py?"),  # the dot in ws.py ends no sentence
+    ("I told Alby we would come.", None, "I told Alby we would come."),
+])
+def test_parse_finds_the_name_at_the_start_of_any_sentence(text: str, who: str | None, rest: str) -> None:
+    assert parse(text) == (who, rest)
+
+
+@pytest.mark.parametrize("text, who, rest", [
     ("Hey Albie, what's in ws.py?", "bit", "what's in ws.py?"),
     ("albee what time is it", "bit", "what time is it"),
     ("Al bee, what's in ws.py?", "bit", "what's in ws.py?"),
@@ -110,9 +122,9 @@ def _facing_final(text: str, facing: bool, said_to_albie: bool = True, gated: bo
     router.begin(None, facing=facing, gated=gated)
     r.asked: list[str] = []  # type: ignore[attr-defined]
 
-    async def judge(t: str, _gated: bool) -> bool:
+    async def judge(t: str, facing_counts: bool) -> bool:
         r.asked.append(t)  # type: ignore[attr-defined]
-        return said_to_albie
+        return said_to_albie and (facing_counts or gated)  # gated: stands in for a bare answer to his question
 
     router.judge = judge
 
@@ -154,9 +166,9 @@ def test_router_gated_reply_is_judged() -> None:
     assert not d.respond
 
 
-def test_router_looking_away_without_name_is_dropped_without_a_judge_call() -> None:
+def test_router_looking_away_without_name_is_dropped() -> None:
     d, r = _facing_final("And we can open the email panel.", facing=False)
-    assert d.pet_id is None and not d.respond and r.events == [] and r.asked == []  # type: ignore[attr-defined]
+    assert d.pet_id is None and not d.respond and r.events == []
 
 
 def test_router_named_turn_needs_no_judge() -> None:
@@ -188,8 +200,8 @@ def test_router_facing_is_per_turn(monkeypatch: pytest.MonkeyPatch) -> None:
     router = r.router()
     router.begin(None, facing=True)
 
-    async def yes(_: str, __: bool) -> bool:
-        return True
+    async def yes(_: str, facing_counts: bool) -> bool:
+        return facing_counts
 
     router.judge = yes
 
@@ -247,8 +259,7 @@ def test_grok_gated_reply_waits_for_the_judge_and_a_dropped_one_still_ends_the_t
         s.wake_router = r.router()
         heard: list[tuple[str, str | None]] = []
 
-        async def judge(text: str, gated: bool) -> bool:
-            assert gated
+        async def judge(text: str, facing_counts: bool) -> bool:
             heard.append((text, s.last_reply or None))
             return text.startswith("Yes")
 

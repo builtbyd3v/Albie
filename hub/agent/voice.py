@@ -96,8 +96,9 @@ BREVITY = (
 BREVITY_NOW = " Reply now in at most two short sentences."
 DELEGATE_RULES = (
     " Your delegate tool is for anything needing real analysis of the user's code, repository, files, project "
-    "or training runs, and for any request to write, fix or change code; never guess those details "
-    "yourself. Give it a self-contained task that includes what the user asked and any context from the "
+    "or training runs, and for any request to write, fix or change code or to create a new file; use mode code "
+    "for those, and the brain edits the files open in VS Code right where the user sees them. Never guess those "
+    "details yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
     "ready. Answer everything else yourself."
 )
@@ -105,6 +106,11 @@ TOOL_RULES = (
     " Use your other tools yourself for quick actions: read or change the rocket design, open, highlight "
     "or check code in VS Code, set the focus timer, keep the user's notes, and play the movie on the big screen. "
     "Call them instead of guessing, then say in one short line what you did. "
+    "Open, highlight or check code in VS Code yourself: to open or show a file that exists, call vscode_open_file "
+    "(vscode_get_context first if they say 'this' or 'my code'), to point at lines call vscode_highlight. Never use "
+    "the crew (spawn_agent, assign_task) to open, show, create or edit a file: the crew works on its own branch, "
+    "which the user can't see in VS Code. Use the crew only when the user names a crew member or asks for help in "
+    "parallel. "
     "Slack and iMessage replies go out under the user's own account and are never sent directly: messages_send only writes a draft "
     "that pops up for them to confirm, so say what you wrote and ask them to tap Send or say 'send it'; "
     "messages_confirm is for their yes or no."
@@ -261,9 +267,10 @@ class _Base:
     async def _wake_decided(self, respond: bool) -> None:
         """Wake turn routed: answer it (respond) or forget it."""
 
-    async def addressed(self, text: str, gated: bool = False) -> bool:
-        """WakeRouter.judge: was this unnamed sentence said to Albie? His last line is the context."""
-        return await addressed.judge(text, self.last_reply or None, gated=gated)
+    async def addressed(self, text: str, facing: bool = False) -> bool:
+        """WakeRouter.judge: was this unnamed sentence said to Albie? His last line (and how long ago) is the context."""
+        age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
+        return await addressed.judge(text, self.last_reply or None, age, facing=facing)
 
     def _spoke(self, text: str) -> None:
         if text.strip():
@@ -659,6 +666,7 @@ class GrokVoiceSession(_Base):
         except (json.JSONDecodeError, TypeError, ValueError):
             args = {}
         await self._emit(ev.tool_call(self.pet_id, call_id, name, args))
+        log.info("tool: %s %s", name, json.dumps(args)[:200])  # which tool a request was routed to (VS Code vs crew)
         if name == "delegate" and self._delegate is not None and str(args.get("task", "")).strip():
             mode = args.get("mode") if args.get("mode") in ("qa", "code", "auto") else "auto"
             # Grok has no "pending" results: acknowledge now so it can say "on it", speak the answer later.
@@ -897,14 +905,19 @@ NAME_WORDS = ALIASES["bit"]  # albie, albee, alby, elbie (agent/wake.py)
 
 
 def has_name(text: str, last: bool = True) -> bool:
-    """Albie is addressed: "Albie, ...", "Hey Albie ...", "Al bee, ...", "..., Albie?". Only the first two words,
-    plus the last one when ``last`` (final transcripts only: a growing partial always ends on its newest word)."""
-    words = re.findall(r"[a-z]+", text.lower())
-    for i in (0, 1):  # "Al bee" at the start is the name heard as two words
-        if words[i:i + 1] == [SPLIT_FIRST] and words[i + 1:i + 2] and words[i + 1] in SPLIT_SECOND:
-            words[i:i + 2] = ["albie"]
-            break
-    return any(w in NAME_WORDS for w in words[:2] + (words[-1:] if last else []))
+    """Albie is addressed: "Albie, ...", "Hey Albie ...", "Al bee, ...", "..., Albie?". The first two words of any
+    sentence ("Switch to code. Albie, switch to code."), plus the last word when ``last`` (final transcripts only: a
+    growing partial always ends on its newest word)."""
+    sentences = [re.findall(r"[a-z]+", s) for s in re.split(r"[.?!]+(?=\s|$)", text.lower())]
+    sentences = [s for s in sentences if s]
+    for words in sentences:
+        for i in (0, 1):  # "Al bee" at the start is the name heard as two words
+            if words[i:i + 1] == [SPLIT_FIRST] and words[i + 1:i + 2] and words[i + 1] in SPLIT_SECOND:
+                words[i:i + 2] = ["albie"]
+                break
+        if any(w in NAME_WORDS for w in words[:2]):
+            return True
+    return bool(last and sentences and sentences[-1][-1] in NAME_WORDS)
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

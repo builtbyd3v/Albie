@@ -41,7 +41,8 @@ log = logging.getLogger(__name__)
 # "looking at him counts as his name" back.
 FACING_COUNTS = os.getenv("VOICE_FACING", "0") == "1"
 
-GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so"}
+GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so", "yes", "yeah", "yep", "alright",
+             "well", "and", "please"}  # "Yes, Albie. Find..." (live 19:54) was dropped with only the first set
 # Common mis-hearings, per pet id ("bit" = the lead, spoken name Albie). Keep these unambiguous English-wise.
 # A name only counts at the start of a sentence (after a greeting) or after a comma, so "Scott" here means a
 # sentence addressed to someone called Scott goes to the Scout; drop an alias if that bites in your room.
@@ -86,8 +87,26 @@ def _alias_map(lead_pet_id: str) -> dict[str, str]:
     return out
 
 
+_SENTENCE = re.compile(r"\S.*?(?:[.?!]+(?=\s|$)|$)")  # a dot inside "ws.py" doesn't end a sentence
+
+
 def parse(text: str, lead_pet_id: str = "bit") -> tuple[str | None, str]:
-    """(pet_id the sentence is addressed to or None, the rest of the sentence without the name)."""
+    """(pet_id the turn is addressed to or None, the turn without the name). The name may open any sentence of the
+    turn ("Switch to code. Albie, switch to code.", live 19:55); what came before it stays in the rest unless it is
+    only greetings ("Okay. Albie" is just his name)."""
+    for m in _SENTENCE.finditer(text):
+        pid, rest = _parse_one(m.group(), lead_pet_id)
+        if pid is not None:
+            before = text[:m.start()].strip()
+            if all(w.group().lower() in GREETINGS for w in _WORD.finditer(before)):
+                before = ""
+            after = text[m.end():].strip()
+            return pid, " ".join(p for p in (before, rest, after) if p)
+    return None, text.strip()
+
+
+def _parse_one(text: str, lead_pet_id: str) -> tuple[str | None, str]:
+    """One sentence: (pet_id, the sentence without the name), or (None, sentence)."""
     names = _alias_map(lead_pet_id)
     text = _fold(text)
     words = list(_WORD.finditer(text))
@@ -128,7 +147,7 @@ class WakeRouter:
         self.facing = False  # from stt.start {wake, facing}: user faced the lead at speech onset
         self.gated = False  # a look-to-talk / follow-up reply (stt.start {require_name}): needs the name
         # Was an unnamed sentence said to the lead? The voice session sets one with his last line as context.
-        self.judge: Callable[[str, bool], Awaitable[bool]] = lambda text, gated: addressed.judge(text, gated=gated)
+        self.judge: Callable[[str, bool], Awaitable[bool]] = lambda text, facing: addressed.judge(text, facing=facing)
         self.judged: bool | None = None  # last final's verdict (None = no judge call), for the turn: log line
 
     def begin(self, target: str | None, facing: bool = False, gated: bool = False) -> None:
@@ -169,10 +188,10 @@ class WakeRouter:
         if flags is None:
             self.target, self.facing, self.gated = None, False, False
         pid, rest = self._who(text, target)
-        ask = pid is None and ((facing and FACING_COUNTS) or gated) and bool(text.strip())
+        ask = pid is None and bool(text.strip())  # cheap: the judge only says yes to a look or a bare answer
         self.judged = None
         if ask:
-            self.judged = await self.judge(text, gated)
+            self.judged = await self.judge(text, facing and FACING_COUNTS)
             if self.judged:
                 pid, rest = self.lead, text.strip()
         if pid is None:
