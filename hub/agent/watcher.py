@@ -4,8 +4,8 @@ Callers hand events over directly (no bus listener, so no contract change):
 vscode/router.py on POST /vscode/event, and cad/service.py on cad.regen_failed (wired in main.py).
 
 Per event Bit moves to the panel (pet.state working + target_panel), says one line (pet.say bubble, and
-voice when a Grok session is live) and makes the broken line glow in VS Code. It never edits code: if the
-user says "yes", Grok has the line in its conversation and answers with its normal tools.
+voice when a Grok session is live) and makes the broken line glow in VS Code. It never edits code: Grok gets the
+file, line and error as hidden context with the line, so a "yes" turns into its normal delegate(mode=code) fix.
 
 Rules: one unprompted line per GAP_S; while waiting only the newest line per file (or terminal, CAD) is kept;
 the same error is said once.
@@ -35,6 +35,7 @@ PET_ID = "bit"
 GAP_S = 20.0
 GLOW_MS = 8000
 CTRL_C = 130
+ERROR_MAX = 300  # chars of the error Grok gets as context
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,12 @@ class Line:
     line: int | None = None
     note: str | None = None
     panel: str = "screen-main"
+    context: str | None = None  # what Grok reads (never says) with the line: what broke and how to fix it on "yes"
+
+
+def fix_context(said: str, where: str, error: str) -> str:
+    return (f"You just told the user: \"{said}\" It is about {where}: {error}. If they say yes, call delegate with "
+            f"mode code and a task to fix exactly that, naming the file, the line and the error.")
 
 
 def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | None:
@@ -55,8 +62,11 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
             return None  # pet and slider changes: the caller already sees the error
         n = p.get("error_line")
         text = f"Line {n} broke the rocket." if n else "The rocket script broke."
+        text = f"{text} I kept the last good one. Want me to fix it?"
         key = f"{p.get('kept_version')}:{p['error']}"  # a good rebuild moves kept_version, so a rehearsal re-fires
-        return Line("cad", key, f"{text} I kept the last good one.", cad_script, n, p["error"][:80])
+        where = f"line {n} of {cad_script}" if n else str(cad_script)
+        return Line("cad", key, text, cad_script, n, p["error"][:80],
+                    context=fix_context(text, where, p["error"][:ERROR_MAX]))
 
     if type_ != "vscode.event":
         return None
@@ -64,7 +74,9 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
         code = p.get("exit_code")
         if code in (None, 0, CTRL_C):
             return None
-        return Line("terminal", None, f"That command crashed with exit code {code}. Want me to look at it?")
+        text = f"That command crashed with exit code {code}. Want me to look at it?"
+        return Line("terminal", None, text, context=fix_context(
+            text, f"the terminal command {p.get('command') or 'the user ran'}", f"exit code {code}"))
 
     file = p.get("file") or ""
     if cad_script and Path(cad_script).as_posix().endswith("/" + file):
@@ -76,7 +88,11 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
     n = p.get("line")
     more = f", plus {count - 1} more" if count > 1 else ""
     text = f"Line {n} in {name} has an error{more}." if n else f"{name} has an error{more}."
-    return Line(file, f"{n}:{p.get('message')}", f"{text} Want me to look?", file, n, (p.get("message") or "")[:80])
+    text = f"{text} Want me to look?"
+    message = p.get("message") or ""
+    where = f"line {n} of {file}" if n else file
+    return Line(file, f"{n}:{message}", text, file, n, message[:80],
+                context=fix_context(text, where, message[:ERROR_MAX] or "an error"))
 
 
 class Watcher:
@@ -145,7 +161,8 @@ class Watcher:
                 continue
             if queued is not None:
                 queued.cancel()  # still waiting for silence: the newer line replaces it
-            self._voices[voice] = asyncio.create_task(say(line.text))  # say() waits until nobody is talking
+            # say() waits until nobody is talking; the context goes in right before the line
+            self._voices[voice] = asyncio.create_task(say(line.text, line.context))
 
 
 watcher = Watcher()

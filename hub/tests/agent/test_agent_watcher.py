@@ -13,8 +13,11 @@ def test_regen_failed_from_script_points_at_the_line() -> None:
     line = line_for("cad.regen_failed", {"source": "script", "kind": "build", "error": "fin_count must be > 0",
                                          "error_line": 42}, SCRIPT)
     assert line is not None
-    assert line.text == "Line 42 broke the rocket. I kept the last good one."
+    assert line.text == "Line 42 broke the rocket. I kept the last good one. Want me to fix it?"
     assert (line.path, line.line, line.note) == (SCRIPT, 42, "fin_count must be > 0")
+    # Grok gets what broke (never spoken), so a "yes" becomes delegate(mode=code) on that line
+    assert line.context is not None
+    assert f"line 42 of {SCRIPT}: fin_count must be > 0" in line.context and "mode code" in line.context
 
 
 def test_regen_failed_from_pet_or_ui_stays_quiet() -> None:
@@ -48,9 +51,11 @@ def test_command_crash_speaks_but_success_and_ctrl_c_do_not() -> None:
 class FakeVoice:
     def __init__(self) -> None:
         self.said: list[str] = []
+        self.contexts: list[str | None] = []
 
-    async def say(self, text: str) -> None:
+    async def say(self, text: str, context: str | None = None) -> None:
         self.said.append(text)
+        self.contexts.append(context)
 
 
 def _watcher(gap_s: float) -> tuple[Watcher, list[Event], list[tuple[Any, ...]]]:
@@ -83,6 +88,7 @@ def test_bit_moves_speaks_and_glows() -> None:
         assert sent[0].payload == {"pet_id": "bit", "mode": "working", "target_panel": "screen-main"}
         assert glows == [("a.py", 2, None, "boom", 8000)]
         assert voice.said == ["Line 2 in a.py has an error. Want me to look?"]
+        assert voice.contexts[0] is not None and "line 2 of a.py: boom" in voice.contexts[0]
 
     asyncio.run(run())
 
@@ -148,7 +154,7 @@ def test_a_crash_does_not_push_out_a_queued_cad_line_and_dropped_lines_are_not_m
         w.notify("vscode.event", {**ERR, "file": "b.py"})
         w.notify("vscode.event", {"kind": "errors", "file": "b.py", "count": 0})  # replaces b.py's queued error
         await w.idle()
-        assert _says(sent)[1:] == ["Line 9 broke the rocket. I kept the last good one.",
+        assert _says(sent)[1:] == ["Line 9 broke the rocket. I kept the last good one. Want me to fix it?",
                                    "That command crashed with exit code 1. Want me to look at it?",
                                    "Nice, b.py is clean again."]
         w.notify("vscode.event", {**ERR, "file": "b.py"})  # never said before, so it is said now
@@ -159,7 +165,7 @@ def test_a_crash_does_not_push_out_a_queued_cad_line_and_dropped_lines_are_not_m
 
 
 class SlowVoice(FakeVoice):
-    async def say(self, text: str) -> None:
+    async def say(self, text: str, context: str | None = None) -> None:
         await asyncio.sleep(10)  # Grok still talking
         self.said.append(text)
 
