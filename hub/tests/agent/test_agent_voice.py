@@ -576,10 +576,10 @@ def test_turn_grok_ignores_ends_as_empty(monkeypatch: pytest.MonkeyPatch) -> Non
         await s.feed(b"\x10\x00" * 9600)
         await s.commit_turn()
         grok.push(type="input_audio_buffer.committed")
-        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Okay.")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Okay, open it.")
         grok.push(type="response.created")
         await asyncio.sleep(0.2)
-        assert [v.payload["text"] for k, v in sink.log[n:] if k == "emit" and v.type == "stt.final"] == ["Okay."]
+        assert [v.payload["text"] for k, v in sink.log[n:] if k == "emit" and v.type == "stt.final"] == ["Okay, open it."]
         await s.close()
 
     asyncio.run(run())
@@ -743,6 +743,29 @@ def test_each_turn_logs_one_line(caplog: pytest.LogCaptureFixture) -> None:
     turns = [r.getMessage().split(" (")[0] for r in caplog.records if r.getMessage().startswith("turn:")]  # no timing
     assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False "
                      "gated=False judged=None answered"]
+
+
+def test_a_half_thought_is_held_then_answered_if_nothing_follows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Free speech: "can you open the, um" gets no reply yet (people pause mid-thought); alone for HOLD_S, it does."""
+    monkeypatch.setattr(voice_mod, "HOLD_S", 0.05)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="Can you open the, um")
+        await _settle()
+        assert [v.payload["text"] for k, v in sink.log if v.type == "stt.final"] == [""]  # Unity: listen again
+        assert grok.types().count("response.create") == 1  # the one sent at commit
+        assert not any(m.get("type") == "conversation.item.delete" for m in grok.sent)  # its words stay as context
+        await asyncio.sleep(0.1)
+        assert grok.types().count("response.create") == 2  # nothing followed: answered as it is
+        await s.close()
+
+    asyncio.run(run())
 
 
 def test_a_dead_grok_socket_is_dropped_and_the_next_turn_reconnects() -> None:

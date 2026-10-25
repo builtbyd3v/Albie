@@ -60,6 +60,7 @@ from typing import Any, Protocol
 from . import addressed
 from . import events as ev
 from . import tools
+from . import wake as wake_mod
 from .crew import TYPES, lead_rules
 from .bus import tidy_paths
 from .events import Event
@@ -93,9 +94,11 @@ PERSONA = (
 BREVITY = (
     " Most important rule: every reply is one or two short sentences, 20 words at most, under eight seconds out "
     "loud. Lead with the answer, no warm-up, no recap. Even if the user asks for everything or a long answer, give "
-    "only the key point, then offer to say more."
+    "only the key point, then offer to say more. For a why, how or in-depth question: two short sentences with the "
+    "main reason and its key numbers (which neuron, which class, how much accuracy), then ask 'Want the details?'; go deeper only after the user says yes, and even then keep it to "
+    "three sentences."
 )
-BREVITY_NOW = " Reply now in at most 20 words."
+BREVITY_NOW = " Reply now in at most 20 words; for an in-depth question, the key point then 'Want the details?'."
 # Grok ignores max_output_tokens / max_response_output_tokens (probed 2026-10-24: 100 s answers either way), so the
 # hub cuts a reply after this much of its audio. Unity plays it 1.2x faster (pitch), and audio arrives in chunks
 # (a cut at 12 s landed at 13.4 s), so 10 s here is ~8.5-9.5 s heard. 0 = no cut (default since 2026-10-25: Dev
@@ -179,6 +182,7 @@ DESIGN_TERMS = ["quadcopter", "gearbox", "pinion", "shaft", "props", "prop clear
 STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind", "shutup", "cancel"}  # "shut up" -> shutup
 STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "please", "hey", "be", "that", "it", "never",
                                                                 "mind", "now", "right"}
+HOLD_S = 6.0  # a held half-thought (addressed.unfinished) with no next segment by then is answered as it is
 NO_REPLY_S = 8.0  # committed turn with no transcript and no response from Grok by then: treat it as empty (4 s gave up on late replies on the hotspot, live 01:40)
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
 UNDOABLE_TOOLS = {"cad_set_params", "cad_apply_preset", "cad_restore_version", "cad_reset"}  # undone by cad_undo
@@ -327,6 +331,12 @@ class _Base:
     def _spoke(self, text: str) -> None:
         if text.strip():
             self.last_reply, self.last_reply_t = text.strip(), time.monotonic()
+
+
+def _just_the_name(text: str) -> bool:
+    words = [w.lower() for w in re.findall(r"[A-Za-z']+", text)]
+    return bool(words) and set(words) <= wake_mod.GREETINGS | wake_mod.ALIASES["bit"] and \
+        bool(set(words) & wake_mod.ALIASES["bit"])
 
 
 class GrokVoiceSession(_Base):
@@ -704,6 +714,7 @@ class GrokVoiceSession(_Base):
         elif t == "response.done":
             if self._forwarding:
                 if self._audio_started and self._utt is not None:
+                    log.info("reply: %.1f s of audio", self._utt_s)  # how long-winded he was
                     await self._send_event(ev.tts_end(self.pet_id, self._utt))
                 if self._answer and not self._answer_done:
                     await self._answer_finished(self._answer)
@@ -859,6 +870,21 @@ class GrokVoiceSession(_Base):
         stop = is_stop(final) or has_named_stop(final)
         named = "partial" if self._named else "final" if has_name(final) else "no"
         drop = stop or (self._require_name and named == "no")
+        held = None
+        if not drop and not self._wake and not wake_mod.NAME_REQUIRED:
+            age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
+            held = addressed.unfinished(final, self.last_reply or None, age, complete=text is not None)
+            if held and _just_the_name(final):
+                held = None  # "Hey Albie": he answers "yes?" now
+        if held:
+            # Not answered yet, but its audio item stays in Grok's conversation: the next segment's reply covers both.
+            drop = True
+            if self._response_active:
+                await self.stop_speech("cancel")  # Grok started before the transcript came in
+            if held == "partial":
+                job = asyncio.create_task(self._answer_held(self._turn_seq))
+                self._jobs.add(job)
+                job.add_done_callback(self._jobs.discard)
         if drop:
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
@@ -879,7 +905,16 @@ class GrokVoiceSession(_Base):
         after = f" ({time.monotonic() - self._commit_t:.1f} s after commit)" if self._commit_t else ""
         log.info("turn: %r require_name=%s named=%s stop=%s wake=%s facing=%s gated=%s judged=%s %s%s", final[:120],
                  self._require_name, named, stop, wake, facing, gated, judged,
-                 "answered" if answered and not drop else "dropped", after)
+                 f"held ({held})" if held else "answered" if answered and not drop else "dropped", after)
+
+    async def _answer_held(self, seq: int) -> None:
+        """Nobody finished the half-thought: answer it after all (unless a new turn began)."""
+        await asyncio.sleep(HOLD_S)
+        if seq == self._turn_seq and self._ws is not None and not self._response_active:
+            log.info("held turn: nothing followed in %.0f s, answering it", HOLD_S)
+            self._drop_reply = False  # the hold's own drop flag must not cancel this reply
+            await self._request_response()
+            await self._emit(ev.thinking(self.pet_id))
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:

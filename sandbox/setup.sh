@@ -26,6 +26,8 @@ fi
 
 # CAD: every part script (the hub watches this folder through FORGE_CAD_SCRIPT and rebuilds the model on save).
 cp "$repo"/hub/cad/parts/*.py "$dest/cad/"
+# humanoid.py reads its meshes from ../data/unitree_g1 next to its own folder: link the repo's copy.
+mkdir -p "$dest/data" && ln -s "$repo/hub/cad/data/unitree_g1" "$dest/data/unitree_g1"
 
 # Sandbox-only: the planted bug, the web page, the README and .gitignore.
 cp -R "$repo/sandbox/template/." "$dest/"

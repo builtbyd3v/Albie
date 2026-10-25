@@ -51,3 +51,19 @@ def test_looking_at_albie_counts_as_his_name_only_with_voice_facing(text: str) -
 ])
 def test_a_bare_answer_to_his_question_needs_no_name(text: str, last: str, age: float, said_to_albie: bool) -> None:
     assert asyncio.run(addressed.judge(text, last, age)) is said_to_albie
+
+
+@pytest.mark.parametrize("text, last, age, held", [
+    ("Can you open the, um", None, None, "partial"),  # mid-thought: the next segment finishes it
+    ("Albie, make the arms longer and", None, None, "partial"),
+    ("Um, Albie, close all of this, clear the notes, um", None, None, None),  # finished, then a sound
+    ("Yeah, what, yeah, um.", None, None, "filler"),
+    ("Nah.", "Want me to open it?", 3.0, None),  # answers his question
+    ("Nah.", "Want me to open it?", 30.0, "filler"),
+    ("Open up Iron Man now.", None, None, None),
+    ("How can I get", None, None, "partial"),  # live 02:05: no end mark, cut off
+    ("Is the PyTorch", None, None, "partial"),
+    ("I think...", None, None, "partial"),
+])
+def test_free_speech_holds_half_thoughts(text: str, last: str | None, age: float | None, held: str | None) -> None:
+    assert addressed.unfinished(text, last, age) == held
