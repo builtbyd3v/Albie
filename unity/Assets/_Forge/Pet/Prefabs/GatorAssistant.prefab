@@ -374,7 +374,7 @@ MonoBehaviour:
   bridge: {fileID: 7540052793651538206}
   noSpeechTimeout: 8
   maxUtterance: 20
-  endSilence: 2
+  endSilence: 1.2
   speechLevel: 0.03
   minSpeechSeconds: 0.25
   finalTimeout: 6
