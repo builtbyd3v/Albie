@@ -8,12 +8,15 @@ namespace Forge.ML
     /// <summary>Connects module prefabs to Core Workspace at runtime without changing Core-owned scenes.</summary>
     public sealed class MLWorkspaceBridge : MonoBehaviour
     {
-        const string ModeId = "ml";
+        const string ModeId = "ml", LabId = "ml-neural-lab", LabResource = "MLPanels/NeuralLab", Lab3DResource = "MLPanels/NeuralNet3D";
         static readonly string[] Supported = { "ml-datastack", "ml-model3d", "ml-results", "ml-training", "ml-viz-card", "ml-regression-results" };
         static readonly string[] ResourceNames = { "MLPanels/DataStack", "MLPanels/Model3D", "MLPanels/ResultsWall", "MLPanels/TrainingDash", "MLPanels/VizCard", "MLPanels/RegressionResults" };
         Workspace workspace;
         IDisposable subscription;
         readonly Dictionary<string, GameObject> assigned = new Dictionary<string, GameObject>();  // prefabs from Main
+        // Neural Net Lab view: the lab alone in the middle of the ML desk. The project's panels wait in projectItems.
+        List<WorkspaceItem> projectItems;
+        public static bool LabOpen { get; private set; }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Install()
@@ -26,6 +29,7 @@ namespace Forge.ML
         void Awake()
         {
             workspace = GetComponent<Workspace>();
+            LabOpen = false;  // statics outlive a play session when domain reload is off
             Configure(null);
             subscription = ForgeNet.On("ml.layout", ApplyLayout, true);
             ForgeNet.StatusChanged += OnNetStatus;
@@ -68,7 +72,11 @@ namespace Forge.ML
             }
             Configure(requested);
             // "open": Albie opened the project (ml_open), so the ML desk unfolds without a tap on the dock.
-            if (payload.Value<bool?>("open") == true && workspace.ActiveMode != ModeId) workspace.Open(ModeId);
+            if (payload.Value<bool?>("open") == true)
+            {
+                if (LabOpen) SetLab(false);  // "open my ML project" from the Lab: back to the project's panels
+                if (workspace.ActiveMode != ModeId) workspace.Open(ModeId);
+            }
         }
 
         void Configure(List<string> requested)
@@ -93,12 +101,45 @@ namespace Forge.ML
                 var item = new WorkspaceItem(id, Title(id), slot) { prefab = prefab, kind = WorkspaceItemKind.Panel };
                 items.Add(item);
             }
+            if (LabOpen) { projectItems = items; return; }  // a layout that arrives in the lab applies on the way back
             mode.items = items;
-            if (workspace.ActiveMode == ModeId)
+            Reopen();
+        }
+
+        void Reopen()
+        {
+            if (workspace.ActiveMode != ModeId) return;
+            workspace.Close();
+            workspace.Open(ModeId);
+        }
+
+        /// <summary>Swap the ML desk between the project's panels and the Neural Net Lab, and open the ML desk when
+        /// <paramref name="open"/> (the Lab button, Albie's nn_control). False when the ML desk can't open (away from the desk).</summary>
+        public static bool ShowLab(bool on, bool open = true)
+        {
+            var bridge = FindAnyObjectByType<MLWorkspaceBridge>();
+            if (bridge == null) return false;
+            bridge.SetLab(on);
+            if (open && bridge.workspace.ActiveMode != ModeId) bridge.workspace.Open(ModeId);
+            return bridge.workspace.ActiveMode == ModeId;
+        }
+
+        void SetLab(bool on)
+        {
+            var mode = workspace.modes.Find(m => m.id == ModeId);
+            if (mode == null || on == LabOpen) return;
+            if (on)
             {
-                workspace.Close();
-                workspace.Open(ModeId);
+                projectItems = mode.items;
+                var prefab = Resources.Load<GameObject>(LabResource);
+                if (prefab == null) { Debug.LogWarning("[ML] No " + LabResource + " prefab: Forge > ML > Build Neural Lab Prefab"); return; }
+                mode.items = new List<WorkspaceItem> { new WorkspaceItem(LabId, "Neural Net Lab", WorkspaceSlot.Main) { prefab = prefab, kind = WorkspaceItemKind.Panel } };
+                var net3D = Resources.Load<GameObject>(Lab3DResource);  // the same network in 3D, standing on the desk
+                if (net3D != null) mode.items.Add(new WorkspaceItem("ml-neural-3d", "Neural network", WorkspaceSlot.DeskCenter, WorkspaceItemKind.Volume) { prefab = net3D });
             }
+            else if (projectItems != null) mode.items = projectItems;
+            LabOpen = on;
+            Reopen();
         }
 
         static WorkspaceSlot Slot(string id)

@@ -74,3 +74,37 @@ Voice tools in `tools.py` (registered in `main.py`), with the logic in `improve.
 Measured with Claude: 60.6% → 79.0% (8 epochs on all 50k images) and 60.6% → 72.7% (30 epochs on 10k). Claude's plan varies from run to run.
 
 Rehearse on a copy (for example `cp -R ml-examples/cifar10 ~/Desktop/ml-examples/`), not the golden example: the setup adapter uses the golden `train.py` as its worked example.
+
+## Neural Net Lab (TensorFlow Playground on the ML desk)
+
+A small network learning a 2D dataset live, for the "turn off a neuron, ask Albie why" demo. It trains in the headset
+(Unity `ML/NeuralLab/NeuralLabSim`, 30 epochs a second), so it works without a training process or GPU.
+
+- **Open it:** the **Neural Net Lab** button on the Training panel (or "Albie, show me the neural network"). The ML
+  desk swaps to the Lab, big and in the middle; **◀ ML project** swaps back.
+- **On the panel:** Play (stops by itself once test accuracy reaches 92%; Play again keeps going) / Step / Reset; dataset (circle, XOR, Gauss, spiral), activation, learning rate, noise and
+  layers. Tap an input to use it. **Tap a neuron to switch it off**: the boundary and test accuracy change at once.
+  Each neuron shows what it has learned; links are blue (positive) or orange (negative), thicker = larger.
+- **In 3D on the desk** (`ML/NeuralLab/NeuralNet3D`, volume `ml-neural-3d`): inputs → layers → output left to right,
+  each layer a ring of neurons, links blue / orange by weight. Every second a data point flows through and the
+  neurons light up with their activation. **Touch a hidden neuron with your fingertip** (or point a ray, or click) to
+  switch it off and on (`NeuronTouch`, the same input rules as CAD's Expand ring); it goes dark with its links.
+- **Albie switches the views:** "open the neural net" (`nn_open`) from any view, "back to my ML project" (`nn_close`).
+- **Albie (`ml/nn_lab.py`):** `nn_open`, `nn_control` (play / pause / step / reset / restore_all, dataset, activation,
+  learning_rate, hidden, features, noise), `nn_neuron {neuron: "L1N3", enabled}`, and `nn_status`. `nn_status` gives
+  every neuron's id, what it detects (x, y, distance from the center, x·y) and `test_accuracy_if_toggled`, plus the last
+  changes with accuracy before and after, so "why did it drop?" gets a real answer.
+- **Proposed contract additions (ML_PLAN 7.4):** `ml.nn_command` (hub → Unity, `{seq, action?, dataset?, …}`),
+  `POST /ml/nn/state` (Unity → hub, `applied_seq` + the state) and `GET /ml/nn/state`.
+- **Prefab:** Forge > ML > Build Neural Lab Prefab (`ML/Editor/NeuralLabBuilder.cs`).
+
+- **"Albie, fix it" (`nn_improve` → Apply card or a spoken yes → `nn_apply`):** Albie says what's holding the network
+  back (inputs it lacks, layers too small, a linear activation, a wild learning rate, neurons left off) and proposes the
+  measured recipe for the dataset (`RECIPES` in `ml/nn_lab.py`; measured with Forge > ML > Check Neural Lab Recipes).
+  On Apply it trains live, pauses once test accuracy stops climbing and says "Test accuracy went from 52% to 100%".
+  Measured: spiral with x, y [4, 2] stalls at 52–60% → x, y, x², y², sin x, sin y [8, 8] reaches 97% at 4 s, 100% at 6 s.
+
+Demo script (fix it): the Lab opens on the spiral with a small x, y network → Play → it stops itself when stuck (about 55%; no 1% gain for 5 s) and Albie offers the fix with the Apply card → Apply → it climbs to ~100% and stops → "Test accuracy went from 52% to 100%".
+
+Demo script (neurons): open the Lab → Play on **circle** (about 99% in 5 s) → tap the most important neuron (layer 1, neuron 3 in
+our runs: 99.6% → 69%) → "Albie, why did the accuracy drop?" → tap it again (back to 99.6%).

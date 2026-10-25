@@ -17,7 +17,7 @@ from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchR
                      GitHubImportRequest, GitHubImportResponse, GitHubTrainRequest, RelabelRequest, ReplayRequest,
                      RunInfo, SampleDetail, SampleUpdated, Summary, TrainRequest, TrainResponse, TypeRequest, VizCard)
 from .github_import import GitHubImportError
-from . import logtail
+from . import logtail, nn_lab
 from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
@@ -127,6 +127,18 @@ def github_presets() -> list[dict]:
         if label.strip() and url.strip().startswith("https://github.com/"):
             presets.append({"label": label.strip(), "url": url.strip()})
     return presets[:4]
+
+
+@router.post("/nn/state")
+async def post_nn_state(state: dict, request: Request) -> dict:
+    """The headset's Neural Net Lab state (Unity NeuralLabSim), for Albie's nn_* tools (ml/nn_lab.py)."""
+    nn_lab.lab(request.app.state).report(state)
+    return {"ok": True}
+
+
+@router.get("/nn/state")
+def get_nn_state(request: Request) -> dict:
+    return nn_lab.lab(request.app.state).status()
 
 
 @router.get("/github/presets")
