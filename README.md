@@ -1,12 +1,12 @@
-# Forge
+# Albie
 
-- Forge is a mixed reality workspace for engineers on Meta Quest 3, built in Unity with the Meta XR SDK.
+- Albie is a mixed reality workspace for engineers on Meta Quest 3, built in Unity with the Meta XR SDK. It is named after Albie, the AI gator who runs it.
 - You sit at your real desk. VS Code, your ML training run, your CAD part and your Slack inbox unfold around you as panels.
 - Albie, an AI gator, sits on the desk. You talk to him: he edits code, trains and explains models, changes CAD parts, and drafts replies.
 - A Python FastAPI hub on the laptop runs the voice (Grok), the coding agent (Claude), and the ML, CAD and messaging modules.
 - Run it: [SETUP.md](SETUP.md) (full guide, also for a coding agent) or [DEV.md](DEV.md) (short version). Third-party code, assets and AI tools: [DISCLOSURE.md](DISCLOSURE.md).
 - Demo video: [ADRIAN: add the video link]
-- AI tools: we built Forge with Claude Code (Anthropic) as a coding assistant, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
+- AI tools: we built Albie with Claude Code (Anthropic) and Codex (OpenAI) as coding assistants, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
 
 ## What it is
 
@@ -48,8 +48,12 @@ flowchart LR
 - Unity 6 (6000.6.7f1), URP, Meta XR All-in-One SDK 207 (Interaction SDK, MR Utility Kit), OpenXR, com.unity.webrtc, glTFast
 - Python 3.11+: FastAPI, Claude Agent SDK, Anthropic SDK, slack-bolt, build123d, RocketPy, PyTorch (ML example and `forge-sdk`)
 - Grok Voice Agent API (speech to speech), Node + Playwright + Chrome (screen bridge), a VS Code extension (`vscode-bit/`)
+- Albie's body: the Quirky Series alligator (Unity Asset Store, paid). Its files are not in this repo because the Asset Store EULA forbids redistribution; we added the opening mouth, the talk clips and all his behavior
 
 ## Repo map
+
+"Forge" was our working name. Code names keep it (`ForgeNet`, `ForgePanel`, `unity/Assets/_Forge/`, `forge-sdk`, the **Forge** menu in Unity).
+
 
 | Folder | What |
 |---|---|
@@ -62,7 +66,7 @@ flowchart LR
 
 ## How to run
 
-1. Clone the repo. Open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
+1. Clone the repo. Buy and import the Quirky Series alligator from the Unity Asset Store (not in git, see [SETUP.md](SETUP.md) step 9), then open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
 2. Copy `hub/.env.example` to an env file and add your keys. Run `sh dev-setup.sh <env file>` (macOS).
 3. Build the Quest APK from Unity (File > Build Profiles > Android) and install it on the headset over USB.
 4. Run `sh run-demo.sh`. It starts the hub on port 8000, opens the ML project and wires the Quest with `adb reverse`.

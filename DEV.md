@@ -1,6 +1,6 @@
-Paste this into Claude Code: **"Set me up for Forge: follow SETUP.md in this repo. My env file is at <path>."**
+Paste this into Claude Code: **"Set me up for Albie: follow SETUP.md in this repo. My env file is at <path>."**
 
-# Working on Forge
+# Working on Albie
 
 - Get the env file from a teammate. Save it as `hub/.env`. Never commit it.
 - First time (macOS): `sh dev-setup.sh <env file>`. It sets up the hub, the ML example, Albie's sandbox and the screen bridge.

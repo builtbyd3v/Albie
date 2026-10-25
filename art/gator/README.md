@@ -1,6 +1,6 @@
 # Gator art: mouth + custom clips
 
-Source of the gator's opening mouth and our own clips. The third-party pack (`unity/Assets/_Forge/Pet/ThirdParty/Quirky Series/...`) is never edited; everything here starts from a copy of its `Alligator_LOD0.fbx`.
+Source of the gator's opening mouth and our own clips. `gator_anims.blend` and `Gator_Model.fbx` contain the pack's mesh, so they are git-ignored (Unity Asset Store EULA); get them from a teammate. The scripts and `Gator_Animations.fbx` (rig and our clips, no mesh) are in git. The third-party pack (`unity/Assets/_Forge/Pet/ThirdParty/Quirky Series/...`) is never edited; everything here starts from a copy of its `Alligator_LOD0.fbx`.
 
 | File | What it is |
 |---|---|

@@ -6,11 +6,11 @@
 - Third-party libraries, APIs, and assets are listed below. Each is used under its own license.
 
 ## AI tools
-- Claude Code (Anthropic; Claude Opus 5.5 and Claude Fable 5.1): used by Dev, Hudson, Adrian and Satyabrata for code generation, debugging, tests and docs. Many commits carry a Claude Co-Authored-By trailer. [TEAM: Nandani, confirm]
+- Claude Code (Anthropic; Claude Opus 5.5 and Claude Fable 5.1): used by Dev, Hudson, Adrian, Satyabrata and Nandani for code generation, debugging, tests and docs. Many commits carry a Claude Co-Authored-By trailer.
 - Claude API via the Anthropic Python SDK (anthropic, MIT), at runtime: the ML desk's setup (hub/ml/setup/) and Albie's "what can I do better?" proposals (hub/ml/improve.py)
 - Claude Agent SDK (claude-agent-sdk, MIT), at runtime: Albie's coding and Q&A runner and the crew gators (hub/agent/runner.py, crew.py)
 - Grok Voice Agent API (xAI, grok-voice-3.0), at runtime: Albie's speech-to-speech voice and transcription (hub/agent/voice.py)
-- [TEAM: add any others you used, e.g. Copilot, ChatGPT, Cursor, Codex; delete this line if none]
+- Codex (OpenAI): coding assistant for code generation, debugging and review
 
 ## Engines, SDKs, and libraries
 - Unity 6 (6000.6.7f1), URP
@@ -43,6 +43,6 @@
 - CIFAR-10 dataset (Krizhevsky, Nair and Hinton, 2009, University of Toronto), downloaded at run time by torchvision for the ML demo (ml-examples/cifar10/); not committed to the repo
 - Estes C6 motor thrust curve (RASP .eng file made from NAR published certification data, 2000), hub/cad/data/estes_c6.eng: the rocket's flight sim
 - Fonts: Fredoka (SIL OFL 1.1, unity/Assets/_Forge/Pet/ThirdParty/Fredoka/), Inter (SIL OFL 1.1, unity/Assets/_Forge/Core/Fonts/), Liberation Sans (SIL OFL, TextMesh Pro default)
-- Gator model and animations: Quirky Series Ultimate Pack Vol.1 alligator (Unity Asset Store), in unity/Assets/_Forge/Pet/ThirdParty/Quirky Series/. [TEAM: confirm its license allows a public repo]
+- Gator model, texture and base animations: Alligator from Quirky Series Ultimate Pack Vol.1 (Omabuarts Studio, Unity Asset Store, paid, Standard Unity Asset Store EULA). Not in this repo: the EULA forbids redistribution, so the pack and the files made from its mesh (Gator_Model.fbx, gator_anims.blend) are git-ignored, as the Gator Hack V organizers advised. Our own work on top of it is in the repo: the opening mouth and talk clips (art/gator/ scripts, Gator_Animations.fbx), the controller and the pet code
 - AG News topic dataset (Zhang, Zhao and LeCun, 2015, from AG's corpus), CSVs downloaded at run time from github.com/mhjabreel/CharCnn_Keras for ml-examples/text-classification/; not committed
 - "PyTorch MNIST" import preset: github.com/pytorch/examples (BSD-3) and the MNIST dataset (LeCun, Cortes and Burges), downloaded at run time by that repo; not committed
