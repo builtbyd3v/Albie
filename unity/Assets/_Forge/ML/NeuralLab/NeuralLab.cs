@@ -15,6 +15,7 @@ namespace Forge.ML
     public sealed class NeuralLab : MonoBehaviour
     {
         const int BoundaryRes = 128, NeuronRes = 24;
+        const float NodesTop = 46;  // the graph's first node row, under the column names and each layer's − n + row
         const float HeaderY = 0, ControlsY = 50, Controls2Y = 82, GraphY = 122, DrawInterval = 0.1f;
         static readonly Color Blue = new Color32(0x4C, 0x9B, 0xFF, 0xFF), Orange = new Color32(0xFF, 0x9A, 0x3C, 0xFF);
         static readonly Color32 Mid = new Color32(0x1A, 0x1D, 0x24, 0xFF);
@@ -132,7 +133,7 @@ namespace Forge.ML
             foreach (int size in sim.Hidden) rows = Mathf.Max(rows, size);
             // Nodes as big as the column allows (readable in the headset), the rows sharing the graph's height.
             float graphHeight = height - GraphY;
-            nodePitch = Mathf.Min(56, (graphHeight - 22 - 52) / rows); nodeSize = Mathf.Round(nodePitch * 0.8f);
+            nodePitch = Mathf.Min(56, (graphHeight - NodesTop - 24) / rows); nodeSize = Mathf.Round(nodePitch * 0.8f);
             float pitch = (graphWidth - nodeSize) / Mathf.Max(1, columns);
             var hint = MLUI.Text(graph, "Tap a neuron to switch it off  ·  tap an input to use it", 0, graphHeight - 18, graphWidth, 16, 10);
             hint.color = MLUI.Faint;
@@ -143,28 +144,29 @@ namespace Forge.ML
             for (int f = 0, row = 0; f < NNData.AllFeatures.Length; f++, row++)
             {
                 var feature = (NNFeature)f; bool on = sim.Features[f];
-                var node = NewNode(0, f, 0, 22 + row * nodePitch, () => sim.ToggleFeature(feature));
+                var node = NewNode(0, f, 0, NodesTop + row * nodePitch, () => sim.ToggleFeature(feature));
                 PaintFeature(node, feature);
                 node.image.color = on ? Color.white : new Color(1, 1, 1, 0.22f);
-                var label = MLUI.Text(graph, NNData.Label(feature), nodeSize + 5, 22 + row * nodePitch + nodeSize * 0.5f - 8, 46, 16, 11);
+                var label = MLUI.Text(graph, NNData.Label(feature), nodeSize + 5, NodesTop + row * nodePitch + nodeSize * 0.5f - 8, 46, 16, 11);
                 label.color = on ? MLUI.Sub : MLUI.Faint;
                 if (on) inputs.Add(node);
             }
 
-            // Hidden layers: one column each, its size and − / + over it.
+            // Hidden layers: one column each; under its name, − / + and its neuron count, right over its neurons.
             var previous = inputs;
             for (int l = 1; l <= sim.Hidden.Count; l++)
             {
                 float x = l * pitch, size = sim.Hidden[l - 1];
                 int layer = l;
                 MLUI.Caps(graph, $"Layer {l}", x - 6, 0, 70);
-                MLUI.Button(graph, "−", x - 4, graphHeight - 48, 24, 22, () => sim.ResizeLayer(layer, -1));
-                MLUI.Button(graph, "+", x + 24, graphHeight - 48, 24, 22, () => sim.ResizeLayer(layer, 1));
+                MLUI.Button(graph, "−", x - 2, 17, 22, 22, () => sim.ResizeLayer(layer, -1));
+                var count = MLUI.Text(graph, size.ToString("0"), x + 20, 20, 22, 16, 12); count.alignment = TextAlignmentOptions.Center;
+                MLUI.Button(graph, "+", x + 42, 17, 22, 22, () => sim.ResizeLayer(layer, 1));
                 var column = new List<Node>();
                 for (int i = 0; i < size; i++)
                 {
                     int index = i + 1;
-                    var node = NewNode(l, i, x, 22 + i * nodePitch, () => sim.ToggleNeuron(layer, index));
+                    var node = NewNode(l, i, x, NodesTop + i * nodePitch, () => sim.ToggleNeuron(layer, index));
                     var number = MLUI.Text(node.image.transform, index.ToString(), nodeSize - 11, nodeSize - 13, 12, 12, 9);
                     number.color = new Color(1, 1, 1, 0.8f);
                     node.off = MLUI.Text(node.image.transform, "×", 0, 0, nodeSize, nodeSize, nodeSize * 0.8f).gameObject;
