@@ -54,7 +54,8 @@ public class PanelManipulator : MonoBehaviour
     PokeInteractable[] pokes;
     ForgePill faceButton, straightButton, minimizeButton;
     ForgeSurface frameSurface;
-    float showTimer, lit;
+    float showTimer, lit, pulseLeft;
+    const float PulsePeriod = 0.5f;
     Coroutine turning;
 
     PanelGrab grab;
@@ -364,12 +365,24 @@ public class PanelManipulator : MonoBehaviour
             controls.alpha = Mathf.MoveTowards(controls.alpha, target, Time.deltaTime * 6f);
 
         float litTarget = grab != PanelGrab.None ? 1f : pointed ? 0.5f : 0f;
+        if (pulseLeft > 0f && frameSurface != null)
+        {
+            // Pulse(): the rim swells 0 -> 1 -> 0 per beat, then the normal hover fade takes over from where it ends.
+            pulseLeft = Mathf.Max(0f, pulseLeft - Time.deltaTime);
+            lit = Mathf.Max(litTarget, 0.5f - 0.5f * Mathf.Cos(pulseLeft * (2f * Mathf.PI / PulsePeriod)));
+            frameSurface.Glow = lit;
+            return;
+        }
         if (frameSurface != null && lit != litTarget)
         {
             lit = Mathf.MoveTowards(lit, litTarget, Time.deltaTime / ForgeTheme.HoverFade);
             frameSurface.Glow = lit;
         }
     }
+
+    /// <summary>Flash the frame's rim <paramref name="times"/> times (Bit pointing at this panel, ui.highlight).</summary>
+    // ponytail: the Panel-style rim is white in ForgePanelSurface.shader, so this pulses brightness, not the mode color.
+    public void Pulse(int times) => pulseLeft = Mathf.Max(0, times) * PulsePeriod;
 
     bool IsPointedAt()
     {

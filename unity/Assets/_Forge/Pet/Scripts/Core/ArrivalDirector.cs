@@ -183,7 +183,8 @@ namespace Forge.Pet
         }
 
         // Hop onto the desk DeskPresence picked (the adapter builds / moves the desk NavMesh first), then wait for the landing.
-        IEnumerator EnsureOnDesk()
+        // First arrival: land straight on the greeting spot, not in front of the user where START goes.
+        IEnumerator EnsureOnDesk(bool toGreetingSpot = false)
         {
             if (controller == null || !hopOnNear) yield break;
             float deadline = Time.time + Mathf.Max(0.1f, landTimeout);
@@ -203,7 +204,7 @@ namespace Forge.Pet
                     {
                         if (controller.State == GatorState.Following) controller.SetState(GatorState.Wandering);   // follow = floor
                         Log("Hop onto the desk.");
-                        controller.HopToUserDesk();
+                        controller.HopToUserDesk(toGreetingSpot ? GreetingSpot() : (Vector3?)null);
                         asked = true;
                     }
                 }
@@ -221,7 +222,7 @@ namespace Forge.Pet
             _digestLine = null;
             Log("First arrival: holding the dock.");
             PetWorkspace.HoldDock(true);
-            yield return EnsureOnDesk();
+            yield return EnsureOnDesk(true);
 
             Vector3 spot = GreetingSpot();
             if (controller != null)
@@ -234,6 +235,12 @@ namespace Forge.Pet
             while (ForgeNet.Status == ForgeNetStatus.Connecting && Time.time < deadline) yield return null;
             if (ForgeNet.Status == ForgeNetStatus.Live) yield return DigestStep();
             else Log("Hub not live; the card says so (asked when it connects).");
+
+            // Card + START only once Albie stands at the greeting spot (he may still be walking there from the middle of
+            // the desk), so he never shows up inside the START pill.
+            float settle = Time.time + 4f;
+            while (controller != null && Time.time < settle && (controller.IsHopping || Flat(controller.transform.position - spot) > 0.12f))
+                yield return null;
 
             string line = _digestArrived && !string.IsNullOrEmpty(_digestLine) ? _digestLine : HubOfflineLine;
             if (greeting != null)
@@ -397,6 +404,8 @@ namespace Forge.Pet
         }
 
         string PetId => bridge != null ? bridge.PetId : "bit";
+
+        static float Flat(Vector3 d) => new Vector2(d.x, d.z).magnitude;
 
         void Log(string line) => Debug.Log("[Arrival] " + line, this);
     }

@@ -364,9 +364,10 @@ public class CadSession : MonoBehaviour
     public void SetView(bool explode, string focusId)
     {
         // the same focus keeps its other parts (explode toggled while every fin is lit)
-        var view = new CadView { explode = explode, focusId = focusId, focusIds = focusId == View.focusId ? View.focusIds : null };
+        // never null: the hub wants a list, and Json.NET writes an unset one as "focus_ids": null
+        var view = new CadView { explode = explode, focusId = focusId, focusIds = (focusId == View.focusId ? View.focusIds : null) ?? new List<string>() };
         ApplyView(view);
-        if (!IsMock) StartCoroutine(Post("/cad/view", JsonConvert.SerializeObject(view), refresh: false));
+        if (!IsMock) StartCoroutine(Post("/cad/view", JsonConvert.SerializeObject(view), refresh: false, failLine: "Couldn't update the view."));
     }
 
     /// <summary>Bring the model up big in front of you, or send it back to the desk (CadViewer flies it).</summary>
@@ -776,7 +777,8 @@ public class CadSession : MonoBehaviour
     }
 
     /// <param name="build">A request that builds a new version: its answer counts the build state down.</param>
-    IEnumerator Post(string path, string json, bool refresh = true, bool build = false)
+    /// <param name="failLine">What the panel says when it fails (else the hub's own detail line).</param>
+    IEnumerator Post(string path, string json, bool refresh = true, bool build = false, string failLine = null)
     {
         string error = null, body = null;
         CadRegenFailed failure = null;
@@ -789,8 +791,9 @@ public class CadSession : MonoBehaviour
             yield return req.SendWebRequest();
             if (req.result != UnityWebRequest.Result.Success)
             {
-                error = ErrorText(req);
+                Debug.LogWarning($"[CadSession] POST {path} failed: {req.responseCode} {req.error} {req.downloadHandler.text}");
                 failure = FailureOf(req);
+                error = failure == null && failLine != null ? failLine : ErrorText(req);
             }
             else body = req.downloadHandler.text;
         }
@@ -853,7 +856,8 @@ public class CadSession : MonoBehaviour
                 var f = failure.ToObject<CadRegenFailed>();
                 return f.errorLine.HasValue ? $"{f.error} (part script line {f.errorLine})" : f.error;
             }
-            if (detail != null) return detail.ToString();
+            if (detail is JValue line && line.Type == JTokenType.String) return (string)line;  // the hub's own words
+            if (detail != null) return "The hub refused that request.";  // a validation list: raw JSON, the log has it
         }
         catch (JsonException) { }
         return req.error;

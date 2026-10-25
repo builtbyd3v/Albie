@@ -26,6 +26,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _Fade: 1
+    - _Half: 0
     - _HueT: 0.1
     - _Imprint: 0
     - _Opacity: 0.3

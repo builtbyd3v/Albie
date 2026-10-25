@@ -32,13 +32,21 @@ public class ScreenReceiver : MonoBehaviour
     ClientWebSocket ws;
     RTCPeerConnection pc;
     ScreenSurface surface;
-    bool destroyed;
+    bool destroyed, receiving;
+
+    // Workspace modes hide and show the panel, which stops coroutines and drops the pending Invoke,
+    // and Start never runs again. So the frame loop and the fallback timer restart on every show.
+    void OnEnable()
+    {
+        StartCoroutine(WebRTC.Update());
+        if (!receiving) Invoke(nameof(FallBackToJpeg), jpegFallbackSeconds);
+    }
+
+    void OnDisable() => CancelInvoke(nameof(FallBackToJpeg));
 
     async void Start()
     {
         surface = GetComponent<ScreenSurface>();
-        Invoke(nameof(FallBackToJpeg), jpegFallbackSeconds);
-        StartCoroutine(WebRTC.Update());
 
         // Reconnect forever, so the panel recovers when signaling.py restarts.
         while (!destroyed)
@@ -123,6 +131,7 @@ public class ScreenReceiver : MonoBehaviour
     // Called on the first frame and again whenever the stream changes size.
     void Show(Texture texture)
     {
+        receiving = true;
         CancelInvoke(nameof(FallBackToJpeg));
         surface.Show(texture);
         Debug.Log($"[ScreenReceiver] Receiving {texture.width}x{texture.height}");
