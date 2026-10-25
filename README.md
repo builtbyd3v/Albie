@@ -48,6 +48,7 @@ flowchart LR
 - Unity 6 (6000.6.7f1), URP, Meta XR All-in-One SDK 207 (Interaction SDK, MR Utility Kit), OpenXR, com.unity.webrtc, glTFast
 - Python 3.11+: FastAPI, Claude Agent SDK, Anthropic SDK, slack-bolt, build123d, RocketPy, PyTorch (ML example and `forge-sdk`)
 - Grok Voice Agent API (speech to speech), Node + Playwright + Chrome (screen bridge), a VS Code extension (`vscode-bit/`)
+- Albie's body: the Quirky Series alligator (Unity Asset Store, paid). Its files are not in this repo because the Asset Store EULA forbids redistribution; we added the opening mouth, the talk clips and all his behavior
 
 ## Repo map
 
@@ -62,7 +63,7 @@ flowchart LR
 
 ## How to run
 
-1. Clone the repo. Open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
+1. Clone the repo. Buy and import the Quirky Series alligator from the Unity Asset Store (not in git, see [SETUP.md](SETUP.md) step 9), then open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
 2. Copy `hub/.env.example` to an env file and add your keys. Run `sh dev-setup.sh <env file>` (macOS).
 3. Build the Quest APK from Unity (File > Build Profiles > Android) and install it on the headset over USB.
 4. Run `sh run-demo.sh`. It starts the hub on port 8000, opens the ML project and wires the Quest with `adb reverse`.

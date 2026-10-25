@@ -107,10 +107,10 @@ Done-check: after `sh run-demo.sh`, `/health` shows `imessage.available: true` (
 ## 9. Unity build + Quest
 
 **HUMAN:** sign in to Unity Hub (license). On the headset: Developer Mode on for the headset's **primary** account (a secondary user cannot turn it on). Plug in USB and accept **Allow USB debugging** for this computer. Run Space Setup with exactly **one** table (each table gets its own whistle).
+0. **HUMAN, before the first open:** Albie's model is a paid Unity Asset Store pack, not in git (its EULA forbids redistribution). Import Quirky Series Ultimate Pack Vol.1 (or its River Vol.2 alligator) in any Unity project, then copy its `Quirky Series` folder, with the `.meta` files, to `$REPO/unity/Assets/_Forge/Pet/ThirdParty/`. Get `Gator_Model.fbx` (to `unity/Assets/_Forge/Pet/Models/`) and `gator_anims.blend` (to `art/gator/`) from a teammate: they hold the pack's mesh, so they are git-ignored too. Without them Unity still compiles; Albie shows up untextured or missing. Do this before Unity opens the project, or it deletes `Gator_Model.fbx.meta` and the prefabs lose the model.
 1. Open `$REPO/unity` in Unity 6000.6.7f1. The first import takes 5-15 min. Keep the Editor window in front while it imports and compiles: Unity compiles only while focused.
 2. Menu **Forge > Build Main Scene**. It rewrites `Main.unity`: never commit that file. Run `git checkout -- unity/Assets/_Forge/Core/Main.unity` before every pull.
 3. File > Build Profiles > Android > Switch Platform. Build to `unity/Builds/Forge.apk` with `Assets/_Forge/Core/Main.unity` as the only scene.
-   An APK built from main before PR #76 (Hudson's settings) merges lacks the localhost cleartext config: the movie and http over `adb reverse` are blocked. Build from a branch with #76, or wait for it.
 4. Install and launch:
 ```sh
 $ADB install -r "$REPO/unity/Builds/Forge.apk"
