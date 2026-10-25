@@ -211,3 +211,19 @@ def test_focus_names_a_part_a_list_or_a_group() -> None:
     assert focus_ids("NOSE_CONE, fin_1", ids) == ["NOSE_CONE", "FIN_1"]
     assert focus_ids("", ids) == []
     assert focus_ids("FIN_1, WING", ids) is None
+
+
+def test_albie_hands_over_a_part_and_puts_it_back(client):
+    open_part(client, "rocket")
+    cad, bus = client.app.state.cad, Bus()
+    show = Show(cad)
+    taken = tool(client, "cad_take_part", bus=bus, show=show, part_id="FIN_*")["taken"]
+    assert taken.startswith("FIN_") and show.asked == [("cad", "rocket")]
+    assert tool(client, "cad_take_part", bus=bus, show=show, put_back=True)["ok"]
+    actions = [(a["action"], a["part_id"]) for a in bus.of("cad.action")]
+    assert actions == [("take_off", taken), ("put_back", None)]
+    assert all(a["version"] == cad.head for a in bus.of("cad.action"))
+    assert "error" in tool(client, "cad_take_part", bus=bus, show=show, part_id="WING")
+    assert "error" in tool(client, "cad_take_part", bus=bus, show=show)  # take what?
+    assert "error" in tool(client, "cad_take_part", bus=bus, show=Show(cad, error="no headset"), part_id="FIN_1")
+    assert len(bus.of("cad.action")) == 2

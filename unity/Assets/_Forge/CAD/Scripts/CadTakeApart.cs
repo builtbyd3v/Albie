@@ -12,6 +12,8 @@ using UnityEngine.InputSystem;
 /// Mouse: drag to carry, Shift + drag to turn, scroll to push it away / pull it in. Rays: the part follows the
 /// controller or hand (twist to turn it), thumbstick to push / pull.
 /// A held part keeps its pose relative to the pointer (the idea of cad-vision's CADGrabSession, MIT).
+/// Albie can hand you a part too (cad.action take_off / put_back, through CadSession): it flies to his jaw
+/// (CadSession.PartCarrier), rides there while he brings it, then flies to just in front of your eyes and stays.
 /// </summary>
 [RequireComponent(typeof(CadViewer))]
 public class CadTakeApart : MonoBehaviour
@@ -25,6 +27,12 @@ public class CadTakeApart : MonoBehaviour
     [Tooltip("Scroll wheel / thumbstick: push the held part away or pull it in (m per notch).")]
     public float pushPerNotch = 0.04f;
     public float homeSeconds = 0.35f;
+    [Tooltip("Albie handing you a part: seconds for each flight (to his jaw, from his jaw to you).")]
+    public float fetchSeconds = 0.5f;
+    [Tooltip("Where a handed-over part waits: this far in front of your eyes (m)...")]
+    public float handOverDistance = 0.4f;
+    [Tooltip("...and this far below them (m).")]
+    public float handOverDrop = 0.12f;
 
     const float MinHold = 0.15f, MaxHold = 3f;  // grabbed point's distance along the pointer (m)
     const string LayerPrefix = "Glow ";         // CadViewer's outline layers
@@ -60,6 +68,12 @@ public class CadTakeApart : MonoBehaviour
     Vector3 turnDirection;
     CadLabel card;       // made on first use (it holds a MaterialPropertyBlock: not in a field initializer)
     CadChips cardChip;
+    Piece fetched, lastTaken;        // fetched: flying to Albie's jaw, riding in it, or flying to you
+    Transform fetchCarrier;          // null: flying to the hand-over spot
+    Vector3 fetchFrom, handOverAt;   // the part's centre when the flight began; where it waits for you
+    Quaternion fetchFromRotation, carryRotation;  // carryRotation: in the carrier's space
+    float fetchT;
+    string pendingTake;              // asked before the parts had grab shapes: Attach takes it
 
     void Awake()
     {
@@ -71,11 +85,16 @@ public class CadTakeApart : MonoBehaviour
     {
         session = CadSession.Get(viewer.mocks);
         session.ReassembleRequested += Reassemble;
+        session.TakeOffRequested += OnTakeOffRequested;
+        session.PutBackRequested += OnPutBackRequested;
     }
 
     void OnDisable()
     {
-        if (session != null) session.ReassembleRequested -= Reassemble;
+        if (session == null) return;
+        session.ReassembleRequested -= Reassemble;
+        session.TakeOffRequested -= OnTakeOffRequested;
+        session.PutBackRequested -= OnPutBackRequested;
     }
 
     void OnDestroy()
@@ -87,6 +106,7 @@ public class CadTakeApart : MonoBehaviour
     /// <summary>Give the model's parts grab shapes (CadViewer: the model went up on the stage, or a new version arrived there).</summary>
     public void Attach(CadModel m)
     {
+        string take = pendingTake;
         Release(instant: true);
         model = m;
         var filters = new List<MeshFilter>();
@@ -107,6 +127,7 @@ public class CadTakeApart : MonoBehaviour
             PartBounds(t, out Bounds b);
             pieces.Add(new Piece { id = id, transform = t, handle = handle, centre = b.center, homeRotation = t.localRotation });
         }
+        if (take != null) TakeOff(take, session != null ? session.PartCarrier : null);
     }
 
     static Mesh Merge(List<MeshFilter> filters, Transform space)
@@ -134,6 +155,9 @@ public class CadTakeApart : MonoBehaviour
     {
         held = null;
         pointer = null;
+        DropFetch();
+        lastTaken = null;
+        pendingTake = null;
         foreach (var p in pieces)
         {
             if (p.handle != null)
@@ -154,9 +178,125 @@ public class CadTakeApart : MonoBehaviour
     {
         held = null;
         pointer = null;
+        DropFetch();
         foreach (var p in pieces)
             if (p.off) SendHome(p, instant: false);
         session.SetPartsOff(0);
+    }
+
+    // Albie hands you a part
+
+    void OnTakeOffRequested(string id) => TakeOff(id, session.PartCarrier);
+
+    void OnPutBackRequested(string id) => PutBack(id);
+
+    /// <summary>
+    /// Take a part off for Albie: it flies to <paramref name="carrier"/> (his jaw) and rides there (CadSession.PartTaken
+    /// tells the pet), or with no carrier it flies to just in front of your eyes and stays, like a part you let go.
+    /// Called again with no carrier for the part he carries: the hand-over. Off already: the next part of its group
+    /// that isn't (FIN_2 after FIN_1). False if nothing matches, you hold it, or a demo is running.
+    /// </summary>
+    public bool TakeOff(string id, Transform carrier)
+    {
+        if (string.IsNullOrEmpty(id) || viewer.DemoRunning) return false;
+        if (pieces.Count == 0)
+        {
+            pendingTake = id;  // on its way up to the stage: Attach takes it
+            return true;
+        }
+        var p = fetched != null && fetched.id == id ? fetched : Pick(id);
+        if (p == null || p.transform == null || p == held) return false;
+        if (p.homing != null)
+        {
+            StopCoroutine(p.homing);
+            p.homing = null;
+        }
+        p.off = true;
+        viewer.SetDetached(p.transform, true);
+        var t = p.transform;
+        fetched = last = lastTaken = p;
+        fetchCarrier = carrier;
+        fetchT = 0f;
+        fetchFrom = t.TransformPoint(p.centre);
+        fetchFromRotation = t.rotation;
+        carryRotation = carrier != null ? Quaternion.Inverse(carrier.rotation) * t.rotation : Quaternion.identity;
+        handOverAt = HandOverSpot();
+        session.SetPartsOff(CountOff());
+        if (carrier != null) session.ReportPartTaken(p.id);
+        return true;
+    }
+
+    /// <summary>Put a part back in its place (null or empty: the last one Albie took off). False if it isn't off.</summary>
+    public bool PutBack(string id)
+    {
+        Piece p = lastTaken;
+        if (!string.IsNullOrEmpty(id))
+        {
+            p = null;
+            foreach (var x in pieces)
+                if (x.id == id) p = x;
+        }
+        if (p == null || !p.off || p == held) return false;
+        if (fetched == p) fetched = null;
+        SendHome(p, instant: false);
+        session.SetPartsOff(CountOff());
+        session.ReportPartPutBack(p.id);
+        return true;
+    }
+
+    Piece Pick(string id)
+    {
+        Piece exact = null;
+        foreach (var p in pieces)
+            if (p.id == id) exact = p;
+        if (exact != null && !exact.off) return exact;
+        string group = Group(id);
+        foreach (var p in pieces)
+            if (!p.off && Group(p.id) == group) return p;
+        return exact;
+    }
+
+    static string Group(string id)
+    {
+        int i = id.LastIndexOf('_');
+        return i > 0 ? id.Substring(0, i) : id;
+    }
+
+    Vector3 HandOverSpot()
+    {
+        var head = Head;
+        Vector3 forward = head.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
+        return head.position + forward.normalized * handOverDistance - Vector3.up * handOverDrop;
+    }
+
+    void Fetch()
+    {
+        var p = fetched;
+        var t = p.transform;
+        if (t == null || held == p)
+        {
+            DropFetch();  // you grabbed it: yours now
+            return;
+        }
+        fetchT = Mathf.Min(1f, fetchT + Time.deltaTime / Mathf.Max(fetchSeconds, 0.01f));
+        bool riding = fetchCarrier != null;
+        float e = ForgeTween.EaseOutCubic(fetchT);
+        t.rotation = Quaternion.SlerpUnclamped(fetchFromRotation, riding ? fetchCarrier.rotation * carryRotation : fetchFromRotation, e);
+        Vector3 centre = Vector3.LerpUnclamped(fetchFrom, riding ? fetchCarrier.position : handOverAt, e);
+        t.position += centre - t.TransformPoint(p.centre);
+        if (fetchT >= 1f && !riding) fetched = null;  // handed over: it stays where it is
+    }
+
+    // Albie isn't carrying it any more (you grabbed it, Reassemble, a new version): the pet hears it as put back.
+    void DropFetch()
+    {
+        var p = fetched;
+        bool riding = fetchCarrier != null;
+        fetched = null;
+        fetchCarrier = null;
+        if (p != null && riding && session != null) session.ReportPartPutBack(p.id);
     }
 
     // Grab
@@ -195,7 +335,8 @@ public class CadTakeApart : MonoBehaviour
     {
         if (pieces.Count == 0) return;
         if (held != null) Hold();
-        Piece target = held ?? Pointed();
+        if (fetched != null) Fetch();
+        Piece target = held ?? Pointed() ?? fetched;
         viewer.Highlight(target?.id);
         ShowCard(target ?? (last != null && last.off ? last : null), held != null);
     }

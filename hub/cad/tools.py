@@ -80,6 +80,14 @@ TOOLS: list[dict[str, Any]] = [
          "expand": {"type": "boolean"}, "explode": {"type": "boolean"}, "focus_id": {"type": "string"},
          "markers": {"type": "boolean"}, "dimensions": {"type": "boolean"},
          "tab": {"type": "string", "enum": TABS}}}},
+    {"name": "cad_take_part",
+     "description": "Take one part off the open design and hand it to the user, or put it back ('hand me a fin', 'let "
+                    "me hold the nose cone', 'put it back'). This brings the model up big in front of the user too. "
+                    "part_id: a part ID from cad_get_params (FIN_1) or a group (FIN_* is any fin; asked again, "
+                    "Albie takes the next one). put_back: true puts it back; leave part_id out for the last part "
+                    "taken. To put every part back, use cad_view explode false.",
+     "parameters": {"type": "object", "properties": {
+         "part_id": {"type": "string"}, "put_back": {"type": "boolean"}}}},
     {"name": "cad_demo",
      "description": "Run the open design's demo in the CAD view: the rocket flies its simulated flight across the "
                     "room, the quadcopter hovers, the gearbox turns at its ratio ('show me it flying', 'make it hover', "
@@ -215,6 +223,22 @@ async def _view(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show
     return {"ok": True, "shown": done, **({"focused": focus} if focus else {})}
 
 
+async def _take(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show | None) -> dict[str, Any]:
+    back = bool(args.get("put_back"))
+    spec = str(args.get("part_id") or "").strip()
+    if not spec and not back:
+        return {"error": "Which part? Pass part_id", "parts": sorted(cad.current.fingerprints)}
+    found = focus_ids(spec, cad.current.fingerprints) if spec else []
+    if found is None:
+        return {"error": f"No part {spec!r}", "parts": sorted(cad.current.fingerprints)}
+    view = await _show(show)
+    if "view_error" in view:
+        return {"error": view["view_error"]}
+    part_id = found[0] if found else None  # ponytail: Unity moves on to the next of a group taken already
+    await _press(bus, cad, "put_back" if back else "take_off", part_id=part_id)
+    return {"ok": True, "put_back" if back else "taken": part_id or "the last part taken"}
+
+
 async def _demo(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show | None) -> dict[str, Any]:
     r = cad.current
     demo = r.analysis.get("demo") or {}
@@ -314,6 +338,8 @@ async def call_tool(name: str, args: dict[str, Any], cad: CadService, bus: Event
             return await _view(args, cad, bus, show)
         if name == "cad_demo":
             return await _demo(args, cad, bus, show)
+        if name == "cad_take_part":
+            return await _take(args, cad, bus, show)
         if name == "cad_simulate_flight":
             flight = await cad.flight(None)
             return {k: v for k, v in flight.items() if k not in ("trajectory_m", "samples")}  # for Unity, not the model

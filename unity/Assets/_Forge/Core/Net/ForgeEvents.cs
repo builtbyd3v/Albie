@@ -224,9 +224,10 @@ public class CadView
 /// </summary>
 public class CadAction
 {
-    [JsonProperty("action")] public string action;  // expand | demo | markers | dimensions | tab | reassemble
+    [JsonProperty("action")] public string action;  // expand | demo | markers | dimensions | tab | reassemble | take_off | put_back
     [JsonProperty("on")] public bool? on;            // expand / demo / markers / dimensions: on or off
     [JsonProperty("tab")] public string tab;         // tab: overview | parameters | analysis | history
+    [JsonProperty("part_id")] public string partId;  // proposed, take_off / put_back: the part (put_back: null = the last)
     [JsonProperty("part")] public string part;       // the design it is for
     [JsonProperty("version")] public int? version;   // the version it is for
     [JsonProperty("seq")] public int seq;            // increasing per hub run

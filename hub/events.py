@@ -181,10 +181,12 @@ class CadView(BaseModel):
 class CadAction(BaseModel):
     """Bit pressing a button in the CAD view (docs/PET_AGENT_CONTRACT.md Addendum H). One-off, not sticky: a client
     that connects later must not replay it. Unity applies it once the model of `version` is on screen."""
-    action: Literal["expand", "demo", "markers", "dimensions", "tab", "reassemble"]
+    action: Literal["expand", "demo", "markers", "dimensions", "tab", "reassemble", "take_off", "put_back"]
     on: bool | None = None            # expand (Inspect: the model big in front of the user) / demo (Fly, Hover, Run) /
                                       # markers / dimensions: true = turn it on, false = off
     tab: str | None = None            # tab: overview | parameters | analysis | history (the design panel)
+    part_id: str | None = None        # proposed, take_off: the part Albie takes off and hands you (taken already: the
+                                      # next one of its group, FIN_2 after FIN_1); put_back: that part, none = the last
     part: str = ""                    # the design it is for
     version: int | None = None        # the version it is for: wait until that version is loaded
     seq: int = 0                      # increasing per hub run: a CadSession that starts late applies the last one once
