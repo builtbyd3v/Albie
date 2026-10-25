@@ -1,5 +1,4 @@
 using System;
-using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 /// <summary>
@@ -49,19 +48,15 @@ public class SlackRemote : MonoBehaviour
             if (ws.ActiveMode != MessagesMode) reason = "not_at_desk";
         }
 
-        var answer = new JObject
+        if (reason != null && panel == null) SlackPanel.PendingChannel = null;
+        ForgeNet.Send(OpenedType, new SlackOpened
         {
-            ["pet_id"] = string.IsNullOrEmpty(req.petId) ? "bit" : req.petId,
-            ["request_id"] = req.requestId ?? "",
-            ["channel"] = req.channel,
-            ["ok"] = reason == null,
-        };
-        if (reason != null)
-        {
-            answer["reason"] = reason;
-            if (panel == null) SlackPanel.PendingChannel = null;
-        }
-        ForgeNet.Send(OpenedType, answer);
+            petId = string.IsNullOrEmpty(req.petId) ? "bit" : req.petId,
+            requestId = req.requestId ?? "",
+            channel = req.channel,
+            ok = reason == null,
+            reason = reason,
+        });
         Debug.Log($"[SlackRemote] Albie opened {req.channelName ?? req.channel}: {(reason ?? "ok")}.");
     }
 }

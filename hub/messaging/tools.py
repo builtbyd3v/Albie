@@ -18,7 +18,7 @@ from agent.events import DISPLAY_NAME
 
 from events import Attachment
 
-from .slack_client import SlackService
+from .slack_client import AmbiguousName, SlackService
 
 Attach = Callable[[list[str]], Awaitable[list[Attachment]]]  # ["all"] / ["step", "drawing"] -> files on the hub's disk
 Show = Callable[[str], Awaitable[dict[str, Any]]]
@@ -153,16 +153,18 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService, imessage
             if not use_imessage:
                 try:
                     return await svc.open_conversation(channel)
+                except AmbiguousName:
+                    raise
                 except LookupError:
                     if not has_imessage:
                         raise
                     use_imessage = True  # not a Slack channel or person: maybe an iMessage contact
-            if not has_imessage:
+            if imessage is None or not imessage.available:
                 return {"error": "iMessage is unavailable on this hub"}
-            guid = await imessage.resolve_channel(channel)  # type: ignore[union-attr]
+            guid = await imessage.resolve_channel(channel)
             cid = f"im:{guid}"
-            row = next((c for c in imessage.channel_summaries() if c.id == cid), None)  # type: ignore[union-attr]
-            return await svc.show_conversation(cid, imessage.chat_name(guid), row.kind if row else "dm")  # type: ignore[union-attr]
+            row = next((c for c in imessage.channel_summaries() if c.id == cid), None)
+            return await svc.show_conversation(cid, imessage.chat_name(guid), row.kind if row else "dm")
         if name == "messages_send":
             text = str(args.get("text") or "").strip()
             if not text:

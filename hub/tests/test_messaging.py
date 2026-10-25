@@ -1131,6 +1131,17 @@ def test_history_keeps_the_users_own_app_posts(tmp_path: Path) -> None:
     assert [(m.text, m.is_me) for m in rows] == [("hello", False), ("sent from the headset", True)]
 
 
+def test_history_keeps_bit_posts_in_the_bot_fallback(tmp_path: Path) -> None:
+    """Without a user token the hub posts as Bit, so Bit's posts are the user's sends and survive a history reload."""
+    svc, _, _ = make_service(tmp_path)
+    reader(svc).history["C1"] = [
+        {"ts": "1700000002.000100", "user": "UBOT", "bot_id": "B1", "text": "sent as Bit"},
+        {"ts": "1700000001.000100", "user": "U1", "text": "hello"},
+    ]
+    _, rows, _ = asyncio.run(svc.history("C1", 10))
+    assert [(m.text, m.is_me) for m in rows] == [("hello", False), ("sent as Bit", True)]
+
+
 class UnityStub(BusRecorder):
     """A bus whose 'Unity' answers messages.open like the headset would (or not at all)."""
 
@@ -1180,6 +1191,36 @@ def test_open_conversation_reports_why_unity_refused_or_timed_out(tmp_path: Path
     quiet.open_ack_s = 0.05
     timed_out = asyncio.run(quiet.open_conversation("#forge-team"))
     assert "didn't answer" in timed_out["error"] and quiet._open_waiters == {}
+
+
+class TwoUnities(UnityStub):
+    """Two clients connected: the desktop rig refuses at once, the Quest opens it a moment later."""
+
+    async def publish(self, type_: str, payload: Any) -> None:
+        await BusRecorder.publish(self, type_, payload)
+        if type_ == "messages.open":
+            svc, rid, loop = self.svc_ref[0], payload.request_id, asyncio.get_running_loop()
+            refuse = {"request_id": rid, "channel": payload.channel, "ok": False, "reason": "not_at_desk"}
+            ok = {"request_id": rid, "channel": payload.channel, "ok": True}
+            loop.call_soon(lambda: asyncio.ensure_future(svc.opened_from_ws(None, refuse)))
+            loop.call_later(0.05, lambda: asyncio.ensure_future(svc.opened_from_ws(None, ok)))
+
+
+def test_open_conversation_ok_from_one_client_beats_a_refusal(tmp_path: Path) -> None:
+    ref: list[Any] = []
+    svc, _, _ = make_service(tmp_path, as_user=True, bus=TwoUnities(ref, None))
+    ref.append(svc)
+    assert asyncio.run(svc.open_conversation("#forge-team"))["ok"] is True
+
+
+def test_open_conversation_asks_when_a_name_matches_two_people(tmp_path: Path) -> None:
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader(svc).users["U3"] = {"id": "U3", "name": "hudson.k", "real_name": "Hudson K", "profile": {"display_name": ""}}
+    with pytest.raises(LookupError, match="2 people match"):
+        asyncio.run(svc.open_conversation("Hudson"))
+    assert reader(svc).called("conversations.open") == []  # no DM opened on a guess
+    out = asyncio.run(mtools.call_tool("messages_open", {"channel": "Hudson"}, svc))
+    assert "ask which one" in out["error"]
 
 
 def test_router_open_and_me_team(api) -> None:

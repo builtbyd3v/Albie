@@ -74,6 +74,7 @@ CHANNELS_REFRESH_S = 60.0
 CHANNELS_DEBOUNCE_S = 0.3
 HISTORY_MAX = 100
 OPEN_ACK_S = 1.5             # Unity answers messages.open in the same frame; this covers a slow Quest Wi-Fi round trip
+OPEN_REFUSAL_GRACE_S = 0.3   # a refusal waits this long for another client's ok (desktop rig "not_at_desk", Quest "ok")
 OPEN_REASONS = {
     "not_at_desk": "The user isn't at their desk, so the MSG view can't open; ask them to sit down first.",
     "no_workspace": "This scene has no workspace to open the MSG view in.",
@@ -82,6 +83,10 @@ OPEN_REASONS = {
 
 class DraftError(LookupError):
     """No open draft with that id (never existed, already sent, cancelled or expired)."""
+
+
+class AmbiguousName(LookupError):
+    """Several people match a name; the caller asks which one instead of guessing."""
 
 
 class RateLimited(RuntimeError):
@@ -295,6 +300,7 @@ class SlackService:
         self.share_poll_s = SHARE_POLL_S
         self._expiry: asyncio.Task[None] | None = None
         self.open_ack_s = OPEN_ACK_S
+        self.open_refusal_grace_s = OPEN_REFUSAL_GRACE_S
         self._open_waiters: dict[str, asyncio.Future[MessagesOpened]] = {}  # messages.open request_id -> Unity's answer
         self._sending: Draft | None = None          # the draft send_draft is posting right now
         make_sticky = getattr(bus, "make_sticky", None)
@@ -480,16 +486,16 @@ class SlackService:
         self._users_loaded = True
         log.info("Slack users: %d cached", len(rows))
 
-    async def find_user(self, text: str) -> UserRecord | None:
-        """The person called `text` ("Hudson", "@hudson", "Hudson M"), from the cache, after one users.list if needed."""
+    async def find_users(self, text: str) -> list[UserRecord]:
+        """Everyone called `text` ("Hudson", "@hudson", "Hudson M"), from the cache, after one users.list if needed."""
         wanted = text.strip().lstrip("@")
         if not wanted:
-            return None
-        hit = next((u for u in self._users.values() if u.matches(wanted)), None)
-        if hit is None and not self._users_loaded:
+            return []
+        hits = [u for u in self._users.values() if u.matches(wanted)]
+        if not hits and not self._users_loaded:
             await self._load_users()
-            hit = next((u for u in self._users.values() if u.matches(wanted)), None)
-        return hit
+            hits = [u for u in self._users.values() if u.matches(wanted)]
+        return hits
 
     # ------------------------------------------------------------------ channels
     async def _register(self, rec: ChannelRecord) -> ChannelRecord:
@@ -635,6 +641,8 @@ class SlackService:
             return False
         if not event.get("user") or not event.get("text") or not event.get("ts"):
             return False
+        if not live and not self.as_user and self.bot_user_id and event["user"] == self.bot_user_id:
+            return True  # bot fallback: the hub posts as Bit, so Bit's posts in history are the user's sends
         if event.get("bot_id") and not self._own_post(event):
             return False
         if self.bot_user_id and event["user"] == self.bot_user_id:
@@ -655,7 +663,7 @@ class SlackService:
         uid = event["user"]
         who = await self.user(uid)
         text = event["text"]
-        is_me = bool(self.user_id) and uid == self.user_id
+        is_me = (bool(self.user_id) and uid == self.user_id) or (not self.as_user and uid == self.bot_user_id)
         return SlackMessage(
             channel=channel, channel_name=name, is_dm=is_dm, user=uid, user_name=who.label, text=text,
             ts=event["ts"], thread_ts=event.get("thread_ts"),
@@ -673,15 +681,19 @@ class SlackService:
         msg = await self.to_message(event)
         if not self.store.add(msg):
             return None  # a history fetch got there first
-        if _is_reply(msg):
-            parent = self.store.get(msg.channel, msg.thread_ts or "")
-            if parent is not None:
-                self.store.add(parent.model_copy(update={"reply_count": (parent.reply_count or 0) + 1}))
+        self._count_reply(msg)
         if publish:
             await self.bus.publish("notify.message", msg)
             self.channels_changed()
             log.info("slack #%s %s%s: %.80s", msg.channel_name, msg.user_name, " (you)" if msg.is_me else "", msg.text)
         return msg
+
+    def _count_reply(self, msg: SlackMessage) -> None:
+        """A new thread reply bumps its parent's reply_count."""
+        if _is_reply(msg):
+            parent = self.store.get(msg.channel, msg.thread_ts or "")
+            if parent is not None:
+                self.store.add(parent.model_copy(update={"reply_count": (parent.reply_count or 0) + 1}))
 
     # ------------------------------------------------------------------ history
     async def history(self, channel: str, limit: int = 50, before: str | None = None
@@ -778,9 +790,12 @@ class SlackService:
         if rec is not None:
             return rec.id
         if not value.startswith("#"):
-            person = await self.find_user(value)
-            if person is not None:
-                return await self.dm_with(person.id)
+            people = await self.find_users(value)
+            if len(people) > 1:  # two Adrians: ask, never guess who gets the DM
+                raise AmbiguousName(f"{len(people)} people match {value!r}: {', '.join(p.label for p in people)}; "
+                                  "ask which one")
+            if people:
+                return await self.dm_with(people[0].id)
         who = "you are" if self.as_user else f"{DISPLAY_NAME} is"
         raise LookupError(f"No Slack channel named #{name} (is it one {who} in?) and nobody called {value.lstrip('#')!r}")
 
@@ -952,10 +967,7 @@ class SlackService:
         self._recent.append((draft.channel, ts))
         if not self.store.add(msg):
             return  # the echo got here first and was already published
-        if _is_reply(msg):
-            parent = self.store.get(msg.channel, msg.thread_ts or "")
-            if parent is not None:
-                self.store.add(parent.model_copy(update={"reply_count": (parent.reply_count or 0) + 1}))
+        self._count_reply(msg)
         await self.bus.publish("notify.message", msg)
         self.channels_changed()
 
@@ -1031,11 +1043,17 @@ class SlackService:
         return {"ok": True, "channel": cid, "channel_name": label, "kind": kind}
 
     async def opened_from_ws(self, session: Any, payload: dict[str, Any]) -> None:
-        """ws `messages.opened {request_id, channel, ok, reason?}`: Unity's answer to messages.open."""
+        """ws `messages.opened {request_id, channel, ok, reason?}`: Unity's answer to messages.open. With several clients
+        connected, an ok wins: a refusal only lands if no ok follows within `open_refusal_grace_s`."""
         ack = MessagesOpened.model_validate(payload)
         fut = self._open_waiters.get(ack.request_id)
-        if fut is not None and not fut.done():
+        if fut is None or fut.done():
+            return
+        if ack.ok:
             fut.set_result(ack)
+        else:
+            asyncio.get_running_loop().call_later(self.open_refusal_grace_s,
+                                                  lambda: fut.done() or fut.set_result(ack))
 
     # ------------------------------------------------------------------ focus ("Reply with Bit")
     async def focus(self, channel: str, ts: str, pet_id: str = "bit") -> SlackMessage | None:

@@ -47,6 +47,16 @@ public class SlackOpenRequest
     [JsonProperty("kind")] public string kind;                 // channel | private | dm | group-dm
 }
 
+/// <summary>ws <c>messages.opened</c> (Unity -> hub): <see cref="SlackRemote"/>'s answer to <see cref="SlackOpenRequest"/>.</summary>
+public class SlackOpened
+{
+    [JsonProperty("pet_id")] public string petId;
+    [JsonProperty("request_id")] public string requestId;
+    [JsonProperty("channel")] public string channel;
+    [JsonProperty("ok")] public bool ok;
+    [JsonProperty("reason", NullValueHandling = NullValueHandling.Ignore)] public string reason;  // not_at_desk | no_workspace
+}
+
 /// <summary>POST /messages/drafts/{id}/send.</summary>
 public class SlackSendReply
 {

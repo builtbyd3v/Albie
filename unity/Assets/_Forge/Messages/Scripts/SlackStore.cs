@@ -316,7 +316,8 @@ public static class SlackStore
 
     /// <summary>
     /// The user's own message, just sent from the headset: into the conversation right away. The hub also sends it as
-    /// notify.message (and notify.sent), so whichever lands first adds it and the others are no-ops (same ts).
+    /// notify.message (and notify.sent); a later notify.message replaces this copy (it knows the thread and the
+    /// initials), and anything after that is a no-op (same ts).
     /// </summary>
     public static void AddOwn(string channelId, string text, string ts, string threadTs = null)
     {
@@ -325,7 +326,7 @@ public static class SlackStore
         if (list != null && IndexOf(list, ts) >= 0) return;
         var c = Find(channelId);
         bool dm = c != null && SlackText.IsDmKind(c.kind);
-        echoes.Add(ts);
+        if (list != null) echoes.Add(ts);  // no loaded history: nothing to replace later, so nothing to remember
         OnMessage(new NotifyMessage
         {
             channel = channelId,
@@ -341,8 +342,8 @@ public static class SlackStore
         });
     }
 
-    // notify.sent: covers a send from the floating card or by voice ("send it") on a hub that predates notify.message
-    // for its own posts. A thread reply lands without its thread here; the hub's notify.message carries it.
+    // notify.sent: the only signal for an iMessage send (the hub emits no notify.message for those), and a fallback for
+    // a Slack post whose notify.message is missing. A thread reply lands without its thread here; notify.message has it.
     static void OnSent(NotifySent s)
     {
         if (s != null) AddOwn(s.channel, s.text, s.ts);
