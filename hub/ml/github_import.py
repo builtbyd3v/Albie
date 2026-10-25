@@ -272,5 +272,10 @@ def clone_repository(url: str) -> dict:
     project = (dest / directory).resolve() if directory else dest
     if not project.is_relative_to(dest.resolve()) or not project.is_dir():
         raise GitHubImportError(f"There is no folder {directory!r} on {ref} in {owner}/{repo}.")
+    # Like ml_github (github.py): FORGE_ML_VENV (a venv with torch) becomes the clone's .venv, so forge.check and
+    # training run with torch instead of the hub's python.
+    venv = os.environ.get("FORGE_ML_VENV")
+    if venv and not any((project / v).exists() for v in (".venv", "venv", "env")):
+        (project / ".venv").symlink_to(Path(venv).expanduser().resolve())
     return {"import_id": import_id, "repository": f"{owner}/{repo}", "url": url.strip(), "ref": ref,
             "path": str(project)}
