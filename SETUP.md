@@ -17,10 +17,11 @@ Run these. Report the results to the person as one short list. Install what is m
 |---|---|---|
 | OS + arch | `uname -sm` | `Darwin arm64` for the full setup |
 | Package manager | `brew --version` (Windows: `winget --version`) | https://brew.sh |
-| Python | `python3 --version` | 3.11 or newer: `brew install python@3.11` |
+| Python | `for v in python3.13 python3.12 python3.11 python3; do command -v $v; done` | the first one listed must be 3.11 or newer: `brew install python@3.12`. Call it `$PY` below (macOS's own `python3` is 3.9) |
 | Node | `node --version` | 20 or newer: `brew install node` |
 | VS Code CLI | `code --version` | VS Code > Command Palette > "Shell Command: Install 'code' command in PATH" |
 | Google Chrome | `ls -d "/Applications/Google Chrome.app"` | the screen bridge shares VS Code through real Chrome |
+| Unity Hub | `ls -d "/Applications/Unity Hub.app"` | https://unity.com/download |
 | Unity | `ls /Applications/Unity/Hub/Editor/6000.6.7f1/PlaybackEngines/AndroidPlayer/SDK` | Unity Hub > Installs > 6000.6.7f1 with Android Build Support (OpenJDK, Android SDK & NDK) |
 | adb | `ADB=/Applications/Unity/Hub/Editor/6000.6.7f1/PlaybackEngines/AndroidPlayer/SDK/platform-tools/adb; $ADB version` | else `brew install android-platform-tools`, then `ADB=adb` |
 | Repo | `git rev-parse --show-toplevel` in the clone | call it `$REPO` below |
@@ -37,7 +38,7 @@ Done-check: `ls "$REPO/hub/.env"`. The path check comes at the end of step 4.
 ## 2. Hub Python env
 
 ```sh
-cd "$REPO/hub" && [ -x .venv/bin/python ] || python3 -m venv .venv
+cd "$REPO/hub" && [ -x .venv/bin/python ] || $PY -m venv .venv
 .venv/bin/pip install -q -r requirements-dev.txt -r ml/requirements.txt
 ```
 Done-check: `cd "$REPO/hub" && BIT_VSCODE_PORT=9 .venv/bin/python -m pytest -q` ends with `passed`. Known fails: `test_github_import` folder-name assert (the clone folder is not named `gatorhack-dubz`), and sometimes `test_agent_live_edits`. `BIT_VSCODE_PORT=9` keeps the tests from opening files in the person's VS Code.
@@ -45,7 +46,7 @@ Done-check: `cd "$REPO/hub" && BIT_VSCODE_PORT=9 .venv/bin/python -m pytest -q` 
 ## 3. ML example env (CIFAR-10)
 
 ```sh
-cd "$REPO/ml-examples/cifar10" && [ -x .venv/bin/python ] || python3 -m venv .venv
+cd "$REPO/ml-examples/cifar10" && [ -x .venv/bin/python ] || $PY -m venv .venv
 .venv/bin/pip install -q -r requirements.txt -e "$REPO/forge-sdk"
 [ -d data ] || .venv/bin/python data.py     # downloads CIFAR-10 (~170 MB) into data/
 ```
@@ -56,7 +57,7 @@ Done-check: `.venv/bin/python -c "import torch, forge; print('ok')"` prints `ok`
 ```sh
 [ -f ~/Documents/GitHub/albie-sandbox/.albie-sandbox ] || sh "$REPO/sandbox/setup.sh"
 ```
-It copies the ML trainer, the CAD parts, a planted bug and a web page into their own git repo, and links the dataset and the humanoid's meshes. `sh sandbox/setup.sh --reset` rebuilds it after a demo; `sh sandbox/reset-ml.sh` puts the ML run back to 60.9% after an improve demo.
+It copies the ML trainer, the CAD parts, a planted bug and a web page into their own git repo, and links the dataset and the humanoid's meshes. `sh sandbox/setup.sh --reset` rebuilds it after a demo; `sh sandbox/reset-ml.sh` puts the ML demo back to its 60% baseline after an improve demo. The sandbox's `ml/.venv` links to `ml-examples/cifar10/.venv` (step 3): the trainer runs with it.
 Set these in `hub/.env` (replace a line that is already there):
 ```
 DEFAULT_PROJECT=sandbox
@@ -65,19 +66,19 @@ FORGE_ML_REPO=${HOME}/Documents/GitHub/albie-sandbox/ml
 FORGE_ML_VENV=<$REPO>/ml-examples/cifar10/.venv
 VSCODE_FOLDER=${HOME}/Documents/GitHub/albie-sandbox
 ```
-Done-check: `ls ~/Documents/GitHub/albie-sandbox/.albie-sandbox ~/Documents/GitHub/albie-sandbox/ml/data ~/Documents/GitHub/albie-sandbox/data/unitree_g1` succeeds, and the path check in `sh dev-setup.sh` prints `ok: every path exists`.
+Done-check: `ls ~/Documents/GitHub/albie-sandbox/.albie-sandbox ~/Documents/GitHub/albie-sandbox/ml/data ~/Documents/GitHub/albie-sandbox/ml/.venv/bin/python ~/Documents/GitHub/albie-sandbox/data/unitree_g1` succeeds (missing `ml/.venv`: `ln -s "$REPO/ml-examples/cifar10/.venv" ~/Documents/GitHub/albie-sandbox/ml/.venv`), and the path check in `sh dev-setup.sh` prints `ok: every path exists`.
 
 ## 5. Screen bridge + Forge Bit extension (macOS)
 
 ```sh
 cd "$REPO/screen-bridge" && npm install --silent
-[ -x .venv/bin/python ] || python3 -m venv .venv
+[ -x .venv/bin/python ] || $PY -m venv .venv
 .venv/bin/pip install -q -r requirements.txt
 node "$REPO/vscode-bit/install.js"     # links vscode-bit into ~/.vscode/extensions as forge.forge-bit-<version>
 ```
 Add `"window.titleSeparator": " | "` to the VS Code user settings (Chrome finds the VS Code window by it). Relaunch VS Code.
 **HUMAN:** System Settings > Privacy & Security > **Screen Recording**: turn on the terminal app that runs the hub, and Google Chrome. Do the same under **Accessibility** (the bridge resizes VS Code). Quit and reopen that terminal app.
-Done-check: `ls -l ~/.vscode/extensions | grep forge.forge-bit` shows a link to `$REPO/vscode-bit`. With VS Code open: `curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8770/layout -H 'content-type: application/json' -d '{}'` prints `200`, and VS Code's status bar shows the Forge Bit item.
+Done-check: `ls -l ~/.vscode/extensions | grep forge.forge-bit` shows a link to `$REPO/vscode-bit`. With VS Code open: `curl -s -o /dev/null -w '%{http_code}\n' localhost:8770/context` prints `200` (read-only), and VS Code's status bar shows the Forge Bit item.
 
 ## 6. Run the hub
 
@@ -85,13 +86,13 @@ Done-check: `ls -l ~/.vscode/extensions | grep forge.forge-bit` shows a link to 
 sh "$REPO/run-demo.sh"
 ```
 It stops an old hub on :8000 and stale bridge children (`node start.js`, `stream.py`, `signaling.py` hold :8765/:8766), starts the hub (log: `/tmp/forge-hub.log`), opens the sandbox ML project, and wires up a plugged-in Quest. The hub opens VS Code on `VSCODE_FOLDER` and starts the screen bridge itself.
-Start it from a normal terminal, not from inside Claude Code: the agent SDK hangs on the inherited `CLAUDECODE` environment. If you are an agent, ask the person to run it in their own terminal.
+`run-demo.sh` clears the inherited `CLAUDECODE` / `ANTHROPIC_BASE_URL` (the agent SDK hangs on them), so an agent can run it too.
 Done-check: `curl -s localhost:8000/health` returns JSON with `"ok": true`; its `screen` field shows the bridge state, `slack` and `imessage` theirs.
 WebRTC video needs the Mac and the Quest on a phone hotspot (venue Wi-Fi blocks it). Without it the VS Code panel falls back to JPEG after about 10 s.
 
 ## 7. Slack user token (optional; the bot tokens come in the shared env file)
 
-**HUMAN:** install the Slack CLI (https://docs.slack.dev/tools/slack-cli). In `$REPO/hub`: `slack login` (the team workspace), `slack app link -E local` (app id from `slack app list`), then `slack app settings` > OAuth & Permissions > **User OAuth Token** (`xoxp-...`). The person pastes it into `SLACK_USER_TOKEN` in `hub/.env` themselves. Empty = Albie posts as "Bit".
+**HUMAN:** a user token belongs to the person who installed the app, so each teammate installs it for themselves. Install the Slack CLI (https://docs.slack.dev/tools/slack-cli). Ask Dev to add you as a collaborator on the Forge Slack app. In `$REPO/hub`: `slack login` (the team workspace), `slack app link -E local` (app id from `slack app list`), `slack install -E local` (installs it for you), then `slack app settings` > OAuth & Permissions > **User OAuth Token** (`xoxp-...`). Paste it into `SLACK_USER_TOKEN` in `hub/.env` yourself. Never use someone else's `xoxp-` token: Albie would post as them. Empty = Albie posts as "Bit".
 Done-check: after `sh run-demo.sh`, `/health` shows Slack connected.
 
 ## 8. iMessage (optional, macOS only)
@@ -109,6 +110,7 @@ Done-check: after `sh run-demo.sh`, `/health` shows `imessage.available: true` (
 1. Open `$REPO/unity` in Unity 6000.6.7f1. The first import takes 5-15 min. Keep the Editor window in front while it imports and compiles: Unity compiles only while focused.
 2. Menu **Forge > Build Main Scene**. It rewrites `Main.unity`: never commit that file. Run `git checkout -- unity/Assets/_Forge/Core/Main.unity` before every pull.
 3. File > Build Profiles > Android > Switch Platform. Build to `unity/Builds/Forge.apk` with `Assets/_Forge/Core/Main.unity` as the only scene.
+   An APK built from main before PR #76 (Hudson's settings) merges lacks the localhost cleartext config: the movie and http over `adb reverse` are blocked. Build from a branch with #76, or wait for it.
 4. Install and launch:
 ```sh
 $ADB install -r "$REPO/unity/Builds/Forge.apk"
@@ -127,6 +129,9 @@ Done-check: `$ADB devices` lists the headset as `device`; `$ADB reverse --list` 
 ## Gotchas
 
 - Voice work (speech-to-speech) is hub-only: edit `hub/agent/`, run `sh run-demo.sh` again. No Unity build.
+- Unity compiles only while its window is focused: bring it to the front after every pull or script change.
+- WebRTC video needs the Mac and the Quest on a phone hotspot; else the VS Code panel falls back to JPEG after about 10 s.
+- `Forge > Build Main Scene` rewrites `Main.unity`: `git checkout -- unity/Assets/_Forge/Core/Main.unity` before a pull.
 - Hub tests: always `BIT_VSCODE_PORT=9`.
 - Kill stale `stream.py` / `signaling.py` before a hub restart (`run-demo.sh` does).
 - Never commit a rebuilt `Main.unity`, `hub/.env`, or `hub/.data/`.
