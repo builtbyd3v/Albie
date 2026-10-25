@@ -104,7 +104,7 @@ A small network learning a 2D dataset live, for the "turn off a neuron, ask Albi
   On Apply it trains live, pauses once test accuracy stops climbing and says "Test accuracy went from 52% to 100%".
   Measured: spiral with x, y [4, 2] stalls at 52–60% → x, y, x², y², sin x, sin y [8, 8] reaches 97% at 4 s, 100% at 6 s.
 
-Demo script (fix it): Spiral → Play (stuck around 55%) → "Albie, why is it bad? Fix it." → Apply → it climbs to ~100%.
+Demo script (fix it): the Lab opens on the spiral with a small x, y network → Play → it stops itself when stuck (about 55%; no 1% gain for 5 s) and Albie offers the fix with the Apply card → Apply → it climbs to ~100% and stops → "Test accuracy went from 52% to 100%".
 
 Demo script (neurons): open the Lab → Play on **circle** (about 99% in 5 s) → tap the most important neuron (layer 1, neuron 3 in
 our runs: 99.6% → 69%) → "Albie, why did the accuracy drop?" → tap it again (back to 99.6%).

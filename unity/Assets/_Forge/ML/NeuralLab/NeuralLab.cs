@@ -218,8 +218,18 @@ namespace Forge.ML
             foreach (var p in datasetPills) p.Value.On = p.Key == sim.Dataset;
             foreach (var p in activationPills) p.Value.On = p.Key == sim.Activation;
             outputLabel.text = $"train {sim.TrainAccuracy:0%}  ·  test {sim.TestAccuracy:0%}";
-            stopNote.text = sim.AutoPausedAt >= 0 && !sim.Playing
-                ? $"Auto-paused at {NeuralLabSim.AutoPauseAccuracy:0%}+\n<color=#FFFFFF80>epoch {sim.AutoPausedAt} · Play to keep going</color>" : "";
+            if (sim.Playing) stopNote.text = "";
+            else if (sim.AutoPausedAt >= 0)
+            {
+                stopNote.color = MLUI.Good;
+                stopNote.text = $"Auto-paused at {NeuralLabSim.AutoPauseAccuracy:0%}+\n<color=#FFFFFF80>epoch {sim.AutoPausedAt} · Play to keep going</color>";
+            }
+            else if (sim.StalledAt >= 0)
+            {
+                stopNote.color = MLUI.Warn;
+                stopNote.text = $"Stuck at {sim.TestAccuracy:0%}\n<color=#FFFFFF80>epoch {sim.StalledAt} · ask Albie to fix it</color>";
+            }
+            else stopNote.text = "";
             DrawBoundary(); DrawNeurons(); DrawLinks(); DrawLoss();
         }
 

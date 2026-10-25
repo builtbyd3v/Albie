@@ -91,7 +91,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         ml_tools = MLTools(app.state, data_dir, speech.speak)  # "Albie, open my ML project / what can I do better?"
         agent_tools.register(ML_TOOLS, ml_tools.call)
-        nn = nn_lab.lab(app.state, speech.speak)  # Neural Net Lab: tools, and its Apply card
+        nn = nn_lab.lab(app.state, speech.speak, speech.note)  # Neural Net Lab: tools, its Apply card, the stall offer
         agent_tools.register(nn_lab.TOOLS, lambda name, args: nn_lab.call_tool(name, args, app.state))
 
         async def ml_card(session, action_id):

@@ -192,3 +192,35 @@ def test_open_and_close_switch_the_ml_desk_and_say_when_the_user_isnt_at_the_des
         desk.seated, desk.view = False, "closed"
         assert "sit at the desk" in (await nn_lab.call_tool("nn_open", {}, state))["error"]
     run(flow())
+
+
+def test_a_stalled_play_makes_albie_offer_the_fix_once():
+    async def flow():
+        headset, said, notes = SpiralHeadset(), [], []
+        state = SimpleNamespace(bus=headset)
+
+        async def speak(pet_id, text):
+            said.append(text)
+            return True
+
+        async def note(pet_id, text):
+            notes.append(text)
+            return True
+
+        headset.lab = lab = nn_lab.lab(state, speak, note)
+        stalled = {**headset.state(0), "stalled_at_epoch": 210, "playing": False}
+        lab.report(stalled)
+        for _ in range(50):
+            if said:
+                break
+            await asyncio.sleep(0.02)
+        assert said == ["It's stuck at 58% because it only sees x, y; the spiral needs x², y², sin x, sin y as inputs "
+                        "to bend around; layers [4, 2] are too small for the spiral pattern. Want me to fix it?"]
+        card = [p for t, p in headset.published if t == "pet.say"][-1]
+        assert card["text"] == said[0] and card["card"]["actions"][0]["action_id"] == "nn:apply:1"
+        assert notes and "nn_apply" in notes[0]
+        lab.report(stalled)  # the same stall reported again: no second offer
+        await asyncio.sleep(0.1)
+        assert len(said) == 1
+        assert (await nn_lab.call_tool("nn_apply", {}, state))["applied"]
+    run(flow())

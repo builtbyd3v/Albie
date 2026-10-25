@@ -5,6 +5,8 @@ state to `POST /ml/nn/state`: accuracy and loss, and for each hidden neuron its 
 from the top), what it detects and the test accuracy if it were switched the other way. A tool sends one
 command and waits for the state that includes it (`applied_seq`), so Albie answers with real numbers.
 
+When Play stalls (the headset's `stalled_at_epoch`: the default spiral on a small network stops around 55-60%),
+Albie offers the fix himself: he says what's wrong and the Apply card pops up.
 "Albie, fix it" (nn_improve → Apply card or a spoken yes → nn_apply) swaps in a measured recipe for the dataset
 (RECIPES: inputs, layers, activation, learning rate), trains it live and says the new test accuracy when it settles.
 """
@@ -98,8 +100,9 @@ TOOLS: list[dict[str, Any]] = [
 
 
 class NNLab:
-    def __init__(self, bus: Any, speak: Speak | None = None) -> None:
-        self.bus, self.speak = bus, speak
+    def __init__(self, bus: Any, speak: Speak | None = None, note: Speak | None = None) -> None:
+        self.bus, self.speak, self.note = bus, speak, note
+        self.offered_stall: int | None = None  # the stall Albie last offered a fix for
         self.state: dict | None = None
         self.received = 0.0
         self.seq = 0
@@ -109,9 +112,24 @@ class NNLab:
         self.jobs: set[asyncio.Task[None]] = set()
 
     def report(self, state: dict) -> None:
-        """POST /ml/nn/state: the headset's latest state."""
+        """POST /ml/nn/state: the headset's latest state. A new stall makes Albie offer his fix."""
         self.state, self.received = state, time.time()
         self.changed.set()
+        stall = state.get("stalled_at_epoch")
+        if stall is not None and stall != self.offered_stall and not state.get("playing"):
+            self.offered_stall = stall
+            task = asyncio.get_running_loop().create_task(self.offer_fix())
+            self.jobs.add(task)
+            task.add_done_callback(self.jobs.discard)
+
+    async def offer_fix(self) -> None:
+        """Play stopped improving: say what's wrong and ask, with the Apply card (as if asked "what can I do better?")."""
+        out = await self.improve(spoken=True)
+        if self.note is not None and self.proposal is not None:
+            try:
+                await self.note(PET_ID, "You just offered to fix the Neural Net Lab's network; a yes means nn_apply.")
+            except Exception:  # noqa: BLE001 - only context for the voice model
+                log.exception("Neural Net Lab note failed")
 
     async def command(self, **fields: Any) -> dict:
         self.seq += 1
@@ -137,10 +155,12 @@ class NNLab:
 
 
     # ---- "Albie, fix it" ---------------------------------------------------------------------------------
-    async def improve(self) -> dict:
+    async def improve(self, spoken: bool = False) -> dict:
+        """Diagnose and, when there's a fix, show the Apply card. spoken: Albie says the diagnosis himself (an
+        unprompted offer); otherwise the voice model reads the result and the bubble only asks the question."""
         if self.state is None:
             return {"error": NO_HEADSET}
-        out = diagnose(self.state)
+        out = diagnose(self.state, stalled=spoken)
         if not out.get("fix"):
             self.proposal = None
             return {k: v for k, v in out.items() if k != "fix"}
@@ -149,8 +169,13 @@ class NNLab:
         card = ev.Card(title="Apply the fix and retrain?", bullets=out["changes"][:5],
                        actions=[ev.CardAction(label="Apply", action_id=f"nn:apply:{self.offer}"),
                                 ev.CardAction(label="Not now", action_id=f"nn:dismiss:{self.offer}")])
-        await self.bus.publish("pet.say", {"pet_id": PET_ID, "text": "Apply the fix and retrain?",
-                                           "card": card.model_dump(exclude_none=True)})
+        text = f"{out['diagnosis']} Want me to fix it?" if spoken else "Apply the fix and retrain?"
+        await self.bus.publish("pet.say", {"pet_id": PET_ID, "text": text, "card": card.model_dump(exclude_none=True)})
+        if spoken and self.speak is not None:
+            try:
+                await self.speak(PET_ID, text)
+            except Exception:  # noqa: BLE001 - the caption and card already went out
+                log.exception("spoken Neural Net Lab offer failed")
         return {k: v for k, v in out.items() if k != "fix"}
 
     async def apply(self) -> dict:
@@ -211,7 +236,7 @@ class NNLab:
                 log.exception("spoken Neural Net Lab line failed")
 
 
-def diagnose(state: dict) -> dict:
+def diagnose(state: dict, stalled: bool = False) -> dict:
     """What's holding the network back, and the measured fix for its dataset (RECIPES)."""
     dataset = state.get("dataset", "circle")
     recipe = RECIPES.get(dataset, RECIPES["circle"])
@@ -249,7 +274,7 @@ def diagnose(state: dict) -> dict:
     if off:
         changes.append("every neuron back on")
     fix = {k: recipe[k] for k in ("features", "hidden", "activation", "learning_rate", "expected")}
-    return {"test_accuracy": acc, "diagnosis": f"It's at {acc:.0%} because " + "; ".join(findings) + ".",
+    return {"test_accuracy": acc, "diagnosis": f"It's {'stuck ' if stalled else ''}at {acc:.0%} because " + "; ".join(findings) + ".",
             "changes": changes, "expected": recipe["expected"], "fix": fix}
 
 
@@ -273,12 +298,13 @@ def summary(state: dict) -> dict:
     return out
 
 
-def lab(state: Any, speak: Speak | None = None) -> NNLab:
-    """The app's NNLab (routes and tools), created on first use. main.py passes Albie's voice."""
+def lab(state: Any, speak: Speak | None = None, note: Speak | None = None) -> NNLab:
+    """The app's NNLab (routes and tools), created on first use. main.py passes Albie's voice and context notes."""
     if getattr(state, "ml_nn", None) is None:
-        state.ml_nn = NNLab(state.bus, speak)
-    elif speak is not None:
-        state.ml_nn.speak = speak
+        state.ml_nn = NNLab(state.bus, speak, note)
+    else:
+        state.ml_nn.speak = speak or state.ml_nn.speak
+        state.ml_nn.note = note or state.ml_nn.note
     return state.ml_nn
 
 

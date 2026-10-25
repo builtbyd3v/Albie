@@ -19,9 +19,12 @@ namespace Forge.ML
         public const float EpochsPerSecond = 30f;
         // Play stops by itself once test accuracy reaches this (pressing Play again trains on past it).
         public const float AutoPauseAccuracy = 0.92f;
+        // ...or once it's stuck: no 1% gain in test accuracy for this many epochs (5 s). The demo starts here: the
+        // default spiral on a small x, y network stalls around 55-60%, and Albie offers to fix it.
+        public const int StallEpochs = 150;
         public static readonly float[] Rates = { 0.001f, 0.003f, 0.01f, 0.03f, 0.1f, 0.3f, 1f };
 
-        public NNDataset Dataset { get; private set; } = NNDataset.Circle;
+        public NNDataset Dataset { get; private set; } = NNDataset.Spiral;
         public NNActivation Activation { get; private set; } = NNActivation.Tanh;
         public float LearningRate { get; private set; } = 0.03f;
         public float Noise { get; private set; }
@@ -30,6 +33,8 @@ namespace Forge.ML
         public bool Playing { get; private set; }
         /// <summary>Epoch where Play stopped itself at <see cref="AutoPauseAccuracy"/>, or -1.</summary>
         public int AutoPausedAt { get; private set; } = -1;
+        /// <summary>Epoch where Play stopped itself because test accuracy stopped improving, or -1.</summary>
+        public int StalledAt { get; private set; } = -1;
         public int Epoch { get; private set; }
         public float TrainLoss { get; private set; }
         public float TestLoss { get; private set; }
@@ -65,6 +70,7 @@ namespace Forge.ML
         int seed = 1, appliedSeq, lastPostedEpoch = -1;
         float nextPost, epochBudget;
         bool autoPause;  // armed by a Play that starts below the threshold; Albie's fix turns it off
+        float bestAccuracy; int bestEpoch;  // for the stall check
         bool dirty;
         IDisposable commands;
         readonly List<JObject> history = new List<JObject>();
@@ -99,10 +105,17 @@ namespace Forge.ML
                 {
                     while (epochBudget >= 1f) { TrainEpoch(); epochBudget -= 1f; }
                     Evaluate(); RecordLoss(); dirty = true;
+                    if (TestAccuracy >= bestAccuracy + 0.01f) { bestAccuracy = TestAccuracy; bestEpoch = Epoch; }
                     if (autoPause && TestAccuracy >= AutoPauseAccuracy)
                     {
                         Playing = autoPause = false; AutoPausedAt = Epoch;
                         Remember("auto_pause", "", TestAccuracy);
+                        Changed();
+                    }
+                    else if (autoPause && Epoch - bestEpoch >= StallEpochs)
+                    {
+                        Playing = autoPause = false; StalledAt = Epoch;
+                        Remember("stalled", "", TestAccuracy);  // the hub sees it and Albie offers his fix
                         Changed();
                     }
                     else Stepped?.Invoke();
@@ -117,7 +130,11 @@ namespace Forge.ML
         public void SetPlaying(bool on, bool stopAtTarget = true)
         {
             Playing = on;
-            if (on) { autoPause = stopAtTarget && TestAccuracy < AutoPauseAccuracy; AutoPausedAt = -1; }
+            if (on)
+            {
+                autoPause = stopAtTarget && TestAccuracy < AutoPauseAccuracy;
+                AutoPausedAt = StalledAt = -1; bestAccuracy = TestAccuracy; bestEpoch = Epoch;
+            }
             Changed();
         }
         public void StepOnce() { Playing = false; TrainEpoch(); Evaluate(); RecordLoss(); Changed(); }
@@ -177,7 +194,7 @@ namespace Forge.ML
             int inputs = FeatureCount;
             featureBuffer = new float[inputs];
             Net = new NNNetwork(inputs, Hidden.ToArray(), Activation, seed);
-            Epoch = 0; LossHistory.Clear(); AutoPausedAt = -1;
+            Epoch = 0; LossHistory.Clear(); AutoPausedAt = StalledAt = -1;
             Evaluate();
             Rebuilt?.Invoke();
             Changed();
@@ -320,6 +337,7 @@ namespace Forge.ML
             {
                 ["applied_seq"] = appliedSeq, ["playing"] = Playing, ["epoch"] = Epoch,
                 ["auto_paused_at_epoch"] = AutoPausedAt >= 0 ? AutoPausedAt : (JToken)null, ["auto_pause_accuracy"] = AutoPauseAccuracy,
+                ["stalled_at_epoch"] = StalledAt >= 0 ? StalledAt : (JToken)null,
                 ["dataset"] = Dataset.ToString().ToLowerInvariant(), ["noise"] = Round(Noise),
                 ["activation"] = Activation.ToString().ToLowerInvariant(), ["learning_rate"] = LearningRate,
                 ["features"] = features, ["hidden"] = new JArray(Hidden.ToArray()),
