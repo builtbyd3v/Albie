@@ -186,8 +186,14 @@ def test_gives_up_after_three_rounds(repo):
     ws.__exit__(None, None, None)
 
 
-@pytest.mark.parametrize("bad", ["../evil.py", "/etc/passwd.py", ".forge/adapter.py", "missing.py", "data.txt"])
-def test_patch_paths_are_guarded(repo, bad):
+@pytest.mark.parametrize("bad", ["../evil.py", "/etc/passwd.py", ".forge/adapter.py", "missing.py", "data.txt",
+                                 ".venv/lib/site.py", "linked.py"])
+def test_patch_paths_are_guarded(repo, bad, tmp_path):
+    outside = tmp_path / "outside.py"
+    outside.write_text("x = 1\n")
+    (repo / "linked.py").symlink_to(outside)  # a symlink out of the repo
+    (repo / ".venv" / "lib").mkdir(parents=True, exist_ok=True)
+    (repo / ".venv" / "lib" / "site.py").write_text("x = 1\n")
     with pytest.raises(GuardrailError):
         safe_patch_path(repo, bad)
 
@@ -333,8 +339,10 @@ def test_profile_python_resolves_like_the_service(tmp_path, monkeypatch):
     from ml.prescan import resolve_python
 
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.delenv("CONDA_PREFIX", raising=False)
     assert resolve_python(tmp_path, "python") == sys.executable
     venv = tmp_path / ".venv" / "bin"
     venv.mkdir(parents=True)
     (venv / "python").write_text("")
     assert resolve_python(tmp_path, ".venv/bin/python") == str(venv / "python")
+    assert resolve_python(tmp_path, "python") == str(venv / "python")  # the repo's venv beats PATH

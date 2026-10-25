@@ -74,13 +74,17 @@ def find_python(repo: Path) -> str | None:
 
 
 def resolve_python(repo: Path, configured: str | None) -> str:
-    """A profile's `python` as something runnable: a path inside the repo (a venv), else that name on PATH,
-    else the hub's own interpreter. A hand-written profile may just say "python", which a hub started
-    without that name on its PATH (no activated env) can't run."""
+    """A profile's `python` as something runnable: a path inside the repo, else the repo's own venv (.venv/,
+    venv/, env/) for a bare "python", else that name on PATH, else the hub's own interpreter. A hand-written
+    profile may just say "python", and PATH's python (the hub's) lacks the repo's torch."""
     configured = configured or "python"
     candidate = Path(repo) / configured
     if candidate.exists():
         return str(candidate)
+    if Path(configured).name in ("python", "python3"):
+        venv = find_python(Path(repo))
+        if venv is not None:
+            return str(Path(repo) / venv)  # an absolute conda path stays absolute
     return shutil.which(configured) or sys.executable
 
 
