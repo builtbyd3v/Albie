@@ -7,8 +7,8 @@ using UnityEngine.UI;
 /// Forge > Messages > Build Prefabs: (re)builds, in Assets/_Forge/Messages/Resources (Resources so DigestTrigger and
 /// DraftPresenter can load them at runtime without scene references), with no manual steps:
 /// - MessageCard.prefab: one Slack message on the module's slate card (MessageCard; pooled by the panels)
-/// - SlackPanel.prefab: Slack-only ForgePanel variant, panel id "messages-slack", slot Right
-/// - IMessagePanel.prefab: iMessage-only ForgePanel variant, panel id "messages", slot Main
+/// - SlackPanel.prefab: Slack-only ForgePanel variant, panel id "messages", slot Main (Right while iMessage is shown)
+/// - IMessagePanel.prefab: iMessage-only ForgePanel variant, panel id "messages-imessage"; MessagesLayout adds it at runtime
 /// - MentionsPanel.prefab: ForgePanel variant, panel id "messages-mentions", slot Left (mentions and unread notifications)
 /// - DraftCard.prefab: ForgePanel variant, panel id "messages-draft", the Send / Cancel card while the Slack panel is closed
 /// GUIDs are kept on rebuild (SaveAsPrefabAsset over the same path). Same technique as CAD/Editor/CadPrefabBuilder.cs;
@@ -36,8 +36,8 @@ public static class MessagesPrefabBuilder
         if (!ForgePrefabBuilder.Exist()) ForgePrefabBuilder.BuildAll();
         ForgeLookBuilder.Build();  // Inter + the PanelSurface material the cards draw with (idempotent)
         BuildCard();
-        BuildPanel(SlackPanelPath, "SlackPanel", "messages-slack", "Slack", SlackPanelSize, go => go.AddComponent<SlackPanel>());
-        BuildPanel(IMessagePanelPath, "IMessagePanel", "messages", "iMessage", SlackPanelSize, go =>
+        BuildPanel(SlackPanelPath, "SlackPanel", "messages", "Slack", SlackPanelSize, go => go.AddComponent<SlackPanel>());
+        BuildPanel(IMessagePanelPath, "IMessagePanel", "messages-imessage", "iMessage", SlackPanelSize, go =>
         {
             var panel = go.AddComponent<SlackPanel>();
             panel.iMessagePanel = true;

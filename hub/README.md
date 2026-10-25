@@ -295,14 +295,16 @@ SLACK_DEFAULT_CHANNEL=#forge-team
 
 ### Optional iMessage (macOS)
 
-On macOS, the hub reads `~/Library/Messages/chat.db` read-only and adds those conversations to the shared inbox and
-Bit's messaging tools. At startup, if `imsg` is missing, the hub installs it with Homebrew (`brew install
-steipete/tap/imsg`). This requires Homebrew; if Homebrew is missing or the install fails, the startup log and
-`/health` explain how to install it. On macOS 26, `imsg` verifies sends against the Messages database because
+Off by default. With `IMESSAGE_ENABLED=1` on macOS, the hub reads `~/Library/Messages/chat.db` read-only (texts from
+the last `IMESSAGE_RECENT_DAYS`, default 3) and adds those conversations to the shared inbox and Albie's messaging tools.
+It starts in the background, so it never delays Slack, screens or `/health`. Sending needs the `imsg` CLI, which the
+hub never installs: without it iMessage is read-only, and the startup log and `/health` (`send_error`) say to run
+`brew install steipete/tap/imsg` (a third-party tap) yourself. On macOS 26, `imsg` verifies sends against the Messages database because
 AppleScript can report success without a real outgoing row.
 
-In the Unity MSG mode, mentions and unread notifications appear on the left, iMessage is in the center, and Slack is
-on the right. Selecting an unread item opens its conversation in the matching provider panel.
+In the Unity MSG mode, mentions and unread notifications appear on the left and Slack (`messages`) in the center. Only
+when `/health` reports `imessage.available` does `MessagesLayout` add the iMessage panel (`messages-imessage`) in the
+center and move Slack to the right. Selecting an unread item opens its conversation in the matching provider panel.
 
 The first startup also checks whether the hub can read Messages. If macOS blocks access, grant **Full Disk Access**
 to the app running the hub (for example Terminal, iTerm, or VS Code) in **System Settings > Privacy & Security >
@@ -311,13 +313,13 @@ instructions and a direct link to that Settings pane. The first send may prompt 
 control Messages; allow it. Set `IMESSAGE_CLI` only when you intentionally use a custom `imsg` executable.
 `/health` exposes `imessage.available` and `imessage.send_available` separately.
 
-Bit uses the same confirmation flow for both providers: `messages_send` creates a draft, then only `messages_confirm`
+Albie uses the same confirmation flow for both providers: `messages_send` creates a draft, then only `messages_confirm`
 after a clear user confirmation sends it. For an iMessage reply, pass the source message's `ts` as `reply_to_ts`; for
 a chosen conversation, pass its `im:<chat-guid>` id as `channel`. To start a new draft, set `via: "imessage"` and
 name an existing conversation. The current CLI adapter targets existing chats; it does not start a brand-new chat.
 `IMESSAGE_DIGEST=false` keeps texts out of the spoken sit-down digest while leaving their unread marks intact.
 
-Bot + app tokens empty = Slack is disabled, but macOS iMessage can still power supported inbox and draft endpoints.
+Bot + app tokens empty = Slack is disabled, but iMessage (when enabled) can still power supported inbox and draft endpoints.
 Slack-specific endpoints return 503. `/health` reports Slack and iMessage separately.
 
 Live check without Unity:

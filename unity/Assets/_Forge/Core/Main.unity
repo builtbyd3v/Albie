@@ -1132,21 +1132,16 @@ MonoBehaviour:
     label: MSG
     color: {r: 0.654902, g: 0.48235294, b: 1, a: 1}
     items:
+    - id: messages
+      title: Slack
+      slot: 0
+      kind: 0
+      prefab: {fileID: 8694658991597928827, guid: 829eee93c33564e2da6baa8ffd22f8fa, type: 3}
     - id: messages-mentions
-      title: Mentions & notifications
+      title: Mentions
       slot: 1
       kind: 0
       prefab: {fileID: 6032196688876054307, guid: 294aadcc761b34a639d14f58a7755af7, type: 3}
-    - id: messages
-      title: iMessage
-      slot: 0
-      kind: 0
-      prefab: {fileID: 8694658991597928827, guid: f4980604ff074629b1503f4011cb0795, type: 3}
-    - id: messages-slack
-      title: Slack
-      slot: 2
-      kind: 0
-      prefab: {fileID: 8694658991597928827, guid: 829eee93c33564e2da6baa8ffd22f8fa, type: 3}
   modeChanged:
     m_PersistentCalls:
       m_Calls: []

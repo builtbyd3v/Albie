@@ -1,5 +1,7 @@
 # IMESSAGE_PLAN: iMessage in the Messages panel
 
+**Update (merge review):** iMessage is opt-in (`IMESSAGE_ENABLED=1`, macOS only), the hub never installs `imsg`, the startup window is 3 days, and the iMessage panel id is `messages-imessage` (Slack keeps `messages`; MSG mode adds iMessage only when `/health` reports it available). Where this plan says otherwise, `hub/README.md` and PROJECT_CONTEXT section 7 win.
+
 > Owner: Adrian. Started 2026-10-24 from `hub/messaging/` on `feat/bit-in-main`.
 > Companion to `PROJECT_CONTEXT.md` sections 8.7 / 8.8 (Slack). Adrian authorized the additive provider/source fields and Bit tool routing on 2026-10-24.
 

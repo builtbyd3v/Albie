@@ -257,6 +257,8 @@ async def cancel_draft(draft_id: str, request: Request, svc: SlackService = Depe
                 raise HTTPException(503, "iMessage is unavailable on this Mac")
             await imessage.cancel_draft(draft_id)
         else:
+            if not svc.enabled:
+                raise HTTPException(503, "Slack is not configured on this hub")
             await svc.cancel_draft(draft_id)
     except DraftError as e:
         raise HTTPException(404, str(e)) from None

@@ -7,7 +7,8 @@ the hub through one ForgeNet socket. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
-SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py).
+SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py),
+IMESSAGE_* (messaging/imessage/settings.py; off unless IMESSAGE_ENABLED=1 on macOS).
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import sys
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
@@ -34,6 +34,7 @@ from desk.router import router as desk_router
 from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
+from messaging.imessage import IMessageService, IMessageSettings
 from messaging.router import router as messaging_router
 from screens import ScreenBridgeService
 from screens import router as screens_router
@@ -55,11 +56,9 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak, speech.note)
         app.state.slack = slack
         imessage = None
-        if sys.platform == "darwin":
-            # Keep the macOS-specific integration out of non-Mac startup/import paths.
-            from messaging.imessage import IMessageService, IMessageSettings
-
-            imessage = IMessageService(IMessageSettings.from_env(), slack.store, bus, speech.note)
+        imessage_settings = IMessageSettings.from_env()
+        if imessage_settings.enabled:  # opt-in and Mac-only: nothing is read or shown unless IMESSAGE_ENABLED=1
+            imessage = IMessageService(imessage_settings, slack.store, bus, speech.note)
             slack.extra_channel_summaries = imessage.channel_summaries
             imessage.channels_changed = slack.channels_changed
         app.state.imessage = imessage
@@ -84,8 +83,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         await cad.start()
         await slack.start()
-        if imessage is not None:
-            await imessage.start()
+        # In the background: the first read of chat.db and the imsg checks never hold up Slack, screens or /health.
+        imessage_start = asyncio.create_task(imessage.start(), name="imessage-start") if imessage is not None else None
         screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)
         app.state.screens = screens
         await screens.start()
@@ -101,6 +100,10 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                     await watcher
             desk.stop()
             await screens.stop()
+            if imessage_start is not None:
+                imessage_start.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await imessage_start
             if imessage is not None:
                 await imessage.stop()
             await slack.stop()
@@ -129,7 +132,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     @app.get("/health")
     def health():
         imessage_health = (app.state.imessage.health() if app.state.imessage is not None else
-                           {"enabled": False, "available": False, "status": "unavailable (not macOS)",
+                           {"enabled": False, "available": False, "status": "off (IMESSAGE_ENABLED=1 on a Mac to turn on)",
                             "error": None, "digest": False})
         return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
                 "imessage": imessage_health, "screen": app.state.screens.health(), "desk": app.state.desk.health(),

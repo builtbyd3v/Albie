@@ -890,10 +890,10 @@ public class Workspace : MonoBehaviour
             id = "messages", label = "MSG", color = ForgeTheme.Messages,
             items =
             {
-                // Notifications on the left, iMessage in the center and Slack on the right.
-                new WorkspaceItem("messages-mentions", "Mentions & notifications", WorkspaceSlot.Left),
-                new WorkspaceItem("messages", "iMessage", WorkspaceSlot.Main),
-                new WorkspaceItem("messages-slack", "Slack", WorkspaceSlot.Right),
+                // The Slack panel (conversations, messages, composer) and the "New for you" list beside it
+                // (Messages/Resources/SlackPanel.prefab, MentionsPanel.prefab; ids per section 7).
+                new WorkspaceItem("messages", "Slack", WorkspaceSlot.Main),
+                new WorkspaceItem("messages-mentions", "Mentions", WorkspaceSlot.Left),
             },
         },
     };

@@ -40,13 +40,15 @@ TOOLS: list[dict[str, Any]] = [
                     "short line what you wrote and ask them to tap Send or say 'send it'. NEVER say the message was sent. "
                     "The message posts under the USER's own name, so write in their voice (first person, their tone). To "
                     "answer someone, pass that message's ts as reply_to_ts; the reply then goes to their channel, in thread. "
+                    "To message a person directly ('tell Hudson ...') pass their name as channel: it becomes their DM. "
                     "For an iMessage reply, pass its ts as reply_to_ts; for a new iMessage draft, set via='imessage' and "
                     "pass an existing contact/chat name or im:<chat-guid> as channel. "
                     "Calling again replaces the previous draft (use that when the user wants changes).",
      "parameters": {"type": "object", "properties": {
          "text": {"type": "string", "description": "the message, as the user would write it"},
          "reply_to_ts": {"type": "string", "description": "ts of the message being answered (optional)"},
-         "channel": {"type": "string", "description": "Slack channel/person name or an iMessage chat id/name"},
+         "channel": {"type": "string", "description": "channel id, #name, or a person's name for a DM (optional; "
+                                                      "default channel otherwise); or an iMessage chat id/name"},
          "via": {"type": "string", "enum": ["slack", "imessage"], "description": "Optional provider for a new conversation"},
          "thread_ts": {"type": "string", "description": "thread to post in (optional; implied by reply_to_ts)"}},
          "required": ["text"]}},

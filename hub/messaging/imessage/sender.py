@@ -2,7 +2,8 @@
 
 Messages removed or changed parts of its AppleScript dictionary in macOS Tahoe. The `imsg` CLI wraps the published
 automation surface and verifies the resulting database row (including Tahoe's ghost-row case). We require its CLI
-instead of reporting success from an AppleScript command that may only appear to succeed.
+instead of reporting success from an AppleScript command that may only appear to succeed. The hub never installs it:
+without it, iMessage is read-only and the log says how to install it (`brew install steipete/tap/imsg`).
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 log = logging.getLogger("forge.messaging.imessage")
+INSTALL_HINT = ("imsg CLI not installed, so iMessage is read-only. To send, install it yourself "
+                "(`brew install steipete/tap/imsg`, a third-party tap) and restart the hub.")
 
 
 class IMessageSendError(RuntimeError):
@@ -46,60 +49,11 @@ class IMessageSender:
                 return str(candidate)
         return None
 
-    @staticmethod
-    def _find_homebrew() -> str | None:
-        path = shutil.which("brew")
-        if path:
-            return path
-        for candidate in (Path("/opt/homebrew/bin/brew"), Path("/usr/local/bin/brew")):
-            if candidate.is_file():
-                return str(candidate)
-        return None
-
-    async def _install_with_homebrew(self) -> str | None:
-        brew = self._find_homebrew()
-        if not brew:
-            self.status = SenderStatus(False, None,
-                                       "Homebrew is not installed. Install Homebrew, then restart the hub; "
-                                       "the hub will install imsg automatically.")
-            return None
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                brew, "install", "steipete/tap/imsg",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-            if proc.returncode != 0:
-                detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
-                self.status = SenderStatus(False, None,
-                                           f"Homebrew could not install imsg. Run `brew install "
-                                           f"steipete/tap/imsg` and restart the hub. {detail}".strip())
-                return None
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            self.status = SenderStatus(False, None,
-                                       "Homebrew install of imsg timed out. Run `brew install "
-                                       "steipete/tap/imsg` and restart the hub.")
-            return None
-        except OSError as exc:
-            self.status = SenderStatus(False, None, f"Could not run Homebrew: {exc}")
-            return None
-        self.path = self._find_executable()
-        if not self.path:
-            self.status = SenderStatus(False, None,
-                                       "Homebrew installed imsg, but the executable is not on PATH. "
-                                       "Restart the hub or set IMESSAGE_CLI to its full path.")
-        return self.path
-
     async def start(self) -> SenderStatus:
         if not self.path:
-            if self.executable == "imsg":
-                log.info("imsg is missing; installing it with Homebrew")
-                if await self._install_with_homebrew() is None:
-                    return self.status
-            else:
-                return self.status
+            self.status = SenderStatus(False, None, INSTALL_HINT if self.executable == "imsg" else
+                                       f"{self.executable} not found; set IMESSAGE_CLI to the imsg executable")
+            return self.status
         try:
             proc = await asyncio.create_subprocess_exec(self.path, "--version", stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE)

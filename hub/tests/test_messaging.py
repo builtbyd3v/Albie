@@ -985,6 +985,7 @@ def test_router_disabled_503s_but_digest_works(api) -> None:
     assert c.patch("/messages/drafts/abc", json={"text": "hi"}).status_code == 503
     assert c.post("/messages/drafts/abc/send").status_code == 503
     assert c.post("/messages/channels/C1/seen").status_code == 503
+    assert c.post("/messages/drafts/abc/cancel").status_code == 503
     assert c.post("/messages/send", json={"text": "hi"}).status_code in (404, 405)  # no direct send endpoint
     r = c.post("/messages/digest")
     assert r.status_code == 200

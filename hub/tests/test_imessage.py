@@ -229,3 +229,29 @@ def test_send_confirms_against_a_text_stored_only_in_attributed_body(tmp_path: P
             await svc.stop()
 
     asyncio.run(run())
+
+
+def test_imessage_is_opt_in_with_a_small_window(monkeypatch) -> None:
+    import sys
+
+    monkeypatch.delenv("IMESSAGE_ENABLED", raising=False)
+    monkeypatch.delenv("IMESSAGE_RECENT_DAYS", raising=False)
+    settings = IMessageSettings.from_env()
+    assert settings.enabled is False and settings.recent_days == 3
+    monkeypatch.setenv("IMESSAGE_ENABLED", "1")
+    assert IMessageSettings.from_env().enabled is (sys.platform == "darwin")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert IMessageSettings.from_env().enabled is False
+
+
+def test_missing_imsg_is_never_installed(monkeypatch) -> None:
+    from messaging.imessage import sender as sender_mod
+
+    async def no_subprocess(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError(f"ran {args}")
+
+    monkeypatch.setattr(sender_mod.asyncio, "create_subprocess_exec", no_subprocess)
+    s = sender_mod.IMessageSender("imsg")
+    s.path = None  # as if imsg is not on this Mac
+    status = asyncio.run(s.start())
+    assert status.available is False and "brew install steipete/tap/imsg" in (status.error or "")
