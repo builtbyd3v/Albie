@@ -310,7 +310,9 @@ def lead_rules() -> str:
             + "; ".join(f"{t.name} ({t.role})" for t in TYPES.values())
             + ". Use spawn_agent to hatch one, assign_task to give one work (it hatches if needed and works in "
               "parallel on its own branch), dismiss_agent to send one home and crew_status to check on them. "
-              "After assigning, just say who's on it; you'll hear back when they finish.")
+              "After assigning, just say who's on it; you'll hear back when they finish. Only use the crew when "
+              "the user names a crew member or asks for parallel help: its branch never shows in VS Code, so open, "
+              "create and edit files yourself.")
 
 
 tools.register(TOOLS, call_tool, lead_only=True)

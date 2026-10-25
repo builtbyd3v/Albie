@@ -162,7 +162,7 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
         cwd=str(cwd or project.path),
         system_prompt=prompt,
         model=_model(),
-        effort=effort or ("low" if mode == "qa" else "medium"),  # type: ignore[arg-type]
+        effort=effort or "low",  # code too (Dev, 2026-10-24): faster small edits beat a more careful plan in the demo  # type: ignore[arg-type]
         setting_sources=["project"],  # load the repo's CLAUDE.md, not the user's global settings
         include_partial_messages=(mode == "qa"),  # token deltas -> smooth captions
         max_turns=12 if mode == "qa" else 40,

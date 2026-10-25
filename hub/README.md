@@ -178,7 +178,7 @@ events, task_complete (branch `pet/fake-123`). The text `error` gives agent.erro
 (seconds, default 0.6) sets the pacing.
 
 Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
-`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`medium`).
+`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`low`).
 
 - **qa**: tools `Read, Grep, Glob` only, `permission_mode="dontAsk"`, `cwd` = repo, short spoken persona.
 - **code**: the hub checks out `pet/<slug>-<id>` first (skipped, and said so, if not a git repo), then runs
