@@ -219,7 +219,7 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService, imessage
             text = str(args.get("text") or "").strip()
             if not text:
                 return {"error": "text is empty"}
-            target: Any = svc
+            target: SlackService | IMessageService = svc
             if svc.open_draft is None and imessage is not None and imessage.open_draft is not None:
                 target = imessage
             if target.open_draft is None:

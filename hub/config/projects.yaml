@@ -1,7 +1,9 @@
 # project_id -> repo the pet can read (qa) or edit on a pet/* branch (code).
 # Paths are expanded (~) server-side and never sent to clients.
 projects:
-  gatorhack:  # demo build: the headset asks for "gatorhack", so it points at Albie's sandbox too
+  # ponytail: demo build. The headset asks for "gatorhack", so it points at Albie's sandbox too and edits in place.
+  # Point it back at this repo (qa) after the event.
+  gatorhack:
     path: "~/Documents/GitHub/albie-sandbox"
     default_mode: "auto"
     edit_in_place: true
