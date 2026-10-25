@@ -123,6 +123,7 @@ TOOLS: list[dict[str, Any]] = [
                     "(the CAD design on the desk, its drawing, panel and versions), code = VS Code, ml = machine "
                     "learning (training data and runs), messages = the Slack messenger; none closes the open view. "
                     "CAD and Slack tools open their view themselves, so call this only when the user asks for a view. "
+                    "The Neural Net Lab is not a view here: nn_open shows it and nn_close goes back to the ML project. "
                     "If it returns an error, tell the user (usually: sit down at the desk first).",
      "parameters": {"type": "object", "properties": {
          "view": {"type": "string", "enum": ["cad", "code", "ml", "messages", "none"]}},

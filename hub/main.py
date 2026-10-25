@@ -40,6 +40,7 @@ from messaging import tools as messaging_tools
 from messaging.imessage import IMessageService, IMessageSettings
 from messaging.router import router as messaging_router
 from ml.router import router as ml_router
+from ml import nn_lab
 from ml.tools import TOOLS as ML_TOOLS, MLTools
 from screens import ScreenBridgeService
 from screens import router as screens_router
@@ -90,6 +91,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         ml_tools = MLTools(app.state, data_dir, speech.speak)  # "Albie, open my ML project / what can I do better?"
         agent_tools.register(ML_TOOLS, ml_tools.call)
+        nn = nn_lab.lab(app.state, speech.speak)  # Neural Net Lab: tools, and its Apply card
+        agent_tools.register(nn_lab.TOOLS, lambda name, args: nn_lab.call_tool(name, args, app.state))
 
         async def ml_card(session, action_id):
             if await ml_tools.card_action(action_id):
@@ -98,6 +101,14 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                     await note("The user tapped Apply on your ML proposal; it's applied and training. Don't call ml_apply.")
 
         agent_ws.card_handlers["ml"] = ml_card  # Apply / Not now on Albie's ML proposal card
+
+        async def nn_card(session, action_id):
+            if await nn.card_action(action_id):
+                note = getattr(session.voice, "note", None)
+                if note is not None:
+                    await note("The user tapped Apply on your Neural Net Lab fix; it's training. Don't call nn_apply.")
+
+        agent_ws.card_handlers["nn"] = nn_card  # Apply / Not now on the Neural Net Lab fix
         await cad.start()
         await slack.start()
         # In the background: the first read of chat.db and the imsg checks never hold up Slack, screens or /health.

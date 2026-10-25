@@ -59,7 +59,8 @@ namespace Forge.ML
             githubUrl = MLUI.Input(root, "Public GitHub repository", "https://github.com/owner/repository", 0, ImportY, width - 110, 28);
             MLUI.Button(root, "Import", width - 100, ImportY, 100, 28, () => session.ImportGitHub(githubUrl.text));
             // Preset repos from the hub (GET /ml/github/presets): one press fills the URL and imports, no typing in the headset.
-            presetRow = MLUI.Rect("GitHub presets", root, 0, PresetY, width, 24);
+            presetRow = MLUI.Rect("GitHub presets", root, 0, PresetY, width - 170, 24);
+            MLUI.Button(root, "Neural Net Lab", width - 160, PresetY, 160, 24, () => MLWorkspaceBridge.ShowLab(true));
             ForgeNet.StatusChanged += OnNetStatus;
             if (ForgeNet.Status == ForgeNetStatus.Live) LoadPresets();
 
@@ -340,7 +341,7 @@ namespace Forge.ML
                     string label = item.Value<string>("label"), url = item.Value<string>("url");
                     if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(url)) continue;
                     float w = 26 + label.Length * 7f;
-                    if (x + w > width) break;
+                    if (x + w > presetRow.rect.width) break;
                     MLUI.Pill(presetRow, label, x, 0, w, 24, () => { githubUrl.text = url; session.ImportGitHub(url); });
                     x += w + 8;
                 }
