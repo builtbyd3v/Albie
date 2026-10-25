@@ -8,6 +8,11 @@
 
 ## 0. Status (update this as you go)
 
+**2026-10-24, Hudson (desk, branch `desk/movie-marks`):**
+- **Done (hub), movie marks:** "Albie, save minute 45 as Tony Stark starts building Iron Man" (or "save this spot as ..." while it plays) keeps a named spot per movie; later "skip to where Tony starts building Iron Man" jumps there (and puts that movie on if another is). Tool `movie_marks {action: save|list|remove}` + `movie_control seek {mark}`; REST `/movie/marks`. Hub only: Unity just sees the seek. No dots on the scrubber.
+- **Volume by voice:** "turn it down pretty low" / "20%" / "a bit louder" (`movie_control volume {volume | by}`; 20 is read as 20%).
+- **Fixed: the movie stayed quiet after Albie spoke.** It ducked on `pet.state` speaking, which the hub leaves on until the next turn; it now follows Albie's voice actually playing (`StreamedPcmTextToSpeech.IsTalking`).
+
 **2026-10-24, Hudson (Core, branch `core/dock-slide`):**
 - **Done: slide the dock along the desk.** On a long desk it can now sit in front of you. Hold the right controller's grip (middle finger) while pointing anywhere on the dock and drag it left or right (middle mouse button in desktop mode). Or point at either end of the dock: a ‹ or › fades in, and each press moves it 15 cm. It stays on the desk with 12 cm free at each end (the whistle's spot and the crew egg's corner), dims the arrow that can't go further, remembers where you put it at that edge, and starts centered again at another edge or table. The hub status words moved above the corner light.
 - **Done: the whistle sits beside the dock.** Once the dock shows on a table, that table's whistle sits just past the dock's right end and slides with it (‹ ›, going round the desk); it stays there while the dock is away.
@@ -18,7 +23,7 @@
   - **Notes** ("add that to my notes", "pull up my notes"): beside the open panels; check off, remove with Undo.
   - **Movie** ("put the movie on"): a big screen high over the desk streaming `hub/.data/media/*.mp4` from the hub (resumes where you stopped, subtitles, quieter while Albie talks).
   - **Dots:** the timers and the notes minimize into a neon dot (the soonest timer's minutes / the open count). Tap to open there; hold to carry it.
-- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 11 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`. In Main they sit under the Workspace: `DeskBootstrap` adds them at runtime to any scene with a Workspace that lacks them (so a Main rebuilt by any branch's builder has them), and Main's builder adds them too. Proposed contract: hub/README "Desk (timers, notes, movie)".
+- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 12 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`. In Main they sit under the Workspace: `DeskBootstrap` adds them at runtime to any scene with a Workspace that lacks them (so a Main rebuilt by any branch's builder has them), and Main's builder adds them too. Proposed contract: hub/README "Desk (timers, notes, movie)".
 - Core changes: `Workspace.TopEdge` / `BesidePose` / `LayoutEye` (read-only helpers), `PanelManipulator.AddMinimize` + `PointedAt`, `EventBus.sticky_fresh` (hub). Main.unity itself is unchanged.
 - The pet's name in the extras' UI is one field (`DeskExtras.assistantName`, "Albie").
 

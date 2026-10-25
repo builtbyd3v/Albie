@@ -11,8 +11,9 @@ using UnityEngine.Video;
 /// into a RenderTexture on a near-borderless panel; sound comes from the screen. Point at it and the controls fade in:
 /// title and close at the top; play / pause, back and forward 10 s, the scrubber, subtitles and volume at the bottom.
 /// The hub keeps the state (movie.state): the player plays or pauses with it and seeks only when seek_rev changes;
-/// it reports where it is every few seconds so the hub can pick up there next time. The sound dips while the pet
-/// talks (pet.state speaking). Hub off: plays <see cref="mockFile"/> (default: the hub's own media folder, if it's
+/// it reports where it is every few seconds so the hub can pick up there next time. The sound dips while the pet's
+/// voice plays (its StreamedPcmTextToSpeech; pet.state speaking only when there's no voice, since the hub leaves
+/// speaking on after the answer). Hub off: plays <see cref="mockFile"/> (default: the hub's own media folder, if it's
 /// on this machine). Built at runtime (Desk/Prefabs/MoviePanel.prefab, a ForgePanel variant without a title bar).
 /// </summary>
 [RequireComponent(typeof(VideoPlayer), typeof(AudioSource))]
@@ -23,6 +24,7 @@ public class MoviePanel : MonoBehaviour
     [Range(0f, 1f)] public float duckTo = 0.3f;
 
     const float ReportEvery = 5f;
+    const float LookForVoiceEvery = 2f;
     static readonly Regex Tags = new Regex(@"\{[^}]*\}");
 
     struct Cue { public float start, end; public string text; }
@@ -46,7 +48,8 @@ public class MoviePanel : MonoBehaviour
     readonly List<Cue> cues = new List<Cue>();
     int cue = -1, shownSecond = -1, seekRev = int.MinValue;
     bool prepared, showSubtitles, speaking;
-    float reportAt, controlsShown;
+    float reportAt, controlsShown, lookForVoiceAt;
+    Forge.Pet.StreamedPcmTextToSpeech voice;
     string assistant = "Albie";
 
     public void Bind(DeskExtras owner)
@@ -109,6 +112,17 @@ public class MoviePanel : MonoBehaviour
     }
 
     void OnPet(PetState pet) => speaking = pet != null && pet.mode == "speaking";
+
+    // The pet's voice playing; without one (a sandbox with no gator), pet.state.
+    bool Talking()
+    {
+        if (voice == null && Time.time >= lookForVoiceAt)
+        {
+            voice = FindAnyObjectByType<Forge.Pet.StreamedPcmTextToSpeech>();
+            lookForVoiceAt = Time.time + LookForVoiceEvery;
+        }
+        return voice != null ? voice.IsTalking : speaking;
+    }
 
     // ---------------------------------------------------------------- the hub's state
 
@@ -213,9 +227,10 @@ public class MoviePanel : MonoBehaviour
         if (state == null) return;
         float dt = Time.deltaTime;
         // The sound: the hub's volume, dipped while the pet talks.
-        float target = state.volume * (speaking ? duckTo : 1f);
+        bool talking = Talking();
+        float target = state.volume * (talking ? duckTo : 1f);
         sound.volume = Mathf.MoveTowards(sound.volume, target, dt * 1.5f);
-        if (duckChip.activeSelf != speaking) duckChip.SetActive(speaking);
+        if (duckChip.activeSelf != talking) duckChip.SetActive(talking);
 
         // Controls while pointed at (or paused), fading.
         bool show = (handles != null && handles.PointedAt) || state.status != "playing" || scrubber.Dragging || volumeTrack.Dragging;

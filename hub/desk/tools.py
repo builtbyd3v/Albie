@@ -9,6 +9,7 @@ from typing import Any
 
 from events import MovieState, Note, TimerState
 
+from .movie import MovieMark, clock
 from .service import DeskService
 from .timer import human
 
@@ -68,15 +69,33 @@ TOOLS: list[dict[str, Any]] = [
          "title": {"type": "string", "description": "which movie (optional)"},
          "from_start": {"type": "boolean", "description": "start over from the beginning"}}}},
     {"name": "movie_control",
-     "description": "Control the movie: pause; resume; seek: to `seconds` from the start; skip: `seconds` forward "
-                    "(negative goes back); volume: `volume` from 0 to 1; close: the screen goes away (the place is kept).",
+     "description": "Control the movie: pause; resume; seek: to `seconds` from the start, or to a saved spot by "
+                    "`mark` (its name or a few words of it, e.g. 'Tony builds the suit'; puts that spot's movie on if "
+                    "another is); skip: `seconds` forward (negative goes back); volume: set `volume` from 0 to 1 "
+                    "(20% = 0.2; 'pretty low' is about 0.2, mute = 0, all the way up = 1) or change it by `by` "
+                    "('a bit louder' = 0.15, 'a bit quieter' = -0.15); close: the screen goes away (the place is kept).",
      "parameters": {"type": "object", "properties": {
          "action": {"type": "string", "enum": ["pause", "resume", "seek", "skip", "volume", "close"]},
          "seconds": {"type": "number", "description": "seek / skip"},
-         "volume": {"type": "number", "minimum": 0, "maximum": 1, "description": "volume"}},
+         "mark": {"type": "string", "description": "seek: a saved spot instead of seconds"},
+         "volume": {"type": "number", "minimum": 0, "maximum": 1, "description": "volume: the new level"},
+         "by": {"type": "number", "minimum": -1, "maximum": 1, "description": "volume: up (+) or down (-) from now"}},
+         "required": ["action"]}},
+    {"name": "movie_marks",
+     "description": "Spots saved in a movie, so the user can jump to a scene by name later. save: `label` = what "
+                    "happens there, in the user's words ('Tony Stark starts building Iron Man'), at `seconds` from "
+                    "the start (minute 45 = 2700, 1:12:30 = 4350) or, without seconds, where the movie is now; saving "
+                    "a label that exists moves it. list: the spots in the movie. remove: `label` = which spot. "
+                    "`title` = which movie (default: the one on). To jump to one, use movie_control seek with `mark`.",
+     "parameters": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["save", "list", "remove"]},
+         "label": {"type": "string", "description": "save: what happens there; remove: which spot"},
+         "seconds": {"type": "number", "description": "save: where, from the start (optional)"},
+         "title": {"type": "string", "description": "which movie (optional)"}},
          "required": ["action"]}},
     {"name": "movie_status",
-     "description": "What's on the movie screen (title, playing or paused, how far in, volume) and the movies there are.",
+     "description": "What's on the movie screen (title, playing or paused, how far in, volume, its saved spots) and "
+                    "the movies there are.",
      "parameters": {"type": "object", "properties": {}}},
 ]
 
@@ -135,17 +154,40 @@ async def call_tool(name: str, args: dict[str, Any], desk: DeskService) -> dict[
                 return _movie(await desk.movie.pause())
             if action == "resume":
                 return _movie(await desk.movie.resume())
+            if action == "seek" and args.get("mark"):
+                mark, state = await desk.movie.goto_mark(str(args["mark"]))
+                return {**_movie(state), "mark": mark.label}
             if action == "seek":
                 return _movie(await desk.movie.seek(_num(args, "seconds")))
             if action == "skip":
                 return _movie(await desk.movie.skip(_num(args, "seconds")))
             if action == "volume":
-                return _movie(await desk.movie.set_volume(_num(args, "volume")))
+                if args.get("by") is not None:
+                    level = desk.movie.state().volume + _fraction(_num(args, "by"))
+                else:
+                    level = _fraction(_num(args, "volume"))
+                return _movie(await desk.movie.set_volume(level))
             if action == "close":
                 return _movie(await desk.movie.close())
             return {"error": f"unknown movie action {action!r}"}
+        if name == "movie_marks":
+            action = args.get("action")
+            if action == "save":
+                seconds = args.get("seconds")
+                movie, mark = desk.movie.add_mark(str(args.get("label") or ""),
+                                                  None if seconds is None else float(seconds), args.get("title"))
+                return {"saved": _mark(mark), "movie": movie.title}
+            if action == "list":
+                movie, marks = desk.movie.marks(args.get("title"))
+                return {"movie": movie.title, "marks": [_mark(m) for m in marks]}
+            if action == "remove":
+                return {"removed": _mark(desk.movie.remove_mark(str(args.get("label") or "")))}
+            return {"error": f"unknown marks action {action!r}"}
         if name == "movie_status":
-            return {**_movie(desk.movie.state()), "library": [m.title for m in desk.movie.library()]}
+            out = {**_movie(desk.movie.state()), "library": [m.title for m in desk.movie.library()]}
+            if out["status"] != "closed":
+                out["marks"] = [_mark(m) for m in desk.movie.marks()[1]]
+            return out
     except (LookupError, ValueError, TypeError) as e:
         return {"error": str(e)}
     return {"error": f"Unknown desk tool {name!r}"}
@@ -156,6 +198,11 @@ def _num(args: dict[str, Any], key: str) -> float:
     if value is None:
         raise ValueError(f"{key} is missing")
     return float(value)
+
+
+def _fraction(value: float) -> float:
+    """A volume as 0..1; a model that says 20 for 20% gets 0.2."""
+    return value / 100 if abs(value) > 1 else value
 
 
 def _timer(s: TimerState) -> dict[str, Any]:
@@ -171,7 +218,11 @@ def _movie(s: MovieState) -> dict[str, Any]:
     if s.movie is None or s.status == "closed":
         return {"status": "closed", "title": s.movie.title if s.movie else None}
     out: dict[str, Any] = {"status": s.status, "title": s.movie.title, "at": human(s.position_s),
-                           "volume": s.volume}
+                           "volume": f"{round(s.volume * 100)}%"}
     if s.movie.duration_s:
         out["left"] = human(s.movie.duration_s - s.position_s)
     return out
+
+
+def _mark(m: MovieMark) -> dict[str, Any]:
+    return {"label": m.label, "at": clock(m.position_s)}

@@ -403,11 +403,12 @@ remaining time and the movie's position are computed at that moment, not copied 
 | `GET /movie` · `GET /movie/library` | `MovieState {status: closed\|playing\|paused, movie?, position_s, volume, seek_rev}` · `MovieInfo[] {movie_id, title, year, duration_s, url, subtitles_url}` |
 | `GET /movie/files/<id>.mp4` · `<id>.en.srt` | the file, with byte ranges (seeking); subtitles |
 | `POST /movie/play {movie_id?, from_start?}` | opens the screen; resumes where you stopped (a movie stopped in its last 2 min starts over) |
-| `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s}` · `/volume {volume}` | close keeps your place |
+| `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s \| mark}` · `/volume {volume}` | close keeps your place; seek to a `mark` (id, label or its words) plays it, putting its movie on |
+| `GET /movie/marks?movie_id=` · `POST /movie/marks {label, position_s?, movie_id?}` · `POST /movie/marks/{mark_id}/remove` | `MovieMark {mark_id, label, position_s}`: named spots per movie, by time (hub only, nothing on `/ws`; model in `desk/movie.py`). No position = a few seconds before where it is now; a label that exists moves |
 | `POST /movie/position {position_s, duration_s?, ended?}` | Unity's player reports where it is (every few s, on pause, at the end). No event back: Unity is the clock |
 | `GET /ui/widgets` · `POST /ui/widgets {timer?, notes?, movie?}` | `UiWidgets`, each `open\|minimized\|closed` (minimized = the dot). Closing the timers stops them, closing the movie closes it |
 | `/ws` events | `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; `pet.say` "Time's up! ..." when a timer rings (also spoken) |
-| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, volume?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
+| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, mark?, volume?, by?}`, `movie_marks {action: save\|list\|remove, label?, seconds?, title?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
 
 Unity, for the panels: count each timer down locally from `remaining_s` when `timers.updated` arrives (the Quest's
 clock isn't the laptop's); play the chime while `status` is `ringing`. Seek the VideoPlayer only when `seek_rev`
@@ -434,6 +435,6 @@ movie/library, ui/widgets REST answers) and `desk/sequence.json` (a ForgeMockPla
 notes in, notes to a dot, movie on, the tea timer rings and is stopped). Copy both into `unity/Assets/_Forge/Mocks/`.
 
 Map: `desk/timer.py` (`TimerBoard`, the spoken line), `notes.py` (`NotesStore`, `.data/desk/notes.json`), `movie.py`
-(`MovieService`: library, places per movie and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
+(`MovieService`: library, places per movie, marks and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
 widgets, events, Bit's voice), `router.py`, `tools.py`, `make_mocks.py`. Tests: `pytest tests/test_desk.py`. Not saved:
 running timers (a hub restart forgets them).
