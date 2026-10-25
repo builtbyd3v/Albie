@@ -8,7 +8,9 @@ command and waits for the state that includes it (`applied_seq`), so Albie answe
 When Play stalls (the headset's `stalled_at_epoch`: the default spiral on a small network stops around 55-60%),
 Albie offers the fix himself: he says what's wrong and the Apply card pops up.
 "Albie, fix it" (nn_improve → Apply card or a spoken yes → nn_apply) swaps in a measured recipe for the dataset
-(RECIPES: inputs, layers, activation, learning rate), trains it live and says the new test accuracy when it settles.
+(RECIPES: inputs, layers, activation, learning rate) and trains it live, slowly enough to watch it learn. From a
+stuck network it climbs for 4-15 s and the headset auto-pauses it at 92-94%; from one that already stopped at 92%
+it trains on until it settles near 100%. Albie says the new test accuracy either way.
 """
 from __future__ import annotations
 
@@ -23,28 +25,32 @@ from agent import events as ev
 log = logging.getLogger(__name__)
 Speak = Callable[[str, str], Awaitable[bool]]
 PET_ID = "bit"
-SETTLE_S, SETTLE_MAX_S = 3.0, 20.0  # announce once test accuracy stops climbing for 3 s (or after 20 s)
+SETTLE_S, SETTLE_MAX_S = 3.0, 40.0  # announce once test accuracy stops climbing for 3 s (or after 40 s)
+AUTO_PAUSE = 0.92  # NeuralLabSim.AutoPauseAccuracy
 
 WAIT_S = 3.0
+GOOD = 0.98  # at or above this there's nothing to fix; below it, Play stopping by itself brings Albie's offer
 DATASETS = ["circle", "xor", "gauss", "spiral"]
 ACTIVATIONS = ["tanh", "relu", "sigmoid", "linear"]
 FEATURES = ["x", "y", "x2", "y2", "xy", "sinx", "siny"]
 NO_HEADSET = "The Neural Net Lab runs in the headset, and no headset has reported yet. Is Unity connected to the hub?"
 
-# Measured in Unity (ML/Editor/NeuralLabRecipeCheck.cs: the Lab's own network and data, 300 epochs = 10 s, 3 seeds):
-#   spiral  x, y [4, 2] tanh: 52-60%   ->  x, y, x², y², sin x, sin y [8, 8] tanh 0.03: 99.6-100% (95% by 4 s)
-#   circle  x, y [2]: 83%, linear: 66%  ->  x, y, x², y² [4] tanh 0.03: 100%
-#   xor     x, y [2]: 84-86%            ->  x, y, x·y [4, 2] tanh 0.03: 100%
-#   gauss   x, y [4, 2]: 100% already
+# Measured in Unity (ML/Editor/NeuralLabRecipeCheck.cs Pace/PaceRow/Matrix: the Lab's own network and data, 30
+# epochs a second, seeds 1-4). The rates are small on purpose: at 0.03 the circle and XOR jump to 92% in one or two
+# epochs, which looks fake; at these rates the boundary visibly bends into shape.
+#   spiral  x, y [4, 2]: stuck at 52-60%  ->  x, y, x², y², sin x, sin y [8, 8] 0.005: 92% after 9-15 s, ~99% at 20 s
+#   circle  sigmoid/linear: stuck ~65%    ->  x, y, x², y² [4] 0.0003: 92% after 3-13 s, ~100% at 30 s
+#   xor     sigmoid/linear: stuck ~62%    ->  x, y, x·y [4, 2] 0.0001: 92% after 4-13 s, 98-100% at 30 s
+#   gauss   x, y [4, 2] tanh: 100% already;  sigmoid: 93%  ->  tanh 0.0001: 92% after ~4 s, 100% at 10 s
 RECIPES: dict[str, dict[str, Any]] = {
     "spiral": {"features": ["x", "y", "x2", "y2", "sinx", "siny"], "hidden": [8, 8], "activation": "tanh",
-               "learning_rate": 0.03, "expected": "close to 100% test accuracy in under 10 seconds"},
-    "circle": {"features": ["x", "y", "x2", "y2"], "hidden": [4], "activation": "tanh", "learning_rate": 0.03,
-               "expected": "100% test accuracy in a few seconds"},
-    "xor": {"features": ["x", "y", "xy"], "hidden": [4, 2], "activation": "tanh", "learning_rate": 0.03,
-            "expected": "100% test accuracy in a few seconds"},
-    "gauss": {"features": ["x", "y"], "hidden": [4, 2], "activation": "tanh", "learning_rate": 0.03,
-              "expected": "100% test accuracy in a few seconds"},
+               "learning_rate": 0.005, "expected": "about 92% test accuracy after 10 to 15 seconds of training"},
+    "circle": {"features": ["x", "y", "x2", "y2"], "hidden": [4], "activation": "tanh", "learning_rate": 0.0003,
+               "expected": "about 92% test accuracy after 5 to 10 seconds of training"},
+    "xor": {"features": ["x", "y", "xy"], "hidden": [4, 2], "activation": "tanh", "learning_rate": 0.0001,
+            "expected": "about 92% test accuracy after 5 to 10 seconds of training"},
+    "gauss": {"features": ["x", "y"], "hidden": [4, 2], "activation": "tanh", "learning_rate": 0.0001,
+              "expected": "about 92% test accuracy after a few seconds of training"},
 }
 FEATURE_NAMES = {"x": "x", "y": "y", "x2": "x²", "y2": "y²", "xy": "x·y", "sinx": "sin x", "siny": "sin y"}
 
@@ -102,7 +108,8 @@ TOOLS: list[dict[str, Any]] = [
 class NNLab:
     def __init__(self, bus: Any, speak: Speak | None = None, note: Speak | None = None) -> None:
         self.bus, self.speak, self.note = bus, speak, note
-        self.offered_stall: int | None = None  # the stall Albie last offered a fix for
+        self.offered_stall: int | None = None  # the stop Albie last offered a fix for
+        self.fixing = False  # Albie's fix is training: its own stop isn't a new reason to offer
         self.state: dict | None = None
         self.received = 0.0
         self.seq = 0
@@ -112,19 +119,28 @@ class NNLab:
         self.jobs: set[asyncio.Task[None]] = set()
 
     def report(self, state: dict) -> None:
-        """POST /ml/nn/state: the headset's latest state. A new stall makes Albie offer his fix."""
+        """POST /ml/nn/state: the headset's latest state. Play stopping by itself short of GOOD (stuck, or
+        auto-paused at 92%) makes Albie offer his fix, once per stop."""
         self.state, self.received = state, time.time()
         self.changed.set()
-        stall = state.get("stalled_at_epoch")
-        if stall is not None and stall != self.offered_stall and not state.get("playing"):
-            self.offered_stall = stall
-            task = asyncio.get_running_loop().create_task(self.offer_fix())
-            self.jobs.add(task)
-            task.add_done_callback(self.jobs.discard)
+        stalled, paused = state.get("stalled_at_epoch"), state.get("auto_paused_at_epoch")
+        if state.get("playing") or (stalled is None and paused is None):
+            return
+        stop = state.get("stop_count", stalled if stalled is not None else paused)  # older headsets: the epoch
+        if stop == self.offered_stall:
+            return
+        self.offered_stall = stop
+        if self.fixing:
+            return
+        if state.get("test_accuracy", 0.0) >= GOOD:
+            return
+        task = asyncio.get_running_loop().create_task(self.offer_fix(stalled=stalled is not None))
+        self.jobs.add(task)
+        task.add_done_callback(self.jobs.discard)
 
-    async def offer_fix(self) -> None:
-        """Play stopped improving: say what's wrong and ask, with the Apply card (as if asked "what can I do better?")."""
-        out = await self.improve(spoken=True)
+    async def offer_fix(self, stalled: bool = True) -> None:
+        """Play stopped: say what's wrong and ask, with the Apply card (as if asked "what can I do better?")."""
+        out = await self.improve(spoken=True, stalled=stalled)
         if self.note is not None and self.proposal is not None:
             try:
                 await self.note(PET_ID, "You just offered to fix the Neural Net Lab's network; a yes means nn_apply.")
@@ -155,12 +171,12 @@ class NNLab:
 
 
     # ---- "Albie, fix it" ---------------------------------------------------------------------------------
-    async def improve(self, spoken: bool = False) -> dict:
+    async def improve(self, spoken: bool = False, stalled: bool = False) -> dict:
         """Diagnose and, when there's a fix, show the Apply card. spoken: Albie says the diagnosis himself (an
         unprompted offer); otherwise the voice model reads the result and the bubble only asks the question."""
         if self.state is None:
             return {"error": NO_HEADSET}
-        out = diagnose(self.state, stalled=spoken)
+        out = diagnose(self.state, stalled=stalled)
         if not out.get("fix"):
             self.proposal = None
             return {k: v for k, v in out.items() if k != "fix"}
@@ -183,15 +199,20 @@ class NNLab:
             return {"error": "There's no fix waiting. Ask me what to improve first."}
         fix, self.proposal, self.offer = self.proposal, None, 0
         fields = {k: fix[k] for k in ("features", "hidden", "activation", "learning_rate") if k in fix}
-        # A new shape or inputs rebuilds (every neuron is on again). No 92% auto-pause: _announce stops it once it settles.
-        out = await self.command(**fields, action="play", auto_pause=False)
+        # A new shape or inputs rebuilds (every neuron is on again). From a stuck network the headset stops it at 92%
+        # by itself; from one that already got there, _announce lets it settle higher and stops it.
+        before = fix.get("before")
+        to_92 = before is None or before < AUTO_PAUSE
+        self.fixing = True
+        out = await self.command(**fields, action="play", auto_pause=to_92)
         if "error" in out:
+            self.fixing = False
             return out
-        task = asyncio.create_task(self._announce(fix.get("before")))
+        task = asyncio.create_task(self._announce(before, to_92))
         self.jobs.add(task)
         task.add_done_callback(self.jobs.discard)
         return {"applied": True, "note": "Training live now; the new test accuracy is spoken when it settles.",
-                "expected": fix.get("expected")}
+                "expected": fix.get("expected") if to_92 else "close to 100% test accuracy after 20 to 30 seconds"}
 
     async def card_action(self, action_id: str) -> bool:
         """A tap on the Apply / Not now card ("nn:apply:N" / "nn:dismiss:N"). True when it applied the fix."""
@@ -209,23 +230,34 @@ class NNLab:
         await self.say("Applied. Watch the boundary: it's training now.")
         return True
 
-    async def _announce(self, before: float | None) -> None:
-        """Wait until test accuracy stops climbing, pause the training and say the result."""
-        start = last_gain = time.monotonic()
-        best = -1.0
-        while time.monotonic() - start < SETTLE_MAX_S:
-            await asyncio.sleep(0.5)
-            acc = (self.state or {}).get("test_accuracy", 0.0)
-            if acc > best + 0.005:
-                best, last_gain = acc, time.monotonic()
-            elif time.monotonic() - last_gain >= SETTLE_S and time.monotonic() - start >= 4.0:
-                break
-        await self.command(action="pause")  # freeze it so people can poke neurons on the trained network
+    async def _announce(self, before: float | None, to_92: bool = False) -> None:
+        """Wait for the fix to finish training (the headset's auto-pause at 92%, or test accuracy no longer
+        climbing), make sure it's paused and say the result."""
+        try:
+            start = last_gain = time.monotonic()
+            best = -1.0
+            while time.monotonic() - start < SETTLE_MAX_S:
+                await asyncio.sleep(0.5)
+                state = self.state or {}
+                if to_92 and not state.get("playing", True):
+                    break  # auto-paused at 92% (or stuck): the headset stopped it
+                acc = state.get("test_accuracy", 0.0)
+                if acc > best + 0.005:
+                    best, last_gain = acc, time.monotonic()
+                elif not to_92 and acc >= GOOD and time.monotonic() - last_gain >= SETTLE_S:
+                    # From 92%: wait for 98%+ and no longer climbing (a fresh network starts flat at ~50%, and the
+                    # slow recipes creep up for 20-30 s); SETTLE_MAX_S caps it.
+                    break
+            if (self.state or {}).get("playing"):
+                await self.command(action="pause")  # freeze it so people can poke neurons on the trained network
+        finally:
+            self.fixing = False
         after = (self.state or {}).get("test_accuracy")
+        more = " Press Play to keep training, or touch a neuron to see what it does." if to_92 else ""
         if before is not None and after is not None:
-            await self.say(f"Done! Test accuracy went from {before:.0%} to {after:.0%}.")
+            await self.say(f"Done! Test accuracy went from {before:.0%} to {after:.0%}.{more}")
         elif after is not None:
-            await self.say(f"Done! Test accuracy is {after:.0%}.")
+            await self.say(f"Done! Test accuracy is {after:.0%}.{more}")
 
     async def say(self, text: str) -> None:
         await self.bus.publish("pet.say", {"pet_id": PET_ID, "text": text})
@@ -247,8 +279,13 @@ def diagnose(state: dict, stalled: bool = False) -> dict:
     hidden = state.get("hidden", [])
     if off:
         findings.append(f"{len(off)} neuron{'s are' if len(off) > 1 else ' is'} switched off ({', '.join(off)})")
-    if state.get("activation") == "linear":
+    activation = state.get("activation")
+    if activation == "linear":
         findings.append("a linear activation can only draw straight lines, however many neurons it has")
+    elif activation == "sigmoid":
+        findings.append("sigmoid neurons only output 0 to 1 and pass back tiny gradients, so they learn very slowly")
+    elif activation == "relu" and recipe["activation"] != "relu":
+        findings.append(f"ReLU neurons are sharp and can go dead; tanh fits the {dataset} more smoothly")
     if state.get("learning_rate", 0.03) >= 0.3:
         findings.append(f"the learning rate ({state.get('learning_rate')}) is so high the weights jump around")
     missing = [f for f in recipe["features"] if f not in features]
@@ -258,10 +295,14 @@ def diagnose(state: dict, stalled: bool = False) -> dict:
                         f"{names} as inputs to bend around")
     if sum(hidden) < sum(recipe["hidden"]):
         findings.append(f"layers {hidden} are too small for the {dataset} pattern")
-    if acc >= 0.97 and not off:
+    if acc >= GOOD and not off:
         return {"test_accuracy": acc, "diagnosis": f"It's already at {acc:.0%} on the {dataset}; nothing to fix.",
                 "changes": []}
     if not findings:
+        if not changes_needed(state, recipe):
+            return {"test_accuracy": acc, "changes": [],
+                    "diagnosis": f"It's at {acc:.0%} on the {dataset} with the best setup I know for it. Press Play "
+                                 "to keep training: it creeps up from here."}
         findings.append(f"it's stuck at {acc:.0%}: this setup can't fit the {dataset} pattern")
     if sorted(features) != sorted(recipe["features"]):
         changes.append("inputs " + ", ".join(FEATURE_NAMES[f] for f in recipe["features"]))
@@ -276,6 +317,14 @@ def diagnose(state: dict, stalled: bool = False) -> dict:
     fix = {k: recipe[k] for k in ("features", "hidden", "activation", "learning_rate", "expected")}
     return {"test_accuracy": acc, "diagnosis": f"It's {'stuck ' if stalled else ''}at {acc:.0%} because " + "; ".join(findings) + ".",
             "changes": changes, "expected": recipe["expected"], "fix": fix}
+
+
+def changes_needed(state: dict, recipe: dict) -> bool:
+    """Whether the network differs from the recipe (or has neurons switched off)."""
+    return (sorted(state.get("features", [])) != sorted(recipe["features"]) or state.get("hidden") != recipe["hidden"]
+            or state.get("activation") != recipe["activation"]
+            or abs(state.get("learning_rate", 0.03) - recipe["learning_rate"]) > 1e-6
+            or any(not n.get("enabled", True) for n in state.get("neurons", [])))
 
 
 def summary(state: dict) -> dict:

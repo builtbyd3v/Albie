@@ -81,14 +81,22 @@ A small network learning a 2D dataset live, for the "turn off a neuron, ask Albi
 (Unity `ML/NeuralLab/NeuralLabSim`, 30 epochs a second), so it works without a training process or GPU.
 
 - **Open it:** the **Neural Net Lab** button on the Training panel (or "Albie, show me the neural network"). The ML
-  desk swaps to the Lab, big and in the middle; **◀ ML project** swaps back.
+  desk swaps to the Lab, big and in the middle, with three screens around it that explain it live; **◀ ML project**
+  swaps back.
+- **The learning screens** (built with the Lab, all reading the same network):
+  **How it learns** (left, `NeuralLearn`): the point pulsing through the 3D net in four steps with its real numbers
+  (forward, compare, backprop, update), the current step lit in time with the pulse.
+  **What each neuron sees** (right, `NeuralNeurons`): every hidden neuron's picture, what it looks at, and the test
+  accuracy if it were switched off; tap a card to switch it.
+  **Training story** (above, `NeuralStory`): train / test accuracy over the whole session with numbered markers (stuck,
+  auto-paused, Albie's changes, neurons off), and a Why card that explains what's on screen now (`NNExplain`).
 - **On the panel:** Play (stops by itself once test accuracy reaches 92%; Play again keeps going) / Step / Reset; dataset (circle, XOR, Gauss, spiral), activation, learning rate, noise and
   layers. Tap an input to use it. **Tap a neuron to switch it off**: the boundary and test accuracy change at once.
   Each neuron shows what it has learned; links are blue (positive) or orange (negative), thicker = larger.
 - **In 3D on the desk** (`ML/NeuralLab/NeuralNet3D`, volume `ml-neural-3d`): inputs → layers → output left to right,
   each layer a ring of neurons, links blue / orange by weight. Every second a data point flows through and the
-  neurons light up with their activation. **Touch a hidden neuron with your fingertip** (or point a ray, or click) to
-  switch it off and on (`NeuronTouch`, the same input rules as CAD's Expand ring); it goes dark with its links.
+  neurons light up with their activation. **Touch a hidden neuron with your fingertip** (a tracked hand's index tip or
+  a controller's poke; or point a ray, or click) to switch it off and on (`NeuronTouch`); it goes dark with its links.
 - **Albie switches the views:** "open the neural net" (`nn_open`) from any view, "back to my ML project" (`nn_close`).
 - **Albie (`ml/nn_lab.py`):** `nn_open`, `nn_control` (play / pause / step / reset / restore_all, dataset, activation,
   learning_rate, hidden, features, noise), `nn_neuron {neuron: "L1N3", enabled}`, and `nn_status`. `nn_status` gives
@@ -100,11 +108,13 @@ A small network learning a 2D dataset live, for the "turn off a neuron, ask Albi
 
 - **"Albie, fix it" (`nn_improve` → Apply card or a spoken yes → `nn_apply`):** Albie says what's holding the network
   back (inputs it lacks, layers too small, a linear activation, a wild learning rate, neurons left off) and proposes the
-  measured recipe for the dataset (`RECIPES` in `ml/nn_lab.py`; measured with Forge > ML > Check Neural Lab Recipes).
-  On Apply it trains live, pauses once test accuracy stops climbing and says "Test accuracy went from 52% to 100%".
-  Measured: spiral with x, y [4, 2] stalls at 52–60% → x, y, x², y², sin x, sin y [8, 8] reaches 97% at 4 s, 100% at 6 s.
+  measured recipe for the dataset (`RECIPES` in `ml/nn_lab.py`; measured with Forge > ML > Check Neural Lab Matrix).
+  He offers by himself whenever Play stops short of 98%: stuck (spiral on x, y; sigmoid or linear anywhere) or
+  auto-paused at 92% (circle and XOR on x, y). The recipes use small learning rates so it visibly learns: from a stuck
+  network it climbs for 4–15 s and auto-pauses at 92–94% ("Test accuracy went from 52% to 92%"); from one already at
+  92% it trains on to 98–100% (20–30 s) and Albie pauses it.
 
-Demo script (fix it): the Lab opens on the spiral with a small x, y network → Play → it stops itself when stuck (about 55%; no 1% gain for 5 s) and Albie offers the fix with the Apply card → Apply → it climbs to ~100% and stops → "Test accuracy went from 52% to 100%".
+Demo script (fix it): the Lab opens on the spiral with a small x, y network → Play → it stops itself when stuck (about 52%; no 1% gain for 5 s) and Albie offers the fix with the Apply card → Apply → it climbs for about 11 s and auto-pauses at 92% → "Test accuracy went from 52% to 92%".
 
 Demo script (neurons): open the Lab → Play on **circle** (about 99% in 5 s) → tap the most important neuron (layer 1, neuron 3 in
 our runs: 99.6% → 69%) → "Albie, why did the accuracy drop?" → tap it again (back to 99.6%).

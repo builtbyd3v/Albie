@@ -211,7 +211,7 @@ namespace Forge.ML
             testAcc.text = sim.TestAccuracy.ToString("0.0%");
             trainLoss.text = sim.TrainLoss.ToString("0.000");
             testLoss.text = sim.TestLoss.ToString("0.000");
-            rate.text = sim.LearningRate.ToString("0.###");
+            rate.text = sim.LearningRate.ToString("0.####");
             noise.text = Mathf.RoundToInt(sim.Noise * 100) + "%";
             layersLabel.text = sim.Hidden.Count.ToString();
             playLabel.text = sim.Playing ? "Pause" : "Play";
@@ -222,7 +222,13 @@ namespace Forge.ML
             else if (sim.AutoPausedAt >= 0)
             {
                 stopNote.color = MLUI.Good;
-                stopNote.text = $"Auto-paused at {NeuralLabSim.AutoPauseAccuracy:0%}+\n<color=#FFFFFF80>epoch {sim.AutoPausedAt} · Play to keep going</color>";
+                string next = sim.TestAccuracy < 0.98f ? "ask Albie to make it better" : "Play to keep going";
+                stopNote.text = $"Auto-paused at {NeuralLabSim.AutoPauseAccuracy:0%}+\n<color=#FFFFFF80>epoch {sim.AutoPausedAt} · {next}</color>";
+            }
+            else if (sim.StalledAt >= 0 && sim.TestAccuracy >= 0.98f)
+            {
+                stopNote.color = MLUI.Good;  // stopped because there was nothing left to learn
+                stopNote.text = $"Trained: {sim.TestAccuracy:0%}\n<color=#FFFFFF80>epoch {sim.StalledAt} · not improving any more</color>";
             }
             else if (sim.StalledAt >= 0)
             {
