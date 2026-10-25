@@ -102,7 +102,8 @@ def test_state_route_feeds_the_tools(tmp_path):
 
 
 class SpiralHeadset:
-    """A spiral that's stuck at 58% with x, y [4, 2] and reaches 99% once the recipe's inputs and layers arrive."""
+    """A spiral that's stuck at 58% with x, y [4, 2]. With the recipe's inputs and layers, Play climbs and the
+    auto-pause stops it at 93% (like NeuralLabSim); without the auto-pause it trains on to 99%."""
 
     def __init__(self) -> None:
         self.commands: list[dict] = []
@@ -110,20 +111,37 @@ class SpiralHeadset:
         self.lab: nn_lab.NNLab | None = None
         self.config = {"dataset": "spiral", "features": ["x", "y"], "hidden": [4, 2], "activation": "tanh",
                        "learning_rate": 0.03}
+        self.playing, self.auto_pause, self.trained, self.stops, self.seq = False, False, False, 0, 0
 
     def state(self, seq: int) -> dict:
         good = self.config["features"] == nn_lab.RECIPES["spiral"]["features"] and self.config["hidden"] == [8, 8]
+        acc = (0.93 if self.auto_pause else 0.99) if good and self.trained else 0.58
         neurons = [{"id": f"L{l}N{i}", "enabled": True, "detects": "a mix of patterns", "test_accuracy_if_toggled": 0.5}
                    for l, n in enumerate(self.config["hidden"], 1) for i in range(1, n + 1)]
-        return {"applied_seq": seq, **self.config, "playing": False, "epoch": 300, "neurons": neurons, "history": [],
-                "test_accuracy": 0.99 if good else 0.58, "train_accuracy": 0.99 if good else 0.6}
+        return {"applied_seq": seq, **self.config, "playing": self.playing, "epoch": 300, "neurons": neurons,
+                "history": [], "test_accuracy": acc, "train_accuracy": acc, "stop_count": self.stops,
+                "auto_paused_at_epoch": 280 if good and self.trained and self.auto_pause and not self.playing else None}
+
+    def finish_training(self) -> None:
+        """Some seconds of Play later: auto-paused at 93%, or still training at 99%."""
+        self.trained = True
+        if self.auto_pause:
+            self.playing = False
+            self.stops += 1
+        self.lab.report(self.state(self.seq))
 
     async def publish(self, type_: str, payload: dict) -> None:
         self.published.append((type_, payload))
         if type_ != "ml.nn_command":
             return
         self.commands.append(payload)
+        self.seq = payload["seq"]
         self.config.update({k: payload[k] for k in ("features", "hidden", "activation", "learning_rate") if k in payload})
+        if payload.get("action") == "play":
+            self.playing, self.auto_pause, self.trained = True, payload.get("auto_pause", True), False
+            asyncio.get_running_loop().call_later(0.3, self.finish_training)
+        elif payload.get("action") == "pause":
+            self.playing = False
         asyncio.get_running_loop().call_later(0.02, self.lab.report, self.state(payload["seq"]))
 
 
@@ -143,24 +161,27 @@ def test_fix_it_diagnoses_the_spiral_applies_the_recipe_and_says_the_new_accurac
         headset.lab.report(headset.state(0))
         out = await nn_lab.call_tool("nn_improve", {}, state)
         assert out["diagnosis"].startswith("It's at 58% because it only sees x, y; the spiral needs x², y², sin x, sin y")
-        assert out["changes"] == ["inputs x, y, x², y², sin x, sin y", "hidden layers [8, 8]"]
+        assert out["changes"] == ["inputs x, y, x², y², sin x, sin y", "hidden layers [8, 8]", "learning rate 0.005"]
         card = [p for t, p in headset.published if t == "pet.say"][-1]["card"]
         assert [a["action_id"] for a in card["actions"]] == ["nn:apply:1", "nn:dismiss:1"]
         assert not headset.commands  # nothing changes before the yes
 
         assert await headset.lab.card_action("nn:apply:1")  # the tap on Apply
-        assert headset.commands[0] == {"seq": 1, "action": "play", "auto_pause": False, "hidden": [8, 8],
+        # From 58% the headset's own auto-pause stops the fix at 92%+ (no pause command needed).
+        assert headset.commands[0] == {"seq": 1, "action": "play", "auto_pause": True, "hidden": [8, 8],
                                        "features": nn_lab.RECIPES["spiral"]["features"], "activation": "tanh",
-                                       "learning_rate": 0.03}
+                                       "learning_rate": 0.005}
         assert not await headset.lab.card_action("nn:apply:1")  # spent
         for _ in range(100):
             if any(t.startswith("Done!") for t in said):
                 break
             await asyncio.sleep(0.1)
-        assert said[-1] == "Done! Test accuracy went from 58% to 99%."
-        assert headset.commands[-1]["action"] == "pause"
+        assert said[-1] == ("Done! Test accuracy went from 58% to 93%. Press Play to keep training, or touch a neuron "
+                            "to see what it does.")
+        assert len(headset.commands) == 1  # it paused itself
+        assert sum("Want me to fix it?" in t for t in said) == 0  # its own 93% stop isn't a new offer
         again = await nn_lab.call_tool("nn_improve", {}, state)
-        assert again["changes"] == [] and "nothing to fix" in again["diagnosis"]
+        assert again["changes"] == [] and "best setup I know" in again["diagnosis"]
     run(flow())
 
 
@@ -223,4 +244,64 @@ def test_a_stalled_play_makes_albie_offer_the_fix_once():
         await asyncio.sleep(0.1)
         assert len(said) == 1
         assert (await nn_lab.call_tool("nn_apply", {}, state))["applied"]
+    run(flow())
+
+
+def test_every_dataset_and_activation_gets_the_offer_when_play_stops_short():
+    """Circle and XOR on x, y auto-pause at 92% (tanh, ReLU) or get stuck (sigmoid, linear): Albie offers either way,
+    once per stop (stop_count, so two stops at the same epoch both get one), and not when it's already 98%+."""
+    async def flow():
+        headset, said = SpiralHeadset(), []
+        state = SimpleNamespace(bus=headset)
+
+        async def speak(pet_id, text):
+            said.append(text)
+            return True
+
+        headset.lab = lab = nn_lab.lab(state, speak)
+
+        async def stop(n: int, **fields) -> None:
+            lab.report({**headset.state(0), "playing": False, "stalled_at_epoch": None, "auto_paused_at_epoch": None,
+                        "stop_count": n, **fields})
+            await asyncio.sleep(0.1)
+
+        await stop(1, dataset="circle", test_accuracy=0.92, auto_paused_at_epoch=17)
+        assert said[-1] == ("It's at 92% because it only sees x, y; the circle needs x², y² as inputs to bend around. "
+                            "Want me to fix it?")
+        await stop(2, dataset="xor", activation="relu", test_accuracy=0.932, auto_paused_at_epoch=17)
+        assert "ReLU" in said[-1] and "x·y" in said[-1]
+        await stop(3, dataset="gauss", activation="sigmoid", test_accuracy=0.64, stalled_at_epoch=150)
+        assert said[-1].startswith("It's stuck at 64% because sigmoid")
+        await stop(4, dataset="gauss", activation="sigmoid", test_accuracy=0.64, stalled_at_epoch=150)
+        assert len(said) == 4  # same epoch, but a new stop: offered again
+        await stop(4, dataset="gauss", activation="sigmoid", test_accuracy=0.64, stalled_at_epoch=150)
+        await stop(5, dataset="gauss", test_accuracy=1.0, auto_paused_at_epoch=1)
+        await stop(6, dataset="circle", test_accuracy=0.92)  # not a stop (the user paused): nothing
+        assert len(said) == 4
+    run(flow())
+
+
+def test_a_fix_from_92_percent_trains_on_past_the_auto_pause_and_stops_when_it_settles(monkeypatch):
+    monkeypatch.setattr(nn_lab, "SETTLE_S", 0.3)
+    monkeypatch.setattr(nn_lab, "SETTLE_MAX_S", 6.0)
+
+    async def flow():
+        headset, said = SpiralHeadset(), []
+        state = SimpleNamespace(bus=headset)
+
+        async def speak(pet_id, text):
+            said.append(text)
+            return True
+
+        headset.lab = lab = nn_lab.lab(state, speak)
+        lab.report({**headset.state(0), "dataset": "spiral", "test_accuracy": 0.92})
+        await nn_lab.call_tool("nn_improve", {}, state)
+        out = await nn_lab.call_tool("nn_apply", {}, state)
+        assert out["applied"] and headset.commands[0]["auto_pause"] is False
+        for _ in range(100):
+            if any(t.startswith("Done!") for t in said):
+                break
+            await asyncio.sleep(0.1)
+        assert said[-1] == "Done! Test accuracy went from 92% to 99%."
+        assert headset.commands[-1]["action"] == "pause"
     run(flow())

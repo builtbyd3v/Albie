@@ -9,6 +9,12 @@ namespace Forge.ML
     public sealed class MLWorkspaceBridge : MonoBehaviour
     {
         const string ModeId = "ml", LabId = "ml-neural-lab", LabResource = "MLPanels/NeuralLab", Lab3DResource = "MLPanels/NeuralNet3D";
+        static readonly (string id, string title, string resource, WorkspaceSlot slot)[] LabPanels =
+        {
+            ("ml-neural-learn", "How it learns", "MLPanels/NeuralLearn", WorkspaceSlot.Left),
+            ("ml-neural-neurons", "What each neuron sees", "MLPanels/NeuralNeurons", WorkspaceSlot.Right),
+            ("ml-neural-story", "Training story", "MLPanels/NeuralStory", WorkspaceSlot.Above),
+        };
         static readonly string[] Supported = { "ml-datastack", "ml-model3d", "ml-results", "ml-training", "ml-viz-card", "ml-regression-results" };
         static readonly string[] ResourceNames = { "MLPanels/DataStack", "MLPanels/Model3D", "MLPanels/ResultsWall", "MLPanels/TrainingDash", "MLPanels/VizCard", "MLPanels/RegressionResults" };
         Workspace workspace;
@@ -136,6 +142,12 @@ namespace Forge.ML
                 mode.items = new List<WorkspaceItem> { new WorkspaceItem(LabId, "Neural Net Lab", WorkspaceSlot.Main) { prefab = prefab, kind = WorkspaceItemKind.Panel } };
                 var net3D = Resources.Load<GameObject>(Lab3DResource);  // the same network in 3D, standing on the desk
                 if (net3D != null) mode.items.Add(new WorkspaceItem("ml-neural-3d", "Neural network", WorkspaceSlot.DeskCenter, WorkspaceItemKind.Volume) { prefab = net3D });
+                // Around it, the screens that explain it: one point step by step, every neuron, and the whole session.
+                foreach (var (id, title, resource, slot) in LabPanels)
+                {
+                    var panel = Resources.Load<GameObject>(resource);
+                    if (panel != null) mode.items.Add(new WorkspaceItem(id, title, slot) { prefab = panel, kind = WorkspaceItemKind.Panel });
+                }
             }
             else if (projectItems != null) mode.items = projectItems;
             LabOpen = on;
