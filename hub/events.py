@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 log = logging.getLogger("forge.events")
 
@@ -177,6 +177,11 @@ class CadView(BaseModel):
     focus_id: str | None = None
     focus_ids: list[str] = []         # proposed: several parts lit at once (all the fins); focus_id is the first of
                                       # them, so a build without focus_ids still lights one
+
+    @field_validator("focus_ids", mode="before")
+    @classmethod
+    def _null_is_empty(cls, v: Any) -> Any:
+        return [] if v is None else v  # the headset's JSON sends a list it never set as null
 
 
 class CadAction(BaseModel):

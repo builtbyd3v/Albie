@@ -1101,6 +1101,16 @@ def test_router_panel_endpoints(api) -> None:
     assert res.status_code == 200 and res.json() == {"user_id": "UME", "name": "adrian", "display_name": "adrian", "team": ""}
 
 
+def test_a_mention_is_handed_to_proactive_albie(tmp_path: Path) -> None:
+    """Live Slack mention or DM -> agent/watcher.py reads it out; other messages stay quiet."""
+    svc, _, _ = make_service(tmp_path)
+    told: list[SlackMessage] = []
+    svc.on_mention = told.append
+    m = asyncio.run(svc.on_event(event()))
+    asyncio.run(svc.on_event(event(text="lunch?", ts="1700000011.000100")))  # no mention: nothing
+    assert told == [m]
+
+
 # ------------------------------------------------------------------ sent posts in the panel, opening a conversation
 def test_slack_echo_of_a_sent_post_is_dropped(tmp_path: Path) -> None:
     """The hub publishes its own post at once; Slack's echo (user token posts can carry the app's bot_id) adds nothing."""

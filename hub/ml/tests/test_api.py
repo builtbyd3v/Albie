@@ -243,3 +243,14 @@ def test_missing_dataset_is_computed_by_the_runner_in_the_repo_python(tmp_path):
         assert [r["id"] for r in rows] == ["r0", "r1", "r2", "r3", "r4"]
         assert time.monotonic() - start < 60
     assert (repo / ".forge" / "project" / "dataset.json").exists()
+
+
+def test_an_ingested_overfit_alert_reaches_proactive_albie(client):
+    """The forge SDK's ml.overfit_alert (live run or demo replay) is handed to the watcher, which makes Albie speak."""
+    told: list[tuple[str, dict]] = []
+    client.app.state.proactive = type("P", (), {"notify": lambda self, t, p: told.append((t, p))})()
+    alert = {"run_id": "r1", "epoch": 6, "reason": "val loss rose 2 epochs in a row while train loss fell"}
+    r = client.post("/ml/ingest", json={"run_id": "r1", "events": [{"type": "ml.metrics", "payload": {"epoch": 6}},
+                                                                   {"type": "ml.overfit_alert", "payload": alert}]})
+    assert r.status_code == 200
+    assert [t for t, _ in told] == ["ml.metrics", "ml.overfit_alert"] and told[1][1] == alert

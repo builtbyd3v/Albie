@@ -224,7 +224,15 @@ async def ingest(req: IngestRequest, request: Request) -> dict:
     bus = request.app.state.bus
     for e in req.events:
         await bus.publish(e.type, e.payload)
+        _tell_albie(request.app.state, e.type, e.payload)
     return {"ok": True, "count": len(req.events)}
+
+
+def _tell_albie(state, type_: str, payload) -> None:
+    """Proactive Albie (main.py sets state.proactive): an ml.overfit_alert makes him speak up; other events: nothing."""
+    proactive = getattr(state, "proactive", None)
+    if proactive is not None:
+        proactive.notify(type_, payload)
 
 
 @router.post("/replay")
@@ -246,6 +254,7 @@ async def replay(req: ReplayRequest, request: Request) -> dict:
                 await asyncio.sleep(max(0.0, t - prev_t) / req.speed)
             prev_t = t
             await state.bus.publish(e["type"], e["payload"])
+            _tell_albie(state, e["type"], e["payload"])  # the demo replay's overfit alert too
 
     state.ml_replay = asyncio.create_task(play())
     return {"run_id": req.run_id, "events": len(events)}
@@ -274,6 +283,7 @@ def _start_tail(state, tail: logtail.LogTail, proc=None) -> None:
                 events += tail.finish()
             for event_type, payload in events:
                 await state.bus.publish(event_type, payload)
+                _tell_albie(state, event_type, payload)
             if ended or (tail.stopped and proc is None):  # an SDK run still gets closed when its process exits
                 return
             await asyncio.sleep(logtail.POLL_S)

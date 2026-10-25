@@ -175,7 +175,7 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
         cwd=str(cwd or project.path),
         system_prompt=prompt,
         model=_model(),
-        effort=effort or "low",  # code too (Dev, 2026-10-24): faster small edits beat a more careful plan in the demo  # type: ignore[arg-type]
+        effort=effort or ("low" if mode == "qa" else "medium"),  # type: ignore[arg-type]
         setting_sources=["project"],  # load the repo's CLAUDE.md, not the user's global settings
         include_partial_messages=(mode == "qa"),  # token deltas -> smooth captions
         max_turns=12 if mode == "qa" else 40,
@@ -264,6 +264,25 @@ def land_task_worktree(repo: Path, path: Path, branch: str, base: str) -> str | 
 
 
 # ------------------------------------------------------------- progress text
+# Per pet: each file the running code task edited, with what it held before the first edit (None = it was new).
+# ws.py's "Albie, stop" -> Undo puts these back. Reset when a code task starts.
+TASK_EDITS: dict[str, dict[str, str | None]] = {}
+
+
+def _remember_original(pet_id: str, root: Path, file_path: Any) -> None:
+    if not file_path:
+        return
+    path = Path(str(file_path))
+    path = path if path.is_absolute() else root / path
+    seen = TASK_EDITS.setdefault(pet_id, {})
+    key = str(path)
+    if key not in seen:
+        try:
+            seen[key] = path.read_text() if path.is_file() else None
+        except (OSError, UnicodeDecodeError):  # unreadable: Undo leaves this one alone
+            pass
+
+
 def describe_tool(block: ToolUseBlock, repo: Path) -> str:
     """Short human text for a tool call, e.g. 'Editing hub/agent/ws.py'."""
     inp: dict[str, Any] = block.input or {}
@@ -407,6 +426,7 @@ async def _run_code(
         await emit(ev.task_progress(pet_id, task_id, f"Working on branch {branch}"))
 
     root = cwd or project.path
+    TASK_EDITS[pet_id] = {}
     last_text = ""
     summary: str | None = None
     edits: dict[str, ToolUseBlock] = {}  # edit tool uses waiting for their result, by id
@@ -424,6 +444,7 @@ async def _run_code(
                     if isinstance(block, ToolUseBlock):
                         await emit(ev.task_progress(pet_id, task_id, describe_tool(block, root)))
                         if block.name in vscode_live.EDIT_TOOLS:  # the file opens on the stream as Albie edits it
+                            _remember_original(pet_id, root, (block.input or {}).get("file_path"))  # before it runs
                             edits[block.id] = block
                             show(vscode_live.opening(block.name, block.input))
                     elif isinstance(block, TextBlock) and block.text.strip():

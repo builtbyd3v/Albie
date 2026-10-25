@@ -445,3 +445,27 @@ def test_send_to_a_handle_outside_the_allowlist_is_refused_before_imsg(monkeypat
             asyncio.run(s.send(2, "hi", handle=handle))
     with pytest.raises(AssertionError):                 # an allowlisted handle does reach imsg
         asyncio.run(s.send(1, "hi", handle="3525550123"))
+
+
+def test_only_a_new_allowlisted_text_reaches_proactive_albie(tmp_path: Path) -> None:
+    """Albie reads out "New text from ..." only for texts the allowlist lets in: never the backlog, a stranger, a
+    group, or the user's own texts."""
+    db = make_private_db(tmp_path / "chat.db")
+    add_msg(db, 1, 1, "friend old")
+
+    async def run() -> list[str]:
+        svc, _ = make_service(tmp_path, allow=parse_allow("(352) 555-0123"))
+        told: list[str] = []
+        svc.on_message = lambda m: told.append(m.text)
+        await svc.start()
+        try:
+            add_msg(db, 2, 2, SECRET + " live", ago_s=0)
+            add_msg(db, 3, 1, "group live", ago_s=0)
+            add_msg(db, 1, 1, "friend live", ago_s=0)
+            await wait_for(lambda: told)
+            await asyncio.sleep(0.1)
+        finally:
+            await svc.stop()
+        return told
+
+    assert asyncio.run(run()) == ["friend live"]

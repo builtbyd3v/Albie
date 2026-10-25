@@ -5,9 +5,9 @@ count), messages_read_channel (the last n in one conversation). Showing: message
 Slack panel (opens the MSG view). Sending is two tools on purpose: messages_send only
 WRITES a draft (Unity shows it in the composer with Send / Cancel); messages_confirm is the spoken "send it" /
 "never mind". Nothing reaches Slack or iMessage without one of those two confirmations. messages_edit_draft rewords the
-open Slack draft in place (same draft, same files). messages_send can attach the open CAD design's files to a Slack draft
-(`attach`, resolved by main.py through cad/tools.py `attachments`) and show the draft in the messenger view
-(`open_messenger`, through `show`).
+open draft in place (same draft, same files). messages_send can attach the open CAD design's files (`attach`, resolved
+by main.py through cad/tools.py `attachments`) and show the draft in the messenger view (`open_messenger`, through
+`show`). iMessage drafts (opt-in, messaging/imessage/) carry text only.
 """
 from __future__ import annotations
 
@@ -219,10 +219,13 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService, imessage
             text = str(args.get("text") or "").strip()
             if not text:
                 return {"error": "text is empty"}
-            if svc.open_draft is None:
-                return {"error": "There's no open draft (it was sent, cancelled or expired; iMessage drafts "
-                                 "can't be reworded); write a new one with messages_send"}
-            draft = await svc.update_draft(svc.open_draft.draft_id, {"text": text})
+            target: Any = svc
+            if svc.open_draft is None and imessage is not None and imessage.open_draft is not None:
+                target = imessage
+            if target.open_draft is None:
+                return {"error": "There's no open draft (it was sent, cancelled or expired); write a new one with "
+                                 "messages_send"}
+            draft = await target.update_draft(target.open_draft.draft_id, {"text": text})
             return {"draft_id": draft.draft_id, "status": "awaiting_confirmation", "channel_name": draft.channel_name,
                     "text": draft.text, "files": _files(draft),
                     "next": "Say what changed and ask them to tap Send or say 'send it'. Not sent yet."}

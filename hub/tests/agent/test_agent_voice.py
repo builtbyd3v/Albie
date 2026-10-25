@@ -438,6 +438,7 @@ def test_unknown_tool_gets_error_output() -> None:
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
         await s.begin_turn()
+        s._expected = 1  # the reply the hub asked for (Grok's own, unasked replies are cancelled)
         grok.push(type="response.created")
         grok.push(type="response.function_call_arguments.done", name="launch_rocket", call_id="x", arguments="{}")
         grok.push(type="response.done")
@@ -480,6 +481,7 @@ def test_fast_tool_runs_inline_and_returns_its_result(monkeypatch: pytest.Monkey
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
         await s.begin_turn()
+        s._expected = 1  # the reply the hub asked for (Grok's own, unasked replies are cancelled)
         sess = grok.sent[0]["session"]
         assert "vscode_highlight" in [t["name"] for t in sess["tools"]] and "quick actions" in sess["instructions"]
         grok.push(type="response.created")
@@ -738,7 +740,7 @@ def test_each_turn_logs_one_line(caplog: pytest.LogCaptureFixture) -> None:
 
     with caplog.at_level("INFO", logger="agent.voice"):
         asyncio.run(run())
-    turns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn:")]
+    turns = [r.getMessage().split(" (")[0] for r in caplog.records if r.getMessage().startswith("turn:")]  # no timing
     assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False "
                      "gated=False judged=None answered"]
 
@@ -829,3 +831,124 @@ def test_voice_delegate_steps_stay_out_of_the_bubble() -> None:
         assert [(e.type, e.payload.get("mode")) for e in sent] == [("pet.state", "working"), ("agent.task_complete", None)]
 
     asyncio.run(run())
+
+
+def test_a_reply_grok_starts_on_its_own_is_cancelled_and_its_tools_skipped() -> None:
+    """Live 22:25-22:30: Grok answered unaddressed turns by itself (delegate, cad_open_part, long replies)."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        ran: list[str] = []
+
+        async def fake_call(name: str, args: dict, pet_id: str) -> dict:
+            ran.append(name)
+            return {"ok": True}
+
+        voice_mod.tools.call, real = fake_call, voice_mod.tools.call  # type: ignore[assignment]
+        try:
+            await s.start()
+            grok.push(type="response.created")  # nobody asked
+            grok.push(type="response.output_item.added", item={"id": "fc_1", "type": "function_call"})
+            grok.push(type="response.function_call_arguments.done", name="cad_open_part", call_id="c1", arguments="{}")
+            grok.push(type="response.done")
+            await _settle()
+        finally:
+            voice_mod.tools.call = real  # type: ignore[assignment]
+        assert ran == []
+        assert {"type": "response.cancel"} in grok.sent
+        assert {"type": "conversation.item.delete", "item_id": "fc_1"} in grok.sent
+        assert "response.create" not in grok.types()
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_a_left_over_ask_lets_only_one_reply_through() -> None:
+    """Live 01:40: a turn that got no reply left its ask counted, so the next turn was answered twice."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.start()
+        s._expected = 2  # this turn's ask plus one left over
+        grok.push(type="response.created")
+        grok.push(type="response.done")
+        grok.push(type="response.created")  # a second reply to the same turn
+        await _settle()
+        assert grok.sent.count({"type": "response.cancel"}) == 1
+        await s.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text, stop", [
+    ("No, no, no, no. Albie, Albie, stop. Albie, stop. You piece of shit.", True),  # live 22:27
+    ("Albie, stop talking.", True),
+    ("Albie, stop the training run and save the best model.", False),  # a request, not a stop
+    ("We should stop here, Albie said.", False),
+])
+def test_albie_stop_anywhere_in_the_turn(text: str, stop: bool) -> None:
+    assert (voice_mod.is_stop(text) or voice_mod.has_named_stop(text)) is stop
+
+
+def test_albie_stop_also_cancels_his_running_task() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        stopped: list[str] = []
+
+        async def on_stop() -> None:
+            stopped.append("task")
+
+        s.on_stop = on_stop
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type="conversation.item.input_audio_transcription.completed", transcript="No, no. Albie, stop. Ugh.")
+        await _settle()
+        assert stopped == ["task"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_the_last_turns_words_are_cut_off_the_next_transcript() -> None:
+    """grok-transcribe started "Albie, what is two plus two?" with the previous turn's "Can you run the rocket file..."."""
+    s = _session(MockGrok(), Sink())
+    s._prev_raw = "Can you run the rocket file for me? I want to test it."
+    assert s._fresh("Can you run the rocket file for me? I want to test it. Albie, what is two plus two?") == \
+        "Albie, what is two plus two?"
+    assert s._fresh("Can you run the rocket file for me? I want to test it.") == \
+        "Can you run the rocket file for me? I want to test it."  # the same words alone: a real repeat, kept
+    assert s._fresh("Open train.py") == "Open train.py"
+
+
+def test_a_long_winded_reply_is_cut_at_the_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Grok ignores token caps: after MAX_REPLY_S of audio the hub cancels the reply and ends the speech."""
+    monkeypatch.setattr(voice_mod, "MAX_REPLY_S", 1.0)
+
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink, rate=24000)
+        await s.begin_turn()
+        await s.feed(b"\x10\x00" * 9600)
+        await s.commit_turn()  # the hub asked for this reply
+        grok.push(type="response.created")
+        second = b"\x01\x00" * 24000  # 1 s of 24 kHz PCM16
+        for _ in range(3):
+            grok.push(type="response.output_audio.delta", delta=_b64(second))
+        grok.push(type="response.done")
+        await _settle()
+        assert {"type": "response.cancel"} in grok.sent
+        assert sink.flat().count("owner:tts.end") == 1
+        assert sum(len(v) for k, v in sink.log if k == "bytes") == len(second)  # only the first second went out
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_verbatim_lines_are_cut_to_whole_sentences() -> None:
+    long = "I changed train.py to lower the learning rate. Then I reran it. " * 5
+    out = voice_mod.short_line(long)
+    assert len(out) <= voice_mod.SAY_MAX and out.endswith(".")
+    assert voice_mod.short_line("Done.") == "Done."

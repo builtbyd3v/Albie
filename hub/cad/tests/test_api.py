@@ -87,6 +87,11 @@ def test_view_and_versions(client):
     assert client.post("/cad/view", json={"focus_id": "WING"}).status_code == 404
     latest = client.get("/cad/latest").json()
     assert latest["cad.view"] == {"explode": True, "focus_id": "FIN_1", "focus_ids": []}
+    # focus_ids null (a C# list never set) means none; a wrong type still fails
+    assert client.post("/cad/view", json={"explode": False, "focus_id": "FIN_1", "focus_ids": None}).json() == {"ok": True}
+    assert client.get("/cad/latest").json()["cad.view"]["focus_ids"] == []
+    assert client.post("/cad/view", json={"focus_ids": "FIN_1"}).status_code == 422
+    assert client.post("/cad/view", json={"focus_ids": [3]}).status_code == 422
     assert latest["cad.model_updated"]["version"] == client.get("/cad/params").json()["version"]
     versions = client.get("/cad/versions").json()
     assert sum(v["head"] for v in versions) == 1 and versions[0]["parent"] is None
