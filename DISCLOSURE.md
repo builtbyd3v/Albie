@@ -13,7 +13,7 @@
 - Unity 6 (6000.6.7f1), URP
 - Meta XR All-in-One SDK 207, OpenXR, Meta XR Simulator
 - com.unity.webrtc (screen streaming), glTFast (runtime GLB loading)
-- Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback)
+- Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback), matplotlib (CIFAR-10 example extra chart)
 - SciPy (BSD-3): convex hulls for the humanoid design (hub/cad/parts/humanoid.py)
 - Offline data prep only, not run by the hub (hub/cad/tools_offline/): trimesh (MIT) and fast-simplification (MIT) for the G1 meshes; MuJoCo (Apache-2.0), PyTorch (BSD-3), PyYAML (MIT) and matplotlib to record the G1 walk clip
 - [TEAM: add NativeWebSocket, Newtonsoft JSON, DOTween, XCharts, PyTorch, etc. once they are actually used]

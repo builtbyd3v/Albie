@@ -19,6 +19,7 @@ namespace Forge.ML
         const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, BannerY = 204, SectionY = 242, SummaryY = 260;
         TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, bannerLabel, bannerText, sectionTitle, lossMax, runMetrics;
         ForgeSurface progress, statusChip, banner, bannerDot;
+        ForgePill train;
         MLCurve loss, accuracy;
         RectTransform root, summary;
         float width;
@@ -38,7 +39,7 @@ namespace Forge.ML
             foreach (var stat in new[] { epochValue, trainLossValue, valLossValue, valAccValue, lrValue }) stat.fontSize = 21;
             statusChip = MLUI.Surface(root, width - 292, 4, 88, 22, new Color(1, 1, 1, 0.08f), 11);
             statusText = MLUI.Caps(root, "", width - 292, 8, 88, 14, 9); statusText.alignment = TextAlignmentOptions.Top;
-            MLUI.Pill(root, "Train", width - 196, 1, 92, 28, () => session.Train(trainEpochs)).On = true;
+            train = MLUI.Pill(root, "Train", width - 196, 1, 92, 28, () => session.Train(trainEpochs)); train.On = true;
             MLUI.Button(root, "Replay", width - 98, 1, 98, 28, session.Restart);
             MLUI.Surface(root, 0, ProgressY, width, 4, new Color(1, 1, 1, 0.07f), 2);
             progress = MLUI.Surface(root, 0, ProgressY, 0, 4, MLUI.Accent, 2); progress.Glow = 0.5f;
@@ -96,6 +97,7 @@ namespace Forge.ML
             statusChip.color = new Color(stateColor.r, stateColor.g, stateColor.b, 0.16f);
             progress.rectTransform.sizeDelta = new Vector2(width * (e + 1) / Mathf.Max(1, session.TotalEpochs), 4);
             progress.color = session.Done ? MLUI.Good : MLUI.Accent;
+            train.Button.interactable = !session.TrainBusy;  // a second press while starting or training does nothing
 
             int best = MLReport.BestEpoch(session.Data.metrics, e);
             loss.marker = accuracy.marker = session.Done || session.Overfit ? best : -1;
