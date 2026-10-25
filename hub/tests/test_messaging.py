@@ -928,7 +928,7 @@ def test_tools_send_is_draft_then_confirm(tmp_path: Path) -> None:
     send_tool = next(t for t in mtools.TOOLS if t["name"] == "messages_send")
     assert "DRAFT" in send_tool["description"] and "NEVER say the message was sent" in send_tool["description"]
     assert {t["name"] for t in mtools.TOOLS} == {"messages_read_latest", "messages_list_channels", "messages_read_channel",
-                                                 "messages_send", "messages_confirm"}
+                                                 "messages_send", "messages_edit_draft", "messages_confirm"}
     assert all(t["name"].startswith("messages_") for t in mtools.TOOLS)  # -> the `messages` panel (agent/tools.py PANELS)
 
 
@@ -1004,7 +1004,9 @@ def test_router_enabled_draft_flow(api) -> None:
     r = c.post("/messages/drafts", json={"text": "hey", "reply_to_ts": "1700000001.000100"})
     assert r.status_code == 200
     draft = r.json()
-    assert set(draft) == {"draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "source"}
+    assert set(draft) == {"draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "attachments",
+                          "source"}
+    assert draft["attachments"] == []
     assert draft["channel"] == "C1" and draft["thread_ts"] == "1700000001.000100" and draft["reply_to"]["text"] == "first"
     assert draft["edited"] is False
     assert svc._user_client.posted == []

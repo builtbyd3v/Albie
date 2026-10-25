@@ -296,9 +296,23 @@ class CadService:
                                created_at=record.created_at, highlight=changed)
         return path
 
+    async def package(self, version: int | None = None) -> list[dict[str, Any]]:
+        """A version's files for a supplier (cad/package.py: STEP, STL, drawing PDF, parts CSV), made on first request
+        and cached. Rows {kind, name, title, bytes, path}; `path` is on this disk, for the hub only (Slack upload)."""
+        from cad.package import MANIFEST
+
+        record = self.get(version)
+        folder = self.path(record.version, "package")
+        manifest = folder / MANIFEST
+        if not manifest.exists():
+            await self._derive(record, "package", self.timeout_s * 4, done=manifest, version=record.version,
+                               created_at=record.created_at)
+        rows = json.loads(manifest.read_text(encoding="utf-8"))
+        return [{**row, "path": str(folder / row["name"])} for row in rows]
+
     async def _derive(self, record: VersionRecord, op: str, timeout_s: float, done: Path | None = None,
                       **job: Any) -> dict[str, Any]:
-        """Rebuild an existing version in the worker to produce an extra artifact (STL, flight sim, drawing).
+        """Rebuild an existing version in the worker to produce an extra artifact (STL, flight sim, drawing, package).
         `done`: skip the job if that file appeared while this call waited for the lock. `job`: extra op fields."""
         script = self.script_for(record.part)
         if record.script_sha != script_sha(script):

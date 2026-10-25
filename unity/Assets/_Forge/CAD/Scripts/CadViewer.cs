@@ -433,6 +433,7 @@ public class CadViewer : MonoBehaviour
         annotations.Build(current, info, exploder, holder, assembled);
         player.Bind(holder, current, info, assembled);
         ShowParam();  // a row still pointed at lights the new version's parts
+        if (session != null) session.ReportShown(info, shownGeneration);  // last: Bit's queued buttons act on this model
     }
 
     void Update()
