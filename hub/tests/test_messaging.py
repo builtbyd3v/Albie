@@ -688,7 +688,9 @@ def test_draft_create_send_emits_and_posts_as_user(tmp_path: Path) -> None:
     assert svc._client.posted == []  # not as Bit
     assert bus.flow() == ["notify.draft", "notify.message", "notify.sent"]  # the post shows in the panel at once
     posted = bus.last("notify.message")
-    assert (posted.channel, posted.ts, posted.text, posted.thread_ts, posted.is_me, posted.user, posted.user_name) ==         ("C1", ts, "yes, by 3", "1700000010.000100", True, "UME", "adrian")
+    assert (posted.channel, posted.ts, posted.text, posted.thread_ts, posted.is_me, posted.user, posted.user_name) == (
+        "C1", ts, "yes, by 3", "1700000010.000100", True, "UME", "adrian")
+    assert posted.edited is False  # never null: Unity's NotifyMessage.edited is a bool (a null dropped the event)
     assert svc.store.get("C1", ts) == posted
     assert svc.store.get("C1", "1700000010.000100").reply_count == 1  # the thread it answered grew
     assert bus.last("notify.sent").model_dump() == {"draft_id": draft.draft_id, "channel": "C1",

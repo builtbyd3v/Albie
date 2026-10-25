@@ -5,8 +5,8 @@ using UnityEngine;
 /// <summary>
 /// Albie opens a conversation ("open my chat with Adrian", "pull up #general": the hub's messages_open tool). The hub's
 /// ws <c>messages.open {pet_id, request_id, channel, channel_name, kind}</c> shows it on its provider's panel (Slack, or
-/// iMessage for an <c>im:</c> chat; <see cref="SlackPanel.ForChannel"/>), opening MSG mode when it is closed (like tapping a Mentions card does), and this answers <c>messages.opened {pet_id, request_id,
-/// channel, ok, reason?}</c> in the same frame, so Albie says what really happened. reason: <c>not_at_desk</c> (the
+/// iMessage for an <c>im:</c> chat; <see cref="SlackPanel.ForChannel"/>), opening MSG mode when it is closed (like tapping
+/// a Mentions card does), and this answers <c>messages.opened {pet_id, request_id, channel, ok, reason?}</c> in the same frame, so Albie says what really happened. reason: <c>not_at_desk</c> (the
 /// Workspace only opens at a desk) or <c>no_workspace</c>. A conversation the list doesn't have yet (a DM the hub just
 /// opened) gets a row right away (<see cref="SlackStore.Provisional"/>). Installs itself on scene load into any scene
 /// with a DeskPresence, like <see cref="DraftPresenter"/>.

@@ -947,7 +947,8 @@ class SlackService:
             uid, who = self.bot_user_id or "", DISPLAY_NAME
         name, is_dm = await self.channel_info(draft.channel)
         msg = SlackMessage(channel=draft.channel, channel_name=name, is_dm=is_dm, user=uid, user_name=who,
-                           text=draft.text, ts=ts, thread_ts=draft.thread_ts, is_me=True, user_initials=_initials(who))
+                           text=draft.text, ts=ts, thread_ts=draft.thread_ts, edited=False, is_me=True,
+                           user_initials=_initials(who))
         self._recent.append((draft.channel, ts))
         if not self.store.add(msg):
             return  # the echo got here first and was already published
