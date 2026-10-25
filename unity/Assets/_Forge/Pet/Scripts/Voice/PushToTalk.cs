@@ -38,7 +38,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Hard cap (s) from the first speech: stop listening and send what was said.")]
         float maxUtterance = 20f;
         [SerializeField, Tooltip("Silence (s) after speech that ends the utterance.")]
-        float endSilence = 0.9f;
+        float endSilence = 2.0f;   // Dev, 2026-10-24: a mid-sentence pause must not end the turn
         [SerializeField, Tooltip("Mic RMS (0..1) that counts as speech.")]
         float speechLevel = 0.03f;
         [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]

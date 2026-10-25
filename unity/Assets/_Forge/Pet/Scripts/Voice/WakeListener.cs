@@ -41,7 +41,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Loud this long (s) before a segment opens.")]
         float startSeconds = 0.2f;
         [SerializeField, Tooltip("Quiet this long (s) closes the segment.")]
-        float endSilence = 1.0f;   // 0.7 cut "Albie, uh, what are the" at the "uh" (live 18:32)
+        float endSilence = 2.0f;   // 0.7 / 1.0 cut "Albie, uh, what are the" at the "uh" (live 18:32); Dev: 2 s
         [SerializeField, Tooltip("Audio kept from before the segment opened (s), so the first word survives.")]
         float prerollSeconds = 0.5f;
         [SerializeField, Tooltip("Segments with less speech than this (s) are cancelled (coughs, door slams).")]
