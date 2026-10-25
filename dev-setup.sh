@@ -40,6 +40,7 @@ if [ -d "$ml/data" ]; then echo "ok: data/ exists"; else (cd "$ml" && .venv/bin/
 step "Albie's sandbox ($sandbox)"
 if [ -f "$sandbox/.albie-sandbox" ]; then echo "ok: exists (rebuild: sh sandbox/setup.sh --reset)"
 else ALBIE_SANDBOX="$sandbox" sh "$repo/sandbox/setup.sh"; fi
+[ -e "$sandbox/ml/.venv" ] || { ln -s "$ml/.venv" "$sandbox/ml/.venv" && echo "ok: linked $sandbox/ml/.venv"; }
 
 step "Screen bridge + Forge Bit extension"
 (cd "$repo/screen-bridge" && npm install --silent)

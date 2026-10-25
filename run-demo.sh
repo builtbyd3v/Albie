@@ -18,7 +18,8 @@ if [ "${SCREEN_BRIDGE:-1}" != "0" ]; then
 fi
 
 cd "$repo/hub"
-SCREEN_BRIDGE_DIR="$repo/screen-bridge" nohup .venv/bin/uvicorn main:app --host 0.0.0.0 --port "$port" >> "$log" 2>&1 &
+# Inherited CLAUDECODE / ANTHROPIC_BASE_URL (a Claude Code shell) make the agent SDK's CLI hang (hub/README.md).
+SCREEN_BRIDGE_DIR="$repo/screen-bridge" nohup env -u CLAUDECODE -u ANTHROPIC_BASE_URL .venv/bin/uvicorn main:app --host 0.0.0.0 --port "$port" >> "$log" 2>&1 &
 echo "hub starting on :$port (log: $log)"
 i=0
 until curl -sf "localhost:$port/health" >/dev/null; do

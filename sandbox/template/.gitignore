@@ -1,4 +1,5 @@
 __pycache__/
 ml/data
+ml/.venv
 ml/checkpoints/
 .DS_Store

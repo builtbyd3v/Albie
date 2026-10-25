@@ -22,6 +22,8 @@ if [ -d "$repo/ml-examples/cifar10" ]; then
   for d in "$repo" $(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p'); do
     if [ -d "$d/ml-examples/cifar10/data" ]; then ln -s "$d/ml-examples/cifar10/data" "$dest/ml/data"; break; fi
   done
+  # The trainer runs with ml/.venv (profile.json says "python"; without a venv the hub's Python, which has no torch).
+  [ -d "$repo/ml-examples/cifar10/.venv" ] && ln -s "$repo/ml-examples/cifar10/.venv" "$dest/ml/.venv"
 fi
 
 # CAD: every part script (the hub watches this folder through FORGE_CAD_SCRIPT and rebuilds the model on save).
