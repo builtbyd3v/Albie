@@ -178,7 +178,7 @@ events, task_complete (branch `pet/fake-123`). The text `error` gives agent.erro
 (seconds, default 0.6) sets the pacing.
 
 Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
-`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`medium`).
+`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`low`).
 
 - **qa**: tools `Read, Grep, Glob` only, `permission_mode="dontAsk"`, `cwd` = repo, short spoken persona.
 - **code**: the hub checks out `pet/<slug>-<id>` first (skipped, and said so, if not a git repo), then runs
@@ -297,6 +297,13 @@ SLACK_DEFAULT_CHANNEL=#forge-team
 
 Off by default. With `IMESSAGE_ENABLED=1` on macOS, the hub reads `~/Library/Messages/chat.db` read-only (texts from
 the last `IMESSAGE_RECENT_DAYS`, default 3) and adds those conversations to the shared inbox and Albie's messaging tools.
+
+**Privacy allowlist (required).** `IMESSAGE_ALLOW` is a comma-separated list of phone numbers (any format: `(352)
+555-0123`, `352.555.0123` and `+1 352 555 0123` are the same; a bare 10-digit number is US, `+1`) or emails (case does
+not matter). Only 1:1 chats with those handles are read, filtered in the SQL query itself, so no other text ever reaches
+the hub, events, headset, Albie, the digest or logs. Group chats are always hidden, even when every member is allowed.
+Sending is refused for anything else before `imsg` runs. Enabled with an empty or missing `IMESSAGE_ALLOW` loads
+nothing (`/health`: `enabled, no allowed contacts (set IMESSAGE_ALLOW)`). Logs carry counts only.
 It starts in the background, so it never delays Slack, screens or `/health`. Sending needs the `imsg` CLI, which the
 hub never installs: without it iMessage is read-only, and the startup log and `/health` (`send_error`) say to run
 `brew install steipete/tap/imsg` (a third-party tap) yourself. On macOS 26, `imsg` verifies sends against the Messages database because

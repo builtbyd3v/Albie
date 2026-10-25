@@ -2,6 +2,10 @@
 
 The schema varies across macOS releases, so queries are assembled from discovered columns.  SQLite is opened with
 mode=ro; this module never writes to the user's Messages database.
+
+Privacy: every query that touches chats or messages takes the allowlist and filters in SQL, so rows from other
+conversations never reach Python. Only 1:1 chats (style 45) whose chat_identifier is an allowed handle match; group
+chats never do (their identifier is "chatNNN", and style 43 is excluded too). An empty allowlist matches nothing.
 """
 from __future__ import annotations
 
@@ -9,6 +13,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+
+from .settings import handle_variants
 
 APPLE_EPOCH = 978_307_200
 
@@ -35,6 +41,26 @@ def columns(db: sqlite3.Connection, table: str) -> set[str]:
         return {str(row[1]) for row in db.execute(f'PRAGMA table_info("{table}")')}
     except sqlite3.Error as exc:
         raise MessagesDatabaseError(f"Cannot inspect Messages table {table}: {exc}") from exc
+
+
+def _norm_sql(col: str) -> str:
+    """SQL twin of settings.normalize_handle minus the +1 rule (handle_variants covers that side)."""
+    stripped = col
+    for ch in " -().":
+        stripped = f"replace({stripped}, '{ch}', '')"
+    return f"(CASE WHEN instr({col}, '@') > 0 THEN lower({col}) ELSE {stripped} END)"
+
+
+def allow_filter(db: sqlite3.Connection, allow: frozenset[str], alias: str = "c") -> tuple[str, list[str]]:
+    """A WHERE fragment (and its args) that keeps only allowlisted 1:1 chats. Fails closed: "0" matches nothing."""
+    chat_cols = columns(db, "chat")
+    variants = sorted({v for h in allow for v in handle_variants(h)})
+    if not variants or "chat_identifier" not in chat_cols:
+        return "0", []
+    clause = f"{_norm_sql(f'{alias}.chat_identifier')} IN ({', '.join('?' * len(variants))})"
+    if "style" in chat_cols:
+        clause += f" AND {alias}.style = 45"
+    return f"({clause})", variants
 
 
 def timestamp(raw: Any) -> str:
@@ -86,9 +112,11 @@ def text_body(text: Any, attributed: Any) -> str:
     return blob[i:i + length].decode("utf-8", errors="replace").strip("\ufffc")
 
 
-def rows(db: sqlite3.Connection, *, after_rowid: int = 0, limit: int = 200,
+def rows(db: sqlite3.Connection, *, allow: frozenset[str], after_rowid: int = 0, limit: int = 200,
          chat_guid: str | None = None, since_unix: float | None = None) -> list[dict[str, Any]]:
-    """Fetch messages with their conversation and sender handles, newest database rows first."""
+    """Fetch allowlisted messages with their conversation and sender handles, newest database rows first."""
+    if not allow:
+        return []
     message_cols = columns(db, "message")
     chat_cols = columns(db, "chat")
     join_cols = columns(db, "chat_message_join")
@@ -111,6 +139,11 @@ def rows(db: sqlite3.Connection, *, after_rowid: int = 0, limit: int = 200,
               JOIN chat c ON c.ROWID=cmj.chat_id LEFT JOIN handle h ON h.ROWID=m.handle_id
               WHERE m.ROWID > ?'''
     args: list[Any] = [max(0, int(after_rowid))]
+    chat_clause, chat_args = allow_filter(db, allow)
+    variants = sorted({v for h in allow for v in handle_variants(h)})
+    # The sender must be me or the allowed contact too, in case a 1:1 chat ever carries a stray handle.
+    sql += f" AND {chat_clause} AND (m.is_from_me = 1 OR {_norm_sql('h.id')} IN ({', '.join('?' * len(variants))}))"
+    args += chat_args + variants
     if since_unix is not None:
         try:
             max_date = int(db.execute("SELECT COALESCE(MAX(date), 0) FROM message").fetchone()[0] or 0)
@@ -132,18 +165,36 @@ def rows(db: sqlite3.Connection, *, after_rowid: int = 0, limit: int = 200,
         raise MessagesDatabaseError(f"Cannot read Messages database: {exc}") from exc
 
 
-def chat_rowid(db: sqlite3.Connection, chat_guid: str) -> tuple[int, str] | None:
-    """Return the local chat row id and chat identifier used by the send adapter."""
+def chat_rowid(db: sqlite3.Connection, chat_guid: str, *, allow: frozenset[str]) -> tuple[int, str] | None:
+    """Return the local chat row id and chat identifier used by the send adapter (allowlisted chats only)."""
+    clause, args = allow_filter(db, allow)
     try:
-        row = db.execute("SELECT ROWID, chat_identifier FROM chat WHERE guid = ? LIMIT 1", (chat_guid,)).fetchone()
+        row = db.execute(f"SELECT c.ROWID, c.chat_identifier FROM chat c WHERE c.guid = ? AND {clause} LIMIT 1",
+                         (chat_guid, *args)).fetchone()
     except sqlite3.Error as exc:
         raise MessagesDatabaseError(f"Cannot find Messages chat: {exc}") from exc
     return (int(row[0]), str(row[1] or chat_guid)) if row else None
 
 
-def outgoing_match(db: sqlite3.Connection, chat_guid: str, text: str, after_rowid: int) -> dict[str, Any] | None:
+def chats(db: sqlite3.Connection, *, allow: frozenset[str], chat_guid: str | None = None) -> list[sqlite3.Row]:
+    """Allowlisted chats as (guid, chat_identifier, display_name, style) rows, newest first; one chat with chat_guid."""
+    clause, args = allow_filter(db, allow)
+    chat_cols = columns(db, "chat")
+    pick = ", ".join(f"c.{k}" if k in chat_cols else f"NULL AS {k}" for k in ("display_name", "style"))
+    sql = f"SELECT c.guid, c.chat_identifier, {pick} FROM chat c WHERE {clause}"
+    if chat_guid is not None:
+        sql += " AND c.guid = ?"
+        args = [*args, chat_guid]
+    try:
+        return db.execute(sql + " ORDER BY c.ROWID DESC LIMIT 1000", args).fetchall()
+    except sqlite3.Error as exc:
+        raise MessagesDatabaseError(f"Cannot read Messages chats: {exc}") from exc
+
+
+def outgoing_match(db: sqlite3.Connection, chat_guid: str, text: str, after_rowid: int, *,
+                   allow: frozenset[str]) -> dict[str, Any] | None:
     """Find a confirmed outgoing message in the intended conversation after a send attempt."""
-    for row in rows(db, after_rowid=after_rowid, limit=1000, chat_guid=chat_guid):
+    for row in rows(db, allow=allow, after_rowid=after_rowid, limit=1000, chat_guid=chat_guid):
         if int(row.get("is_from_me") or 0) and text_body(row.get("text"), row.get("attributedBody")) == text:
             return row
     return None

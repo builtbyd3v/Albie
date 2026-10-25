@@ -34,11 +34,19 @@ def test_filler_alone_only_answers_his_question(text: str, last: str | None, sai
 
 
 @pytest.mark.parametrize("text", ["Open the ML panel.", "Okay yeah, just list like 20.", "Can we get a reset button on CAD?"])
-def test_looking_at_albie_counts_as_his_name(text: str) -> None:
-    assert asyncio.run(addressed.judge(text)) is True
+def test_looking_at_albie_counts_as_his_name_only_with_voice_facing(text: str) -> None:
+    assert asyncio.run(addressed.judge(text, facing=True)) is True
+    assert asyncio.run(addressed.judge(text)) is False  # name only (default)
 
 
-@pytest.mark.parametrize("text", ["Okay yeah, just list like 20.", "It would be cool if you could control the screen."])
-def test_a_gated_turn_needs_his_name(text: str) -> None:
-    """Dev's rule: every sentence says "Albie" unless you look at him."""
-    assert asyncio.run(addressed.judge(text, "Here are some fun facts.", gated=True)) is False
+@pytest.mark.parametrize("text, last, age, said_to_albie", [
+    ("Yes please.", "Want me to look at it?", 3.0, True),
+    ("Sure, go ahead.", "Should I open train.py?", 5.0, True),
+    ("No thanks.", "Want the traceback?", 2.0, True),
+    ("Yes please.", "I opened it.", 3.0, False),                 # he didn't ask
+    ("Yes please.", "Want me to look at it?", 30.0, False),      # too late
+    ("Yes, open train.py.", "Want me to look at it?", 3.0, False),  # more than an answer: say "Albie"
+    ("It would be cool if you could control the screen.", "Anything else?", 2.0, False),
+])
+def test_a_bare_answer_to_his_question_needs_no_name(text: str, last: str, age: float, said_to_albie: bool) -> None:
+    assert asyncio.run(addressed.judge(text, last, age)) is said_to_albie

@@ -15,6 +15,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from .settings import normalize_handle
+
 log = logging.getLogger("forge.messaging.imessage")
 INSTALL_HINT = ("imsg CLI not installed, so iMessage is read-only. To send, install it yourself "
                 "(`brew install steipete/tap/imsg`, a third-party tap) and restart the hub.")
@@ -32,8 +34,9 @@ class SenderStatus:
 
 
 class IMessageSender:
-    def __init__(self, executable: str = "imsg") -> None:
+    def __init__(self, executable: str = "imsg", allow: frozenset[str] = frozenset()) -> None:
         self.executable = executable
+        self.allow = allow
         self.path = self._find_executable()
         self.status = SenderStatus(False, None, f"{executable} CLI not installed")
 
@@ -70,7 +73,11 @@ class IMessageSender:
             self.status = SenderStatus(False, None, str(exc))
         return self.status
 
-    async def send(self, chat_id: int, text: str) -> None:
+    async def send(self, chat_id: int, text: str, *, handle: str) -> None:
+        """Send to one 1:1 chat. `handle` is that chat's identifier; anything not in IMESSAGE_ALLOW is refused here,
+        before imsg runs (the error never echoes the handle)."""
+        if normalize_handle(handle) not in self.allow:
+            raise IMessageSendError("Refused: that conversation is not in IMESSAGE_ALLOW")
         if not self.status.available or not self.path:
             raise IMessageSendError(self.status.error or "iMessage sending is unavailable")
         try:
@@ -89,7 +96,8 @@ class IMessageSender:
             raise IMessageSendError(detail or f"imsg exited with status {proc.returncode}")
 
     async def chats(self) -> list[dict[str, object]]:
-        """Read contact-resolved chat labels from the same CLI used to send."""
+        """Read contact-resolved chat labels from the same CLI used to send. The caller must drop every chat that is
+        not allowlisted right away (imsg has no filter), and never log these."""
         if not self.status.available or not self.path:
             return []
         try:
