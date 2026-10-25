@@ -14,8 +14,8 @@ namespace Forge.Pet
     /// StartListening shows a bottom-of-screen TMP input field (built lazily in code) and focuses it.
     /// Every edit raises PartialTranscript; Enter (or StopListening) raises FinalTranscript and hides it.
     /// Esc cancels (raises Error("cancelled"), no final). Empty Enter is ignored.
-    /// Note: PushToTalk treats this provider as "press to open" (no release-to-stop), because
-    /// Space is both the talk key and a character you want to type.
+    /// Note: PushToTalk opens it for a turn (the whistle) and leaves closing it to Enter / Esc: there is no
+    /// release-to-stop, and F (the whistle key) is ignored while it is open, since you are typing.
     /// </summary>
     public class TypedSpeechToText : MonoBehaviour, ISpeechToText
     {

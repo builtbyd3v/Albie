@@ -13,7 +13,7 @@ PetRuntime
 │   │                    GatorCaption, GatorAgentBridge, PushToTalk, HubSpeechToText, AgentClient, GatorMrukAdapter
 │   │                    + WakeListener, GatorTalkAnimator, GatorSummon, GatorFollowUp
 │   └─ Voice             AudioSource + StreamedPcmTextToSpeech (the hub's streamed speech), wired into GatorAgentBridge.tts
-├─ WhistleButton         desk puck (poke / ray / mouse / F / B); GatorMrukAdapter clones it onto every table
+├─ WhistleButton         floating dock ring with a whistle icon, beside the dock (ray / poke / mouse / F / B); cloned onto every table
 ├─ GatorCrew             lead = GatorAssistant, crewPrefab = GatorAssistant.prefab
 ├─ GatorHatchery         the egg + carousel picker (poke / ray / mouse)
 ├─ ArrivalGreeting       (inactive until the first arrival) the greeting card + START ring (a Core DockRing; poke / ray / mouse)
@@ -40,7 +40,7 @@ PetRuntime
   and follows (or wanders off: `followOnAway`). The greeting re-arms after `rearmAwaySeconds` (120 s) Away; a short step
   away or walking round the desk doesn't replay it. It also sends `workspace.mode {pet_id, mode}` on
   `Workspace.modeChanged` and after every (re)connect (`""` when closed).
-* **Listening is explicit.** Albie goes `Listening` only for a turn he opened (push-to-talk, hands-free, the whistle, "Hey
+* **Listening is explicit.** Albie goes `Listening` only for a turn he opened (the whistle, a follow-up, "Hey
   Albie") or an explicit `pet.state listening` from the hub; `stt.*` transcripts alone don't change his state (the always-on
   `WakeListener` streams every speech segment, and the hub now sends no `pet.state` for wake segments until one is for a
   gator, and none for an empty final). A stopped turn whose `stt.final` never comes times out after 6 s
@@ -48,7 +48,7 @@ PetRuntime
   trip after a hop starts, so he fidgets and wanders instead of standing frozen.
 * **Voice** (live hub only, no mock mode outside the sandboxes): `WakeListener` keeps the mic on and streams wake turns
   (`stt.start {wake: true}`, the hub decides by name / look-to-talk); `GatorFollowUp` keeps listening after an answer;
-  `GatorSummon` (whistle) brings Albie over and opens a hands-free turn; `PushToTalk` (Space / controller primary) is the
+  `GatorSummon` (whistle) brings Albie over and opens a hands-free turn; `PushToTalk` (no key of its own) is the
   session manager with `HubSpeechToText`. The typed text box is sandbox-only.
 * **Crew** is gated to the code screen: the egg and the N / X keys work while the `code` mode is open; when it closes
   the crew stays on the desk, keeps its antics, but its bubbles are muted (`GatorCaption.Muted`). Albie is never muted and

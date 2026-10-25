@@ -7,7 +7,7 @@ namespace Forge.Pet
     /// listenSeconds (PushToTalk.BeginHandsFree), so the user can just reply. If nobody speaks (or the reply was empty)
     /// it turns around and wanders off to idle (GatorController.WanderAway), which reads clearly as "done".
     /// Skipped while the brain is still working (Thinking/Working: the spoken line was only "on it"), after errors,
-    /// when a session is already open (barge-in, Space held), and with the typed STT field (it would just sit open).
+    /// when a turn is already open (barge-in, the whistle, a wake word), and with the typed STT field (it would just sit open).
     /// If the gator starts speaking again during the window, the window closes without asking anything.
     /// Voice barge-in: while the gator speaks, the mic is monitored (HubSpeechToText.StartMonitoring, nothing sent).
     /// Speech clearly louder than the gator's own echo opens a hands-free turn and cuts the gator off; the hub
@@ -17,7 +17,7 @@ namespace Forge.Pet
     /// only if it names the gator ("Albie, ..."), so teammates talking at the desk are not answered. Facing = within
     /// lookAngle of its body (plus its apparent size), or within the last lookGrace seconds.
     /// Cutting the gator off: facing it stops it at once; otherwise only "Albie, stop" does (the hub decides).
-    /// Space / A / the whistle always open a turn.
+    /// The whistle always opens a turn.
     /// WakeListener reads UserFacing too: facing the gator answers any hands-free turn, not only in this window.
     /// </summary>
     [DisallowMultipleComponent]
@@ -121,7 +121,7 @@ namespace Forge.Pet
         void OnSpeechEnded()
         {
             _speaking = false;
-            if (pushToTalk.SessionActive) { StopMonitor(); return; }   // barge-in / Space: someone is already talking
+            if (pushToTalk.SessionActive) { StopMonitor(); return; }   // barge-in / whistle / wake word: a turn is already open
             GatorState s = controller.State;
             if (s == GatorState.Answering || s == GatorState.Wandering || s == GatorState.TaskComplete)
                 _startAt = Time.time + startDelay;    // the mic keeps running into the follow-up window (no restart)

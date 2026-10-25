@@ -38,7 +38,7 @@ public class DeskDock : MonoBehaviour
     public float endRoom = 0.12f;
 
     const float GlowPad = DockRing.GlowPad;  // room around each ring's quad for its glow (mm)
-    const float IconFill = 1.05f;  // icon size as a multiple of the ring's radius (about half the ring across)
+    internal const float IconFill = 1.05f;  // icon size as a multiple of the ring's radius (about half the ring across)
 
     // One button: its input (fixed in place) and its light (animated).
     class Ring
@@ -625,7 +625,7 @@ public class DeskDock : MonoBehaviour
     // Nine faint rings from the desk up to a raised ring, the top one brightest: a hologram column. Ring heights are in
     // mm at full rise; the column's z scale follows the lift.
     static Mesh columnMesh;
-    static Mesh ColumnMesh
+    internal static Mesh ColumnMesh
     {
         get
         {

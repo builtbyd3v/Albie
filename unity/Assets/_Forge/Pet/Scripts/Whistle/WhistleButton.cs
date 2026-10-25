@@ -7,20 +7,18 @@ using UnityEngine.InputSystem;
 namespace Forge.Pet
 {
     /// <summary>
-    /// Small 3D desk button that summons the gator (GatorSummon listens to AnyPressed, so there can be one per table).
-    /// Inputs, all ending in Press():
-    ///  * Meta Interaction SDK: PokeInteractable / RayInteractable children with an InteractableUnityEventWrapper whose
-    ///    WhenSelect → Press(), WhenHover → HoverOn(), WhenUnhover → HoverOff() (wired by Forge/Pet/6. Add Whistle
-    ///    To Open Scene). No Meta types here, per docs/PET_AGENT_CONTRACT.md.
-    ///  * Mouse: left click raycast from PetUser.HeadCamera (screen centre while the cursor is locked).
+    /// The whistle that summons the gator (GatorSummon listens to AnyPressed, so there can be one per table): one of
+    /// Hudson's dock rings (Core DockRing) with a white whistle icon, floating off the desk on its column of light like an
+    /// open dock mode and turned toward the head. Inputs, all ending in Press():
+    ///  * the ring's invisible uGUI Button: the mouse (DesktopRig), and Interaction SDK ray + poke when the editor
+    ///    builder added canvas interaction to it (WhistleSetup). No Meta types here, per docs/PET_AGENT_CONTRACT.md.
     ///  * whistleAction: F, or controller B (right secondaryButton). F is ignored while a sandbox typed-STT field is open.
     /// Placement: on its table (SetTable, one button per MRUK table via GatorMrukAdapter) or, with no table assigned,
     /// on GatorNavSurface.Desk; the near corner on the user's right, re-placed when the user walks up to that table from
     /// another side. Once Hudson's DeskDock shows on that table it sits just past the dock's right end instead and slides
-    /// with it (‹ ›, going round the desk), and stays there while the dock is away. No table and no desk: 0.3 m right of
-    /// the gator's spawn.
+    /// with it (‹ ›, grip-drag, going round the desk), and stays there while the dock is away. No table and no desk:
+    /// 0.3 m right of the gator's spawn. Lies flat like the dock (canvas +Z into the desk); only the light floats.
     /// </summary>
-    [RequireComponent(typeof(BoxCollider))]
     [DisallowMultipleComponent]
     public class WhistleButton : MonoBehaviour
     {
@@ -28,13 +26,10 @@ namespace Forge.Pet
 
         [SerializeField, Tooltip("Keyboard / controller whistle. Default bindings (F, right controller B) are added if empty.")]
         InputAction whistleAction = new InputAction("Whistle", InputActionType.Button);
-        [SerializeField, Tooltip("Visual child (pressed-depth + colour). Empty = first child Renderer.")]
-        Renderer visual;
+        [SerializeField, Tooltip("The floating ring (WhistleSetup builds it, with XR canvas interaction). Empty = the first child DockRing, else one made at runtime (mouse only).")]
+        DockRing ring;
         [SerializeField, Tooltip("Ignore presses closer together than this (s).")]
         float debounce = 0.3f;
-        [SerializeField, Tooltip("Max mouse raycast distance (m).")]
-        float maxDistance = 5f;
-        [SerializeField] LayerMask raycastMask = ~0;
         [SerializeField] UnityEvent onPressed = new UnityEvent();
 
         [Header("Placement")]
@@ -44,8 +39,6 @@ namespace Forge.Pet
         float cornerInset = 0.08f;
         [SerializeField, Tooltip("Re-place (other side of the table) when the head comes within this distance (m) of it.")]
         float nearTableDistance = 1.2f;
-        [SerializeField, Tooltip("Tilt (deg) of the button face toward the user.")]
-        float tiltDegrees = 25f;
         [SerializeField, Tooltip("No desk after this many seconds: place next to the gator spawn.")]
         float noDeskFallbackSeconds = 2f;
         [SerializeField, Tooltip("Fallback: metres to the right of the gator spawn.")]
@@ -56,16 +49,12 @@ namespace Forge.Pet
         bool leftHanded = false;
         [SerializeField, Tooltip("While the DeskDock shows on this table, sit just past its right end and slide with it.")]
         bool besideDock = true;
-        [SerializeField, Tooltip("Gap (m) between the dock's frame line and the button's edge.")]
+        [SerializeField, Tooltip("Gap (m) between the dock's frame line and the ring's edge.")]
         float dockGap = 0.015f;
 
-        [Header("Colours")]
-        [SerializeField] Color idleColor = new Color(1f, 0.62f, 0.15f);
-        [SerializeField] Color activeColor = new Color(0.35f, 0.85f, 0.45f);
-        [SerializeField] Color busyColor = new Color(0.55f, 0.55f, 0.6f);
-
-        static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-        static readonly int ColorId = Shader.PropertyToID("_Color");
+        /// <summary>The ring's label, the dock's mode-label style.</summary>
+        public const string Label = "WHISTLE";
+        const float Hover = 0.004f;  // the ring's plane above the desk top (m), as the dock's
 
         /// <summary>Raised first on every press (e.g. GatorMrukAdapter makes this button's table the desk).</summary>
         public event Action<WhistleButton> Pressing;
@@ -79,13 +68,10 @@ namespace Forge.Pet
 
         static readonly List<WhistleButton> s_all = new List<WhistleButton>(8);
 
-        BoxCollider _collider;
-        MaterialPropertyBlock _mpb;
-        Vector3 _visualRest, _baseScale;
         Vector3 _spawnPos, _spawnRight = Vector3.right;
-        bool _hasSpawn, _hovered, _placedFallback, _byDock;
+        bool _hasSpawn, _placedFallback, _byDock;
         DeskDock _dock;
-        float _lastPress = -10f, _pressedUntil = -1f, _startTime, _nextPlaceCheck;
+        float _lastPress = -10f, _startTime, _nextPlaceCheck;
         Vector3 _tableTop;
         Quaternion _tableRot = Quaternion.identity;
         Vector2 _tableSize;
@@ -93,19 +79,19 @@ namespace Forge.Pet
 
         void Awake()
         {
-            _collider = GetComponent<BoxCollider>();
-            _collider.isTrigger = true;              // a prop to press, not something to bump into
             if (whistleAction == null) whistleAction = new InputAction("Whistle", InputActionType.Button);
             if (whistleAction.bindings.Count == 0)
             {
                 whistleAction.AddBinding("<Keyboard>/f");
                 whistleAction.AddBinding("<XRController>{RightHand}/secondaryButton");
             }
-            if (visual == null) visual = GetComponentInChildren<Renderer>(true);
-            if (visual != null) _visualRest = visual.transform.localPosition;
-            _baseScale = transform.localScale;
-            _mpb = new MaterialPropertyBlock();
-            ApplyColor();
+            if (ring == null) ring = GetComponentInChildren<DockRing>(true);
+            if (ring == null) ring = DockRing.Create(transform, Label, ForgeTheme.Tool, ForgeTheme.DockModeRing, null);
+            ring.Button.onClick.RemoveListener(Press);   // a clone of a live template has none, but be sure
+            ring.Button.onClick.AddListener(Press);
+            ring.SetIcon(ForgeTheme.DockIcon("whistle"));
+            ring.Raised = true;
+            ApplyVisual();
         }
 
         void Start()
@@ -138,32 +124,23 @@ namespace Forge.Pet
 
         // ---------------------------------------------------------------- public API
 
-        /// <summary>Whistle! (Interaction SDK WhenSelect, mouse, F / B, or any UnityEvent.)</summary>
+        /// <summary>Whistle! (the ring's Button, F / B, or any UnityEvent.)</summary>
         public void Press()
         {
             if (Time.time - _lastPress < debounce) return;
             _lastPress = Time.time;
-            _pressedUntil = Time.time + 0.12f;
             Pressing?.Invoke(this);
             onPressed.Invoke();
             Pressed?.Invoke();
             AnyPressed?.Invoke(this);
         }
 
-        public void HoverOn() => SetHovered(true);
-        public void HoverOff() => SetHovered(false);
-
-        public void SetHovered(bool hovered)
-        {
-            _hovered = hovered;
-            transform.localScale = _hovered ? _baseScale * 1.08f : _baseScale;
-        }
-
+        /// <summary>Idle: the plain ring. Active (summoned / listening): the dock's selected look. Busy (thinking / working): dimmed, not pressable.</summary>
         public void SetVisual(Visual v)
         {
             if (_visual == v) return;
             _visual = v;
-            ApplyColor();
+            ApplyVisual();
         }
 
         /// <summary>This button belongs to a table (world top-face centre, yaw, size): it lives on that table's near-right corner, or beside the dock once that shows there.</summary>
@@ -186,10 +163,10 @@ namespace Forge.Pet
             PlaceOnRect(desk.TopCenter, desk.Rotation, desk.Size, head);
         }
 
-        /// <summary>Near-right corner (left if leftHanded) of a horizontal rectangle, as seen from head, tilted toward it.</summary>
+        /// <summary>Near-right corner (left if leftHanded) of a horizontal rectangle, as seen from head.</summary>
         public void PlaceOnRect(Vector3 top, Quaternion rot, Vector2 size, Transform head)
         {
-            if (head == null || _collider == null) return;
+            if (head == null) return;
             if (TryCornerPose(top, rot, size, head.position, out Vector3 pos, out Quaternion r))
             {
                 transform.SetPositionAndRotation(pos, r);
@@ -199,33 +176,28 @@ namespace Forge.Pet
 
         bool TryCornerPose(Vector3 top, Quaternion rot, Vector2 size, Vector3 headPos, out Vector3 pos, out Quaternion r)
         {
-            if (!DeskCorner.TryPose(top, rot, size, headPos, cornerInset, leftHanded, tiltDegrees, out pos, out r)) return false;
-            pos += Vector3.up * Lift();
+            float inset = Mathf.Max(cornerInset, RingRadius());
+            if (!DeskCorner.TryPose(top, rot, size, headPos, inset, leftHanded, 0f, out pos, out r)) return false;
+            r = FlatPose(-(r * Vector3.forward));   // TryPose's forward points out of the table
+            pos += Vector3.up * Hover;
             return true;
         }
 
-        // Height of the button's origin above the desk top so the tilted collider rests on it (unhovered size).
-        float Lift()
-        {
-            Vector3 s = RestScale();
-            return _collider.size.y * s.y * 0.5f + Mathf.Sin(tiltDegrees * Mathf.Deg2Rad) * _collider.size.z * s.z * 0.5f;
-        }
+        // Lying on the desk like the dock: canvas +Z into the desk, its up (the label's up) pointing into the table.
+        static Quaternion FlatPose(Vector3 inward) =>
+            Quaternion.LookRotation(Vector3.down, Vector3.ProjectOnPlane(inward, Vector3.up).normalized);
 
-        Vector3 RestScale() => transform.parent != null ? Vector3.Scale(transform.parent.lossyScale, _baseScale) : _baseScale;
+        // The ring's radius in metres (its glow spills past this).
+        float RingRadius() => ring != null ? ring.HalfWidth * ring.transform.lossyScale.x : 0.036f;
 
         // ---------------------------------------------------------------- per frame
 
         void Update()
         {
             if (autoPlace && !FollowDock() && !_byDock && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
+            if (ring != null) ring.Viewer = PetUser.Head;
 
             if (whistleAction != null && whistleAction.WasPressedThisFrame() && !TypedSpeechToText.AnyListening) Press();   // sandbox text box open: F is a letter
-
-            Mouse mouse = Mouse.current;
-            if (mouse != null && mouse.leftButton.wasPressedThisFrame) TryMousePress(mouse);
-
-            if (visual != null)
-                visual.transform.localPosition = Time.time < _pressedUntil ? _visualRest - Vector3.up * 0.006f : _visualRest;
         }
 
         // Throttled (0.5 s). First placement as soon as a table / desk and a head exist; afterwards only when the user is
@@ -242,9 +214,9 @@ namespace Forge.Pet
                 transform.SetPositionAndRotation(pos, r);
         }
 
-        // Every frame while the dock shows on this table: just past its right end, level with its row, tilted toward the
-        // user, so it slides with the dock. Kept on the table top. Sets _byDock: from then on it stays at the dock's spot
-        // while the dock is away instead of going back to the corner.
+        // Every frame while the dock shows on this table: just past its right end, level with its row, so it slides with
+        // the dock. Kept on the table top. Sets _byDock: from then on it stays at the dock's spot while the dock is away
+        // instead of going back to the corner.
         bool FollowDock()
         {
             if (!besideDock || _dock == null || !_dock.TryGetRightSide(dockGap, out Vector3 side, out Vector3 inward)) return false;
@@ -253,11 +225,11 @@ namespace Forge.Pet
             if (hasRect && (Mathf.Abs(edge.y - top.y) > 0.15f || DeskCorner.HorizontalDistance(top, rot, size, edge) > 0.05f))
                 return false;                       // the dock is on another table
 
-            float halfWidth = _collider.size.x * RestScale().x * 0.5f;
-            Vector3 pos = side + Vector3.Cross(Vector3.up, inward) * halfWidth;
-            if (hasRect) pos = DeskCorner.ClampInside(top, rot, size, pos, halfWidth);
-            pos += Vector3.up * Lift();
-            Quaternion r = DeskCorner.TiltToward(-inward, tiltDegrees);
+            float radius = RingRadius();
+            Vector3 pos = side + Vector3.Cross(Vector3.up, inward) * radius;
+            if (hasRect) pos = DeskCorner.ClampInside(top, rot, size, pos, radius);
+            pos.y = (hasRect ? top.y : side.y) + Hover;
+            Quaternion r = FlatPose(inward);
             if ((pos - transform.position).sqrMagnitude > 0.0005f * 0.0005f || Quaternion.Angle(r, transform.rotation) > 0.1f)
                 transform.SetPositionAndRotation(pos, r);
             Placed = true;
@@ -282,32 +254,16 @@ namespace Forge.Pet
             Vector3 right = Vector3.ProjectOnPlane(leftHanded ? -_spawnRight : _spawnRight, Vector3.up);
             if (right.sqrMagnitude < 0.0001f) right = Vector3.right;
             right.Normalize();
-            Vector3 lift = Vector3.up * (_collider.size.y * transform.lossyScale.y * 0.5f);
-            transform.SetPositionAndRotation(_spawnPos + right * spawnRightOffset + lift, Quaternion.LookRotation(Vector3.Cross(right, Vector3.up), Vector3.up));
+            transform.SetPositionAndRotation(_spawnPos + right * spawnRightOffset + Vector3.up * Hover, FlatPose(Vector3.Cross(right, Vector3.up)));
             Placed = true;
             _placedFallback = true;                  // a desk found later (MRUK) replaces this spot
         }
 
-        void TryMousePress(Mouse mouse)
+        void ApplyVisual()
         {
-            Camera cam = PetUser.HeadCamera;
-            if (cam == null || _collider == null) return;
-            Ray ray = Cursor.lockState == CursorLockMode.Locked
-                ? cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f))
-                : cam.ScreenPointToRay(mouse.position.ReadValue());
-            if (Physics.Raycast(ray, out RaycastHit hit, maxDistance, raycastMask, QueryTriggerInteraction.Collide)
-                && (hit.collider == _collider || hit.collider.transform.IsChildOf(transform)))
-                Press();
-        }
-
-        void ApplyColor()
-        {
-            if (visual == null || _mpb == null) return;
-            Color c = _visual == Visual.Active ? activeColor : _visual == Visual.Busy ? busyColor : idleColor;
-            visual.GetPropertyBlock(_mpb);
-            _mpb.SetColor(BaseColorId, c);
-            _mpb.SetColor(ColorId, c);
-            visual.SetPropertyBlock(_mpb);
+            if (ring == null) return;
+            ring.Selected = _visual == Visual.Active;
+            ring.Interactable = _visual != Visual.Busy;
         }
     }
 }

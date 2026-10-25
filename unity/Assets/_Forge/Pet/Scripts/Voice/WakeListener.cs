@@ -13,7 +13,7 @@ namespace Forge.Pet
     /// everything else is dropped without a caption. "Hey &lt;name&gt;" alone comes back as wake.listen:
     ///  * Bit  → PushToTalk.BeginHandsFree (a normal hands-free turn, then GatorFollowUp keeps the conversation going);
     ///  * crew → that gator turns to Listening and the next segment is sent for it (no name needed) for followSeconds.
-    /// Pauses (and releases the mic) while push-to-talk / hands-free owns it (HubSpeechToText.MicNeeded), while Bit is
+    /// Pauses (and releases the mic) while a whistle / follow-up turn owns it (HubSpeechToText.MicNeeded), while Bit is
     /// speaking (so he can't wake his own crew by saying their names) and while the hub is offline.
     /// Hub mode only. No allocations per frame: buffers are allocated once per mic start.
     /// </summary>
@@ -52,7 +52,7 @@ namespace Forge.Pet
         [Header("After \"Hey <name>\"")]
         [SerializeField, Tooltip("How long (s) a named gator waits for the request.")]
         float followSeconds = 8f;
-        [SerializeField, Tooltip("Wait this long (s) after Bit stops talking / a push-to-talk turn before listening again.")]
+        [SerializeField, Tooltip("Wait this long (s) after Bit stops talking / a whistle turn before listening again.")]
         float resumeDelay = 0.6f;
 
         /// <summary>Mic RMS of the last chunk (for debugging / UI).</summary>
@@ -110,7 +110,7 @@ namespace Forge.Pet
         void OnSpeechStarted() { _ttsTalking = true; ReleaseMic(); }
         void OnSpeechEnded() { _ttsTalking = false; _pausedUntil = Time.time + resumeDelay; }
 
-        // Someone else needs the mic (push-to-talk / hands-free / follow-up): let go right now, resume later.
+        // Someone else needs the mic (whistle / follow-up): let go right now, resume later.
         void ReleaseMic()
         {
             AbortSegment();
@@ -125,7 +125,7 @@ namespace Forge.Pet
             ResolveClient();
             if (_target != null && Time.time >= _targetUntil) DropTarget();
 
-            // Push-to-talk / hands-free, or GatorFollowUp watching the mic (barge-in, look-to-talk): their mic, not ours.
+            // A hands-free turn (whistle, follow-up), or GatorFollowUp watching the mic (barge-in, look-to-talk): their mic, not ours.
             bool sessionBusy = (pushToTalk != null && pushToTalk.SessionActive)
                                || (pushToTalk != null && pushToTalk.Provider is HubSpeechToText hub && (hub.IsMonitoring || hub.IsListening));
             bool want = listenForNames && GatorAgentBridge.EventSourceIsHub && _client != null && _client.IsConnected

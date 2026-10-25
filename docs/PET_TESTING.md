@@ -34,7 +34,7 @@ scene builder, never on the prefab), so the agent is faked inside Unity whatever
 | **Roll off the desk** | **H** to hop onto the desk, walk/wait until it's near an edge, then **R** (repeat until it rolls the right way): it falls to the floor, lies on its back (Death pose, dizzy → dead eyes) for 2.5 s, stands up and hops back onto the desk. Rolling on the floor never falls. |
 | **Desk hop** | **H**: gator jumps onto the desk cube (lands on the edge nearest you, faces you) and from then on wanders only on the desk top. **G**: hops back down to the floor. |
 | **Desk keep-out** | Console: `[GatorSandboxNav] Desk keep-out 0.60 x 0.50 m at ...` (MR / PetMain: `[GatorMrukAdapter] Desk keep-out ...`, `(incl. DeskDock)` once the mode buttons show). **H**: it lands *beside* the front-middle of the desk, never in it, and wander trips never end in the 0.6 × 0.45 m zone at the edge nearest you (laptop + DeskDock buttons). Hop up, wait until it's next to the zone, **R** until it rolls into it: after the dizzy pause it scoots out to the nearer side. `GatorController.IsInKeepOut` / `EvacuateKeepOut()`; toggle with `keepOutEnabled` on the adapter / sandbox nav. |
-| Push-to-talk (typed, sandbox only) | Press **Space** → gator goes Listening and a text field opens at the bottom (`TypedSpeechToText`, only on the sandbox instance). Type a question, **Enter** → Thinking → caption streams the (fake) answer → Answering (bounce) → Wandering. Esc cancels. |
+| Typed turn (sandbox only) | Whistle (**F**) → gator comes over, goes Listening and a text field opens at the bottom (`TypedSpeechToText`, only on the sandbox instance). Type a question, **Enter** → Thinking → caption streams the (fake) answer → Answering (bounce) → Wandering. Esc cancels. |
 | Coding task flow | Type something with an imperative verb, e.g. `fix the bug in the websocket handler` → Thinking → Working (caption shows progress %) → **TaskComplete spin** → caption "Done! Changes are on a new branch." |
 
 Console must stay free of errors/warnings from `Forge.Pet` scripts. One benign log: `[GatorMrukAdapter] No DeskLocator and no MRUK ... idle`.
@@ -50,7 +50,7 @@ Unity talks to the hub only through Core's `ForgeNet` (`/ws`; the address is `hu
 `Forge.HubUrl`, default `http://localhost:8000`). In the sandbox scene select `GatorAssistant` and **untick the
 `MockEventSource` component** (it overrides the config while enabled), then Play:
 - console: `[GatorAgentBridge] ... -> hub via ForgeNet`, `[ForgeNet] Live at http://localhost:8000`, `[AgentClient] hello sent over ForgeNet`.
-- Voice: say "Hey Albie, ..." (WakeListener), or hold **Space** (HubSpeechToText streams the mic), or whistle (**F**). Events come
+- Voice: say "Hey Albie, ..." (WakeListener), or whistle (**F** / click the floating whistle ring beside the dock; HubSpeechToText streams the mic). Events come
   back from the hub (`stt.*`, `pet.state`, `agent.partial_answer`, `tts.*`, …). There is no typed text path to the hub any more.
 - Optional: `hub/.venv/bin/python hub/scripts/ws_smoke.py "where is the websocket handler?" --mode qa` prints the raw event stream.
 Re-tick `MockEventSource` before committing the scene (or just don't save it).
@@ -64,8 +64,8 @@ Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/uvicorn main:app
 3. Simulator window: **Inputs** → keyboard + mouse; **Choose environment** → a room with a table (default living room / office).
 4. Expect in the console: `[DeskLocator] Room ... 1 table(s)`, `Desk at ...`, then `[GatorMrukAdapter] ... desk surface 1.1×0.6 m` and `floor surface ...`.
    In the simulator: the table is drawn blue, the gator runs to you, and ~1 s after the table is found it **hops onto the desk** and wanders there.
-5. Press the right controller's primary button (simulator maps it to a key, see its Inputs panel) to push-to-talk; with the
-   mock enabled the typed field opens, with it disabled (hub) the mic streams.
+5. Press the right controller's B (simulator maps it to a key, see its Inputs panel) or point at the whistle ring to whistle; with
+   the mock enabled the typed field opens, with it disabled (hub) the mic streams.
 6. Deactivate the simulator afterwards (same menu) or normal Play stays routed to it.
 
 ## 4. Albie in Main.unity
@@ -86,5 +86,5 @@ speaks. Click a Messages card: `messages.focus` goes to the hub and Albie reads 
 - Feet slide → tune `GatorController.walkSpeed/runSpeed` (0.6 / 1.8 m/s) on the prefab.
 - Hub mode but nothing happens → `ForgeNet` status (the DeskDock's dot: green live, amber mock) and `AgentClient.Status` in the inspector; the hub must be reachable from the device (Quest: laptop LAN IP in `Forge.HubUrl` or `adb reverse tcp:8000 tcp:8000`).
 - Albie doesn't hop up in Main → the `[Arrival]` log says why (`No desk surface yet`: the room has no TABLE, or MRUK hasn't loaded). `Hub not live; digest skipped` is normal without the hub.
-- Space does nothing in Main → there is no typed text box there by design; talk (WakeListener / hold Space with a mic) or whistle.
+- Space does nothing → there is no push-to-talk key any more; talk ("Hey Albie", WakeListener) or whistle.
 - Logs: `unity/Logs/Editor.log`; hub: terminal running uvicorn.

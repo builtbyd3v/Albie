@@ -88,8 +88,8 @@ public interface ISpeechToText {
 ```
 Implementations: `TypedSpeechToText` (on-screen input field, Enter = final), `HubSpeechToText`
 (mic → PCM16 mono 16 kHz → `stt.audio` binary frames over the `AgentClient` socket; hub answers `stt.partial`/`stt.final`).
-`PushToTalk` holds: Keyboard **Space** and XR controller primary button (Input System binding
-`<XRController>{RightHand}/primaryButton`). Held → `GatorState.Listening`; released → `Thinking` + send `agent.ask`.
+`PushToTalk` runs every listening turn hands-free (no hold-to-talk key since 2026-10-24; Space / controller A do nothing):
+the whistle, a wake word or a follow-up opens one (`BeginHandsFree`) → `GatorState.Listening`; end of speech → `Thinking` + `agent.ask`.
 Android: request `Permission.Microphone` before first mic use.
 
 ## Text-to-speech hook
@@ -246,16 +246,17 @@ public void CancelSession();       // sends stt.cancel (hub provider), discards 
 public bool SessionActive { get; }  public bool HandsFree { get; }  public event Action<bool> SessionEnded;  // true = answered
 // Voice mode: the final is captioned + Thinking, but not sent as agent.ask.
 
-// Whistle/WhistleButton — desk puck: Press(), HoverOn/Off(), SetVisual(Idle|Active|Busy), PlaceOnDesk(desk, head), event Pressed
-//   inputs: ISDK Poke/Ray via InteractableUnityEventWrapper (wired by the editor menu), mouse click, F, right controller B
-//   self-places at the desk's near edge to the user's right once GatorNavSurface.Desk is built; else 0.3 m right of the gator spawn
+// Whistle/WhistleButton — a floating Core DockRing with the white whistle icon (raised on its light column like an open dock mode,
+//   turned toward the head): Press(), SetVisual(Idle|Active = selected look|Busy = dimmed), PlaceOnDesk(desk, head), event Pressed
+//   inputs: the ring's uGUI Button (mouse via DesktopRig; ISDK ray + poke canvas interaction added by the editor menu), F, right controller B
+//   beside the DeskDock's right end once it shows (slides with it); before that the desk's near-right corner; else 0.3 m right of the gator spawn
 // Whistle/GatorSummon — Toggle() (button), Summon(), Cancel(), IsActive, event Action<SummonEnd> Ended (Listening|Cancelled|Ignored)
 //   whistle SFX → HopToUserDesk() if on the floor with a desk, else ComeToUser() → arrived or 2.5 s → PushToTalk.BeginHandsFree()
 //   Thinking/Working: ignored ("One sec!"); Answering: TTS stopped first; any foreign state change during the trip cancels it
 ```
 Bridge mapping additions: `tts.start` → Answering; `tts.end` / `tts.stop` / `voice.ready` are handled by the TTS (no state change).
 Editor: **Forge/Pet/6. Add Whistle To Open Scene** (`Editor/WhistleSetup.cs`) adds Voice + GatorTalkAnimator + GatorSummon to the
-gator and a WhistleButton with Poke/Ray interactables to the open scene (idempotent, doesn't save). Hand/controller presses need
+gator and a WhistleButton (its DockRing + ISDK ray / poke canvas interaction) to the open scene (idempotent, doesn't save). Hand/controller presses need
 `OVRComprehensiveInteractionRig` in the scene's camera rig.
 
 ## Addendum C (2026-10-23): one socket through ForgeNet, per-table whistles, follow-up, bubble
@@ -338,7 +339,7 @@ gator and a WhistleButton with Poke/Ray interactables to the open scene (idempot
 * Unity `WakeListener` (on Albie, added by `Forge/Pet/7`): the mic stays on and an energy VAD (adaptive noise floor)
   cuts speech into segments. Each segment is a normal turn marked `stt.start {wake: true, pet_id?}`: 0.5 s of
   pre-roll, PCM16 16 kHz, then `stt.stop`. A segment with less than 0.35 s of speech gets `stt.cancel` before
-  `stt.stop`. The listener pauses and releases the mic while push-to-talk or hands-free owns it
+  `stt.stop`. The listener pauses and releases the mic while a whistle / follow-up turn owns it
   (`HubSpeechToText.MicNeeded`), while Albie is speaking (so he can't wake his crew by saying their names) and while
   the hub is offline.
 * Hub (`agent/wake.py`): a wake turn's `stt.*` is held back until the transcript names a gator, either at the start

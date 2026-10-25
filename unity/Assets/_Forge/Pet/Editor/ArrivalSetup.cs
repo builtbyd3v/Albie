@@ -81,15 +81,21 @@ namespace Forge.Pet.Editor
         internal static string AddCanvasInteraction(ArrivalGreeting greeting)
         {
             if (greeting == null || greeting.StartRing == null) return "no ring";
+            bool wasActive = greeting.gameObject.activeSelf;
+            greeting.gameObject.SetActive(true);   // the wizards read the canvas' rect; an inactive target can trip them up
+            try { return AddCanvasInteraction(greeting.StartRing.gameObject, "START ring"); }
+            finally { greeting.gameObject.SetActive(wasActive); }
+        }
+
+        /// The same on any DockRing canvas (`what` names it in warnings; the whistle's ring uses this too). Needs the canvas active.
+        internal static string AddCanvasInteraction(GameObject canvas, string what)
+        {
             Type api = FindStaticType("Oculus.Interaction.Editor.QuickActions.QuickActionsAPI");
             if (api == null)
             {
-                Debug.LogWarning("[ArrivalSetup] Interaction SDK QuickActions not found; the START ring works with the mouse only.");
+                Debug.LogWarning("[ArrivalSetup] Interaction SDK QuickActions not found; the " + what + " works with the mouse only.");
                 return "no Interaction SDK";
             }
-            GameObject canvas = greeting.StartRing.gameObject;
-            bool wasActive = greeting.gameObject.activeSelf;
-            greeting.gameObject.SetActive(true);   // the wizards read the canvas' rect; an inactive target can trip them up
             try
             {
                 Invoke(api, "AddRayCanvasInteraction", canvas);
@@ -97,13 +103,9 @@ namespace Forge.Pet.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[ArrivalSetup] Interaction SDK canvas interaction failed on the START ring (" + e.GetType().Name + ": " + e.Message
-                                 + "). Select PetRuntime/ArrivalGreeting/Ring START and add it with the Interaction SDK Quick Actions; the mouse works regardless.");
+                Debug.LogWarning("[ArrivalSetup] Interaction SDK canvas interaction failed on the " + what + " (" + e.GetType().Name + ": " + e.Message
+                                 + "). Select " + canvas.name + " and add it with the Interaction SDK Quick Actions; the mouse works regardless.");
                 return "no Interaction SDK (see warning)";
-            }
-            finally
-            {
-                greeting.gameObject.SetActive(wasActive);
             }
             return "poke + ray";
         }

@@ -4,11 +4,12 @@
 //   * gator/Voice            AudioSource + StreamedPcmTextToSpeech (hub speech), wired into GatorAgentBridge.tts
 //   * gator                  GatorTalkAnimator (head nod + pulse while speaking), GatorSummon, GatorFollowUp
 //                            (keeps listening 15 s after an answer, then wanders off)
-//   * WhistleButton          collider puck + Meta Interaction SDK PokeInteractable / RayInteractable, each with an
-//                            InteractableUnityEventWrapper → WhistleButton.Press / HoverOn / HoverOff.
+//   * WhistleButton          Hudson's floating dock ring (Core DockRing.Create, white whistle icon set at runtime)
+//                            whose uGUI Button presses it, plus Interaction SDK ray + poke canvas interaction (the SDK's
+//                            QuickActions, as ArrivalSetup does for START). An old puck's collider / Poke / Ray go away.
 //                            XR (GatorMrukAdapter present): it becomes the template cloned onto every MRUK table.
 // Idempotent: re-running reuses what exists and re-wires it. Interaction SDK types are looked up by name so this
-// file compiles without the SDK (the button then works with mouse / F / controller B only).
+// file compiles without the SDK (the ring then works with mouse / F / controller B only).
 // Save the scene yourself afterwards. -executeMethod Forge.Pet.Editor.WhistleSetup.AddWhistleToOpenScene
 // (The internal helpers are shared with CrewSetup and PetRuntimeSetup, which builds the same pieces into
 // Prefabs/PetRuntime.prefab inside a preview scene with UseUndo = false.)
@@ -26,12 +27,6 @@ namespace Forge.Pet.Editor
 {
     public static class WhistleSetup
     {
-        const string CapMaterialPath = "Assets/_Forge/Pet/Materials/M_Whistle.mat";
-        const string BaseMaterialPath = "Assets/_Forge/Pet/Materials/M_Whistle_Base.mat";
-        static readonly Vector3 ColliderSize = new Vector3(0.08f, 0.03f, 0.08f);
-        const float FaceHeight = 0.016f;          // top of the cap above the button origin
-        const float PokeSize = 0.07f;
-
         /// Menu commands record Undo; PetRuntimeSetup turns this off while it builds inside a preview scene.
         internal static bool UseUndo = true;
 
@@ -51,7 +46,7 @@ namespace Forge.Pet.Editor
             StreamedPcmTextToSpeech voice = AddVoice(root);
             AddTalkAnimator(root, voice);
             WhistleButton button = FindOrCreateButton(gator);
-            string isdk = AddInteractionSdk(button);
+            string isdk = AddInteractionSdk(button);   // also turns an old puck into the ring
             AddSummon(root, button, voice);
             AddFollowUp(root, voice);
             var adapter = Object.FindAnyObjectByType<GatorMrukAdapter>();
@@ -61,7 +56,7 @@ namespace Forge.Pet.Editor
             Selection.activeGameObject = button.gameObject;
             Undo.CollapseUndoOperations(group);
             Debug.Log($"[WhistleSetup] Done in '{root.scene.name}': Voice + GatorTalkAnimator + GatorSummon + GatorFollowUp on '{root.name}', " +
-                      $"WhistleButton ({isdk}{(adapter != null ? ", cloned onto every MRUK table" : "")}). Save the scene to keep it. Test: F / click the button / B.");
+                      $"WhistleButton ({isdk}{(adapter != null ? ", cloned onto every MRUK table" : "")}). Save the scene to keep it. Test: F / click the ring / B.");
         }
 
         // ------------------------------------------------------------------ voice
@@ -134,34 +129,51 @@ namespace Forge.Pet.Editor
             return existing != null ? existing : CreateButton(gator, null);
         }
 
-        /// A new whistle puck 0.3 m to the gator's right (it places itself on the desk at runtime), under `parent` (may be null).
+        /// A new whistle ring 0.3 m to the gator's right (it places itself beside the dock at runtime), under `parent` (may be null).
         internal static WhistleButton CreateButton(GatorController gator, Transform parent)
         {
             var go = new GameObject("WhistleButton");
             if (parent != null) go.transform.SetParent(parent, false);
             Transform g = gator.transform;
-            go.transform.position = g.position + g.right * 0.3f + Vector3.up * (ColliderSize.y * 0.5f);
-            go.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized, Vector3.up);
-
-            var box = go.AddComponent<BoxCollider>();
-            box.size = ColliderSize;
-            box.isTrigger = true;
+            go.transform.position = g.position + g.right * 0.3f;
+            go.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.ProjectOnPlane(g.forward, Vector3.up).normalized);   // flat, like the dock
             var audio = go.AddComponent<AudioSource>();
             audio.playOnAwake = false;
             audio.spatialBlend = 0.6f;
 
-            Material baseMat = LoadOrCreateMaterial(BaseMaterialPath, new Color(0.16f, 0.17f, 0.2f));
-            Material capMat = LoadOrCreateMaterial(CapMaterialPath, new Color(1f, 0.62f, 0.15f));
-            Disc(go.transform, "Base", new Vector3(0.08f, 0.004f, 0.08f), new Vector3(0f, -0.008f, 0f), baseMat);
-            Renderer cap = Disc(go.transform, "Cap", new Vector3(0.066f, 0.006f, 0.066f), new Vector3(0f, 0.004f, 0f), capMat);
-            Disc(cap.transform.parent, "Dot", new Vector3(0.018f, 0.002f, 0.018f), new Vector3(0f, 0.011f, 0f), baseMat)
-                .transform.SetParent(cap.transform, true);   // pressed with the cap
-
             var button = go.AddComponent<WhistleButton>();
-            SetRef(button, "visual", cap);
+            EnsureRing(button);
             SetRef(button, "gator", gator);
             RegisterCreated(go, "Create WhistleButton");
             return button;
+        }
+
+        // The button's DockRing (made if missing) wired into it; what's left of an old puck (collider, Cap / Base, Poke / Ray) removed.
+        static DockRing EnsureRing(WhistleButton button)
+        {
+            Transform root = button.transform;
+            foreach (string old in new[] { "Base", "Cap", "Poke", "Ray" })
+            {
+                Transform t = root.Find(old);
+                if (t != null) Remove(t.gameObject);
+            }
+            var box = button.GetComponent<BoxCollider>();
+            if (box != null) { if (UseUndo) Undo.DestroyObjectImmediate(box); else Object.DestroyImmediate(box); }
+
+            DockRing ring = button.GetComponentInChildren<DockRing>(true);
+            if (ring == null)
+            {
+                ring = DockRing.Create(root, WhistleButton.Label, ForgeTheme.Tool, ForgeTheme.DockModeRing, null);
+                RegisterCreated(ring.gameObject, "Create whistle ring");
+            }
+            SetRef(button, "ring", ring);
+            return ring;
+        }
+
+        static void Remove(GameObject go)
+        {
+            if (UseUndo) Undo.DestroyObjectImmediate(go);
+            else Object.DestroyImmediate(go);
         }
 
         internal static Renderer Disc(Transform parent, string name, Vector3 scale, Vector3 localPos, Material mat)
@@ -195,55 +207,11 @@ namespace Forge.Pet.Editor
 
         // ------------------------------------------------------------------ Interaction SDK (by name)
 
+        /// Ray + poke canvas interaction on the whistle's ring (ArrivalSetup.AddCanvasInteraction, the SDK's QuickActions).
         internal static string AddInteractionSdk(WhistleButton button, bool warnNoInteractors = true)
         {
-            Type poke = FindType("Oculus.Interaction.PokeInteractable");
-            Type ray = FindType("Oculus.Interaction.RayInteractable");
-            Type wrapper = FindType("Oculus.Interaction.InteractableUnityEventWrapper");
-            Type plane = FindType("Oculus.Interaction.Surfaces.PlaneSurface");
-            Type clipper = FindType("Oculus.Interaction.Surfaces.BoundsClipper");
-            Type clipped = FindType("Oculus.Interaction.Surfaces.ClippedPlaneSurface");
-            Type colliderSurface = FindType("Oculus.Interaction.Surfaces.ColliderSurface");
-            if (poke == null || ray == null || wrapper == null || plane == null || clipper == null || clipped == null || colliderSurface == null)
-            {
-                Debug.LogWarning("[WhistleSetup] Meta Interaction SDK types not found; the button works with mouse / F / B only.");
-                return "no Interaction SDK";
-            }
-
-            Transform root = button.transform;
-
-            // Poke: PokeInteractable → ClippedPlaneSurface(PlaneSurface facing up + BoundsClipper) on the button face.
-            GameObject pokeGo = Child(root, "Poke");
-            GameObject surfaceGo = Child(pokeGo.transform, "Surface");
-            surfaceGo.transform.localPosition = new Vector3(0f, FaceHeight, 0f);
-            surfaceGo.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);   // PlaneSurface normal (-Z, "Backward") = button up
-            Component planeC = Ensure(surfaceGo, plane);
-            Component clipperC = Ensure(surfaceGo, clipper);
-            Component clippedC = Ensure(surfaceGo, clipped);
-            var clipSo = new SerializedObject(clipperC);
-            SetVector(clipSo, "_size", new Vector3(PokeSize, PokeSize, 0.02f));
-            clipSo.ApplyModifiedProperties();
-            var clippedSo = new SerializedObject(clippedC);
-            SetRef(clippedSo, "_planeSurface", planeC);
-            SerializedProperty clippers = clippedSo.FindProperty("_clippers");
-            if (clippers != null && clippers.isArray)
-            {
-                clippers.arraySize = 1;
-                clippers.GetArrayElementAtIndex(0).objectReferenceValue = clipperC;
-            }
-            clippedSo.ApplyModifiedProperties();
-            Component pokeC = Ensure(pokeGo, poke);
-            SetRef(pokeC, "_surfacePatch", clippedC);
-            WireWrapper(Ensure(pokeGo, wrapper), pokeC, button);
-
-            // Ray: RayInteractable → ColliderSurface(button BoxCollider).
-            GameObject rayGo = Child(root, "Ray");
-            Component colliderSurfaceC = Ensure(rayGo, colliderSurface);
-            SetRef(colliderSurfaceC, "_collider", button.GetComponent<BoxCollider>());
-            Component rayC = Ensure(rayGo, ray);
-            SetRef(rayC, "_surface", colliderSurfaceC);
-            WireWrapper(Ensure(rayGo, wrapper), rayC, button);
-
+            DockRing ring = EnsureRing(button);
+            string result = ArrivalSetup.AddCanvasInteraction(ring.gameObject, "whistle ring");
             Type pokeInteractor = FindType("Oculus.Interaction.PokeInteractor");
             Type rayInteractor = FindType("Oculus.Interaction.RayInteractor");
             bool hasInteractors = !warnNoInteractors
@@ -252,16 +220,7 @@ namespace Forge.Pet.Editor
             if (!hasInteractors)
                 Debug.LogWarning("[WhistleSetup] No Poke/RayInteractor in this scene: add OVRComprehensiveInteractionRig " +
                                  "(com.meta.xr.sdk.interaction.ovr) to the camera rig for hand/controller presses. Mouse / F / B work regardless.");
-            return "poke + ray";
-        }
-
-        static void WireWrapper(Component wrapper, Component interactable, WhistleButton button)
-        {
-            SetRef(wrapper, "_interactableView", interactable);
-            AddListener(wrapper, "_whenSelect", button.Press);
-            AddListener(wrapper, "_whenHover", button.HoverOn);
-            AddListener(wrapper, "_whenUnhover", button.HoverOff);
-            EditorUtility.SetDirty(wrapper);
+            return result;
         }
 
         internal static void AddListener(Component wrapper, string fieldName, UnityAction call)

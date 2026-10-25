@@ -12,8 +12,10 @@ using UnityEngine.UI;
 /// all press it the same way. Faces -Z like a canvas: parent it where it goes and turn its +Z away from the viewer.
 /// <see cref="DeskDock"/> builds its rings from the same pieces (<see cref="Layer"/>, <see cref="Label"/>,
 /// <see cref="SetLook"/>, <see cref="Pointers"/>) and animates them itself; a ring made with <see cref="Create"/>
-/// animates itself in LateUpdate (brightens as a pointer comes near, comet while hovered, dips while pressed).
-/// The pet's START button on the first arrival is one of these.
+/// animates itself in LateUpdate (brightens as a pointer comes near, comet while hovered, dips while pressed). It can
+/// also carry a white icon (<see cref="SetIcon"/>), take the selected look (<see cref="Selected"/>) and float like an
+/// open dock mode (<see cref="Raised"/>: up off its plane on a column of light, turned toward <see cref="Viewer"/>).
+/// The pet's START button on the first arrival and its whistle are these.
 /// </summary>
 [RequireComponent(typeof(Canvas))]
 public class DockRing : MonoBehaviour
@@ -41,6 +43,7 @@ public class DockRing : MonoBehaviour
     [SerializeField] float radius = ForgeTheme.DockModeRing * 0.5f;
     [SerializeField] float half;          // pill: half length of the straight part (mm); 0 = a ring
     [SerializeField] float wash = 1f;     // the pool's dark contrast wash (a ring on its own has no dock behind it)
+    [SerializeField] SpriteRenderer icon; // SetIcon; null = label only
 
     public Button Button => button;
     public DockButton Input => input;
@@ -55,9 +58,17 @@ public class DockRing : MonoBehaviour
         get => interactable;
         set { interactable = value; if (button != null) button.interactable = value; }
     }
+    /// <summary>The dock's selected look (brighter ring, imprint in the pool), faded like a dock mode.</summary>
+    public bool Selected { get; set; }
+    /// <summary>Floats ForgeTheme.DockRise off its plane on a column of light, like an open mode on the dock (input stays flat).</summary>
+    public bool Raised { get; set; }
+    /// <summary>What a raised ring turns a little toward (the head). Null: it faces straight off its plane.</summary>
+    public Transform Viewer { get; set; }
 
     bool interactable = true;
-    float near, hover, press, enable = 1f;
+    float near, hover, press, enable = 1f, select, rise;
+    Quaternion aimRotation = Quaternion.identity;
+    MeshRenderer column;  // made the first time it is raised (its mesh is built in code, so it isn't saved in a prefab)
     Vector4 shown = new Vector4(-1f, -1f, -1f, -1f);
     MaterialPropertyBlock block;
     RayInteractor[] rays = new RayInteractor[0];
@@ -127,6 +138,29 @@ public class DockRing : MonoBehaviour
         r.text = Label(label, r.lift, diameterMm + 2f * halfMm, ForgeTheme.DockModeLabel * diameterMm / ForgeTheme.DockModeRing, true, go.layer);
         r.label = r.text.GetComponent<MeshRenderer>();
         return r;
+    }
+
+    /// <summary>
+    /// A white icon filling the ring, as on the dock's modes (e.g. <see cref="ForgeTheme.DockIcon"/>): the label moves
+    /// just below the ring and only fades in while hovered. Calling it again swaps the sprite.
+    /// </summary>
+    public void SetIcon(Sprite sprite)
+    {
+        if (sprite == null || lift == null || text == null) return;
+        if (icon == null)
+        {
+            icon = new GameObject("Icon").AddComponent<SpriteRenderer>();
+            icon.gameObject.layer = gameObject.layer;
+            icon.transform.SetParent(lift, false);
+            icon.transform.localPosition = new Vector3(0f, 0f, -0.8f);
+            icon.shadowCastingMode = ShadowCastingMode.Off;
+            icon.receiveShadows = false;
+        }
+        icon.sprite = sprite;
+        icon.transform.localScale = Vector3.one * (radius * DeskDock.IconFill / Mathf.Max(sprite.bounds.size.x, sprite.bounds.size.y));
+        float labelMm = text.fontSize * 0.1f;
+        text.transform.localPosition = new Vector3(0f, -(radius + 0.68f * labelMm), -0.8f);
+        shown = new Vector4(-1f, -1f, -1f, -1f);
     }
 
     // ---- Pieces shared with DeskDock ----
@@ -288,12 +322,37 @@ public class DockRing : MonoBehaviour
         hover = Mathf.MoveTowards(hover, interactable && input.Hovered ? 1f : 0f, dt / ForgeTheme.HoverFade);
         press = Mathf.MoveTowards(press, interactable && input.Pressed ? 1f : 0f, dt / ForgeTheme.PressTime);
         enable = Mathf.MoveTowards(enable, interactable ? 1f : 0f, dt / ForgeTheme.HoverFade);
+        select = Mathf.MoveTowards(select, Selected ? 1f : 0f, dt / ForgeTheme.SelectFade);
+        rise = Mathf.MoveTowards(rise, Raised ? 1f : 0f, dt / ForgeTheme.LiftTime);
         float fade = group != null ? group.alpha : 1f;
 
-        var state = new Vector4(near, hover + 2f * press, enable, fade);
-        if ((state - shown).sqrMagnitude < 1e-7f) return;
+        // Raised, it turns a little toward the head (smoothed), like an open mode on the dock; lowered, it lies flat.
+        Quaternion aimTarget = Quaternion.identity;
+        if (Raised && Viewer != null)
+        {
+            Vector3 toEye = transform.InverseTransformPoint(Viewer.position) - new Vector3(0f, 0f, -ForgeTheme.DockRise);
+            Vector3 up = Vector3.back;  // canvas -Z is up off the plane
+            if (toEye.sqrMagnitude > 1f)
+                aimTarget = Quaternion.FromToRotation(up, Vector3.RotateTowards(up, toEye.normalized, ForgeTheme.DockTilt * Mathf.Deg2Rad, 0f));
+        }
+        aimRotation = Quaternion.Slerp(aimRotation, aimTarget, 1f - Mathf.Exp(-dt * 3f / ForgeTheme.HeadSmoothing));
+        bool moving = Quaternion.Angle(lift.localRotation, aimRotation) > 0.05f;
+
+        var state = new Vector4(near, hover + 2f * press, enable + 2f * select, fade + 4f * rise);
+        if (!moving && (state - shown).sqrMagnitude < 1e-7f) return;
         shown = state;
-        lift.localScale = Vector3.one * ((1f + 0.05f * near) * (1f - 0.05f * press));
-        SetLook(block, ring, null, pool, label, hue, radius, near, hover, press, 0f, enable, fade, 1f, null, half, wash);
+        float lifted = ForgeTween.EaseOutCubic(rise);
+        lift.localPosition = new Vector3(0f, 0f, -ForgeTheme.DockRise * lifted);
+        lift.localRotation = aimRotation;
+        lift.localScale = Vector3.one * ((1f + 0.05f * near * (1f - select)) * (1f + 0.06f * select) * (1f - 0.05f * press));
+        if (rise > 0f && column == null && half <= 0f)
+            column = Layer("Column", pool.transform.parent, ForgeTheme.ColumnLight, DeskDock.ColumnMesh, Vector2.one * (2f * (radius + GlowPad)), 0f, gameObject.layer);
+        if (column != null)
+        {
+            column.enabled = rise > 0.001f;
+            Vector3 s = column.transform.localScale;
+            column.transform.localScale = new Vector3(s.x, s.y, Mathf.Max(lifted, 0.001f));
+        }
+        SetLook(block, ring, column, pool, label, hue, radius, near, hover, press, select, enable, fade, 1f, icon, half, wash);
     }
 }

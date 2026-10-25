@@ -13,7 +13,7 @@ namespace Forge.Pet
     /// Press again while approaching or listening = cancel; a summon that ends without a question sends the gator
     /// off to idle (GatorController.WanderAway) so it's clear it stopped listening. Thinking/Working: ignored with a Bounce and
     /// "One sec!". Answering: the speech is stopped first. No new GatorState: the trip happens in Wandering, and a
-    /// state change from anyone else (hub pet.state, hotkeys, Space) during the trip cancels the summon quietly.
+    /// state change from anyone else (hub pet.state, hotkeys, a wake word) during the trip cancels the summon quietly.
     /// PushToTalk stays the only reader of transcripts. No allocations per frame.
     /// </summary>
     [DisallowMultipleComponent]
@@ -119,7 +119,7 @@ namespace Forge.Pet
                 Ended?.Invoke(SummonEnd.Ignored);
                 return;
             }
-            if (pushToTalk.SessionActive) { Ended?.Invoke(SummonEnd.Ignored); return; }   // Space is held: PTT owns it
+            if (pushToTalk.SessionActive) { Ended?.Invoke(SummonEnd.Ignored); return; }   // a wake / follow-up turn already has the mic
             if (s == GatorState.Answering && _tts != null) _tts.Stop();
 
             PlayWhistle();
@@ -191,7 +191,7 @@ namespace Forge.Pet
         void OnStateChanged(GatorState s)
         {
             if (_selfStateChange) return;
-            // Hub events / hotkeys / Space win over a summon trip.
+            // Hub events / hotkeys / a wake turn win over a summon trip.
             if (_phase == Phase.Approaching && s != GatorState.Wandering) Finish(SummonEnd.Cancelled);
             RefreshVisual();
         }
@@ -202,7 +202,7 @@ namespace Forge.Pet
             _phase = Phase.Idle;
             RefreshVisual();
             if (how == SummonEnd.Cancelled && wanderAwayWhenDone && controller != null
-                && (pushToTalk == null || !pushToTalk.SessionActive))   // not when Space/A took the session over
+                && (pushToTalk == null || !pushToTalk.SessionActive))   // not when another turn has the mic
                 controller.WanderAway();
             Ended?.Invoke(how);
         }

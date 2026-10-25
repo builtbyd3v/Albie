@@ -158,8 +158,8 @@ namespace Forge.Pet
                 case "stt.partial":
                 case "stt.final":
                 {
-                    // Transcripts alone don't make him listen: only a turn this gator opened (push-to-talk, hands-free,
-                    // the whistle) does, or an explicit pet.state listening from the hub. A wake segment that was for
+                    // Transcripts alone don't make him listen: only a turn this gator opened (the whistle, a wake word,
+                    // a follow-up) does, or an explicit pet.state listening from the hub. A wake segment that was for
                     // someone else, or an empty final (dropped / cancelled / silent turn), changes nothing and shows nothing.
                     string text = e.GetString("text");
                     if (string.IsNullOrWhiteSpace(text)) break;
