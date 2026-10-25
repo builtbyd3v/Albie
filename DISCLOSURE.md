@@ -23,6 +23,8 @@
 - cad-vision (github.com/BAAA-Hacks/cad-vision, MIT), copied unchanged into unity/Assets/_Forge/CAD/ThirdParty/CadVision/
 - Screen bridge: playwright-core (Apache-2.0) drives Google Chrome to share the VS Code window over WebRTC
 - Neural Net Lab: our own C# re-implementation of the TensorFlow Playground idea (datasets, features, init); no Playground code is copied
+- Blender: the gator's opening mouth and our own animation clips (art/gator/, scripts build_gator_*.py and export_gator_fbx.py)
+- faster-whisper (MIT), optional and not installed by default: local speech-to-text when STT_PROVIDER=whisper
 - SciPy (BSD-3): convex hulls for the humanoid design (hub/cad/parts/humanoid.py)
 - Offline data prep only, not run by the hub (hub/cad/tools_offline/): trimesh (MIT) and fast-simplification (MIT) for the G1 meshes; MuJoCo (Apache-2.0), PyTorch (BSD-3), PyYAML (MIT) and matplotlib to record the G1 walk clip
 - ML example (ml-examples/cifar10/, run in the user's own env, not the hub): PyTorch (BSD-3), torchvision (BSD-3), NumPy (BSD-3), Pillow (MIT-CMU), matplotlib (PSF-based). TensorBoard logs are read by our own decoder (hub/ml/logtail.py); TensorBoard itself is not a dependency
@@ -33,11 +35,13 @@
 - macOS Messages, optional and off by default (`IMESSAGE_ENABLED=1`): the hub reads the local `~/Library/Messages/chat.db` read-only
 - imsg CLI (github.com/steipete/imsg, Homebrew tap `steipete/tap/imsg`): sends confirmed iMessage drafts. Optional, never installed by the hub; the user installs it
 - [TEAM: Grok Voice Agent API, WhatsApp Cloud API, cloudflared/ngrok, if used]
+- GitHub REST API (api.github.com, optional GITHUB_TOKEN): the ML desk's GitHub import reads a repo's files (hub/ml/github_import.py)
 
 ## Assets and data
 - Unitree G1 robot description (URDF and meshes) from unitreerobotics/unitree_ros, BSD 3-Clause, in hub/cad/data/unitree_g1/ (license: see hub/cad/data/unitree_g1/LICENSE, details in NOTICE.md)
 - Unitree G1 walking policy from unitreerobotics/unitree_rl_gym, BSD 3-Clause, used offline to record walk_clip.json (license: see hub/cad/data/unitree_g1/LICENSE-unitree_rl_gym)
 - CIFAR-10 dataset (Krizhevsky, Nair and Hinton, 2009, University of Toronto), downloaded at run time by torchvision for the ML demo (ml-examples/cifar10/); not committed to the repo
+- Estes C6 motor thrust curve (RASP .eng file made from NAR published certification data, 2000), hub/cad/data/estes_c6.eng: the rocket's flight sim
 - Fonts: Fredoka (SIL OFL 1.1, unity/Assets/_Forge/Pet/ThirdParty/Fredoka/), Inter (SIL OFL 1.1, unity/Assets/_Forge/Core/Fonts/), Liberation Sans (SIL OFL, TextMesh Pro default)
 - Gator model and animations: Quirky Series Ultimate Pack Vol.1 alligator (Unity Asset Store), in unity/Assets/_Forge/Pet/ThirdParty/Quirky Series/. [TEAM: confirm its license allows a public repo]
 - [TEAM: pet model source and license, e.g. Quaternius CC0]
