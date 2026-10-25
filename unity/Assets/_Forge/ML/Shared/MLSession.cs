@@ -269,7 +269,15 @@ namespace Forge.ML
                     : $"Unsupported repository: {result.reason}";
                 if (GitHubImportId != null) LoadFromHub(null);
                 Changed?.Invoke();
-            }, error => { GitHubImportId = null; Notice = "GitHub import failed: " + error; Changed?.Invoke(); });
+            }, error => { GitHubImportId = null; Notice = "GitHub import failed: " + HubDetail(error); Changed?.Invoke(); });
+        }
+        // "422 HTTP/1.1 422 Unprocessable Entity {"detail":"..."}" -> the hub's own sentence, for the panel's banner.
+        static string HubDetail(string error)
+        {
+            int brace = error == null ? -1 : error.IndexOf('{');
+            if (brace < 0) return error;
+            try { return Newtonsoft.Json.Linq.JObject.Parse(error.Substring(brace)).Value<string>("detail") ?? error; }
+            catch (Exception) { return error; }
         }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.

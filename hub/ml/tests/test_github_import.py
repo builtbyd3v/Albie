@@ -95,3 +95,13 @@ def test_import_rejects_unsupported_format_without_starting_training(monkeypatch
         assert result.status_code == 200 and not result.json()["supported"]
         denied = client.post("/ml/github/train", json={"import_id": result.json()["import_id"], "epochs": 5})
         assert denied.status_code == 409
+
+
+def test_github_presets_default_and_env(monkeypatch):
+    from ml.router import DEFAULT_GITHUB_PRESETS, github_presets
+
+    monkeypatch.delenv("FORGE_ML_GITHUB_PRESETS", raising=False)
+    assert github_presets() == DEFAULT_GITHUB_PRESETS
+    monkeypatch.setenv("FORGE_ML_GITHUB_PRESETS", "Ours|https://github.com/a/b; bad|http://x ;Two|https://github.com/c/d/tree/main/e")
+    assert github_presets() == [{"label": "Ours", "url": "https://github.com/a/b"},
+                                {"label": "Two", "url": "https://github.com/c/d/tree/main/e"}]

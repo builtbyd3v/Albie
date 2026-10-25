@@ -98,6 +98,31 @@ async def train(req: TrainRequest, request: Request) -> TrainResponse:
     return TrainResponse(run_id=_call(start_run, request.app.state, req.epochs))
 
 
+# Preset buttons on the Training panel, so nobody types a URL in the headset. FORGE_ML_GITHUB_PRESETS overrides
+# them without a rebuild: "Label|https://github.com/...;Label|https://github.com/...".
+DEFAULT_GITHUB_PRESETS = [
+    {"label": "Forge CIFAR demo", "url": "https://github.com/hudmarr/gatorhack-dubz/tree/main/ml-examples/cifar10"},
+    {"label": "PyTorch examples", "url": "https://github.com/pytorch/examples"},
+]
+
+
+def github_presets() -> list[dict]:
+    raw = os.environ.get("FORGE_ML_GITHUB_PRESETS", "").strip()
+    if not raw:
+        return DEFAULT_GITHUB_PRESETS
+    presets = []
+    for item in raw.split(";"):
+        label, _, url = item.partition("|")
+        if label.strip() and url.strip().startswith("https://github.com/"):
+            presets.append({"label": label.strip(), "url": url.strip()})
+    return presets[:4]
+
+
+@router.get("/github/presets")
+def get_github_presets() -> list[dict]:
+    return github_presets()
+
+
 @router.post("/github/import", response_model=GitHubImportResponse)
 def import_github(req: GitHubImportRequest, request: Request) -> GitHubImportResponse:
     """Inspect a public repository's Contents API files against the supported static PyTorch format."""

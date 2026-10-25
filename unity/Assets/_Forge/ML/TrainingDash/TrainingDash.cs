@@ -16,11 +16,13 @@ namespace Forge.ML
     {
         public MLSession session;
         [Tooltip("Epochs for the Train button (5–10 for imported GitHub repositories).")][Range(5, 10)] public int trainEpochs = 10;
-        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, ImportY = 204, BannerY = 238, SectionY = 276, SummaryY = 294;
+        const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, ImportY = 204, PresetY = 236, BannerY = 266, SectionY = 302, SummaryY = 320;
         TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, bannerLabel, bannerText, sectionTitle, lossMax, runMetrics;
         ForgeSurface progress, statusChip, banner, bannerDot;
         ForgePill train;
         TMP_InputField githubUrl;
+        RectTransform presetRow;
+        bool presetsLoaded;
         MLCurve loss, accuracy;
         RectTransform root, summary;
         float width;
@@ -56,6 +58,10 @@ namespace Forge.ML
             // Import a public GitHub repository (POST /ml/github/import); Train then trains it (5–10 epochs).
             githubUrl = MLUI.Input(root, "Public GitHub repository", "https://github.com/owner/repository", 0, ImportY, width - 110, 28);
             MLUI.Button(root, "Import", width - 100, ImportY, 100, 28, () => session.ImportGitHub(githubUrl.text));
+            // Preset repos from the hub (GET /ml/github/presets): one press fills the URL and imports, no typing in the headset.
+            presetRow = MLUI.Rect("GitHub presets", root, 0, PresetY, width, 24);
+            ForgeNet.StatusChanged += OnNetStatus;
+            if (ForgeNet.Status == ForgeNetStatus.Live) LoadPresets();
 
             // One banner line: overfitting, a hub notice, or the finished run.
             banner = MLUI.Surface(root, 0, BannerY, width, 28, Color.clear, 10, 0.5f);
@@ -316,8 +322,33 @@ namespace Forge.ML
             value = Mathf.Clamp01(value);
             return value < 0.5f ? Color.Lerp(MLUI.Bad, MLUI.Warn, value * 2f) : Color.Lerp(MLUI.Warn, MLUI.Good, value * 2f - 1f);
         }
+        void OnNetStatus(ForgeNetStatus status) { if (status == ForgeNetStatus.Live && !presetsLoaded) LoadPresets(); }
+        void LoadPresets()
+        {
+            ForgeNet.Get("/ml/github/presets", text =>
+            {
+                Newtonsoft.Json.Linq.JArray list;
+                try { list = Newtonsoft.Json.Linq.JArray.Parse(text); }
+                catch (Exception) { return; }
+                if (presetRow == null) return;
+                presetsLoaded = true;
+                for (int i = presetRow.childCount - 1; i >= 0; i--) Destroy(presetRow.GetChild(i).gameObject);
+                var caption = MLUI.Caps(presetRow, "Try", 2, 6, 34, 14, 9.5f); caption.color = MLUI.Faint;
+                float x = 38;
+                foreach (var item in list)
+                {
+                    string label = item.Value<string>("label"), url = item.Value<string>("url");
+                    if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(url)) continue;
+                    float w = 26 + label.Length * 7f;
+                    if (x + w > width) break;
+                    MLUI.Pill(presetRow, label, x, 0, w, 24, () => { githubUrl.text = url; session.ImportGitHub(url); });
+                    x += w + 8;
+                }
+            }, _ => { });
+        }
         void OnDestroy()
         {
+            ForgeNet.StatusChanged -= OnNetStatus;
             if (session == null) return;
             session.Changed -= Refresh; session.Reloaded -= OnSessionReloaded; session.Metrics -= OnMetrics;
             session.ClassAccuracyUpdated -= OnClassAccuracy; session.ProbeUpdated -= OnProbe;
