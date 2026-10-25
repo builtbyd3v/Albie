@@ -7,6 +7,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+import logging
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -16,6 +19,7 @@ from messaging import tools as mtools
 from messaging.imessage import IMessageService, IMessageSettings
 from messaging.imessage.db import APPLE_EPOCH
 from messaging.imessage.sender import SenderStatus
+from messaging.imessage.settings import normalize_handle, parse_allow
 from messaging.router import router
 
 DM, GROUP = "iMessage;-;+15550001", "iMessage;+;chat42"
@@ -57,9 +61,10 @@ def add_text(db: sqlite3.Connection, chat_rowid: int, text: str, ago_s: float = 
     db.commit()
 
 
-def make_service(tmp_path: Path, store: MessageStore | None = None) -> tuple[IMessageService, BusRecorder]:
+def make_service(tmp_path: Path, store: MessageStore | None = None,
+                 allow: frozenset[str] = frozenset({"+15550001"})) -> tuple[IMessageService, BusRecorder]:
     bus = BusRecorder()
-    settings = IMessageSettings(enabled=True, db_path=tmp_path / "chat.db", poll_ms=20)
+    settings = IMessageSettings(enabled=True, db_path=tmp_path / "chat.db", poll_ms=20, allow=allow)
     svc = IMessageService(settings, store or MessageStore(tmp_path / "messages"), bus)
 
     async def sender_start() -> SenderStatus:
@@ -136,7 +141,8 @@ def test_history_is_the_newest_texts_only(tmp_path: Path) -> None:
             assert [m.text for m in messages] == ["t7", "t8", "t9", "t10", "t11"]
             _, _, _, older, has_more = await svc.history(f"im:{DM}", 5, before=messages[0].ts)
             assert older == [] and has_more is False         # no paging into older texts
-            assert svc.chat_name(GROUP) == "Family"
+            with pytest.raises(LookupError):
+                svc.chat_name(GROUP)                         # group chats are never allowlisted
         finally:
             await svc.stop()
 
@@ -213,7 +219,7 @@ def test_send_confirms_against_a_text_stored_only_in_attributed_body(tmp_path: P
         svc, bus = make_service(tmp_path)
         await svc.start()
 
-        async def send(chat_id: int, text: str) -> None:   # Messages writes the row with text NULL
+        async def send(chat_id: int, text: str, *, handle: str) -> None:   # Messages writes the row with text NULL
             date = int((time.time() - APPLE_EPOCH) * 1_000_000_000)
             cur = db.execute("INSERT INTO message (guid, text, attributedBody, handle_id, is_from_me, date) "
                              "VALUES ('sent', NULL, ?, 1, 1, ?)", (_typedstream(text), date))
@@ -255,3 +261,149 @@ def test_missing_imsg_is_never_installed(monkeypatch) -> None:
     s.path = None  # as if imsg is not on this Mac
     status = asyncio.run(s.start())
     assert status.available is False and "brew install steipete/tap/imsg" in (status.error or "")
+
+
+# ------------------------------------------------------------------ IMESSAGE_ALLOW privacy gate
+FRIEND, STRANGER, MAIL = "iMessage;-;+13525550123", "iMessage;-;+13525559999", "iMessage;-;pal@example.com"
+SECRET = "my secret stranger text"
+
+
+def make_private_db(path: Path, friend_id: str = "+13525550123") -> sqlite3.Connection:
+    db = sqlite3.connect(path)
+    db.executescript(f"""
+        CREATE TABLE message (ROWID INTEGER PRIMARY KEY, guid TEXT, text TEXT, attributedBody BLOB, handle_id INTEGER,
+                              is_from_me INTEGER, date INTEGER, date_edited INTEGER, thread_originator_guid TEXT,
+                              associated_message_type INTEGER);
+        CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, chat_identifier TEXT, display_name TEXT, style INTEGER);
+        CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
+        CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+        INSERT INTO handle VALUES (1, '{friend_id}'), (2, '+13525559999'), (3, 'Pal@Example.com');
+        INSERT INTO chat VALUES (1, '{FRIEND}', '{friend_id}', '', 45);
+        INSERT INTO chat VALUES (2, '{STRANGER}', '+13525559999', 'Stranger', 45);
+        INSERT INTO chat VALUES (3, 'iMessage;+;chat7', 'chat7', 'Friends group', 43);
+        INSERT INTO chat VALUES (4, '{MAIL}', 'Pal@Example.com', '', 45);
+    """)
+    db.commit()
+    return db
+
+
+def add_msg(db: sqlite3.Connection, chat: int, handle: int, text: str, ago_s: float = 60.0) -> None:
+    date = int((time.time() - ago_s - APPLE_EPOCH) * 1_000_000_000)
+    cur = db.execute("INSERT INTO message (guid, text, handle_id, is_from_me, date) VALUES (?, ?, ?, 0, ?)",
+                     (f"g{time.monotonic_ns()}", text, handle, date))
+    db.execute("INSERT INTO chat_message_join VALUES (?, ?)", (chat, cur.lastrowid))
+    db.commit()
+
+
+def test_only_allowlisted_one_to_one_chats_are_read(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.DEBUG)
+    db = make_private_db(tmp_path / "chat.db")
+    add_msg(db, 1, 1, "friend hello")
+    add_msg(db, 2, 2, SECRET)
+    add_msg(db, 3, 1, "group text from friend")   # an allowlisted person in a group: still hidden
+    add_msg(db, 4, 3, "mail hello")
+
+    async def run() -> None:
+        svc, bus = make_service(tmp_path, allow=parse_allow("(352) 555-0123, PAL@example.com"))
+        await svc.start()
+        try:
+            assert svc.available
+            assert sorted(svc.store.channels()) == sorted([f"im:{FRIEND}", f"im:{MAIL}"])
+            assert {c.id for c in svc.channel_summaries()} == {f"im:{FRIEND}", f"im:{MAIL}"}
+            add_msg(db, 2, 2, SECRET + " 2", ago_s=0)
+            add_msg(db, 3, 1, "group live", ago_s=0)
+            add_msg(db, 1, 1, "friend live", ago_s=0)
+            await wait_for(lambda: "notify.message" in bus.types())
+            await asyncio.sleep(0.1)                      # a few more polls
+            assert [p.text for t, p in bus.events if t == "notify.message"] == ["friend live"]
+            assert [m.text for m in svc.store.unread()] == ["friend live"]
+            for bad in (f"im:{STRANGER}", "im:iMessage;+;chat7"):
+                with pytest.raises(LookupError):
+                    await svc.history(bad, 10)
+            with pytest.raises(LookupError):
+                await svc.resolve_channel("Stranger")
+            with pytest.raises(LookupError):
+                await svc.create_draft("hi", f"im:{STRANGER}")
+            assert svc.health()["allowed_contacts"] == 2
+        finally:
+            await svc.stop()
+
+    asyncio.run(run())
+    logged = caplog.text
+    for private in ("friend hello", "friend live", SECRET, "group", "+13525559999", "+13525550123", "pal@"):
+        assert private not in logged
+
+
+def test_empty_allowlist_loads_nothing(tmp_path: Path) -> None:
+    db = make_private_db(tmp_path / "chat.db")
+    add_msg(db, 1, 1, "friend hello")
+
+    async def run() -> None:
+        svc, _ = make_service(tmp_path, allow=parse_allow(" , "))
+        await svc.start()
+        try:
+            assert not svc.available and svc.status == "enabled, no allowed contacts (set IMESSAGE_ALLOW)"
+            assert svc.store.channels() == [] and svc.channel_summaries() == []
+        finally:
+            await svc.stop()
+
+    asyncio.run(run())
+
+
+def test_seen_marks_of_chats_no_longer_allowed_are_dropped(tmp_path: Path) -> None:
+    db = make_private_db(tmp_path / "chat.db")
+    add_msg(db, 1, 1, "friend hello")
+    store = MessageStore(tmp_path / "messages")
+    store.seen[f"im:{STRANGER}"] = "1.0"
+    store.seen["C1"] = "1.0"                         # Slack marks stay
+    store._save()
+
+    async def run() -> None:
+        svc, _ = make_service(tmp_path, allow=parse_allow("3525550123"))   # loads those marks from disk
+        await svc.start()
+        await svc.stop()
+
+    asyncio.run(run())
+    assert STRANGER not in (tmp_path / "messages" / "state.json").read_text()
+    assert "C1" in MessageStore(tmp_path / "messages").seen
+
+
+@pytest.mark.parametrize("raw", ["3525550123", "352-555-0123", "(352) 555.0123", "+1 352 555 0123",
+                                 "1-352-555-0123", "+1 (352) 555-0123"])
+def test_phone_formats_normalize(raw: str) -> None:
+    assert normalize_handle(raw) == "+13525550123"
+
+
+def test_formats_match_what_chat_db_stores(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("IMESSAGE_ALLOW", "352.555.0123,  Pal@EXAMPLE.com ")
+    allow = IMessageSettings.from_env().allow
+    assert allow == {"+13525550123", "pal@example.com"}
+    db = make_private_db(tmp_path / "chat.db", friend_id="352-555-0123")   # an odd stored spelling still matches
+    add_msg(db, 1, 1, "friend hello")
+    add_msg(db, 4, 3, "mail hello")
+
+    async def run() -> None:
+        svc, _ = make_service(tmp_path, allow=allow)
+        await svc.start()
+        try:
+            assert sorted(m.text for m in svc.store.latest(10)) == ["friend hello", "mail hello"]
+        finally:
+            await svc.stop()
+
+    asyncio.run(run())
+
+
+def test_send_to_a_handle_outside_the_allowlist_is_refused_before_imsg(monkeypatch) -> None:
+    from messaging.imessage import sender as sender_mod
+
+    async def no_subprocess(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError(f"ran {args}")
+
+    monkeypatch.setattr(sender_mod.asyncio, "create_subprocess_exec", no_subprocess)
+    s = sender_mod.IMessageSender("imsg", parse_allow("+1 352 555 0123"))
+    s.path, s.status = "/usr/bin/true", SenderStatus(True, "0.6.0")
+    for handle in ("+13525559999", "chat7", ""):
+        with pytest.raises(sender_mod.IMessageSendError, match="IMESSAGE_ALLOW"):
+            asyncio.run(s.send(2, "hi", handle=handle))
+    with pytest.raises(AssertionError):                 # an allowlisted handle does reach imsg
+        asyncio.run(s.send(1, "hi", handle="3525550123"))
