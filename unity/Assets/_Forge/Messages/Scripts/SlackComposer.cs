@@ -46,7 +46,8 @@ public class SlackComposer
         root = SlackUi.Rect(parent, "Composer");
 
         fieldRect = SlackUi.Rect(root, "Field");
-        fieldFill = SlackUi.Card(fieldRect, SlackUi.RowCorner, raycast: true);
+        fieldFill = SlackUi.Card(fieldRect, owner.IsIMessagePanel ? 24f : SlackUi.RowCorner, raycast: true);
+        if (owner.IsIMessagePanel) fieldFill.color = SlackUi.IMessageComposer;
         var area = SlackUi.Rect(fieldRect, "TextArea");
         SlackUi.Stretch(area, 12f, 8f, 12f, 8f);
         area.gameObject.AddComponent<RectMask2D>();
@@ -54,7 +55,7 @@ public class SlackComposer
         text.richText = false;
         SlackUi.Stretch(text.rectTransform, 0f, 0f, 0f, 0f);
         placeholder = SlackUi.Text(area, "Placeholder", SlackUi.Body, SlackUi.Subtext, align: TextAlignmentOptions.TopLeft, wrap: true);
-        placeholder.text = "Message";
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : "Message";
         SlackUi.Stretch(placeholder.rectTransform, 0f, 0f, 0f, 0f);
 
         field = fieldRect.gameObject.AddComponent<TMP_InputField>();
@@ -81,7 +82,7 @@ public class SlackComposer
         caption.overflowMode = TextOverflowModes.Ellipsis;
         cancel = SlackButton.CreatePill(root, "Cancel", SlackButton.Pill, Cancel);
         askBit = SlackButton.CreatePill(root, "Ask Albie", SlackButton.Pill, AskBit);
-        send = SlackButton.CreatePill(root, "Send", SlackButton.Primary, Send);
+        send = SlackButton.CreatePill(root, "Send", owner.IsIMessagePanel ? SlackButton.IMessagePrimary : SlackButton.Primary, Send);
         SlackUi.Show(cancel, false);
         RefreshButtons();
     }
@@ -111,7 +112,7 @@ public class SlackComposer
     public void SetChannel(SlackChannel c)
     {
         channel = c;
-        placeholder.text = c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
         RefreshButtons();
     }
 

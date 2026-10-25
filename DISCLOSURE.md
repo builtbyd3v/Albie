@@ -20,6 +20,8 @@
 
 ## APIs and services
 - TypeSafe Jev (repo-aware panel picking spike)
+- macOS Messages, optional and off by default (`IMESSAGE_ENABLED=1`): the hub reads the local `~/Library/Messages/chat.db` read-only
+- imsg CLI (github.com/steipete/imsg, Homebrew tap `steipete/tap/imsg`): sends confirmed iMessage drafts. Optional, never installed by the hub; the user installs it
 - [TEAM: Grok Voice Agent API, WhatsApp Cloud API, cloudflared/ngrok, if used]
 
 ## Assets and data

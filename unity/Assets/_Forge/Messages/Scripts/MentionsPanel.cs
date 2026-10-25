@@ -4,11 +4,11 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// "New for you" (MentionsPanel.prefab: a ForgePanel variant, panel id <c>messages-mentions</c>, slot Left of the MSG
-/// mode): unread DMs and mentions across conversations as <see cref="MessageCard"/>s, newest first, capped at
+/// "Mentions & notifications" (MentionsPanel.prefab: a ForgePanel variant, panel id <c>messages-mentions</c>, slot Left
+/// of the MSG mode): unread DMs and mentions across conversations as <see cref="MessageCard"/>s, newest first, capped at
 /// <see cref="MaxRows"/> with a "+N more" line. Rows come from <see cref="SlackStore"/>: the conversations with unread
 /// counts (notify.channels) and the recent messages known for them (history, notify.message, the digest); a conversation
-/// with unread but no known messages shows its last line. Tapping a row opens that conversation in the Slack panel
+/// with unread but no known messages shows its last line. Tapping a row opens that conversation in its provider panel
 /// (<see cref="SlackPanel.Active"/>.Open, or MSG mode with it pending) and the row clears once the hub marks it seen.
 /// Rebuilt only when data or size changes; rows are pooled. This replaces the old MessagesPanel.
 /// </summary>
@@ -38,7 +38,7 @@ public class MentionsPanel : MonoBehaviour
         var placeholder = content.Find("Placeholder");
         if (placeholder != null) placeholder.gameObject.SetActive(false);
         heading = SlackUi.OverlineText(content, "Heading");
-        heading.text = "New for you";
+        heading.text = "Mentions & notifications";
         list = SlackUi.Rect(content, "List");
         footer = SlackUi.Text(content, "Footer", SlackUi.Small, SlackUi.Subtext, align: TextAlignmentOptions.Center);
         empty = SlackUi.Text(content, "Empty", SlackUi.Body, SlackUi.Subtext, align: TextAlignmentOptions.Center, wrap: true);
@@ -137,7 +137,8 @@ public class MentionsPanel : MonoBehaviour
     }
 
     // Unread DMs and mentions, newest first: for each conversation with unread, its newest known messages (as many as
-    // are unread) that are DMs or mention the user; none known -> one row with the conversation's last line.
+    // are unread) that are DMs or mention the user; none known -> one row with the conversation's last line. Group
+    // chats and channels without a mention stay out, so a busy inbox doesn't flood the panel.
     void Collect()
     {
         var channels = SlackStore.Channels;
@@ -198,12 +199,13 @@ public class MentionsPanel : MonoBehaviour
         return card;
     }
 
-    // Open the conversation in the Slack panel, or open MSG mode with it pending.
+    // Open the conversation in its provider panel, or open MSG mode with it pending.
     void OnRow(MessageCard card)
     {
         var m = card.Message;
         if (m == null || string.IsNullOrEmpty(m.channel)) return;
-        if (SlackPanel.Active != null) SlackPanel.Active.Open(m.channel);
+        var target = SlackPanel.ForChannel(m.channel);
+        if (target != null) target.Open(m.channel);
         else
         {
             SlackPanel.PendingChannel = m.channel;

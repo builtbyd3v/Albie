@@ -62,7 +62,8 @@ fallback. Hover: Inbox cards lift 1 cm and go opaque; list rows and buttons brig
 | `Scripts/DraftCard.cs` | The Send / Cancel card. |
 | `Scripts/MessagesDeskZone.cs` | Marker + desk-frame `Footprint` the pet keeps clear of while cards float (unchanged). |
 | `Editor/MessagesPrefabBuilder.cs` | **Forge > Messages > Build Prefabs** builds the four prefabs below (and deletes the old MessagesPanel.prefab). |
-| `Resources/SlackPanel.prefab`, `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Resources/SlackPanel.prefab`, `IMessagePanel.prefab` (panel id `messages-imessage`), `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Scripts/MessagesLayout.cs` | Adds the iMessage panel to MSG mode at runtime (center, Slack moves right) only when the hub's `/health` reports `imessage.available`; otherwise MSG is unchanged. No scene edit. |
 
 ## Slotting it into Main (Hudson)
 
