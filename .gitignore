@@ -36,6 +36,8 @@ unity/*.mdb.meta
 unity/.vsconfig
 
 # Builds
+Builds/
+unity/.utmp/
 *.apk
 *.aab
 *.unitypackage

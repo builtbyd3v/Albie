@@ -5,6 +5,8 @@
 - Albie, an AI gator, sits on the desk. You talk to him: he edits code, trains and explains models, changes CAD parts, and drafts replies.
 - A Python FastAPI hub on the laptop runs the voice (Grok), the coding agent (Claude), and the ML, CAD and messaging modules.
 - Run it: [SETUP.md](SETUP.md) (full guide, also for a coding agent) or [DEV.md](DEV.md) (short version). Third-party code, assets and AI tools: [DISCLOSURE.md](DISCLOSURE.md).
+- Demo video: [ADRIAN: add the video link]
+- AI tools: we built Forge with Claude Code (Anthropic) as a coding assistant, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
 
 ## What it is
 
@@ -54,10 +56,24 @@ flowchart LR
 | `unity/` | The Quest app. Modules in `unity/Assets/_Forge/` (Core, Screens, ML, CAD, Pet, Messages, Desk) |
 | `hub/` | The FastAPI hub: `agent/` (Albie, voice), `ml/`, `cad/`, `messaging/`, `desk/`, `screens/` |
 | `forge-sdk/` | The Python package a training script uses to stream its run to the hub |
-| `ml-examples/cifar10/` | The CIFAR-10 example the ML desk trains |
+| `ml-examples/cifar10/`, `ml-examples/text-classification/` | The CIFAR-10 and AG News examples the ML desk trains |
 | `screen-bridge/`, `vscode-bit/` | VS Code on the headset, and the extension Albie drives |
 | `sandbox/` | Builds Albie's sandbox repo |
+
+## How to run
+
+1. Clone the repo. Open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
+2. Copy `hub/.env.example` to an env file and add your keys. Run `sh dev-setup.sh <env file>` (macOS).
+3. Build the Quest APK from Unity (File > Build Profiles > Android) and install it on the headset over USB.
+4. Run `sh run-demo.sh`. It starts the hub on port 8000, opens the ML project and wires the Quest with `adb reverse`.
+5. With the hub off, every module still runs on mock data in the Unity editor (desktop mode: WASD and mouse).
+
+Full steps and gotchas: [SETUP.md](SETUP.md).
 
 ## Team
 
 Built at Gator Hack V (UF AI Days 2026) by Dev Goswami, Hudson Marr, Adrian (apscual), Satyabrata (Satyabratadas) and Nandani Rai.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Third-party code, models, fonts and data keep their own licenses (see [DISCLOSURE.md](DISCLOSURE.md)).
