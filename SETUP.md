@@ -1,6 +1,6 @@
-Paste this into Claude Code: **"Set me up for Forge: follow SETUP.md in this repo. My env file is at <path>."**
+Paste this into Claude Code: **"Set me up for Albie: follow SETUP.md in this repo. My env file is at <path>."**
 
-# Forge setup (written for a coding agent)
+# Albie setup (written for a coding agent)
 
 - Goal: this machine runs everything the demo Mac runs: the hub (voice, CAD, ML, Slack, iMessage), Albie's sandbox, the VS Code screen bridge, and the Quest app built in Unity.
 - Full setup needs macOS on Apple silicon. On Windows or Linux, do steps 1-4 and 9 only: there is no screen bridge capture and no iMessage.

@@ -251,7 +251,7 @@ The project is in the repo with all packages and settings already configured (Me
 
 1. **Unity Hub** and editor **6000.6.7f1** (exact version). Add the **Android Build Support** module (with OpenJDK + SDK/NDK) if you'll build for the Quest; not needed for the simulator.
 2. **Meta XR Simulator v207.1** (Windows): https://developers.meta.com/horizon/downloads/package/meta-xr-simulator-windows/ (Apple Silicon Mac is experimental.)
-3. **Git LFS**: `git lfs install` once, then `git clone https://github.com/hudmarr/gatorhack-dubz.git`.
+3. **Git LFS**: `git lfs install` once, then `git clone https://github.com/builtbyd3v/Albie.git`.
 4. Unity Hub > **Add > Add project from disk** > pick `gatorhack-dubz/unity`. First open takes 5 to 15 min while Unity downloads packages from `Packages/manifest.json`. Sign in to Unity Hub; no Asset Store purchase is needed (Meta packages come from the Unity registry).
 5. Open `Assets/_Forge/Core/Main.unity` to test, or your own sandbox scene. Don't save changes to Main (section 6 rule 3).
 

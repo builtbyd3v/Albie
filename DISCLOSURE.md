@@ -6,11 +6,11 @@
 - Third-party libraries, APIs, and assets are listed below. Each is used under its own license.
 
 ## AI tools
-- Claude Code (Anthropic; Claude Opus 5.5 and Claude Fable 5.1): used by Dev, Hudson, Adrian and Satyabrata for code generation, debugging, tests and docs. Many commits carry a Claude Co-Authored-By trailer. [TEAM: Nandani, confirm]
+- Claude Code (Anthropic; Claude Opus 5.5 and Claude Fable 5.1): used by Dev, Hudson, Adrian, Satyabrata and Nandani for code generation, debugging, tests and docs. Many commits carry a Claude Co-Authored-By trailer.
 - Claude API via the Anthropic Python SDK (anthropic, MIT), at runtime: the ML desk's setup (hub/ml/setup/) and Albie's "what can I do better?" proposals (hub/ml/improve.py)
 - Claude Agent SDK (claude-agent-sdk, MIT), at runtime: Albie's coding and Q&A runner and the crew gators (hub/agent/runner.py, crew.py)
 - Grok Voice Agent API (xAI, grok-voice-3.0), at runtime: Albie's speech-to-speech voice and transcription (hub/agent/voice.py)
-- [TEAM: add any others you used, e.g. Copilot, ChatGPT, Cursor, Codex; delete this line if none]
+- Codex (OpenAI): coding assistant for code generation, debugging and review
 
 ## Engines, SDKs, and libraries
 - Unity 6 (6000.6.7f1), URP

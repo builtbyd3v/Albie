@@ -1,12 +1,12 @@
-# Forge
+# Albie
 
-- Forge is a mixed reality workspace for engineers on Meta Quest 3, built in Unity with the Meta XR SDK.
+- Albie is a mixed reality workspace for engineers on Meta Quest 3, built in Unity with the Meta XR SDK. It is named after Albie, the AI gator who runs it.
 - You sit at your real desk. VS Code, your ML training run, your CAD part and your Slack inbox unfold around you as panels.
 - Albie, an AI gator, sits on the desk. You talk to him: he edits code, trains and explains models, changes CAD parts, and drafts replies.
 - A Python FastAPI hub on the laptop runs the voice (Grok), the coding agent (Claude), and the ML, CAD and messaging modules.
 - Run it: [SETUP.md](SETUP.md) (full guide, also for a coding agent) or [DEV.md](DEV.md) (short version). Third-party code, assets and AI tools: [DISCLOSURE.md](DISCLOSURE.md).
 - Demo video: [ADRIAN: add the video link]
-- AI tools: we built Forge with Claude Code (Anthropic) as a coding assistant, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
+- AI tools: we built Albie with Claude Code (Anthropic) and Codex (OpenAI) as coding assistants, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
 
 ## What it is
 
@@ -51,6 +51,9 @@ flowchart LR
 - Albie's body: the Quirky Series alligator (Unity Asset Store, paid). Its files are not in this repo because the Asset Store EULA forbids redistribution; we added the opening mouth, the talk clips and all his behavior
 
 ## Repo map
+
+"Forge" was our working name. Code names keep it (`ForgeNet`, `ForgePanel`, `unity/Assets/_Forge/`, `forge-sdk`, the **Forge** menu in Unity).
+
 
 | Folder | What |
 |---|---|
