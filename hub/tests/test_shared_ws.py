@@ -18,7 +18,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     cfg = tmp_path / "projects.yaml"
-    cfg.write_text(f'projects:\n  demo:\n    path: "{repo}"\n    default_mode: "qa"\n')
+    cfg.write_text(f'projects:\n  demo:\n    path: "{repo.as_posix()}"\n    default_mode: "qa"\n')
     for k, v in {"FAKE_AGENT": "1", "FAKE_AGENT_DELAY": "0.01", "PROJECTS_FILE": str(cfg), "DEFAULT_PROJECT": "demo",
                  "STT_PROVIDER": "none", "VOICE_PROVIDER": "fake", "FAKE_VOICE_PACE": "0", "SCREEN_BRIDGE": "0"}.items():
         monkeypatch.setenv(k, v)

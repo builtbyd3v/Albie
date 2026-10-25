@@ -520,7 +520,7 @@ public class SlackPanel : MonoBehaviour
         SlackUi.Place(headName.rectTransform, headerNameX, 0f, rw - (headerNameX - x0) - 8f, 24f);
         SlackUi.Place(headTopic.rectTransform, headerNameX, 24f, rw - (headerNameX - x0) - 8f, 16f);
         SlackUi.Place(headerLine.rectTransform, x0, 43f, rw, 1f);
-        float composerY = h - SlackComposer.Height;
+        float composerY = h - composer.CurrentHeight;  // taller while Albie's draft lists its files
         float listY = iMessagePanel ? 49f : HeaderH, listH = Mathf.Max(20f, composerY - 10f - listY);
         SlackUi.Place((RectTransform)msgScroll.transform, x0, listY, rw, listH);
         y = 0f;

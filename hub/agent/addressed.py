@@ -44,8 +44,8 @@ def rules(text: str, last_reply: str | None = None) -> bool | None:
 
 REPLY_S = 10.0  # after Albie asks a question, a bare "yes" / "sure" / "no" this soon is the answer, no name needed
 ANSWER = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "no", "nope", "nah", "please", "do", "it", "go", "ahead",
-          "thanks", "thank", "you", "sounds", "good", "great", "alright", "right", "not", "now"}
-ANSWER_CORE = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "no", "nope", "nah", "go", "do"}
+          "thanks", "thank", "you", "sounds", "good", "great", "alright", "right", "not", "now", "fix", "look"}
+ANSWER_CORE = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "no", "nope", "nah", "go", "do", "fix"}
 
 
 def is_answer(text: str) -> bool:

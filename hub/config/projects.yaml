@@ -4,3 +4,9 @@ projects:
   gatorhack:
     path: "~/Documents/gatorhack-dubz"
     default_mode: "qa"
+  # Albie's sandbox (sandbox/setup.sh): voice edits land here, live in VS Code, straight on its main branch.
+  # Use it with DEFAULT_PROJECT=sandbox (setup.sh prints the hub/.env lines).
+  sandbox:
+    path: "~/Documents/GitHub/albie-sandbox"
+    default_mode: "auto"
+    edit_in_place: true

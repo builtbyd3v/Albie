@@ -1,4 +1,5 @@
-"""Bit's fast tools: one registry over the module tools (cad/tools.py, vscode/tools.py) for both brains.
+"""Bit's fast tools: one registry over the module tools (cad/tools.py, vscode/tools.py, messaging/tools.py, the view
+tool in agent/workspace.py) for both brains.
 
 Grok calls them directly (voice.py), next to ``delegate``. The Claude runner gets the same tools as an
 in-process MCP server named ``forge`` (runner.py). Lead-only tools (Bit's crew tools, agent/crew.py) go
@@ -6,8 +7,9 @@ to Grok and Bit's runner, not to crew runners; crew runners also pass an ``allow
 (runner.py: ``vscode_`` plus their kit's) so they never see cad_* or messages_*. While a tool runs, Bit walks to its panel
 (``pet.state`` working + target_panel). Errors come back as ``{"error": ...}`` so the model can explain.
 
-VS Code tools are always registered. CAD tools need the hub's CadService, so main.py calls
-``register_cad`` at startup, and the messaging tools once the Slack service exists.
+VS Code and view tools are always registered. CAD tools need the hub's CadService, so main.py calls
+``register_cad`` at startup, and the messaging tools once the Slack service exists. Tools that change what the user
+sees open their view first (``workspace.ensure``), so "open the quadcopter" works with nothing open.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_serv
 from vscode import tools as vscode_tools
 
 from . import events as ev
+from . import workspace as views
 from .bus import bus
 
 log = logging.getLogger(__name__)
@@ -46,7 +49,8 @@ def register(defs: list[dict[str, Any]], call_tool: CallTool, *, lead_only: bool
 def register_cad(cad: Any, event_bus: Any) -> None:
     from cad import tools as cad_tools
 
-    register(cad_tools.TOOLS, lambda name, args: cad_tools.call_tool(name, args, cad, event_bus))
+    register(cad_tools.TOOLS, lambda name, args: cad_tools.call_tool(name, args, cad, event_bus,
+                                                                    show=views.workspace.ensure))
 
 
 def has(name: str) -> bool:
@@ -110,3 +114,4 @@ def mcp_server(pet_id: str, lead: bool = True, allow: Allow = None) -> McpSdkSer
 
 
 register(vscode_tools.TOOLS, vscode_tools.call_tool)
+register(views.TOOLS, views.call_tool)

@@ -420,6 +420,19 @@ def test_delegate_round_trip() -> None:
     asyncio.run(run())
 
 
+def test_say_sends_its_context_as_a_system_note_right_before_the_line() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await asyncio.wait_for(s.say("Line 3 broke the rocket. Want me to fix it?", "line 3 of rocket.py: boom"), 2)
+        items = [m["item"] for m in grok.sent if m["type"] == "conversation.item.create"]
+        assert items[-2]["role"] == "system" and items[-2]["content"][0]["text"] == "line 3 of rocket.py: boom"
+        assert items[-1]["type"] == "force_message"
+        await s.close()
+
+    asyncio.run(run())
+
+
 def test_unknown_tool_gets_error_output() -> None:
     async def run() -> None:
         grok, sink = MockGrok(), Sink()

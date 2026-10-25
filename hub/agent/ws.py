@@ -32,7 +32,8 @@ from .bus import Emitter, bus
 from .config import ProjectNotFound, resolve_project
 from .crew import Member, crew, spoken
 from .events import (
-    AgentAsk, AgentCancel, CrewRoster, Event, Hello, SttCancel, SttStart, SttStop, TtsStopRequest, WorkspaceMode,
+    AgentAsk, AgentCancel, CrewRoster, Event, Hello, PetCardAction, SttCancel, SttStart, SttStop, TtsStopRequest,
+    WorkspaceMode,
 )
 from .runner import get_runner
 from .stt import SpeechToText, make_stt
@@ -40,6 +41,7 @@ from .turn import TurnControl, classify_mode
 from .voice import VoiceSession, make_voice, view_note
 from .wake import WakeRouter
 from .watcher import watcher
+from .workspace import workspace
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +108,8 @@ async def handle_socket(ws: WebSocket, *, accept: bool = True) -> None:
         pass
     finally:
         bus.remove(ws)
+        if bus.count == 0:
+            workspace.forget()
         if s.crew_listener is not None:
             crew.remove_listener(s.crew_listener)  # type: ignore[arg-type]
         if s.voice is not None:
@@ -179,6 +183,8 @@ async def _on_text(s: Session, raw: str) -> None:
             TtsStopRequest.model_validate(event.payload)
             if s.voice is not None:
                 await _voice_call(s, s.voice.stop_speech)
+        elif event.type == "pet.card_action":
+            await _on_card_action(s, PetCardAction.model_validate(event.payload))
         elif event.type in client_handlers:
             await client_handlers[event.type](s, event.payload)
         else:
@@ -189,8 +195,10 @@ async def _on_text(s: Session, raw: str) -> None:
 
 
 async def _on_mode(s: Session, wm: WorkspaceMode) -> None:
-    """Unity switched workspace view: remember it, tell the voice model in one line (no reply), gate crew tools."""
+    """Unity switched workspace view (or answered ui.mode): remember it, tell the voice model in one line (no reply),
+    gate crew tools. Every report also goes to agent/workspace.py, which may be waiting for it."""
     mode = wm.mode.strip().lower()
+    workspace.report(mode, wm.reason)
     if mode == s.mode:
         return
     s.mode = mode
@@ -244,6 +252,18 @@ async def _on_ask(s: Session, ask: AgentAsk) -> None:
     run = get_runner()
     coro = run(project, ask.text, mode, emit, pet_id=pet_id, control=s.control)
     s.turn = asyncio.create_task(_guarded(coro, emit, pet_id))
+
+
+async def _on_card_action(s: Session, tap: PetCardAction) -> None:
+    """Fix it on a proactive card: the same code fix a spoken "yes" starts, run as a typed ask. Not now: forgotten."""
+    task = watcher.take_offer(tap.action_id)
+    if task is None:
+        return
+    if s.voice is not None:
+        note = getattr(s.voice, "note", None)  # Grok: it asked the question, so it must not start the fix again
+        if note is not None:
+            await note("The user tapped Fix it on your last offer; the fix is already running. Don't delegate it.")
+    await _on_ask(s, AgentAsk(pet_id=tap.pet_id, text=task, mode="code"))
 
 
 async def _guarded(coro, emit: Emitter, pet_id: str) -> str:
