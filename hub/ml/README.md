@@ -39,3 +39,24 @@ pytest ml/tests
 - **Adapter LLM:** Claude Opus 5.5 (`FORGE_LLM_MODEL` to override) via `anthropic` (`pip install -r ml/requirements.txt`): Jev can't write code. Needs `ANTHROPIC_API_KEY` in the hub's environment, never in git; without it, repos with a working `.forge/` still open, others stop after classifying with a clear error. Repo files are prompt-cached across the adapter rounds.
 - **Interpreter:** the repo's `.venv`/`venv`/`env`, else the active conda env, else the hub's own Python; stored as `profile.python`.
 - Tests (`ml/tests/test_setup.py`) use a fake LLM: no key, no cost.
+
+## Albie improves the model (demo)
+
+Voice tools in `tools.py` (registered in `main.py`), with the logic in `improve.py`:
+
+| Say | Tool | What happens |
+|---|---|---|
+| "Albie, open the ML stuff I've been working on" | `ml_open` | Opens the last project (or one by name: `ml-examples/*`, `~/Desktop/ml-examples/*`, `FORGE_ML_PROJECTS`). The `ml.layout` carries `"open": true`, so the headset unfolds the ML desk (the user must be at the desk). Albie says the last run's score. |
+| "What can I do better?" | `ml_improve` | Reads the last run (train/val gap, overfit alert, weakest classes, seconds per epoch). Claude writes a change into `.forge/improve/` within a 2-minute run budget, the diff opens in VS Code, and Albie says what he'd change about 40 s later. The repo isn't touched yet. |
+| "Yes" | `ml_apply` | Copies the change in (keeps `<file>.orig`, refuses a file edited since), adds its flags to `train_cmd`, starts training. The curves stream live, and Albie says "went up from 60.6% to 79.0%" when it's done. |
+| "Undo that" | `ml_undo` | Restores the code and `train_cmd`, and moves the runs trained with the change to `.forge/runs-undone/`, so the next rehearsal starts from the original score. |
+| "Train it again" | `ml_train` | Same as the Train button, and the new score is spoken when it finishes. |
+
+`FORGE_ML_IMPROVE` picks the source of the change:
+- `auto` (default): Claude writes it. If Claude fails, the golden CIFAR-10 example falls back to the scripted change.
+- `scripted`: for CIFAR-10, the hand-written `improve_demo/cifar10/train.py` (crops + flips, AdamW, one-cycle LR, label smoothing, `--full`): measured **60.5% → 81.0%** in about 90 s. Use it when the demo needs the same number every time.
+- `llm`: Claude only.
+
+Measured with Claude: 60.6% → 79.0% (8 epochs on all 50k images) and 60.6% → 72.7% (30 epochs on 10k). Claude's plan varies from run to run.
+
+Rehearse on a copy (for example `cp -R ml-examples/cifar10 ~/Desktop/ml-examples/`), not the golden example: the setup adapter uses the golden `train.py` as its worked example.

@@ -35,6 +35,7 @@ from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
 from messaging.router import router as messaging_router
 from ml.router import router as ml_router
+from ml.tools import TOOLS as ML_TOOLS, MLTools
 from screens import ScreenBridgeService
 from screens import router as screens_router
 from vscode.router import router as vscode_router
@@ -59,6 +60,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
         app.state.desk = desk
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
+        ml_tools = MLTools(app.state, data_dir, speech.speak)  # "Albie, open my ML project / what can I do better?"
+        agent_tools.register(ML_TOOLS, ml_tools.call)
         await cad.start()
         await slack.start()
         screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)

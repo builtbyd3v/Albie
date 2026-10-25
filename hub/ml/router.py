@@ -6,6 +6,7 @@ Needs `app.state.bus` (the /ws EventBus). The MLService is created on first use 
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,12 +20,21 @@ from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
 router = APIRouter(prefix="/ml", tags=["ml"])
+DEFAULT_HUB_URL = os.environ.get("FORGE_HUB_SELF", "http://127.0.0.1:8000")
+
+
+def service(state) -> MLService:
+    """The app's MLService, created on first use (routes, and Albie's tools in ml/tools.py)."""
+    if getattr(state, "ml", None) is None:
+        state.ml = MLService()
+    return state.ml
 
 
 def _svc(request: Request) -> MLService:
-    if getattr(request.app.state, "ml", None) is None:
-        request.app.state.ml = MLService()
-    return request.app.state.ml
+    # Training runs post back to the hub: remember the address the headset / VS Code reached it on, so a run
+    # Albie starts (no request of its own) uses it too.
+    request.app.state.ml_hub_url = str(request.base_url)
+    return service(request.app.state)
 
 
 def _call(fn, *args):
@@ -83,13 +93,8 @@ def get_runs(request: Request) -> list[RunInfo]:
 
 @router.post("/train")
 async def train(req: TrainRequest, request: Request) -> TrainResponse:
-    svc = _svc(request)
-    run_id = _call(svc.start_training, req.epochs, str(request.base_url))
-    # A6: if the script doesn't call forge, its own logs (TensorBoard / Lightning / HF) become the live curves.
-    # A script that does use forge writes the run's run.json first, and the tail stands down.
-    _start_tail(request.app.state, logtail.LogTail(svc.repo, svc.runs_dir, run_id, total_epochs=req.epochs),
-                svc.train_proc)
-    return TrainResponse(run_id=run_id)
+    _svc(request)
+    return TrainResponse(run_id=_call(start_run, request.app.state, req.epochs))
 
 
 @router.get("/results/{run_id}")
@@ -180,6 +185,16 @@ async def replay(req: ReplayRequest, request: Request) -> dict:
     return {"run_id": req.run_id, "events": len(events)}
 
 
+def start_run(state, epochs: int) -> str:
+    """Start the profile's train_cmd. Raises Conflict while a run is still training."""
+    svc = service(state)
+    run_id = svc.start_training(epochs, getattr(state, "ml_hub_url", None) or DEFAULT_HUB_URL)
+    # A6: if the script doesn't call forge, its own logs (TensorBoard / Lightning / HF) become the live curves.
+    # A script that does use forge writes the run's run.json first, and the tail stands down.
+    _start_tail(state, logtail.LogTail(svc.repo, svc.runs_dir, run_id, total_epochs=epochs), svc.train_proc)
+    return run_id
+
+
 def _start_tail(state, tail: logtail.LogTail, proc=None) -> None:
     """Poll the log tail every POLL_S and publish what it finds. With a training process, stop when it exits
     (after one last read) with ml.run_state done; without one (after Skip), follow until replaced."""
@@ -209,11 +224,20 @@ def _stop_tail(state) -> None:
 # --- project setup: open any ML repo (ML_PLAN 6, 7.4) -----------------------------------------------
 
 def _start_setup(request: Request, **kwargs) -> dict:
-    """Run the setup flow in a worker thread; each step becomes ml.project_state (and ml.layout) on /ws."""
-    state, svc = request.app.state, _svc(request)
+    _svc(request)
+    try:
+        return start_setup(request.app.state, **kwargs)
+    except Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def start_setup(state, *, open_desk: bool = False, **kwargs) -> dict:
+    """Run the setup flow in a worker thread; each step becomes ml.project_state (and ml.layout) on /ws.
+    open_desk (Albie opened the project): the layout also asks the headset to open the ML desk."""
+    svc = service(state)
     running = getattr(state, "ml_setup", None)
     if running is not None and not running.done():
-        raise HTTPException(status_code=409, detail="project setup already running")
+        raise Conflict("project setup already running")
     loop = asyncio.get_running_loop()
     repo = svc.repo
 
@@ -221,7 +245,8 @@ def _start_setup(request: Request, **kwargs) -> dict:
         event, new_layout = svc.update_project(status, **fields)
         asyncio.run_coroutine_threadsafe(state.bus.publish("ml.project_state", event), loop).result(timeout=10)
         if new_layout is not None:
-            asyncio.run_coroutine_threadsafe(state.bus.publish("ml.layout", new_layout), loop).result(timeout=10)
+            payload = {**new_layout, "open": True} if open_desk else new_layout
+            asyncio.run_coroutine_threadsafe(state.bus.publish("ml.layout", payload), loop).result(timeout=10)
 
     # tests inject fakes: state.ml_llm (adapter / Claude classifier), state.ml_jev (+ state.ml_backend)
     extra = {k: v for k, v in (("llm", getattr(state, "ml_llm", None)), ("jev_ask", getattr(state, "ml_jev", None)),

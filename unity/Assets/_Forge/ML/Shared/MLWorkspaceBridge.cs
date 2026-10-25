@@ -67,6 +67,8 @@ namespace Forge.ML
                 if (Array.IndexOf(Supported, id) >= 0 && !requested.Contains(id)) requested.Add(id);
             }
             Configure(requested);
+            // "open": Albie opened the project (ml_open), so the ML desk unfolds without a tap on the dock.
+            if (payload.Value<bool?>("open") == true && workspace.ActiveMode != ModeId) workspace.Open(ModeId);
         }
 
         void Configure(List<string> requested)

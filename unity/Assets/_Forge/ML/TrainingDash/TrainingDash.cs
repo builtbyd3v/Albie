@@ -27,8 +27,8 @@ namespace Forge.ML
             session = MLSession.Resolve(session); var root = GetComponent<ForgePanel>().Content;
             status = MLUI.Text(root, "", 8, 0, 750, 25);
             MLUI.Fill(root, 8, 29, 740, 6, new Color(.2f,.25f,.3f)); progress = MLUI.Fill(root, 8, 29, 0, 6, Color.cyan);
-            lossLabel = MLUI.Text(root, "LOSS    blue: train / orange: val", 8, 42, 330, 24, 13);
-            accuracyLabel = MLUI.Text(root, "ACCURACY    0–100%", 380, 42, 330, 24, 13);
+            lossLabel = MLUI.Text(root, "LOSS", 8, 42, 360, 24, 13); lossLabel.textWrappingMode = TextWrappingModes.NoWrap;
+            accuracyLabel = MLUI.Text(root, "ACCURACY", 380, 42, 368, 24, 13); accuracyLabel.textWrappingMode = TextWrappingModes.NoWrap;
             loss = Curve("Loss curves", root, 8, false); accuracy = Curve("Accuracy curves", root, 380, true);
             // A run that logs neither loss nor accuracy (a backtest, a regression with only r2) shows its own numbers here.
             runMetrics = MLUI.Text(root, "", 8, 70, 740, 95, 15);
@@ -72,8 +72,8 @@ namespace Forge.ML
         void ShowRunMetrics(MLMetrics tick)
         {
             bool curves = tick == null || tick.HasLoss || tick.HasAccuracy || tick.extra == null || tick.extra.Count == 0;
-            lossLabel.text = curves ? "LOSS    blue: train / orange: val" : "RUN METRICS";
-            accuracyLabel.text = curves ? "ACCURACY    0–100%" : "";
+            lossLabel.text = curves ? "LOSS" + Pair(tick == null ? float.NaN : tick.train_loss, tick == null ? float.NaN : tick.val_loss, false) : "RUN METRICS";
+            accuracyLabel.text = curves ? "ACCURACY" + Pair(tick == null ? float.NaN : tick.train_acc, tick == null ? float.NaN : tick.val_acc, true) + BestVal() : "";
             if (curves) { runMetrics.text = ""; return; }
             var lines = new System.Text.StringBuilder();
             int shown = 0;
@@ -86,6 +86,23 @@ namespace Forge.ML
                 if (!left) lines.Append('\n');
             }
             runMetrics.text = lines.ToString();
+        }
+        // The latest epoch's numbers in the curves' colours (blue train, orange val); the legend until the first tick.
+        static string Pair(float train, float val, bool percent)
+        {
+            if (float.IsNaN(train) && float.IsNaN(val)) return "   <color=#4DCCFF>train</color> / <color=#FFA640>val</color>";
+            string F(float v) => float.IsNaN(v) ? "–" : percent ? (v * 100f).ToString("0.0") + "%" : v.ToString("0.000");
+            return $"  <color=#4DCCFF>train {F(train)}</color>  <color=#FFA640>val {F(val)}</color>";
+        }
+        string BestVal()
+        {
+            float best = float.NaN;
+            for (int i = 0; i <= session.EpochIndex; i++)
+            {
+                var m = session.Data.metrics[i];
+                if (m != null && !float.IsNaN(m.val_acc) && !(m.val_acc <= best)) best = m.val_acc;
+            }
+            return float.IsNaN(best) ? "" : $"  best {best * 100f:0.0}%";
         }
         // val_max_drawdown -> "val max drawdown"
         static string Pretty(string name) => name.Replace('_', ' ');
