@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Read `PROJECT_CONTEXT.md` first. It's the source of truth: the pitch, demo script, module owners, contracts (section 7), and current status (section 0).
+Read `docs/PROJECT_CONTEXT.md` first. It's the source of truth: the pitch, demo script, module owners, contracts (section 7), and current status (section 0).
 
 ## Rules (from PROJECT_CONTEXT section 12)
 - Work only inside your module folder (section 6) unless told otherwise.

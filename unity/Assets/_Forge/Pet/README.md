@@ -3,7 +3,7 @@
 Albie lives in **Main.unity** through one prefab: `Prefabs/PetRuntime.prefab`. Core's `MainSceneBuilder` instantiates it by
 that path (a contract), so nothing pet-related is set up by hand in Main. The sandbox scenes (`Scenes/PetSandbox.unity`,
 `Scenes/PetSandboxXR.unity`) are for working on Albie in isolation; `PetMain.unity` (a stale copy of Main) is gone.
-Specs: `PROJECT_CONTEXT.md` 8.6 / 8.7 / 8.8, `docs/PET_AGENT_CONTRACT.md`, test guide `docs/PET_TESTING.md`.
+Specs: `docs/PROJECT_CONTEXT.md` 8.6 / 8.7 / 8.8, `docs/PET_AGENT_CONTRACT.md`, test guide `docs/PET_TESTING.md`.
 
 ## What is in PetRuntime.prefab
 

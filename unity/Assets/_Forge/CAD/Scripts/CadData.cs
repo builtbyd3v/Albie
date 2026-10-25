@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-// Hub CAD REST payloads: CAD_PLAN.md section 5. JSON names are the hub's snake_case.
+// Hub CAD REST payloads: docs/CAD_PLAN.md section 5. JSON names are the hub's snake_case.
 // Newtonsoft-only DTOs (not Unity-serialized), hence no [Serializable].
 
 public class CadParam

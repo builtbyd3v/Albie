@@ -1,6 +1,6 @@
 #!/bin/sh
 # One-time setup of everything that runs on the laptop (macOS): hub, ML example env, Albie's sandbox, screen bridge,
-# Forge Bit VS Code extension. Safe to rerun: each step skips what is already there. SETUP.md has the full guide.
+# Forge Bit VS Code extension. Safe to rerun: each step skips what is already there. docs/SETUP.md has the full guide.
 #   sh dev-setup.sh [path/to/forge-hub.env]
 set -eu
 repo=$(cd "$(dirname "$0")" && pwd)
@@ -68,10 +68,10 @@ FIX
 
 cat <<'NEXT'
 
-== Done. Your manual steps (SETUP.md, HUMAN steps):
+== Done. Your manual steps (docs/SETUP.md, HUMAN steps):
 1. System Settings > Privacy & Security: Screen Recording + Accessibility for your terminal and Google Chrome.
 2. VS Code settings: "window.titleSeparator": " | ". Relaunch VS Code.
-3. Optional: your own SLACK_USER_TOKEN, iMessage (SETUP.md steps 7 and 8).
-4. Unity 6000.6.7f1 + Android Build Support, build the APK (SETUP.md step 9).
+3. Optional: your own SLACK_USER_TOKEN, iMessage (docs/SETUP.md steps 7 and 8).
+4. Unity 6000.6.7f1 + Android Build Support, build the APK (docs/SETUP.md step 9).
 5. Daily: sh run-demo.sh
 NEXT

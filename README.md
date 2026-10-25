@@ -4,9 +4,9 @@
 - You sit at your real desk. VS Code, your ML training run, your CAD part and your Slack inbox unfold around you as panels.
 - Albie, an AI gator, sits on the desk. You talk to him: he edits code, trains and explains models, changes CAD parts, and drafts replies.
 - A Python FastAPI hub on the laptop runs the voice (Grok), the coding agent (Claude), and the ML, CAD and messaging modules.
-- Run it: [SETUP.md](SETUP.md) (full guide, also for a coding agent) or [DEV.md](DEV.md) (short version). Third-party code, assets and AI tools: [DISCLOSURE.md](DISCLOSURE.md).
+- Run it: [docs/SETUP.md](docs/SETUP.md) (full guide, also for a coding agent) or [docs/DEV.md](docs/DEV.md) (short version). Third-party code, assets and AI tools: [docs/DISCLOSURE.md](docs/DISCLOSURE.md).
 - Demo video: [ADRIAN: add the video link]
-- AI tools: we built Albie with Claude Code (Anthropic) and Codex (OpenAI) as coding assistants, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [DISCLOSURE.md](DISCLOSURE.md).
+- AI tools: we built Albie with Claude Code (Anthropic) and Codex (OpenAI) as coding assistants, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [docs/DISCLOSURE.md](docs/DISCLOSURE.md).
 
 ## What it is
 
@@ -40,7 +40,7 @@ flowchart LR
 ```
 
 - Unity is a view; the hub owns the state. All Unity networking goes through `ForgeNet` (one socket, `/ws`).
-- The contracts (REST endpoints and `/ws` events) are in [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) section 7.
+- The contracts (REST endpoints and `/ws` events) are in [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) section 7.
 - Albie edits code in his own sandbox repo (`sandbox/setup.sh`), so voice edits never land in this repo.
 
 ## Tech stack
@@ -66,13 +66,13 @@ flowchart LR
 
 ## How to run
 
-1. Clone the repo. Buy and import the Quirky Series alligator from the Unity Asset Store (not in git, see [SETUP.md](SETUP.md) step 9), then open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
+1. Clone the repo. Buy and import the Quirky Series alligator from the Unity Asset Store (not in git, see [docs/SETUP.md](docs/SETUP.md) step 9), then open `unity/` in Unity 6000.6.7f1 (Meta XR SDK is already set up).
 2. Copy `hub/.env.example` to an env file and add your keys. Run `sh dev-setup.sh <env file>` (macOS).
 3. Build the Quest APK from Unity (File > Build Profiles > Android) and install it on the headset over USB.
 4. Run `sh run-demo.sh`. It starts the hub on port 8000, opens the ML project and wires the Quest with `adb reverse`.
 5. With the hub off, every module still runs on mock data in the Unity editor (desktop mode: WASD and mouse).
 
-Full steps and gotchas: [SETUP.md](SETUP.md).
+Full steps and gotchas: [docs/SETUP.md](docs/SETUP.md).
 
 ## Team
 
@@ -88,4 +88,4 @@ Built at Gator Hack V (UF AI Days 2026) by:
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Third-party code, models, fonts and data keep their own licenses (see [DISCLOSURE.md](DISCLOSURE.md)).
+MIT, see [LICENSE](LICENSE). Third-party code, models, fonts and data keep their own licenses (see [docs/DISCLOSURE.md](docs/DISCLOSURE.md)).

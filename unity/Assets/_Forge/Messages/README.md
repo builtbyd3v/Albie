@@ -2,7 +2,7 @@
 
 Slack on the desk: a Slack-like panel in MSG mode, a "New for you" list beside it, and the arrival digest + Albie's
 Send / Cancel card that keep working while MSG mode is closed. Hub side: `hub/messaging/` (Socket Mode, no tunnel);
-spec: `PROJECT_CONTEXT.md` 7, 8.7 and 8.8; event shapes mirrored in `Core/Net/ForgeEvents.cs` (`NotifyMessage`,
+spec: `docs/PROJECT_CONTEXT.md` 7, 8.7 and 8.8; event shapes mirrored in `Core/Net/ForgeEvents.cs` (`NotifyMessage`,
 `SlackChannel` / `NotifyChannels`, `NotifyDraft`, `NotifySent`, `NotifyDraftCancelled`, `NotifyDigest`).
 Live hub only. There is no mock mode: run the hub with the Slack tokens in `hub/.env` and test against the real workspace;
 without a hub the panels show "Hub offline" and connect by themselves when it appears.

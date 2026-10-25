@@ -1,4 +1,4 @@
-Paste this into Claude Code: **"Set me up for Albie: follow SETUP.md in this repo. My env file is at <path>."**
+Paste this into Claude Code: **"Set me up for Albie: follow docs/SETUP.md in this repo. My env file is at <path>."**
 
 # Albie setup (written for a coding agent)
 
