@@ -1,7 +1,7 @@
 # Forge hub
 
 FastAPI on the laptop: REST + one `/ws` event bus. Unity is a view; the hub owns the state.
-Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)), **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)) and **screens** (the screen bridge child process; see [One process](#one-process)). The ML router is still to come.
+Modules: **CAD** (see `../CAD_PLAN.md`), the **agent** (pet; see [Agent module (pet)](#agent-module-pet)), **messaging** (Slack; see [Messaging (Slack)](#messaging-slack)), **screens** (the screen bridge child process; see [One process](#one-process)) and the **desk** extras (timers, notes, movie; see [Desk](#desk-timers-notes-movie)). The ML router is still to come.
 
 ## Setup (Python 3.11)
 
@@ -48,7 +48,7 @@ see `screen-bridge/start.js`). Running `npm start` by hand still works: set `SCR
 ## Designs (the CAD library)
 
 Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is its id. Today: `rocket` (the hero),
-`quadcopter`, `gearbox`. Each keeps its own history (undo stays inside it); version numbers are unique across them.
+`quadcopter`, `gearbox`, `humanoid` (Unitree's G1, from its robot description). Each keeps its own history (undo stays inside it); version numbers are unique across them.
 
 - `GET /cad/parts` lists them; `POST /cad/part {"part": "gearbox"}` opens one; `POST /cad/preset {"name": "Hexacopter"}`
   applies a named preset to the open one. Everything else (`/cad/params`, undo, ...) acts on the open design.
@@ -67,10 +67,18 @@ Every `*.py` in `cad/parts/` (except `_`-files) is a design; its file name is it
   `cad/scene.py` makes a generic one: the CG marker, overall width/depth/height, parts spread out from the centre, mass
   by top-level assembly, a demo of "launch" with `simulate_flight` (else none), a verdict from the worst metric, no
   constants. They land in the analysis block (`cad.model_updated`) in the GLB's frame: CAD_PLAN section 5, round 4.
+- **Designs from meshes** (the humanoid): a mesh pack in `cad/data/<name>/` (`display.glb`, `outline.npz`, `parts.json`,
+  made offline by a script in `cad/tools_offline/`) loads once per worker with `cad.meshes.pack(folder)`; `place(key,
+  transform, label, rgb)` puts a piece where you want it (a surfaceless face sharing the cached mesh). Give mesh parts a
+  `FixedMass(mass_g, cg_mm)` (no volume). `cad.robot.load(urdf)` reads a URDF: forward kinematics, limits, ratings and
+  `static_torques`. Nest assemblies along the kinematic chain at identity and place the leaves, and
+  `simulate_motion(result, masses) -> Motion` can animate the joints (`GET /cad/motion`, the Walk button). Licences and
+  sources sit next to the data (`NOTICE.md`).
 - Keep a rebuild under about a second or two: build123d's `extrude(both=True)` and `RectangleRounded` are slow;
   `Solid.extrude` and `SlotOverall` are fast (see `gearbox.py`, `quadcopter.py`). The worker stops a build at 8 s.
 - `GET /cad/drawing.png?v=N` (or `.svg`): a version's engineering drawing (`cad/drawing.py`, A3, 2048 x 1448): three
   views + iso, dimensions, parts list, title block; parts changed since its parent in orange. Made once (~1 s), cached.
+  Mesh designs take a mesh path (visible edges and silhouettes, no dashed hidden lines), about 6 s for the humanoid.
 
 ## Test
 
@@ -84,7 +92,7 @@ pytest            # a few minutes: CAD (geometry, RocketPy cross-check, designs,
 python -m cad.make_mocks       # -> hub/.data/mocks/cad/parts.json, <part>/vN/, regen_failed.json
 ```
 
-Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty.
+Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there). The rocket's four states are the demo story: green 1.57 → "smaller fins" red 0.84 → "fourth fin" amber 1.25 → "20% longer" green 1.60. The quadcopter goes clear → "7-inch props" hit → longer arms clear; the gearbox goes 3:1 → 6:1 (undercut pinion) → heavy duty; the humanoid stands → squats so deep its ankles run out of range and it tips back → arms forward balance it → 5 kg with the forearms out (wrists at 90%). The humanoid's states also carry `motion.json` (its GLBs are ~4.8 MB each).
 
 ## CAD module map
 
@@ -92,8 +100,13 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 |---|---|
 | `cad/parts/rocket.py` | The rocket: `PARAMS`, `build(params)`, presets, `analyze` (Barrowman stability). The file on the main screen. |
 | `cad/parts/quadcopter.py`, `gearbox.py` | Two more designs (prop clearance / thrust-to-weight; ratio / pinion rim, own involute gears). |
+| `cad/parts/humanoid.py` | The Unitree G1 posed by 10 parameters: balance and joint loads ("Will it stand?"), Walk from a recorded lap of Unitree's trained policy. |
 | `cad/parts/_template.py` | Copy me: a new file is a new design. |
 | `cad/part_api.py` | The only Forge types a part script imports (`Param`, masses, `Metric`, `BuildResult`, rocket specs). |
+| `cad/meshes.py` | Mesh packs: pieces as surfaceless faces (cached per worker), their outline meshes for drawings. |
+| `cad/robot.py` | A robot from its URDF: kinematics, limits, ratings, static joint torques. |
+| `cad/data/unitree_g1/` | The G1's URDF, meshes, walk clip, both BSD-3 licences, `NOTICE.md`. |
+| `cad/tools_offline/` | One-off, dev-only scripts that made that data (their own venvs; see each docstring). |
 | `cad/export.py` | GLB + cad-vision schema 1.0 metadata, validated with cad-vision's loader rules. |
 | `cad/analysis.py` | Mass, CG, generic metrics (mass, size, parts), and the Barrowman helpers rockets use. |
 | `cad/scene.py` | What Unity draws on the model: markers, dimensions, explode vectors, mass breakdown, demo (part's or generic), in the GLB's frame. |
@@ -101,7 +114,7 @@ Copy that folder to `unity/Assets/_Forge/Mocks/cad/` (see the CAD README there).
 | `cad/worker.py` | Build process with timeout and respawn; reloads the part script on every job. |
 | `cad/service.py` | The design library: version tree per design on disk, one regen at a time, events, undo/reset, folder watcher. |
 | `cad/router.py` | `/cad/*` endpoints (CAD_PLAN section 5). |
-| `cad/tools.py` | Bit's CAD tools (JSON schemas + `call_tool`) for the agent module. |
+| `cad/tools.py` | Albie's CAD tools (JSON schemas + `call_tool`) for the agent module. |
 
 ## Agent module (pet)
 
@@ -123,8 +136,8 @@ agent/
   ws.py       the /ws session: hello, agent.ask, agent.cancel, stt.*, tts.stop, crew.roster, workspace.mode, binary audio
   router.py   GET /agent/projects
   runner.py   real turns via ClaudeSDKClient (qa = read-only, code = edits on a pet/* branch); crew tool allowlist
-  crew.py     Bit's crew: agent types, roster, parallel member turns, the lead-only crew tools
-  wake.py     "Hey Bit" / "<Crew name>, ..." routing for always-on wake turns
+  crew.py     Albie's crew: agent types, roster, parallel member turns, the lead-only crew tools
+  wake.py     "Hey Albie" / "<Crew name>, ..." routing for always-on wake turns
   speech.py   live voice sessions by pet id: speak(text) and note(text) for other modules (digest, focus)
   fake.py     FAKE_AGENT=1 scripted turns (same signature)
   turn.py     auto-mode classifier + TurnControl (cancel/interrupt)
@@ -187,7 +200,7 @@ Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
 - spoken text -> `agent.partial_answer` / `agent.answer_done`, so captions work unchanged
 - `tts.stop` from the client stops the current reply
 
-Grok also gets Bit's fast tools (CAD, VS Code, Slack drafts, the crew) and `delegate` for the Claude runner. Unity's
+Grok also gets Albie's fast tools (CAD, VS Code, Slack drafts, the crew) and `delegate` for the Claude runner. Unity's
 `workspace.mode {mode}` tells the hub which view is open: Grok gets a one-line note about it, and the crew tools
 only work while the CODE view is open (they answer an error otherwise). `VOICE_PROVIDER=fake` speaks a canned reply from
 `agent/assets/fake_voice_24k.pcm` with no key, for Unity testing:
@@ -199,21 +212,23 @@ VOICE_PROVIDER=fake FAKE_AGENT=1 SCREEN_BRIDGE=0 .venv/bin/uvicorn main:app
 ### Say a gator's name (wake turns)
 
 Unity's `WakeListener` keeps the mic on and sends each speech segment as `stt.start {wake: true}`. `agent/wake.py`
-only answers segments that name a gator ("Hey Bit, ...", "Tester, run the tests"); a name on its own
+only answers segments that name a gator ("Hey Albie, ...", "Tester, run the tests"); a name on its own
 ("Hey Scout") comes back as `wake.listen` and that gator takes the next sentence. Anything else is dropped
 without a caption (and deleted from the Grok conversation). In voice mode every segment is transcribed by xAI.
 
 ### Crew (extra gators, one per agent type)
 
-The user hatches helper gators in Unity (the egg on the desk, the N key, or "Bit, hatch a tester"). Each one is
+The user hatches helper gators in Unity (the egg on the desk, the N key, or "Albie, hatch a tester"). Each one is
 its own Claude runner with a role, a system prompt and a tool kit (`agent/crew.py` `TYPES`): Scout, Builder, Fixer,
-Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Bit leads: Grok and Bit's Claude runner get four
+Tester, Reviewer, Scribe, Shipper, Designer and Sentinel. Albie leads: Grok and Albie's Claude runner get four
 lead-only tools, `spawn_agent`, `assign_task` (hatches the gator first if needed), `dismiss_agent` and
 `crew_status`. Crew members work in parallel. A code task runs in its own git worktree (`AGENT_WORKTREE_DIR`,
-default `<repo>-crew/`) on `pet/<agent>/<task>` and is committed there, so nobody switches the main checkout's
-branch. When one finishes, Bit says so out loud (voice mode) and the gator shows the summary in its bubble.
+default `<repo>-crew/`) on `pet/<agent>/<task>`, started from the main checkout's current state (uncommitted edits
+included), so nobody switches the main checkout's branch. When one finishes, its changes are applied to the main
+checkout as uncommitted edits (what VS Code shows) and the worktree is removed; if they conflict, the worktree and
+branch are kept and named in the summary. Albie says so out loud (voice mode) and the gator shows the summary in its bubble.
 Unity is the source of truth for who exists (`crew.roster`); an `agent.ask` whose `pet_id` is a crew member runs
-that member's turn without touching Bit's.
+that member's turn without touching Albie's.
 
 ### Test
 
@@ -249,7 +264,7 @@ pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `
 
 ## Messaging (Slack and iMessage)
 
-Bit reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
+Albie reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
 `hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
 `hub/` a Slack CLI project. Socket Mode means the hub opens an outbound WebSocket to Slack, so there is no public
 URL, tunnel or webhook. There is no fake or mock path: test against the workspace.
@@ -273,7 +288,7 @@ api.slack.com/apps with the same manifest.
 ```
 SLACK_BOT_TOKEN=xoxb-...        # written by `slack run`: the app's identity
 SLACK_APP_TOKEN=xapp-...        # written by `slack run`: Socket Mode
-SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Bit sees only invited channels and posts as "Bit"
+SLACK_USER_TOKEN=xoxp-...       # you: read your inbox, post as you. Empty = Albie sees only invited channels and posts as "Bit"
 SLACK_USER_ID=U...              # optional, derived from the user token; only needed without it
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```
@@ -311,7 +326,7 @@ Live check without Unity:
 .venv/bin/python scripts/slack_smoke.py                              # listen: print every inbox message
 .venv/bin/python scripts/slack_smoke.py --draft "#forge-team" "hi"   # write a draft, post nothing (notify.draft)
 .venv/bin/python scripts/slack_smoke.py --send  "#forge-team" "hi"   # dev shortcut: draft + send with no confirmation
-.venv/bin/python scripts/slack_smoke.py --digest                     # what Bit would say on sit-down
+.venv/bin/python scripts/slack_smoke.py --digest                     # what Albie would say on sit-down
 .venv/bin/python scripts/slack_smoke.py --channels                   # the panel's channel list (names, kinds, unread)
 .venv/bin/python scripts/slack_smoke.py --history "#forge-team" 10   # the last 10 top-level messages of one conversation
 ```
@@ -343,9 +358,9 @@ or a person's name: "tell Hudson ..." drafts into their DM (opened with `convers
 | `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
 | `POST /messages/drafts/{id}/cancel` | discard it -> `{ok}` |
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
-| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Bit" on a message (same as the ws message `messages.focus`): Bit says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
+| `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Albie" on a message (same as the ws message `messages.focus`): Albie says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
 | `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
-| Bit's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?, via?}` (draft only; iMessage replies route by source; use `via: imessage` for a new draft), `messages_confirm {send, draft_id?}` |
+| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?, via?}` (draft only; no target = the message in focus; a person's name = their DM; iMessage replies route by source; `via: imessage` starts a new iMessage draft), `messages_confirm {send, draft_id?}` |
 | Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
 **Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's
@@ -359,8 +374,64 @@ is waited out per run, a second one stops it; a missing scope skips that convers
 Map: `messaging/settings.py` (env), `store.py` (last 200 messages per conversation, merged by ts; a seen mark per
 conversation plus the digest's floor in `.data/messages/state.json`, the old single `last_seen_ts` migrates to the
 floor), `slack_client.py` (Bolt `AsyncApp` + Socket Mode handler, bot and user `AsyncWebClient`s, event filtering, user
-and channel records, history, drafts, digest), `router.py`, `tools.py`. Inbox rules: Bit's posts and other bots are
+and channel records, history, drafts, digest), `router.py`, `tools.py`. Inbox rules: Albie's posts and other bots are
 ignored; your own messages are stored and pushed with `is_me` but never counted as unread or as a mention; a post
 delivered twice (bot + user subscription, or `app_mention` + `message`, or history + live) is recorded once; a DM or
 group DM is `is_dm` and counts as a mention; thread replies are stored (for the digest and focus) but left out of
 history, where the parent's `reply_count` grows instead.
+
+## Desk (timers, notes, movie)
+
+Extras Bit adds on top of any mode: named **focus timers**, the user's **notes** and a **movie screen** above the desk. They
+don't belong to ML / CAD / CODE / MSG and stay open across mode switches. `ui.widgets` says which ones are showing;
+the hub owns all of it (`desk/service.py`), Unity's buttons and Bit's tools both go through it, so they raise the
+same events. Every desk event replays fresh to a client that connects later (`EventBus.sticky_fresh`): the timers'
+remaining time and the movie's position are computed at that moment, not copied from the last message.
+
+**Proposed contract additions** (PROJECT_CONTEXT section 7; models in `events.py`, mirror them in `ForgeEvents.cs`):
+
+| | |
+|---|---|
+| `GET /timers` | `TimersUpdated {timers: TimerState[]}`: ringing first, then by time left (the minimized dot shows the first). `TimerState {timer_id, label, status: running\|paused\|ringing, duration_s, remaining_s}` |
+| `POST /timers {minutes \| seconds, label?}` | a new timer (up to 5), named by `label` (default Focus; a repeat becomes "tea 2"). Rings at its end until stopped |
+| `POST /timers/{id}/pause` · `/resume` · `/stop` · `/add {minutes}` · `POST /timers/stop_all` | stop also turns off its ring and removes it; add on a rung timer runs it again; negative takes time off |
+| `GET /notes` | `NotesUpdated {notes: Note[] (newest first), last_removed?}`, `Note {id, text, done, created_at, updated_at}` |
+| `POST /notes {text}` · `POST /notes/{id}/edit {text?, done?}` | add (opens the panel unless it's a dot) · edit or check off |
+| `POST /notes/{id}/remove` · `POST /notes/undo` | remove (kept as `last_removed`) · bring it back |
+| `GET /movie` · `GET /movie/library` | `MovieState {status: closed\|playing\|paused, movie?, position_s, volume, seek_rev}` · `MovieInfo[] {movie_id, title, year, duration_s, url, subtitles_url}` |
+| `GET /movie/files/<id>.mp4` · `<id>.en.srt` | the file, with byte ranges (seeking); subtitles |
+| `POST /movie/play {movie_id?, from_start?}` | opens the screen; resumes where you stopped (a movie stopped in its last 2 min starts over) |
+| `POST /movie/pause` · `/resume` · `/close` · `/seek {position_s \| delta_s}` · `/volume {volume}` | close keeps your place |
+| `POST /movie/position {position_s, duration_s?, ended?}` | Unity's player reports where it is (every few s, on pause, at the end). No event back: Unity is the clock |
+| `GET /ui/widgets` · `POST /ui/widgets {timer?, notes?, movie?}` | `UiWidgets`, each `open\|minimized\|closed` (minimized = the dot). Closing the timers stops them, closing the movie closes it |
+| `/ws` events | `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; `pet.say` "Time's up! ..." when a timer rings (also spoken) |
+| Bit's tools | `timer_start {minutes, label?}`, `timer_control {action: pause\|resume\|add\|stop, timer?, minutes?}`, `timer_status`, `notes_add {text}`, `notes_list`, `notes_edit {note, text?, done?}`, `notes_remove {note?, undo?}`, `notes_view {state}`, `movie_play {title?, from_start?}`, `movie_control {action: pause\|resume\|seek\|skip\|volume\|close, seconds?, volume?}`, `movie_status`. `note` / `timer` is an id or a few words of its text or name; a timer action with no `timer` means the only one it can (stop: the ringing ones) |
+
+Unity, for the panels: count each timer down locally from `remaining_s` when `timers.updated` arrives (the Quest's
+clock isn't the laptop's); play the chime while `status` is `ringing`. Seek the VideoPlayer only when `seek_rev`
+changes, otherwise leave it alone. The `.srt` lines can carry ASS position tags like `{\an8}`: strip `{...}`.
+
+**Adding a movie.** Files live in `.data/media/` (gitignored; never commit one, and nothing goes into the APK; the
+Quest streams it from the hub over the LAN). Unity's VideoPlayer needs H.264 8-bit + stereo AAC, with the index at
+the front. From a 10-bit HEVC / multi-language source, keeping only the English track (NVIDIA GPU, about 7x real
+time on a laptop 3050 Ti):
+
+```powershell
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i "in.mkv" -map 0:v:0 -map 0:a:m:language:eng -map_chapters -1 -map_metadata -1 `
+  -vf "scale_cuda=format=nv12" -c:v h264_nvenc -preset p4 -rc vbr -cq 21 -b:v 0 -maxrate 8M -bufsize 16M -profile:v high -g 48 `
+  -c:a aac -b:a 192k -ac 2 -ar 48000 -movflags +faststart .data\media\<id>.part.mp4    # then rename to <id>.mp4
+ffmpeg -i "in.mkv" -map 0:s:0 -c:s srt .data\media\<id>.en.srt     # optional subtitles: one text track (ffprobe lists them; PGS won't convert)
+```
+
+No NVIDIA GPU: drop the two `-hwaccel` flags and the `-vf`, and use `-c:v libx264 -preset veryfast -crf 21 -pix_fmt yuv420p`
+(slower). `<id>` is a file name without dots (`obsession`); a `*.part.mp4` still being written isn't listed. Optional
+`<id>.json`: `{"title": "Obsession", "year": 2025, "duration_s": 6519.8}`.
+
+**Mocks for Unity:** `python -m desk.make_mocks` writes `.data/mocks/desk/`: `Resources/Mocks/` (timers, notes, movie,
+movie/library, ui/widgets REST answers) and `desk/sequence.json` (a ForgeMockPlayer run: a focus and a tea timer,
+notes in, notes to a dot, movie on, the tea timer rings and is stopped). Copy both into `unity/Assets/_Forge/Mocks/`.
+
+Map: `desk/timer.py` (`TimerBoard`, the spoken line), `notes.py` (`NotesStore`, `.data/desk/notes.json`), `movie.py`
+(`MovieService`: library, places per movie and volume in `.data/desk/movie.json`), `service.py` (`DeskService`:
+widgets, events, Bit's voice), `router.py`, `tools.py`, `make_mocks.py`. Tests: `pytest tests/test_desk.py`. Not saved:
+running timers (a hub restart forgets them).

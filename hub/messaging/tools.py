@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agent.events import DISPLAY_NAME
+
 from .slack_client import SlackService
 
 if TYPE_CHECKING:
@@ -126,7 +128,7 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService,
                 await imessage.cancel_draft(imessage.open_draft.draft_id)
             draft = await svc.create_draft(text, requested_channel, args.get("thread_ts"), reply_to_ts)
             return {"draft_id": draft.draft_id, "status": "awaiting_confirmation", "channel_name": draft.channel_name,
-                    "text": draft.text, "as": "you" if svc.as_user else "Bit",
+                    "text": draft.text, "as": "you" if svc.as_user else DISPLAY_NAME,
                     "next": "Tell the user what you wrote and ask them to tap Send or say 'send it'. Not sent yet."}
         if name == "messages_confirm":
             draft_id = args.get("draft_id") or None

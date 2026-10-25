@@ -44,7 +44,8 @@ def part_info(module, script: Path) -> dict[str, Any]:
             "description": getattr(module, "DESCRIPTION", ""),
             "glyph": str(getattr(module, "GLYPH", "") or DEFAULT_GLYPH),
             "presets": {name: dict(values) for name, values in getattr(module, "PRESETS", {}).items()},
-            "features": ["flight"] if callable(getattr(module, "simulate_flight", None)) else []}
+            "features": [name for name, fn in (("flight", "simulate_flight"), ("motion", "simulate_motion"))
+                         if callable(getattr(module, fn, None))]}
 
 
 def resolve_params(params: list[Param], supplied: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -112,6 +113,15 @@ def run_job(job: dict[str, Any]) -> dict[str, Any]:
             flight = simulate(result, masses)
             (out_dir / "flight.json").write_text(json.dumps(flight, indent=2), encoding="utf-8")
             return {"ok": True, "flight": flight}
+        if job["op"] == "motion":
+            from cad.export import walk
+            from cad.scene import motion
+            simulate = getattr(module, "simulate_motion", None)
+            if simulate is None:
+                raise LookupError(f"{script.stem} has no motion")
+            data = motion(simulate(result, masses), [shape.label for shape, _ in walk(result.assembly)])
+            (out_dir / "motion.json").write_text(json.dumps(data), encoding="utf-8")
+            return {"ok": True, "motion": data}
         if job["op"] == "drawing":
             from cad.drawing import draw
             timings = draw(result, masses, out_dir, title=part_info(module, script)["title"], part=script.stem,

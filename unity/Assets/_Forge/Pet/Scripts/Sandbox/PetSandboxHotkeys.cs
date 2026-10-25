@@ -71,7 +71,7 @@ namespace Forge.Pet
                 expressions.SetMood((Mood)moodIndex);
             }
             if (kb[captionKey].wasPressedThisFrame && caption != null)
-                caption.SetText("Hi! I'm Bit. Ask me anything about the project.", false);
+                caption.SetText("Hi! I'm Albie. Ask me anything about the project.", false);
         }
     }
 }

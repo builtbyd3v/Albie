@@ -1,0 +1,1703 @@
+{
+  "mass_g": 34393.2,
+  "cg_gltf": [
+    0.00057,
+    0.69123,
+    -0.0238
+  ],
+  "size_mm": [
+    445.3,
+    293.2,
+    1322.8
+  ],
+  "part_count": 88,
+  "breakdown": [
+    {
+      "id": "PELVIS",
+      "mass_g": 3813.0
+    },
+    {
+      "id": "PELVIS_COVER",
+      "mass_g": 0.5
+    },
+    {
+      "id": "PELVIS_COVER_2",
+      "mass_g": 0.5
+    },
+    {
+      "id": "LEFT_HIP_PITCH_MOTOR",
+      "mass_g": 940.68
+    },
+    {
+      "id": "LEFT_HIP_PITCH_MOTOR_2",
+      "mass_g": 409.32
+    },
+    {
+      "id": "LEFT_HIP_ROLL_MOTOR",
+      "mass_g": 1263.55
+    },
+    {
+      "id": "LEFT_HIP_ROLL_MOTOR_2",
+      "mass_g": 256.45
+    },
+    {
+      "id": "LEFT_THIGH",
+      "mass_g": 931.86
+    },
+    {
+      "id": "LEFT_THIGH_2",
+      "mass_g": 356.57
+    },
+    {
+      "id": "LEFT_THIGH_3",
+      "mass_g": 139.33
+    },
+    {
+      "id": "LEFT_THIGH_4",
+      "mass_g": 138.29
+    },
+    {
+      "id": "LEFT_THIGH_5",
+      "mass_g": 135.94
+    },
+    {
+      "id": "LEFT_SHIN",
+      "mass_g": 1302.09
+    },
+    {
+      "id": "LEFT_SHIN_2",
+      "mass_g": 337.37
+    },
+    {
+      "id": "LEFT_SHIN_3",
+      "mass_g": 180.95
+    },
+    {
+      "id": "LEFT_SHIN_4",
+      "mass_g": 111.59
+    },
+    {
+      "id": "LEFT_ANKLE",
+      "mass_g": 74.0
+    },
+    {
+      "id": "LEFT_FOOT",
+      "mass_g": 235.41
+    },
+    {
+      "id": "LEFT_FOOT_2",
+      "mass_g": 191.02
+    },
+    {
+      "id": "LEFT_FOOT_3",
+      "mass_g": 181.57
+    },
+    {
+      "id": "RIGHT_HIP_PITCH_MOTOR",
+      "mass_g": 940.68
+    },
+    {
+      "id": "RIGHT_HIP_PITCH_MOTOR_2",
+      "mass_g": 409.32
+    },
+    {
+      "id": "RIGHT_HIP_ROLL_MOTOR",
+      "mass_g": 1263.55
+    },
+    {
+      "id": "RIGHT_HIP_ROLL_MOTOR_2",
+      "mass_g": 256.45
+    },
+    {
+      "id": "RIGHT_THIGH",
+      "mass_g": 931.86
+    },
+    {
+      "id": "RIGHT_THIGH_2",
+      "mass_g": 356.57
+    },
+    {
+      "id": "RIGHT_THIGH_3",
+      "mass_g": 139.33
+    },
+    {
+      "id": "RIGHT_THIGH_4",
+      "mass_g": 138.29
+    },
+    {
+      "id": "RIGHT_THIGH_5",
+      "mass_g": 135.94
+    },
+    {
+      "id": "RIGHT_SHIN",
+      "mass_g": 1302.07
+    },
+    {
+      "id": "RIGHT_SHIN_2",
+      "mass_g": 337.37
+    },
+    {
+      "id": "RIGHT_SHIN_3",
+      "mass_g": 180.95
+    },
+    {
+      "id": "RIGHT_SHIN_4",
+      "mass_g": 111.59
+    },
+    {
+      "id": "RIGHT_ANKLE",
+      "mass_g": 74.0
+    },
+    {
+      "id": "RIGHT_FOOT",
+      "mass_g": 235.39
+    },
+    {
+      "id": "RIGHT_FOOT_2",
+      "mass_g": 191.04
+    },
+    {
+      "id": "RIGHT_FOOT_3",
+      "mass_g": 181.57
+    },
+    {
+      "id": "WAIST_MOTOR",
+      "mass_g": 67.88
+    },
+    {
+      "id": "WAIST_MOTOR_2",
+      "mass_g": 61.06
+    },
+    {
+      "id": "WAIST_MOTOR_3",
+      "mass_g": 36.98
+    },
+    {
+      "id": "WAIST_MOTOR_4",
+      "mass_g": 36.98
+    },
+    {
+      "id": "WAIST_MOTOR_5",
+      "mass_g": 11.09
+    },
+    {
+      "id": "WAIST_BRACKET",
+      "mass_g": 86.0
+    },
+    {
+      "id": "TORSO",
+      "mass_g": 3966.77
+    },
+    {
+      "id": "TORSO_2",
+      "mass_g": 1114.16
+    },
+    {
+      "id": "TORSO_3",
+      "mass_g": 1076.53
+    },
+    {
+      "id": "TORSO_4",
+      "mass_g": 622.54
+    },
+    {
+      "id": "HEAD",
+      "mass_g": 1036.0
+    },
+    {
+      "id": "LEFT_SHOULDER",
+      "mass_g": 718.0
+    },
+    {
+      "id": "LEFT_SHOULDER_ROLL_MOTOR",
+      "mass_g": 643.0
+    },
+    {
+      "id": "LEFT_UPPER_ARM",
+      "mass_g": 367.43
+    },
+    {
+      "id": "LEFT_UPPER_ARM_2",
+      "mass_g": 270.28
+    },
+    {
+      "id": "LEFT_UPPER_ARM_3",
+      "mass_g": 96.29
+    },
+    {
+      "id": "LEFT_FOREARM",
+      "mass_g": 600.0
+    },
+    {
+      "id": "LEFT_WRIST_ROLL_MOTOR",
+      "mass_g": 85.44
+    },
+    {
+      "id": "LEFT_WRIST_PITCH_MOTOR",
+      "mass_g": 484.05
+    },
+    {
+      "id": "LEFT_WRIST",
+      "mass_g": 84.58
+    },
+    {
+      "id": "LEFT_PALM",
+      "mass_g": 372.84
+    },
+    {
+      "id": "LEFT_THUMB_BASE",
+      "mass_g": 86.24
+    },
+    {
+      "id": "LEFT_THUMB",
+      "mass_g": 58.85
+    },
+    {
+      "id": "LEFT_THUMB_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "LEFT_THUMB_TIP_2",
+      "mass_g": 7.52
+    },
+    {
+      "id": "LEFT_MIDDLE_FINGER",
+      "mass_g": 58.85
+    },
+    {
+      "id": "LEFT_MIDDLE_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "LEFT_MIDDLE_TIP_2",
+      "mass_g": 7.52
+    },
+    {
+      "id": "LEFT_INDEX_FINGER",
+      "mass_g": 58.85
+    },
+    {
+      "id": "LEFT_INDEX_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "LEFT_INDEX_TIP_2",
+      "mass_g": 7.52
+    },
+    {
+      "id": "RIGHT_SHOULDER",
+      "mass_g": 718.0
+    },
+    {
+      "id": "RIGHT_SHOULDER_ROLL_MOTOR",
+      "mass_g": 643.0
+    },
+    {
+      "id": "RIGHT_UPPER_ARM",
+      "mass_g": 367.43
+    },
+    {
+      "id": "RIGHT_UPPER_ARM_2",
+      "mass_g": 270.28
+    },
+    {
+      "id": "RIGHT_UPPER_ARM_3",
+      "mass_g": 96.29
+    },
+    {
+      "id": "RIGHT_FOREARM",
+      "mass_g": 600.0
+    },
+    {
+      "id": "RIGHT_WRIST_ROLL_MOTOR",
+      "mass_g": 85.44
+    },
+    {
+      "id": "RIGHT_WRIST_PITCH_MOTOR",
+      "mass_g": 484.05
+    },
+    {
+      "id": "RIGHT_WRIST",
+      "mass_g": 84.58
+    },
+    {
+      "id": "RIGHT_PALM",
+      "mass_g": 372.84
+    },
+    {
+      "id": "RIGHT_THUMB_BASE",
+      "mass_g": 86.24
+    },
+    {
+      "id": "RIGHT_THUMB",
+      "mass_g": 58.85
+    },
+    {
+      "id": "RIGHT_THUMB_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "RIGHT_THUMB_TIP_2",
+      "mass_g": 7.52
+    },
+    {
+      "id": "RIGHT_MIDDLE_FINGER",
+      "mass_g": 58.85
+    },
+    {
+      "id": "RIGHT_MIDDLE_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "RIGHT_MIDDLE_TIP_2",
+      "mass_g": 7.52
+    },
+    {
+      "id": "RIGHT_INDEX_FINGER",
+      "mass_g": 58.85
+    },
+    {
+      "id": "RIGHT_INDEX_TIP",
+      "mass_g": 12.78
+    },
+    {
+      "id": "RIGHT_INDEX_TIP_2",
+      "mass_g": 7.52
+    }
+  ],
+  "assumptions": [
+    "Static: the pose held still, gravity only. Masses, centres of mass and joint axes from Unitree's URDF.",
+    "Motor ratings are the URDF's peak torques; holding a pose for long takes less (motors heat up).",
+    "Both feet on the ground share the weight by the lever rule; the hips stay over the feet when it leans."
+  ],
+  "metrics": [
+    {
+      "id": "balance",
+      "label": "Balance margin",
+      "value": 82.3632,
+      "unit": "mm",
+      "display": "82 mm",
+      "status": "ok",
+      "min": -60.0,
+      "max": 120.0,
+      "bands": [
+        {
+          "to": 0.0,
+          "status": "bad"
+        },
+        {
+          "to": 25.0,
+          "status": "warn"
+        },
+        {
+          "to": 120.0,
+          "status": "ok"
+        }
+      ],
+      "note": "steady"
+    },
+    {
+      "id": "joint_load",
+      "label": "Peak joint load",
+      "value": 10.7202,
+      "unit": "%",
+      "display": "11 %",
+      "status": "ok",
+      "min": 0.0,
+      "max": 150.0,
+      "bands": [
+        {
+          "to": 60.0,
+          "status": "ok"
+        },
+        {
+          "to": 90.0,
+          "status": "warn"
+        },
+        {
+          "to": 150.0,
+          "status": "bad"
+        }
+      ],
+      "note": "waist"
+    },
+    {
+      "id": "cg_height",
+      "label": "CG height",
+      "value": 691.2366,
+      "unit": "mm",
+      "display": "691 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "height",
+      "label": "Height",
+      "value": 1322.1304,
+      "unit": "mm",
+      "display": "1322 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "mass",
+      "label": "Mass",
+      "value": 34393.1785,
+      "unit": "g",
+      "display": "34.39 kg",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "size",
+      "label": "Size",
+      "value": 1322.8,
+      "unit": "mm",
+      "display": "445 x 293 x 1323 mm",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    },
+    {
+      "id": "parts",
+      "label": "Parts",
+      "value": 88.0,
+      "unit": "",
+      "display": "88",
+      "status": "ok",
+      "min": null,
+      "max": null,
+      "bands": [],
+      "note": ""
+    }
+  ],
+  "markers": [
+    {
+      "id": "cg",
+      "label": "CG",
+      "kind": "cg",
+      "pos": [
+        0.00057,
+        0.69123,
+        -0.0238
+      ]
+    },
+    {
+      "id": "support",
+      "label": "Support",
+      "kind": "support",
+      "pos": [
+        -0.00399,
+        0.0,
+        0.00047
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "height",
+      "label": "Height",
+      "value_mm": 1322.1,
+      "from": [
+        0.22326,
+        0.0,
+        0.17345
+      ],
+      "to": [
+        0.22326,
+        1.32213,
+        0.17345
+      ],
+      "offset_dir": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "offset_mm": 70.0
+    },
+    {
+      "id": "shoulders",
+      "label": "Shoulder width",
+      "value_mm": 281.1,
+      "from": [
+        -0.14006,
+        1.12052,
+        -0.04033
+      ],
+      "to": [
+        0.14105,
+        1.12052,
+        -0.04033
+      ],
+      "offset_dir": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "offset_mm": 261.6
+    },
+    {
+      "id": "leg",
+      "label": "Leg length",
+      "value_mm": 688.9,
+      "from": [
+        -0.222,
+        0.0,
+        -0.04033
+      ],
+      "to": [
+        -0.222,
+        0.68886,
+        -0.04033
+      ],
+      "offset_dir": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "offset_mm": 70.0
+    },
+    {
+      "id": "stance",
+      "label": "Stance width",
+      "value_mm": 240.9,
+      "from": [
+        -0.12047,
+        0.0,
+        0.17345
+      ],
+      "to": [
+        0.12047,
+        0.0,
+        0.17345
+      ],
+      "offset_dir": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "offset_mm": 60.0
+    }
+  ],
+  "explode": {
+    "axis": "radial",
+    "parts": [
+      {
+        "id": "PELVIS",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 0.0,
+        "order": 0
+      },
+      {
+        "id": "PELVIS_COVER",
+        "dir": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "dist_mm": 90.0,
+        "order": 0
+      },
+      {
+        "id": "PELVIS_COVER_2",
+        "dir": [
+          0.06261,
+          -0.01613,
+          0.99791
+        ],
+        "dist_mm": 45.2,
+        "order": 0
+      },
+      {
+        "id": "LEFT_HIP_PITCH_MOTOR",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 60.0,
+        "order": 0
+      },
+      {
+        "id": "LEFT_HIP_PITCH_MOTOR_2",
+        "dir": [
+          0.332,
+          -0.80036,
+          -0.4992
+        ],
+        "dist_mm": 85.5,
+        "order": 0
+      },
+      {
+        "id": "LEFT_HIP_ROLL_MOTOR",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 120.0,
+        "order": 1
+      },
+      {
+        "id": "LEFT_HIP_ROLL_MOTOR_2",
+        "dir": [
+          0.31645,
+          -0.9376,
+          -0.14411
+        ],
+        "dist_mm": 158.1,
+        "order": 1
+      },
+      {
+        "id": "LEFT_THIGH",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 180.0,
+        "order": 2
+      },
+      {
+        "id": "LEFT_THIGH_2",
+        "dir": [
+          0.26233,
+          -0.95993,
+          -0.09861
+        ],
+        "dist_mm": 207.5,
+        "order": 2
+      },
+      {
+        "id": "LEFT_THIGH_3",
+        "dir": [
+          0.50454,
+          -0.8556,
+          0.11568
+        ],
+        "dist_mm": 143.0,
+        "order": 2
+      },
+      {
+        "id": "LEFT_THIGH_4",
+        "dir": [
+          0.51638,
+          -0.85541,
+          -0.04029
+        ],
+        "dist_mm": 139.7,
+        "order": 2
+      },
+      {
+        "id": "LEFT_THIGH_5",
+        "dir": [
+          0.51203,
+          -0.85742,
+          0.05148
+        ],
+        "dist_mm": 139.7,
+        "order": 2
+      },
+      {
+        "id": "LEFT_SHIN",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 240.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_SHIN_2",
+        "dir": [
+          0.43332,
+          -0.88513,
+          0.16966
+        ],
+        "dist_mm": 218.8,
+        "order": 3
+      },
+      {
+        "id": "LEFT_SHIN_3",
+        "dir": [
+          0.35191,
+          -0.92783,
+          -0.12364
+        ],
+        "dist_mm": 268.4,
+        "order": 3
+      },
+      {
+        "id": "LEFT_SHIN_4",
+        "dir": [
+          0.33826,
+          -0.94054,
+          -0.03119
+        ],
+        "dist_mm": 279.4,
+        "order": 3
+      },
+      {
+        "id": "LEFT_ANKLE",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 300.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_FOOT",
+        "dir": [
+          0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 360.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_FOOT_2",
+        "dir": [
+          0.37524,
+          -0.92449,
+          0.06713
+        ],
+        "dist_mm": 394.5,
+        "order": 3
+      },
+      {
+        "id": "LEFT_FOOT_3",
+        "dir": [
+          0.43565,
+          -0.89623,
+          -0.0836
+        ],
+        "dist_mm": 326.9,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_HIP_PITCH_MOTOR",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 60.0,
+        "order": 0
+      },
+      {
+        "id": "RIGHT_HIP_PITCH_MOTOR_2",
+        "dir": [
+          -0.34748,
+          -0.79024,
+          -0.50476
+        ],
+        "dist_mm": 85.1,
+        "order": 0
+      },
+      {
+        "id": "RIGHT_HIP_ROLL_MOTOR",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 120.0,
+        "order": 1
+      },
+      {
+        "id": "RIGHT_HIP_ROLL_MOTOR_2",
+        "dir": [
+          -0.31082,
+          -0.93981,
+          -0.14197
+        ],
+        "dist_mm": 158.0,
+        "order": 1
+      },
+      {
+        "id": "RIGHT_THIGH",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 180.0,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_THIGH_2",
+        "dir": [
+          -0.26244,
+          -0.95949,
+          -0.10252
+        ],
+        "dist_mm": 207.1,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_THIGH_3",
+        "dir": [
+          -0.50517,
+          -0.85537,
+          0.11466
+        ],
+        "dist_mm": 142.9,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_THIGH_4",
+        "dir": [
+          -0.51687,
+          -0.85512,
+          -0.04021
+        ],
+        "dist_mm": 139.8,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_THIGH_5",
+        "dir": [
+          -0.51191,
+          -0.85748,
+          0.05177
+        ],
+        "dist_mm": 139.7,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_SHIN",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 240.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_SHIN_2",
+        "dir": [
+          -0.44586,
+          -0.88029,
+          0.16217
+        ],
+        "dist_mm": 216.8,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_SHIN_3",
+        "dir": [
+          -0.38062,
+          -0.91022,
+          -0.16319
+        ],
+        "dist_mm": 257.9,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_SHIN_4",
+        "dir": [
+          -0.342,
+          -0.93897,
+          -0.03702
+        ],
+        "dist_mm": 279.6,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_ANKLE",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 300.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_FOOT",
+        "dir": [
+          -0.41036,
+          -0.91192,
+          0.0
+        ],
+        "dist_mm": 360.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_FOOT_2",
+        "dir": [
+          -0.3748,
+          -0.92522,
+          0.05908
+        ],
+        "dist_mm": 396.3,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_FOOT_3",
+        "dir": [
+          -0.44657,
+          -0.89045,
+          -0.0876
+        ],
+        "dist_mm": 329.9,
+        "order": 3
+      },
+      {
+        "id": "WAIST_MOTOR",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 0.0,
+        "order": 0
+      },
+      {
+        "id": "WAIST_MOTOR_2",
+        "dir": [
+          -0.06418,
+          0.73918,
+          -0.67045
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "WAIST_MOTOR_3",
+        "dir": [
+          0.21609,
+          -0.65039,
+          -0.72821
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "WAIST_MOTOR_4",
+        "dir": [
+          -0.28309,
+          -0.30074,
+          -0.91072
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "WAIST_MOTOR_5",
+        "dir": [
+          -0.00893,
+          0.39966,
+          -0.91662
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "WAIST_BRACKET",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 0.0,
+        "order": 0
+      },
+      {
+        "id": "TORSO",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 0.0,
+        "order": 0
+      },
+      {
+        "id": "TORSO_2",
+        "dir": [
+          -0.62242,
+          0.12754,
+          0.77222
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "TORSO_3",
+        "dir": [
+          -0.43922,
+          0.37206,
+          -0.81771
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "TORSO_4",
+        "dir": [
+          0.99454,
+          -0.09653,
+          -0.03969
+        ],
+        "dist_mm": 45.0,
+        "order": 0
+      },
+      {
+        "id": "HEAD",
+        "dir": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "dist_mm": 130.0,
+        "order": 0
+      },
+      {
+        "id": "LEFT_SHOULDER",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 48.0,
+        "order": 0
+      },
+      {
+        "id": "LEFT_SHOULDER_ROLL_MOTOR",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 96.0,
+        "order": 1
+      },
+      {
+        "id": "LEFT_UPPER_ARM",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 144.0,
+        "order": 2
+      },
+      {
+        "id": "LEFT_UPPER_ARM_2",
+        "dir": [
+          0.92323,
+          0.30742,
+          0.2305
+        ],
+        "dist_mm": 148.8,
+        "order": 2
+      },
+      {
+        "id": "LEFT_UPPER_ARM_3",
+        "dir": [
+          0.97918,
+          -0.10325,
+          0.1748
+        ],
+        "dist_mm": 118.3,
+        "order": 2
+      },
+      {
+        "id": "LEFT_FOREARM",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 192.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_WRIST_ROLL_MOTOR",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 240.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_WRIST_PITCH_MOTOR",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 288.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_WRIST",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 336.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_PALM",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 384.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_THUMB_BASE",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_THUMB",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_THUMB_TIP",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 528.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_THUMB_TIP_2",
+        "dir": [
+          0.99367,
+          0.11234,
+          -0.00201
+        ],
+        "dist_mm": 483.1,
+        "order": 3
+      },
+      {
+        "id": "LEFT_MIDDLE_FINGER",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_MIDDLE_TIP",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_MIDDLE_TIP_2",
+        "dir": [
+          0.99834,
+          0.03666,
+          0.04442
+        ],
+        "dist_mm": 478.3,
+        "order": 3
+      },
+      {
+        "id": "LEFT_INDEX_FINGER",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_INDEX_TIP",
+        "dir": [
+          0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "LEFT_INDEX_TIP_2",
+        "dir": [
+          0.99834,
+          0.03666,
+          0.04442
+        ],
+        "dist_mm": 478.3,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_SHOULDER",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 48.0,
+        "order": 0
+      },
+      {
+        "id": "RIGHT_SHOULDER_ROLL_MOTOR",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 96.0,
+        "order": 1
+      },
+      {
+        "id": "RIGHT_UPPER_ARM",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 144.0,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_UPPER_ARM_2",
+        "dir": [
+          -0.9235,
+          0.30821,
+          0.22836
+        ],
+        "dist_mm": 149.5,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_UPPER_ARM_3",
+        "dir": [
+          -0.97989,
+          -0.11638,
+          0.1621
+        ],
+        "dist_mm": 119.1,
+        "order": 2
+      },
+      {
+        "id": "RIGHT_FOREARM",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 192.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_WRIST_ROLL_MOTOR",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 240.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_WRIST_PITCH_MOTOR",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 288.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_WRIST",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 336.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_PALM",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 384.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_THUMB_BASE",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_THUMB",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_THUMB_TIP",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 528.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_THUMB_TIP_2",
+        "dir": [
+          -0.99313,
+          0.11677,
+          0.00755
+        ],
+        "dist_mm": 483.2,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_MIDDLE_FINGER",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_MIDDLE_TIP",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_MIDDLE_TIP_2",
+        "dir": [
+          -0.99888,
+          0.03218,
+          0.03476
+        ],
+        "dist_mm": 478.3,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_INDEX_FINGER",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 432.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_INDEX_TIP",
+        "dir": [
+          -0.99288,
+          0.11915,
+          0.0
+        ],
+        "dist_mm": 480.0,
+        "order": 3
+      },
+      {
+        "id": "RIGHT_INDEX_TIP_2",
+        "dir": [
+          -0.99888,
+          0.03218,
+          0.03476
+        ],
+        "dist_mm": 478.3,
+        "order": 3
+      }
+    ]
+  },
+  "mass_breakdown": [
+    {
+      "id": "LEGS",
+      "label": "Legs",
+      "mass_g": 14371.9,
+      "share": 0.4179,
+      "part_ids": [
+        "LEFT_HIP_PITCH_MOTOR",
+        "LEFT_HIP_PITCH_MOTOR_2",
+        "LEFT_HIP_ROLL_MOTOR",
+        "LEFT_HIP_ROLL_MOTOR_2",
+        "LEFT_THIGH",
+        "LEFT_THIGH_2",
+        "LEFT_THIGH_3",
+        "LEFT_THIGH_4",
+        "LEFT_THIGH_5",
+        "LEFT_SHIN",
+        "LEFT_SHIN_2",
+        "LEFT_SHIN_3",
+        "LEFT_SHIN_4",
+        "LEFT_ANKLE",
+        "LEFT_FOOT",
+        "LEFT_FOOT_2",
+        "LEFT_FOOT_3",
+        "RIGHT_HIP_PITCH_MOTOR",
+        "RIGHT_HIP_PITCH_MOTOR_2",
+        "RIGHT_HIP_ROLL_MOTOR",
+        "RIGHT_HIP_ROLL_MOTOR_2",
+        "RIGHT_THIGH",
+        "RIGHT_THIGH_2",
+        "RIGHT_THIGH_3",
+        "RIGHT_THIGH_4",
+        "RIGHT_THIGH_5",
+        "RIGHT_SHIN",
+        "RIGHT_SHIN_2",
+        "RIGHT_SHIN_3",
+        "RIGHT_SHIN_4",
+        "RIGHT_ANKLE",
+        "RIGHT_FOOT",
+        "RIGHT_FOOT_2",
+        "RIGHT_FOOT_3"
+      ]
+    },
+    {
+      "id": "ARMS",
+      "label": "Arms",
+      "mass_g": 6698.1,
+      "share": 0.1948,
+      "part_ids": [
+        "LEFT_SHOULDER",
+        "LEFT_SHOULDER_ROLL_MOTOR",
+        "LEFT_UPPER_ARM",
+        "LEFT_UPPER_ARM_2",
+        "LEFT_UPPER_ARM_3",
+        "LEFT_FOREARM",
+        "LEFT_WRIST_ROLL_MOTOR",
+        "LEFT_WRIST_PITCH_MOTOR",
+        "LEFT_WRIST",
+        "RIGHT_SHOULDER",
+        "RIGHT_SHOULDER_ROLL_MOTOR",
+        "RIGHT_UPPER_ARM",
+        "RIGHT_UPPER_ARM_2",
+        "RIGHT_UPPER_ARM_3",
+        "RIGHT_FOREARM",
+        "RIGHT_WRIST_ROLL_MOTOR",
+        "RIGHT_WRIST_PITCH_MOTOR",
+        "RIGHT_WRIST"
+      ]
+    },
+    {
+      "id": "HANDS",
+      "label": "Hands",
+      "mass_g": 1393.1,
+      "share": 0.0405,
+      "part_ids": [
+        "LEFT_PALM",
+        "LEFT_THUMB_BASE",
+        "LEFT_THUMB",
+        "LEFT_THUMB_TIP",
+        "LEFT_THUMB_TIP_2",
+        "LEFT_MIDDLE_FINGER",
+        "LEFT_MIDDLE_TIP",
+        "LEFT_MIDDLE_TIP_2",
+        "LEFT_INDEX_FINGER",
+        "LEFT_INDEX_TIP",
+        "LEFT_INDEX_TIP_2",
+        "RIGHT_PALM",
+        "RIGHT_THUMB_BASE",
+        "RIGHT_THUMB",
+        "RIGHT_THUMB_TIP",
+        "RIGHT_THUMB_TIP_2",
+        "RIGHT_MIDDLE_FINGER",
+        "RIGHT_MIDDLE_TIP",
+        "RIGHT_MIDDLE_TIP_2",
+        "RIGHT_INDEX_FINGER",
+        "RIGHT_INDEX_TIP",
+        "RIGHT_INDEX_TIP_2"
+      ]
+    },
+    {
+      "id": "TORSO",
+      "label": "Torso",
+      "mass_g": 7080.0,
+      "share": 0.2059,
+      "part_ids": [
+        "WAIST_MOTOR",
+        "WAIST_MOTOR_2",
+        "WAIST_MOTOR_3",
+        "WAIST_MOTOR_4",
+        "WAIST_MOTOR_5",
+        "WAIST_BRACKET",
+        "TORSO",
+        "TORSO_2",
+        "TORSO_3",
+        "TORSO_4"
+      ]
+    },
+    {
+      "id": "HEAD_AND_PELVIS",
+      "label": "Head and pelvis",
+      "mass_g": 4850.0,
+      "share": 0.141,
+      "part_ids": [
+        "PELVIS",
+        "PELVIS_COVER",
+        "PELVIS_COVER_2",
+        "HEAD"
+      ]
+    }
+  ],
+  "demo": {
+    "kind": "walk",
+    "label": "Walk",
+    "note": "Walks a 0.67 m circle with Unitree's own trained gait, recorded in MuJoCo.",
+    "source": "/cad/motion",
+    "axis": null,
+    "values": {
+      "speed_m_s": 0.3749,
+      "step_rate_hz": 2.5,
+      "lap_s": 11.2,
+      "radius_mm": 668.3,
+      "peak_load_pct": 87.4439
+    },
+    "spin_parts": [],
+    "readouts": [
+      {
+        "id": "speed",
+        "label": "Speed",
+        "value": 0.3749,
+        "unit": "m/s",
+        "display": "0.37 m/s",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      },
+      {
+        "id": "steps",
+        "label": "Step rate",
+        "value": 150.0,
+        "unit": "steps/min",
+        "display": "150 steps/min",
+        "status": "ok",
+        "min": null,
+        "max": null,
+        "bands": [],
+        "note": ""
+      },
+      {
+        "id": "walk_load",
+        "label": "Peak joint load",
+        "value": 87.4439,
+        "unit": "%",
+        "display": "87% \u00b7 ankle",
+        "status": "warn",
+        "min": 0.0,
+        "max": 150.0,
+        "bands": [
+          {
+            "to": 60.0,
+            "status": "ok"
+          },
+          {
+            "to": 90.0,
+            "status": "warn"
+          },
+          {
+            "to": 150.0,
+            "status": "bad"
+          }
+        ],
+        "note": "right ankle"
+      }
+    ],
+    "assumptions": [
+      "Legs from Unitree's walking policy (unitree_rl_gym), recorded once in MuJoCo; the arms swing opposite the legs; the rest holds this version's pose.",
+      "Leg torques from that simulation (32.1 kg robot), scaled by this version's weight with its load; upper-body loads static, as posed."
+    ],
+    "blocked": null,
+    "reveal_ids": []
+  },
+  "verdict": {
+    "status": "ok",
+    "headline": "Stands steady",
+    "sentence": "Centre of mass 82 mm inside its feet; the hardest-working joints, the waist (pitch), at 11% of rating.",
+    "metric": "balance"
+  },
+  "constants": [
+    {
+      "label": "Robot",
+      "value": "Unitree G1, 29 joints",
+      "note": "URDF masses and ratings \u00b7 BSD-3"
+    },
+    {
+      "label": "Hands",
+      "value": "Dex3-1, 7 joints each",
+      "note": "3 fingers"
+    },
+    {
+      "label": "Joint motors",
+      "value": "25\u2013139 N\u00b7m peak",
+      "note": "shoulders 25 \u00b7 waist 35 \u00b7 knees 139"
+    }
+  ]
+}

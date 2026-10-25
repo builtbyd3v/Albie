@@ -123,8 +123,11 @@ public class ForgePointer
         return 0f;
     }
 
-    // The rig's interactors sit under ...InteractorsLeft / ...InteractorsRight. Hands report no thumbstick.
-    static OVRInput.Controller HandOf(Transform t)
+    /// <summary>
+    /// Which controller an interactor belongs to: the rig's interactors sit under ...InteractorsLeft / ...InteractorsRight.
+    /// Hands report no thumbstick or grip.
+    /// </summary>
+    public static OVRInput.Controller HandOf(Transform t)
     {
         for (; t != null; t = t.parent)
         {

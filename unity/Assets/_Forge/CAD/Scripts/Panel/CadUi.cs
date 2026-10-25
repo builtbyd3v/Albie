@@ -345,7 +345,7 @@ public static class CadUi
     {
         switch (source)
         {
-            case "pet": return "by Bit";
+            case "pet": return "by Albie";
             case "preset": return "preset";
             case "startup":
             case "open": return "opened";

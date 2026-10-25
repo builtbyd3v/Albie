@@ -125,6 +125,169 @@
       "version": 8,
       "active": false,
       "glyph": "gears"
+    },
+    {
+      "part": "humanoid",
+      "title": "Humanoid robot",
+      "description": "Unitree G1 humanoid (BSD-3, unitree_ros): 29 joints and two 3-finger hands, posed by its joints. Will it stand? Walk plays Unitree's own trained gait.",
+      "presets": [
+        {
+          "name": "Stand",
+          "params": {
+            "squat": 0,
+            "stance": 240,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 25,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Deep squat",
+          "params": {
+            "squat": 150,
+            "stance": 240,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 25,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Squat, arms forward",
+          "params": {
+            "squat": 130,
+            "stance": 240,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 70,
+            "arms_out": 6,
+            "elbow": 10,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Lean forward",
+          "params": {
+            "squat": 0,
+            "stance": 240,
+            "step": 0,
+            "lean": 60,
+            "twist": 0,
+            "arms_forward": 90,
+            "arms_out": 6,
+            "elbow": 0,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Wide stance",
+          "params": {
+            "squat": 30,
+            "stance": 480,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 20,
+            "elbow": 25,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Arms out",
+          "params": {
+            "squat": 0,
+            "stance": 280,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 90,
+            "elbow": 0,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Mid-stride",
+          "params": {
+            "squat": 20,
+            "stance": 240,
+            "step": 380,
+            "lean": 0,
+            "twist": 15,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 25,
+            "grip": 0,
+            "carry": 0
+          }
+        },
+        {
+          "name": "Carry 5 kg",
+          "params": {
+            "squat": 0,
+            "stance": 260,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 80,
+            "grip": 100,
+            "carry": 5
+          }
+        },
+        {
+          "name": "Carry 15 kg",
+          "params": {
+            "squat": 0,
+            "stance": 260,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 80,
+            "grip": 100,
+            "carry": 15
+          }
+        },
+        {
+          "name": "Carry 10 kg, arms down",
+          "params": {
+            "squat": 0,
+            "stance": 260,
+            "step": 0,
+            "lean": 0,
+            "twist": 0,
+            "arms_forward": 0,
+            "arms_out": 6,
+            "elbow": 10,
+            "grip": 100,
+            "carry": 10
+          }
+        }
+      ],
+      "features": [
+        "motion"
+      ],
+      "version": 11,
+      "active": false,
+      "glyph": "robot"
     }
   ]
 }

@@ -5,8 +5,8 @@ Units are millimetres, Z up. Rocket parts put the tail at z=0 and the nose tip a
 
 A part script is one file in hub/cad/parts/ (the file name is the design's id). It defines PARAMS and
 build(params) -> BuildResult, and optionally TITLE, DESCRIPTION, GLYPH (the Designs menu icon: rocket | drone |
-gears | box), PRESETS ({name: {param: value}}), analyze(result, masses) -> list[Metric] | Analysis, and
-simulate_flight(result, masses). See parts/_template.py.
+gears | robot | box), PRESETS ({name: {param: value}}), analyze(result, masses) -> list[Metric] | Analysis,
+simulate_flight(result, masses), and simulate_motion(result, masses) -> Motion (a keyframed demo: the humanoid's walk). See parts/_template.py.
 
 analyze() can also hand Unity things to draw and say (all optional, in part millimetres; cad/scene.py converts them
 to the GLB's frame and works out generic ones for whatever is left out): markers, dimensions, explode, demo,
@@ -126,6 +126,15 @@ class ShellMass:
 
 
 @dataclass(frozen=True)
+class FixedMass:
+    """A part whose mass and centre of mass are known rather than worked out from its shape: a bought-in part from
+    its datasheet, a robot link from its URDF, a mesh (which has no volume). cg_mm is in part millimetres."""
+    mass_g: float
+    cg_mm: Vec
+    material: str = ""
+
+
+@dataclass(frozen=True)
 class PointMass:
     """Something with mass but no geometry (motor, parachute). z is along the part's Z axis."""
     name: str
@@ -171,7 +180,7 @@ class RocketSpec:
 @dataclass
 class BuildResult:
     assembly: Any  # build123d Compound; every node needs a unique label (GLB node name, metadata ID)
-    masses: dict[str, SolidMass | ShellMass] = field(default_factory=dict)  # by part label
+    masses: dict[str, SolidMass | ShellMass | FixedMass] = field(default_factory=dict)  # by part label
     point_masses: list[PointMass] = field(default_factory=list)
     rocket: RocketSpec | None = None
     params: dict[str, Any] = field(default_factory=dict)  # the values build() got; the hub fills this in for analyze()
@@ -286,11 +295,12 @@ class Spinner:
 @dataclass
 class Demo:
     """What the panel's demo button does: kind launch (fly the trajectory from GET source), hover (lift off on
-    the spinning props) or spin (run the spinners), or none. values are the numbers the animation and readouts use."""
+    the spinning props), spin (run the spinners), walk (play the keyframed motion from GET source), or none.
+    values are the numbers the animation and readouts use."""
     kind: str = "none"
-    label: str = ""                         # the button: Fly, Hover, Run
+    label: str = ""                         # the button: Fly, Hover, Run, Walk
     note: str = ""                          # one plain sentence for the panel
-    source: str | None = None               # launch: the endpoint with the trajectory ("/cad/flight")
+    source: str | None = None               # launch: the trajectory ("/cad/flight"); walk: the motion ("/cad/motion")
     axis: tuple[Vec, Vec] | None = None     # (origin, direction): launch / lift direction, or the input shaft
     spinners: list[Spinner] = field(default_factory=list)
     readouts: list[Metric] = field(default_factory=list)
@@ -298,6 +308,35 @@ class Demo:
     assumptions: list[str] = field(default_factory=list)
     blocked: str | None = None              # why the demo can't run (the button greys out), e.g. props collide
     reveal: list[str] = field(default_factory=list)   # part labels to lift / turn to glass while it runs (a lid)
+
+
+@dataclass(frozen=True)
+class MotionJoint:
+    """One joint of a keyframed motion: the assembly `part` (it and everything nested in it) turns about the axis
+    through `origin` along `direction` by angles_deg[i] at sample i, relative to the version's pose (right-hand rule,
+    part millimetres and axes). Nest the assemblies along the kinematic chain and keep their own locations at
+    identity (place the leaves where they are), so each turn carries the rest of the limb."""
+    part: str
+    origin: Vec
+    direction: Vec
+    angles_deg: tuple[float, ...]
+
+
+@dataclass
+class Motion:
+    """A keyframed motion (the humanoid's walk), from a part script's simulate_motion(result, masses): `rate_hz`
+    samples of each joint's angle, and the whole model's path: at sample i a model point p goes to
+    rotations[i] * p + positions[i] (part mm and axes; quaternions x, y, z, w; both empty = it stays put).
+    loop: the last sample runs on into the first. centre: the point the path goes round (a lap's centre), if any.
+    values: numbers for the animation (radius_mm, lap_s); tracks: per-sample numbers for live telemetry (load_pct)."""
+    rate_hz: float
+    joints: list[MotionJoint] = field(default_factory=list)
+    positions: list[Vec] = field(default_factory=list)
+    rotations: list[tuple[float, float, float, float]] = field(default_factory=list)
+    loop: bool = True
+    centre: Vec | None = None
+    values: dict[str, float] = field(default_factory=dict)
+    tracks: dict[str, list[float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
