@@ -1,0 +1,2881 @@
+{
+  "schemaVersion": "1.0",
+  "project": {
+    "id": "FORGE_HUMANOID",
+    "name": "humanoid",
+    "rootObjectId": "HUMANOID",
+    "units": {
+      "length": "m",
+      "mass": "kg",
+      "angle": "deg"
+    }
+  },
+  "coordinateSystem": "part axes (Z-up, tail at z=0); the GLB root node rotates them to glTF Y-up",
+  "provenance": {
+    "synthetic": false,
+    "source": "forge hub/cad (build123d)",
+    "sourceGlbSha256": "f80e690392e49fd4ba53e414807140dd9014dbf4c076e22b5bdfca60a7233c38"
+  },
+  "objects": [
+    {
+      "id": "HUMANOID",
+      "name": "humanoid",
+      "type": "assembly",
+      "glbNodeIndex": 0,
+      "parentId": null,
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {
+        "squat": "150.0",
+        "stance": "240.0",
+        "step": "0.0",
+        "lean": "0.0",
+        "twist": "0.0",
+        "arms_forward": "0.0",
+        "arms_out": "6.0",
+        "elbow": "25.0",
+        "grip": "0.0",
+        "carry": "0.0"
+      },
+      "childIds": [
+        "PELVIS",
+        "PELVIS_CONTOUR_JOINT",
+        "LEFT_HIP_PITCH_JOINT",
+        "RIGHT_HIP_PITCH_JOINT",
+        "WAIST_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "PELVIS",
+      "name": "pelvis",
+      "type": "part",
+      "glbNodeIndex": 1,
+      "parentId": "HUMANOID",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 3.813,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000494,
+        0.153246,
+        0.212799
+      ]
+    },
+    {
+      "id": "PELVIS_CONTOUR_JOINT",
+      "name": "pelvis_contour_joint",
+      "type": "assembly",
+      "glbNodeIndex": 2,
+      "parentId": "HUMANOID",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "PELVIS_COVER",
+        "PELVIS_COVER_2"
+      ]
+    },
+    {
+      "id": "PELVIS_COVER",
+      "name": "pelvis_cover",
+      "type": "part",
+      "glbNodeIndex": 3,
+      "parentId": "PELVIS_CONTOUR_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.000503,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000494,
+        0.185386,
+        0.281724
+      ]
+    },
+    {
+      "id": "PELVIS_COVER_2",
+      "name": "pelvis_cover_2",
+      "type": "part",
+      "glbNodeIndex": 4,
+      "parentId": "PELVIS_CONTOUR_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.000497,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000494,
+        0.185386,
+        0.281724
+      ]
+    },
+    {
+      "id": "LEFT_HIP_PITCH_JOINT",
+      "name": "left_hip_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 5,
+      "parentId": "HUMANOID",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_HIP_PITCH_MOTOR",
+        "LEFT_HIP_PITCH_MOTOR_2",
+        "LEFT_HIP_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_HIP_PITCH_MOTOR",
+      "name": "left_hip_pitch_motor",
+      "type": "part",
+      "glbNodeIndex": 6,
+      "parentId": "LEFT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.94068,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.112737,
+        0.116859,
+        0.196087
+      ]
+    },
+    {
+      "id": "LEFT_HIP_PITCH_MOTOR_2",
+      "name": "left_hip_pitch_motor_2",
+      "type": "part",
+      "glbNodeIndex": 7,
+      "parentId": "LEFT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.40932,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.112737,
+        0.116859,
+        0.196087
+      ]
+    },
+    {
+      "id": "LEFT_HIP_ROLL_JOINT",
+      "name": "left_hip_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 8,
+      "parentId": "LEFT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_HIP_ROLL_MOTOR",
+        "LEFT_HIP_ROLL_MOTOR_2",
+        "LEFT_HIP_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_HIP_ROLL_MOTOR",
+      "name": "left_hip_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 9,
+      "parentId": "LEFT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.263546,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.115901,
+        0.040119,
+        0.252932
+      ]
+    },
+    {
+      "id": "LEFT_HIP_ROLL_MOTOR_2",
+      "name": "left_hip_roll_motor_2",
+      "type": "part",
+      "glbNodeIndex": 10,
+      "parentId": "LEFT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.256454,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.115901,
+        0.040119,
+        0.252932
+      ]
+    },
+    {
+      "id": "LEFT_HIP_YAW_JOINT",
+      "name": "left_hip_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 11,
+      "parentId": "LEFT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_THIGH",
+        "LEFT_THIGH_2",
+        "LEFT_THIGH_3",
+        "LEFT_THIGH_4",
+        "LEFT_THIGH_5",
+        "LEFT_KNEE_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_THIGH",
+      "name": "left_thigh",
+      "type": "part",
+      "glbNodeIndex": 12,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.931862,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.105965,
+        -0.1569,
+        0.2599
+      ]
+    },
+    {
+      "id": "LEFT_THIGH_2",
+      "name": "left_thigh_2",
+      "type": "part",
+      "glbNodeIndex": 13,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.356569,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.105965,
+        -0.1569,
+        0.2599
+      ]
+    },
+    {
+      "id": "LEFT_THIGH_3",
+      "name": "left_thigh_3",
+      "type": "part",
+      "glbNodeIndex": 14,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.139326,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.105965,
+        -0.1569,
+        0.2599
+      ]
+    },
+    {
+      "id": "LEFT_THIGH_4",
+      "name": "left_thigh_4",
+      "type": "part",
+      "glbNodeIndex": 15,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.138288,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.105965,
+        -0.1569,
+        0.2599
+      ]
+    },
+    {
+      "id": "LEFT_THIGH_5",
+      "name": "left_thigh_5",
+      "type": "part",
+      "glbNodeIndex": 16,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.135939,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.105965,
+        -0.1569,
+        0.2599
+      ]
+    },
+    {
+      "id": "LEFT_KNEE_JOINT",
+      "name": "left_knee_joint",
+      "type": "assembly",
+      "glbNodeIndex": 17,
+      "parentId": "LEFT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_SHIN",
+        "LEFT_SHIN_2",
+        "LEFT_SHIN_3",
+        "LEFT_SHIN_4",
+        "LEFT_ANKLE_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_SHIN",
+      "name": "left_shin",
+      "type": "part",
+      "glbNodeIndex": 18,
+      "parentId": "LEFT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.302091,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.123059,
+        -0.100706,
+        0.167394
+      ]
+    },
+    {
+      "id": "LEFT_SHIN_2",
+      "name": "left_shin_2",
+      "type": "part",
+      "glbNodeIndex": 19,
+      "parentId": "LEFT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.337366,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.123059,
+        -0.100706,
+        0.167394
+      ]
+    },
+    {
+      "id": "LEFT_SHIN_3",
+      "name": "left_shin_3",
+      "type": "part",
+      "glbNodeIndex": 20,
+      "parentId": "LEFT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.180951,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.123059,
+        -0.100706,
+        0.167394
+      ]
+    },
+    {
+      "id": "LEFT_SHIN_4",
+      "name": "left_shin_4",
+      "type": "part",
+      "glbNodeIndex": 21,
+      "parentId": "LEFT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.111592,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.123059,
+        -0.100706,
+        0.167394
+      ]
+    },
+    {
+      "id": "LEFT_ANKLE_PITCH_JOINT",
+      "name": "left_ankle_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 22,
+      "parentId": "LEFT_KNEE_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_ANKLE",
+        "LEFT_ANKLE_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_ANKLE",
+      "name": "left_ankle",
+      "type": "part",
+      "glbNodeIndex": 23,
+      "parentId": "LEFT_ANKLE_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.074,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.119001,
+        0.046532,
+        0.066205
+      ]
+    },
+    {
+      "id": "LEFT_ANKLE_ROLL_JOINT",
+      "name": "left_ankle_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 24,
+      "parentId": "LEFT_ANKLE_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_FOOT",
+        "LEFT_FOOT_2",
+        "LEFT_FOOT_3"
+      ]
+    },
+    {
+      "id": "LEFT_FOOT",
+      "name": "left_foot",
+      "type": "part",
+      "glbNodeIndex": 25,
+      "parentId": "LEFT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.235405,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.119001,
+        0.01237,
+        0.021378
+      ]
+    },
+    {
+      "id": "LEFT_FOOT_2",
+      "name": "left_foot_2",
+      "type": "part",
+      "glbNodeIndex": 26,
+      "parentId": "LEFT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.191021,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.119001,
+        0.01237,
+        0.021378
+      ]
+    },
+    {
+      "id": "LEFT_FOOT_3",
+      "name": "left_foot_3",
+      "type": "part",
+      "glbNodeIndex": 27,
+      "parentId": "LEFT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.181573,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.119001,
+        0.01237,
+        0.021378
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_PITCH_JOINT",
+      "name": "right_hip_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 28,
+      "parentId": "HUMANOID",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_HIP_PITCH_MOTOR",
+        "RIGHT_HIP_PITCH_MOTOR_2",
+        "RIGHT_HIP_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_PITCH_MOTOR",
+      "name": "right_hip_pitch_motor",
+      "type": "part",
+      "glbNodeIndex": 29,
+      "parentId": "RIGHT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.94068,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.111749,
+        0.116734,
+        0.195653
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_PITCH_MOTOR_2",
+      "name": "right_hip_pitch_motor_2",
+      "type": "part",
+      "glbNodeIndex": 30,
+      "parentId": "RIGHT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.40932,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.111749,
+        0.116734,
+        0.195653
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_ROLL_JOINT",
+      "name": "right_hip_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 31,
+      "parentId": "RIGHT_HIP_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_HIP_ROLL_MOTOR",
+        "RIGHT_HIP_ROLL_MOTOR_2",
+        "RIGHT_HIP_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_ROLL_MOTOR",
+      "name": "right_hip_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 32,
+      "parentId": "RIGHT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.263546,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.114913,
+        0.039025,
+        0.251166
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_ROLL_MOTOR_2",
+      "name": "right_hip_roll_motor_2",
+      "type": "part",
+      "glbNodeIndex": 33,
+      "parentId": "RIGHT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.256454,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.114913,
+        0.039025,
+        0.251166
+      ]
+    },
+    {
+      "id": "RIGHT_HIP_YAW_JOINT",
+      "name": "right_hip_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 34,
+      "parentId": "RIGHT_HIP_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_THIGH",
+        "RIGHT_THIGH_2",
+        "RIGHT_THIGH_3",
+        "RIGHT_THIGH_4",
+        "RIGHT_THIGH_5",
+        "RIGHT_KNEE_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_THIGH",
+      "name": "right_thigh",
+      "type": "part",
+      "glbNodeIndex": 35,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.931862,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.104977,
+        -0.158085,
+        0.254733
+      ]
+    },
+    {
+      "id": "RIGHT_THIGH_2",
+      "name": "right_thigh_2",
+      "type": "part",
+      "glbNodeIndex": 36,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.356569,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.104977,
+        -0.158085,
+        0.254733
+      ]
+    },
+    {
+      "id": "RIGHT_THIGH_3",
+      "name": "right_thigh_3",
+      "type": "part",
+      "glbNodeIndex": 37,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.139326,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.104977,
+        -0.158085,
+        0.254733
+      ]
+    },
+    {
+      "id": "RIGHT_THIGH_4",
+      "name": "right_thigh_4",
+      "type": "part",
+      "glbNodeIndex": 38,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.138288,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.104977,
+        -0.158085,
+        0.254733
+      ]
+    },
+    {
+      "id": "RIGHT_THIGH_5",
+      "name": "right_thigh_5",
+      "type": "part",
+      "glbNodeIndex": 39,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.135939,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.104977,
+        -0.158085,
+        0.254733
+      ]
+    },
+    {
+      "id": "RIGHT_KNEE_JOINT",
+      "name": "right_knee_joint",
+      "type": "assembly",
+      "glbNodeIndex": 40,
+      "parentId": "RIGHT_HIP_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_SHIN",
+        "RIGHT_SHIN_2",
+        "RIGHT_SHIN_3",
+        "RIGHT_SHIN_4",
+        "RIGHT_ANKLE_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_SHIN",
+      "name": "right_shin",
+      "type": "part",
+      "glbNodeIndex": 41,
+      "parentId": "RIGHT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.302071,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.12207,
+        -0.100304,
+        0.16321
+      ]
+    },
+    {
+      "id": "RIGHT_SHIN_2",
+      "name": "right_shin_2",
+      "type": "part",
+      "glbNodeIndex": 42,
+      "parentId": "RIGHT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.337366,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.12207,
+        -0.100304,
+        0.16321
+      ]
+    },
+    {
+      "id": "RIGHT_SHIN_3",
+      "name": "right_shin_3",
+      "type": "part",
+      "glbNodeIndex": 43,
+      "parentId": "RIGHT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.180951,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.12207,
+        -0.100304,
+        0.16321
+      ]
+    },
+    {
+      "id": "RIGHT_SHIN_4",
+      "name": "right_shin_4",
+      "type": "part",
+      "glbNodeIndex": 44,
+      "parentId": "RIGHT_KNEE_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.111592,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.12207,
+        -0.100304,
+        0.16321
+      ]
+    },
+    {
+      "id": "RIGHT_ANKLE_PITCH_JOINT",
+      "name": "right_ankle_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 45,
+      "parentId": "RIGHT_KNEE_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_ANKLE",
+        "RIGHT_ANKLE_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_ANKLE",
+      "name": "right_ankle",
+      "type": "part",
+      "glbNodeIndex": 46,
+      "parentId": "RIGHT_ANKLE_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.074,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.118012,
+        0.048659,
+        0.064577
+      ]
+    },
+    {
+      "id": "RIGHT_ANKLE_ROLL_JOINT",
+      "name": "right_ankle_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 47,
+      "parentId": "RIGHT_ANKLE_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_FOOT",
+        "RIGHT_FOOT_2",
+        "RIGHT_FOOT_3"
+      ]
+    },
+    {
+      "id": "RIGHT_FOOT",
+      "name": "right_foot",
+      "type": "part",
+      "glbNodeIndex": 48,
+      "parentId": "RIGHT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.235387,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.118012,
+        0.015275,
+        0.019167
+      ]
+    },
+    {
+      "id": "RIGHT_FOOT_2",
+      "name": "right_foot_2",
+      "type": "part",
+      "glbNodeIndex": 49,
+      "parentId": "RIGHT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.19104,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.118012,
+        0.015275,
+        0.019167
+      ]
+    },
+    {
+      "id": "RIGHT_FOOT_3",
+      "name": "right_foot_3",
+      "type": "part",
+      "glbNodeIndex": 50,
+      "parentId": "RIGHT_ANKLE_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.181573,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.118012,
+        0.015275,
+        0.019167
+      ]
+    },
+    {
+      "id": "WAIST_YAW_JOINT",
+      "name": "waist_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 51,
+      "parentId": "HUMANOID",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "WAIST_MOTOR",
+        "WAIST_MOTOR_2",
+        "WAIST_MOTOR_3",
+        "WAIST_MOTOR_4",
+        "WAIST_MOTOR_5",
+        "WAIST_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "WAIST_MOTOR",
+      "name": "waist_motor",
+      "type": "part",
+      "glbNodeIndex": 52,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.067881,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000727,
+        0.189841,
+        0.299545
+      ]
+    },
+    {
+      "id": "WAIST_MOTOR_2",
+      "name": "waist_motor_2",
+      "type": "part",
+      "glbNodeIndex": 53,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.061063,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000727,
+        0.189841,
+        0.299545
+      ]
+    },
+    {
+      "id": "WAIST_MOTOR_3",
+      "name": "waist_motor_3",
+      "type": "part",
+      "glbNodeIndex": 54,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.036981,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000727,
+        0.189841,
+        0.299545
+      ]
+    },
+    {
+      "id": "WAIST_MOTOR_4",
+      "name": "waist_motor_4",
+      "type": "part",
+      "glbNodeIndex": 55,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.036981,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000727,
+        0.189841,
+        0.299545
+      ]
+    },
+    {
+      "id": "WAIST_MOTOR_5",
+      "name": "waist_motor_5",
+      "type": "part",
+      "glbNodeIndex": 56,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.011092,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000727,
+        0.189841,
+        0.299545
+      ]
+    },
+    {
+      "id": "WAIST_ROLL_JOINT",
+      "name": "waist_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 57,
+      "parentId": "WAIST_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "WAIST_BRACKET",
+        "WAIST_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "WAIST_BRACKET",
+      "name": "waist_bracket",
+      "type": "part",
+      "glbNodeIndex": 58,
+      "parentId": "WAIST_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.086,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000517,
+        0.207573,
+        0.319926
+      ]
+    },
+    {
+      "id": "WAIST_PITCH_JOINT",
+      "name": "waist_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 59,
+      "parentId": "WAIST_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "TORSO",
+        "TORSO_2",
+        "TORSO_3",
+        "TORSO_4",
+        "HEAD_JOINT",
+        "LEFT_SHOULDER_PITCH_JOINT",
+        "RIGHT_SHOULDER_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "TORSO",
+      "name": "torso",
+      "type": "part",
+      "glbNodeIndex": 60,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 3.966775,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.00084,
+        0.270468,
+        0.45701
+      ]
+    },
+    {
+      "id": "TORSO_2",
+      "name": "torso_2",
+      "type": "part",
+      "glbNodeIndex": 61,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.114157,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.00084,
+        0.270468,
+        0.45701
+      ]
+    },
+    {
+      "id": "TORSO_3",
+      "name": "torso_3",
+      "type": "part",
+      "glbNodeIndex": 62,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.076528,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.00084,
+        0.270468,
+        0.45701
+      ]
+    },
+    {
+      "id": "TORSO_4",
+      "name": "torso_4",
+      "type": "part",
+      "glbNodeIndex": 63,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.62254,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.00084,
+        0.270468,
+        0.45701
+      ]
+    },
+    {
+      "id": "HEAD_JOINT",
+      "name": "head_joint",
+      "type": "assembly",
+      "glbNodeIndex": 64,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "HEAD"
+      ]
+    },
+    {
+      "id": "HEAD",
+      "name": "head",
+      "type": "part",
+      "glbNodeIndex": 65,
+      "parentId": "HEAD_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 1.036,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.000793,
+        0.370733,
+        0.691671
+      ]
+    },
+    {
+      "id": "LEFT_SHOULDER_PITCH_JOINT",
+      "name": "left_shoulder_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 66,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_SHOULDER",
+        "LEFT_SHOULDER_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_SHOULDER",
+      "name": "left_shoulder",
+      "type": "part",
+      "glbNodeIndex": 67,
+      "parentId": "LEFT_SHOULDER_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.718,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.138421,
+        0.308154,
+        0.545005
+      ]
+    },
+    {
+      "id": "LEFT_SHOULDER_ROLL_JOINT",
+      "name": "left_shoulder_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 68,
+      "parentId": "LEFT_SHOULDER_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_SHOULDER_ROLL_MOTOR",
+        "LEFT_SHOULDER_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_SHOULDER_ROLL_MOTOR",
+      "name": "left_shoulder_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 69,
+      "parentId": "LEFT_SHOULDER_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.643,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.1549,
+        0.281452,
+        0.487202
+      ]
+    },
+    {
+      "id": "LEFT_SHOULDER_YAW_JOINT",
+      "name": "left_shoulder_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 70,
+      "parentId": "LEFT_SHOULDER_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_UPPER_ARM",
+        "LEFT_UPPER_ARM_2",
+        "LEFT_UPPER_ARM_3",
+        "LEFT_ELBOW_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_UPPER_ARM",
+      "name": "left_upper_arm",
+      "type": "part",
+      "glbNodeIndex": 71,
+      "parentId": "LEFT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.367433,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.162651,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "LEFT_UPPER_ARM_2",
+      "name": "left_upper_arm_2",
+      "type": "part",
+      "glbNodeIndex": 72,
+      "parentId": "LEFT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.270281,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.162651,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "LEFT_UPPER_ARM_3",
+      "name": "left_upper_arm_3",
+      "type": "part",
+      "glbNodeIndex": 73,
+      "parentId": "LEFT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.096286,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.162651,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "LEFT_ELBOW_JOINT",
+      "name": "left_elbow_joint",
+      "type": "assembly",
+      "glbNodeIndex": 74,
+      "parentId": "LEFT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_FOREARM",
+        "LEFT_WRIST_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_FOREARM",
+      "name": "left_forearm",
+      "type": "part",
+      "glbNodeIndex": 75,
+      "parentId": "LEFT_ELBOW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.6,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.1775,
+        0.173317,
+        0.336552
+      ]
+    },
+    {
+      "id": "LEFT_WRIST_ROLL_JOINT",
+      "name": "left_wrist_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 76,
+      "parentId": "LEFT_ELBOW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_WRIST_ROLL_MOTOR",
+        "LEFT_WRIST_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_WRIST_ROLL_MOTOR",
+      "name": "left_wrist_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 77,
+      "parentId": "LEFT_WRIST_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.085445,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.180422,
+        0.133324,
+        0.303098
+      ]
+    },
+    {
+      "id": "LEFT_WRIST_PITCH_JOINT",
+      "name": "left_wrist_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 78,
+      "parentId": "LEFT_WRIST_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_WRIST_PITCH_MOTOR",
+        "LEFT_WRIST_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_WRIST_PITCH_MOTOR",
+      "name": "left_wrist_pitch_motor",
+      "type": "part",
+      "glbNodeIndex": 79,
+      "parentId": "LEFT_WRIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.48405,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.18298,
+        0.100464,
+        0.27409
+      ]
+    },
+    {
+      "id": "LEFT_WRIST_YAW_JOINT",
+      "name": "left_wrist_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 80,
+      "parentId": "LEFT_WRIST_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_WRIST",
+        "LEFT_HAND_PALM_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_WRIST",
+      "name": "left_wrist",
+      "type": "part",
+      "glbNodeIndex": 81,
+      "parentId": "LEFT_WRIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.084576,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.188772,
+        0.06509,
+        0.246781
+      ]
+    },
+    {
+      "id": "LEFT_HAND_PALM_JOINT",
+      "name": "left_hand_palm_joint",
+      "type": "assembly",
+      "glbNodeIndex": 82,
+      "parentId": "LEFT_WRIST_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_PALM",
+        "LEFT_HAND_THUMB_0_JOINT",
+        "LEFT_HAND_MIDDLE_0_JOINT",
+        "LEFT_HAND_INDEX_0_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_PALM",
+      "name": "left_palm",
+      "type": "part",
+      "glbNodeIndex": 83,
+      "parentId": "LEFT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.372839,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.19854,
+        0.003531,
+        0.194
+      ]
+    },
+    {
+      "id": "LEFT_HAND_THUMB_0_JOINT",
+      "name": "left_hand_thumb_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 84,
+      "parentId": "LEFT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_THUMB_BASE",
+        "LEFT_HAND_THUMB_1_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_THUMB_BASE",
+      "name": "left_thumb_base",
+      "type": "part",
+      "glbNodeIndex": 85,
+      "parentId": "LEFT_HAND_THUMB_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.086237,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.186837,
+        0.030861,
+        0.218352
+      ]
+    },
+    {
+      "id": "LEFT_HAND_THUMB_1_JOINT",
+      "name": "left_hand_thumb_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 86,
+      "parentId": "LEFT_HAND_THUMB_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_THUMB",
+        "LEFT_HAND_THUMB_2_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_THUMB",
+      "name": "left_thumb",
+      "type": "part",
+      "glbNodeIndex": 87,
+      "parentId": "LEFT_HAND_THUMB_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.140777,
+        0.03155,
+        0.214522
+      ]
+    },
+    {
+      "id": "LEFT_HAND_THUMB_2_JOINT",
+      "name": "left_hand_thumb_2_joint",
+      "type": "assembly",
+      "glbNodeIndex": 88,
+      "parentId": "LEFT_HAND_THUMB_1_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_THUMB_TIP",
+        "LEFT_THUMB_TIP_2"
+      ]
+    },
+    {
+      "id": "LEFT_THUMB_TIP",
+      "name": "left_thumb_tip",
+      "type": "part",
+      "glbNodeIndex": 89,
+      "parentId": "LEFT_HAND_THUMB_2_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.104264,
+        0.030303,
+        0.21199
+      ]
+    },
+    {
+      "id": "LEFT_THUMB_TIP_2",
+      "name": "left_thumb_tip_2",
+      "type": "part",
+      "glbNodeIndex": 90,
+      "parentId": "LEFT_HAND_THUMB_2_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.104264,
+        0.030303,
+        0.21199
+      ]
+    },
+    {
+      "id": "LEFT_HAND_MIDDLE_0_JOINT",
+      "name": "left_hand_middle_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 91,
+      "parentId": "LEFT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_MIDDLE_FINGER",
+        "LEFT_HAND_MIDDLE_1_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_MIDDLE_FINGER",
+      "name": "left_middle_finger",
+      "type": "part",
+      "glbNodeIndex": 92,
+      "parentId": "LEFT_HAND_MIDDLE_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.207515,
+        -0.017593,
+        0.140671
+      ]
+    },
+    {
+      "id": "LEFT_HAND_MIDDLE_1_JOINT",
+      "name": "left_hand_middle_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 93,
+      "parentId": "LEFT_HAND_MIDDLE_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_MIDDLE_TIP",
+        "LEFT_MIDDLE_TIP_2"
+      ]
+    },
+    {
+      "id": "LEFT_MIDDLE_TIP",
+      "name": "left_middle_tip",
+      "type": "part",
+      "glbNodeIndex": 94,
+      "parentId": "LEFT_HAND_MIDDLE_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.211888,
+        -0.045204,
+        0.117014
+      ]
+    },
+    {
+      "id": "LEFT_MIDDLE_TIP_2",
+      "name": "left_middle_tip_2",
+      "type": "part",
+      "glbNodeIndex": 95,
+      "parentId": "LEFT_HAND_MIDDLE_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.211888,
+        -0.045204,
+        0.117014
+      ]
+    },
+    {
+      "id": "LEFT_HAND_INDEX_0_JOINT",
+      "name": "left_hand_index_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 96,
+      "parentId": "LEFT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_INDEX_FINGER",
+        "LEFT_HAND_INDEX_1_JOINT"
+      ]
+    },
+    {
+      "id": "LEFT_INDEX_FINGER",
+      "name": "left_index_finger",
+      "type": "part",
+      "glbNodeIndex": 97,
+      "parentId": "LEFT_HAND_INDEX_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.204985,
+        -0.05429,
+        0.184213
+      ]
+    },
+    {
+      "id": "LEFT_HAND_INDEX_1_JOINT",
+      "name": "left_hand_index_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 98,
+      "parentId": "LEFT_HAND_INDEX_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "LEFT_INDEX_TIP",
+        "LEFT_INDEX_TIP_2"
+      ]
+    },
+    {
+      "id": "LEFT_INDEX_TIP",
+      "name": "left_index_tip",
+      "type": "part",
+      "glbNodeIndex": 99,
+      "parentId": "LEFT_HAND_INDEX_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.209359,
+        -0.081901,
+        0.160557
+      ]
+    },
+    {
+      "id": "LEFT_INDEX_TIP_2",
+      "name": "left_index_tip_2",
+      "type": "part",
+      "glbNodeIndex": 100,
+      "parentId": "LEFT_HAND_INDEX_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        0.209359,
+        -0.081901,
+        0.160557
+      ]
+    },
+    {
+      "id": "RIGHT_SHOULDER_PITCH_JOINT",
+      "name": "right_shoulder_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 101,
+      "parentId": "WAIST_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_SHOULDER",
+        "RIGHT_SHOULDER_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_SHOULDER",
+      "name": "right_shoulder",
+      "type": "part",
+      "glbNodeIndex": 102,
+      "parentId": "RIGHT_SHOULDER_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.718,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.137422,
+        0.308154,
+        0.545005
+      ]
+    },
+    {
+      "id": "RIGHT_SHOULDER_ROLL_JOINT",
+      "name": "right_shoulder_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 103,
+      "parentId": "RIGHT_SHOULDER_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_SHOULDER_ROLL_MOTOR",
+        "RIGHT_SHOULDER_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_SHOULDER_ROLL_MOTOR",
+      "name": "right_shoulder_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 104,
+      "parentId": "RIGHT_SHOULDER_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.643,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.153901,
+        0.281452,
+        0.487202
+      ]
+    },
+    {
+      "id": "RIGHT_SHOULDER_YAW_JOINT",
+      "name": "right_shoulder_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 105,
+      "parentId": "RIGHT_SHOULDER_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_UPPER_ARM",
+        "RIGHT_UPPER_ARM_2",
+        "RIGHT_UPPER_ARM_3",
+        "RIGHT_ELBOW_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_UPPER_ARM",
+      "name": "right_upper_arm",
+      "type": "part",
+      "glbNodeIndex": 106,
+      "parentId": "RIGHT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.367433,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.161652,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "RIGHT_UPPER_ARM_2",
+      "name": "right_upper_arm_2",
+      "type": "part",
+      "glbNodeIndex": 107,
+      "parentId": "RIGHT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.270281,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.161652,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "RIGHT_UPPER_ARM_3",
+      "name": "right_upper_arm_3",
+      "type": "part",
+      "glbNodeIndex": 108,
+      "parentId": "RIGHT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.096286,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.161652,
+        0.224252,
+        0.390552
+      ]
+    },
+    {
+      "id": "RIGHT_ELBOW_JOINT",
+      "name": "right_elbow_joint",
+      "type": "assembly",
+      "glbNodeIndex": 109,
+      "parentId": "RIGHT_SHOULDER_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_FOREARM",
+        "RIGHT_WRIST_ROLL_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_FOREARM",
+      "name": "right_forearm",
+      "type": "part",
+      "glbNodeIndex": 110,
+      "parentId": "RIGHT_ELBOW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.6,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.176501,
+        0.173317,
+        0.336552
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST_ROLL_JOINT",
+      "name": "right_wrist_roll_joint",
+      "type": "assembly",
+      "glbNodeIndex": 111,
+      "parentId": "RIGHT_ELBOW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_WRIST_ROLL_MOTOR",
+        "RIGHT_WRIST_PITCH_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST_ROLL_MOTOR",
+      "name": "right_wrist_roll_motor",
+      "type": "part",
+      "glbNodeIndex": 112,
+      "parentId": "RIGHT_WRIST_ROLL_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.085445,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.179423,
+        0.133324,
+        0.303098
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST_PITCH_JOINT",
+      "name": "right_wrist_pitch_joint",
+      "type": "assembly",
+      "glbNodeIndex": 113,
+      "parentId": "RIGHT_WRIST_ROLL_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_WRIST_PITCH_MOTOR",
+        "RIGHT_WRIST_YAW_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST_PITCH_MOTOR",
+      "name": "right_wrist_pitch_motor",
+      "type": "part",
+      "glbNodeIndex": 114,
+      "parentId": "RIGHT_WRIST_PITCH_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.48405,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.181982,
+        0.100464,
+        0.27409
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST_YAW_JOINT",
+      "name": "right_wrist_yaw_joint",
+      "type": "assembly",
+      "glbNodeIndex": 115,
+      "parentId": "RIGHT_WRIST_PITCH_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_WRIST",
+        "RIGHT_HAND_PALM_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_WRIST",
+      "name": "right_wrist",
+      "type": "part",
+      "glbNodeIndex": 116,
+      "parentId": "RIGHT_WRIST_YAW_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.084576,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.187773,
+        0.06509,
+        0.246781
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_PALM_JOINT",
+      "name": "right_hand_palm_joint",
+      "type": "assembly",
+      "glbNodeIndex": 117,
+      "parentId": "RIGHT_WRIST_YAW_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_PALM",
+        "RIGHT_HAND_THUMB_0_JOINT",
+        "RIGHT_HAND_MIDDLE_0_JOINT",
+        "RIGHT_HAND_INDEX_0_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_PALM",
+      "name": "right_palm",
+      "type": "part",
+      "glbNodeIndex": 118,
+      "parentId": "RIGHT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.372839,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.197541,
+        0.003531,
+        0.194
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_THUMB_0_JOINT",
+      "name": "right_hand_thumb_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 119,
+      "parentId": "RIGHT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_THUMB_BASE",
+        "RIGHT_HAND_THUMB_1_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_THUMB_BASE",
+      "name": "right_thumb_base",
+      "type": "part",
+      "glbNodeIndex": 120,
+      "parentId": "RIGHT_HAND_THUMB_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.086237,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.185838,
+        0.030861,
+        0.218352
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_THUMB_1_JOINT",
+      "name": "right_hand_thumb_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 121,
+      "parentId": "RIGHT_HAND_THUMB_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_THUMB",
+        "RIGHT_HAND_THUMB_2_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_THUMB",
+      "name": "right_thumb",
+      "type": "part",
+      "glbNodeIndex": 122,
+      "parentId": "RIGHT_HAND_THUMB_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.139778,
+        0.03155,
+        0.214522
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_THUMB_2_JOINT",
+      "name": "right_hand_thumb_2_joint",
+      "type": "assembly",
+      "glbNodeIndex": 123,
+      "parentId": "RIGHT_HAND_THUMB_1_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_THUMB_TIP",
+        "RIGHT_THUMB_TIP_2"
+      ]
+    },
+    {
+      "id": "RIGHT_THUMB_TIP",
+      "name": "right_thumb_tip",
+      "type": "part",
+      "glbNodeIndex": 124,
+      "parentId": "RIGHT_HAND_THUMB_2_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.103265,
+        0.030303,
+        0.21199
+      ]
+    },
+    {
+      "id": "RIGHT_THUMB_TIP_2",
+      "name": "right_thumb_tip_2",
+      "type": "part",
+      "glbNodeIndex": 125,
+      "parentId": "RIGHT_HAND_THUMB_2_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.103265,
+        0.030303,
+        0.21199
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_MIDDLE_0_JOINT",
+      "name": "right_hand_middle_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 126,
+      "parentId": "RIGHT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_MIDDLE_FINGER",
+        "RIGHT_HAND_MIDDLE_1_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_MIDDLE_FINGER",
+      "name": "right_middle_finger",
+      "type": "part",
+      "glbNodeIndex": 127,
+      "parentId": "RIGHT_HAND_MIDDLE_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.206516,
+        -0.017593,
+        0.140671
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_MIDDLE_1_JOINT",
+      "name": "right_hand_middle_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 128,
+      "parentId": "RIGHT_HAND_MIDDLE_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_MIDDLE_TIP",
+        "RIGHT_MIDDLE_TIP_2"
+      ]
+    },
+    {
+      "id": "RIGHT_MIDDLE_TIP",
+      "name": "right_middle_tip",
+      "type": "part",
+      "glbNodeIndex": 129,
+      "parentId": "RIGHT_HAND_MIDDLE_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.210889,
+        -0.045204,
+        0.117014
+      ]
+    },
+    {
+      "id": "RIGHT_MIDDLE_TIP_2",
+      "name": "right_middle_tip_2",
+      "type": "part",
+      "glbNodeIndex": 130,
+      "parentId": "RIGHT_HAND_MIDDLE_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.210889,
+        -0.045204,
+        0.117014
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_INDEX_0_JOINT",
+      "name": "right_hand_index_0_joint",
+      "type": "assembly",
+      "glbNodeIndex": 131,
+      "parentId": "RIGHT_HAND_PALM_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_INDEX_FINGER",
+        "RIGHT_HAND_INDEX_1_JOINT"
+      ]
+    },
+    {
+      "id": "RIGHT_INDEX_FINGER",
+      "name": "right_index_finger",
+      "type": "part",
+      "glbNodeIndex": 132,
+      "parentId": "RIGHT_HAND_INDEX_0_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.058851,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.203987,
+        -0.05429,
+        0.184213
+      ]
+    },
+    {
+      "id": "RIGHT_HAND_INDEX_1_JOINT",
+      "name": "right_hand_index_1_joint",
+      "type": "assembly",
+      "glbNodeIndex": 133,
+      "parentId": "RIGHT_HAND_INDEX_0_JOINT",
+      "material": {
+        "assigned": null,
+        "name": null,
+        "density": null
+      },
+      "mass": null,
+      "volume": null,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "childIds": [
+        "RIGHT_INDEX_TIP",
+        "RIGHT_INDEX_TIP_2"
+      ]
+    },
+    {
+      "id": "RIGHT_INDEX_TIP",
+      "name": "right_index_tip",
+      "type": "part",
+      "glbNodeIndex": 134,
+      "parentId": "RIGHT_HAND_INDEX_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.012782,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.20836,
+        -0.081901,
+        0.160557
+      ]
+    },
+    {
+      "id": "RIGHT_INDEX_TIP_2",
+      "name": "right_index_tip_2",
+      "type": "part",
+      "glbNodeIndex": 135,
+      "parentId": "RIGHT_HAND_INDEX_1_JOINT",
+      "material": {
+        "assigned": true,
+        "name": "Aluminium / plastic",
+        "density": null
+      },
+      "mass": 0.007524,
+      "volume": 0.0,
+      "definitionStatus": "fully_defined",
+      "customProperties": {},
+      "centerOfMass": [
+        -0.20836,
+        -0.081901,
+        0.160557
+      ]
+    }
+  ],
+  "mates": [],
+  "interferences": []
+}

@@ -12,7 +12,7 @@ namespace Forge.Pet
     ///   desk doesn't count) → the dock is held back (Workspace.HoldDock), Bit walks to the greeting spot (in front of the
     ///   seated user, a little to their left, outside the DeskDock keep-out) and faces them (GatorController.StationAt),
     ///   POST /messages/digest, and the greeting card shows the digest line (which the hub also speaks; count 0 =
-    ///   "You have no new messages today.", hub never live = "Hub offline.") with a START ring beside it (ArrivalGreeting).
+    ///   "You have no new messages today.", hub never live = "Hub offline.") with a START pill beside it (ArrivalGreeting).
     ///   START → card + ring fold, the dock comes in (frame slides in, rings plop on), Bit walks over to the right of the desk, and after
     ///   the dock has landed Workspace.Open("code") (fallback "screens"). No timeout: the card stays up until START or Away.
     ///   Later arrivals → just the hop; the dock shows on Near as Core always did.
@@ -31,7 +31,7 @@ namespace Forge.Pet
         GatorAgentBridge bridge;
         [SerializeField, Tooltip("Builds the desk NavMesh from DeskPresence.Table. Auto-found in children / scene if empty.")]
         GatorMrukAdapter adapter;
-        [SerializeField, Tooltip("The greeting card + START ring (built into PetRuntime by the editor). Auto-found in children if empty.")]
+        [SerializeField, Tooltip("The greeting card + START pill (built into PetRuntime by the editor). Auto-found in children if empty.")]
         ArrivalGreeting greeting;
 
         [Header("Steps")]
@@ -77,6 +77,7 @@ namespace Forge.Pet
         float _nextWorkspaceCheck, _awaySince = -1f;
         bool _greeted, _greetingUp, _digestSent, _digestArrived;
         string _digestLine;
+        GatorCaption _caption;
 
         /// <summary>The first-arrival greeting has played this session (until rearmAwaySeconds Away).</summary>
         public bool Greeted => _greeted;
@@ -164,7 +165,7 @@ namespace Forge.Pet
                     if (_greetingUp)
                     {
                         Log("Away with the greeting up: folding it.");
-                        _greetingUp = false;
+                        GreetingUp(false);
                         if (greeting != null) greeting.Fold();
                     }
                     if (controller != null) controller.ReleaseStation();
@@ -237,7 +238,7 @@ namespace Forge.Pet
             string line = _digestArrived && !string.IsNullOrEmpty(_digestLine) ? _digestLine : HubOfflineLine;
             if (greeting != null)
             {
-                _greetingUp = true;
+                GreetingUp(true);
                 greeting.Show(_presence, spot, line);
                 Log("Greeting card: \"" + line + "\" + START.");
             }
@@ -269,11 +270,20 @@ namespace Forge.Pet
             _sequence = null;
         }
 
+        // The card shows the digest line, and the hub's pet.say puts the same line in Bit's bubble, right over the card
+        // and the START pill. Keep the bubble quiet until START; the hub still speaks the line.
+        void GreetingUp(bool up)
+        {
+            _greetingUp = up;
+            if (_caption == null && controller != null) _caption = controller.GetComponentInChildren<GatorCaption>(true);
+            if (_caption != null) _caption.Muted = up;
+        }
+
         void OnStartPressed()
         {
             if (!_greetingUp && greeting != null) return;
             Log("START.");
-            _greetingUp = false;
+            GreetingUp(false);
             if (greeting != null) greeting.Fold();
             if (controller != null)
             {

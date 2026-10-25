@@ -1,11 +1,11 @@
 """Proactive Bit: when something breaks under the user, Bit speaks first. Once, never over anyone, never acting.
 
 Callers hand events over directly (no bus listener, so no contract change):
-vscode/router.py on POST /vscode/event, and cad/service.py on cad.regen_failed (wired in main.py).
+vscode/router.py on POST /vscode/event, and cad/service.py on cad.regen_failed and every good build (main.py).
 
 Per event Bit moves to the panel (pet.state working + target_panel), says one line (pet.say bubble, and
-voice when a Grok session is live) and makes the broken line glow in VS Code. It never edits code: if the
-user says "yes", Grok has the line in its conversation and answers with its normal tools.
+voice when a Grok session is live) and makes the broken line glow in VS Code. It never edits code: Grok gets the
+file, line and error as hidden context with the line, so a "yes" turns into its normal delegate(mode=code) fix.
 
 Rules: one unprompted line per GAP_S; while waiting only the newest line per file (or terminal, CAD) is kept;
 the same error is said once.
@@ -35,6 +35,8 @@ PET_ID = "bit"
 GAP_S = 20.0
 GLOW_MS = 8000
 CTRL_C = 130
+ERROR_MAX = 300  # chars of the error Grok gets as context
+OFFERS_KEPT = 5  # Fix it buttons still on older cards work for the last few lines
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,17 @@ class Line:
     line: int | None = None
     note: str | None = None
     panel: str = "screen-main"
+    context: str | None = None  # what Grok reads (never says) with the line: what broke and how to fix it on "yes"
+    task: str | None = None  # the fix for the card's Fix it button (a code task for the runner)
+
+
+def fix_task(where: str, error: str) -> str:
+    return f"Fix the error at {where}: {error}. Edit the file in place, then say in one short sentence what you changed."
+
+
+def fix_context(said: str, where: str, error: str) -> str:
+    return (f"You just told the user: \"{said}\" It is about {where}: {error}. If they say yes, call delegate with "
+            f"mode code and a task to fix exactly that, naming the file, the line and the error.")
 
 
 def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | None:
@@ -55,8 +68,16 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
             return None  # pet and slider changes: the caller already sees the error
         n = p.get("error_line")
         text = f"Line {n} broke the rocket." if n else "The rocket script broke."
+        text = f"{text} I kept the last good one. Want me to fix it?"
         key = f"{p.get('kept_version')}:{p['error']}"  # a good rebuild moves kept_version, so a rehearsal re-fires
-        return Line("cad", key, f"{text} I kept the last good one.", cad_script, n, p["error"][:80])
+        where = f"line {n} of {cad_script}" if n else str(cad_script)
+        error = p["error"][:ERROR_MAX]
+        return Line("cad", key, text, cad_script, n, p["error"][:80],
+                    context=fix_context(text, where, error), task=fix_task(where, error))
+
+    if type_ == "cad.built":
+        # Bit only says it once a broken rocket he spoke about builds again (Watcher.notify checks that)
+        return Line("cad", "fixed", "Fixed it. The rocket builds again.") if p.get("source") == "script" else None
 
     if type_ != "vscode.event":
         return None
@@ -64,7 +85,10 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
         code = p.get("exit_code")
         if code in (None, 0, CTRL_C):
             return None
-        return Line("terminal", None, f"That command crashed with exit code {code}. Want me to look at it?")
+        text = f"That command crashed with exit code {code}. Want me to look at it?"
+        where = f"the terminal command {p.get('command') or 'the user ran'}"
+        return Line("terminal", None, text, context=fix_context(text, where, f"exit code {code}"),
+                    task=fix_task(where, f"it exited with code {code}; find out why"))
 
     file = p.get("file") or ""
     if cad_script and Path(cad_script).as_posix().endswith("/" + file):
@@ -76,7 +100,12 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
     n = p.get("line")
     more = f", plus {count - 1} more" if count > 1 else ""
     text = f"Line {n} in {name} has an error{more}." if n else f"{name} has an error{more}."
-    return Line(file, f"{n}:{p.get('message')}", f"{text} Want me to look?", file, n, (p.get("message") or "")[:80])
+    text = f"{text} Want me to look?"
+    message = p.get("message") or ""
+    where = f"line {n} of {file}" if n else file
+    error = message[:ERROR_MAX] or "an error"
+    return Line(file, f"{n}:{message}", text, file, n, message[:80],
+                context=fix_context(text, where, error), task=fix_task(where, error))
 
 
 class Watcher:
@@ -90,6 +119,8 @@ class Watcher:
         self._pending: dict[str, Line] = {}  # slot -> newest unspoken line, oldest slot first
         self._next_ok = 0.0
         self._task: asyncio.Task[None] | None = None
+        self._offers: dict[str, str] = {}  # card action id -> fix task, newest last (OFFERS_KEPT)
+        self._offer_n = 0
 
     def add(self, voice: Any) -> None:
         self._voices[voice] = None
@@ -106,6 +137,9 @@ class Watcher:
         line = line_for(type_, body, self.cad_script)
         if line is None:
             return
+        if type_ == "cad.built" and self._said.get("cad") in (None, "fixed"):
+            self._pending.pop("cad", None)  # nothing said about a break (or it was queued only): stay quiet
+            return
         if line.key is not None and self._said.get(line.slot) == line.key:
             self._pending.pop(line.slot, None)  # back to what Bit last said: the queued change is stale
             return
@@ -113,6 +147,23 @@ class Watcher:
         self._pending[line.slot] = line
         if self._task is None or self._task.done():
             self._task = asyncio.get_running_loop().create_task(self._drain())
+
+    def take_offer(self, action_id: str) -> str | None:
+        """A tap on a card button: "fix:N" -> its fix task (once), "dismiss:N" or an old card -> None."""
+        kind, _, n = action_id.partition(":")
+        task = self._offers.pop(n, None)
+        return task if kind == "fix" else None
+
+    def _card(self, line: Line) -> ev.Card | None:
+        if line.task is None:
+            return None
+        self._offer_n += 1
+        n = str(self._offer_n)
+        self._offers[n] = line.task
+        while len(self._offers) > OFFERS_KEPT:
+            self._offers.pop(next(iter(self._offers)))
+        return ev.Card(title=line.note or line.text, actions=[
+            ev.CardAction(label="Fix it", action_id=f"fix:{n}"), ev.CardAction(label="Not now", action_id=f"dismiss:{n}")])
 
     async def idle(self) -> None:
         """Wait until every queued line is out (tests)."""
@@ -138,14 +189,15 @@ class Watcher:
             except Exception as exc:  # noqa: BLE001 - VS Code closed: Bit still speaks
                 log.info("no glow in VS Code: %s", exc)
         await self._broadcast(ev.pet_state(PET_ID, "working", target_panel=line.panel))
-        await self._broadcast(ev.pet_say(PET_ID, line.text))
+        await self._broadcast(ev.pet_say(PET_ID, line.text, self._card(line)))
         for voice, queued in list(self._voices.items()):
             say = getattr(voice, "say", None)  # the fake voice has no say()
             if say is None:
                 continue
             if queued is not None:
                 queued.cancel()  # still waiting for silence: the newer line replaces it
-            self._voices[voice] = asyncio.create_task(say(line.text))  # say() waits until nobody is talking
+            # say() waits until nobody is talking; the context goes in right before the line
+            self._voices[voice] = asyncio.create_task(say(line.text, line.context))
 
 
 watcher = Watcher()

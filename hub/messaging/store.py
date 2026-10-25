@@ -31,7 +31,7 @@ def _is_reply(m: SlackMessage) -> bool:
 
 
 class MessageStore:
-    def __init__(self, data_dir: Path, maxlen: int = 200, max_channels: int = 100) -> None:
+    def __init__(self, data_dir: Path, maxlen: int = 500, max_channels: int = 400) -> None:
         self.data_dir = Path(data_dir)
         self.state_path = self.data_dir / "state.json"
         self.maxlen = maxlen

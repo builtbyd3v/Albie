@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Forge.Pet
 {
     /// <summary>
-    /// Where desk props sit (WhistleButton on the near-right corner, GatorHatchery on the near-left): the corner of a
+    /// Where desk props sit (WhistleButton on the near-right corner until the DeskDock shows, GatorHatchery on the near-left): the corner of a
     /// horizontal rectangle on the edge nearest the viewer, on their right or left, with a rotation tilted toward them.
     /// </summary>
     public static class DeskCorner
@@ -34,12 +34,27 @@ namespace Forge.Pet
             float side = Vector3.Dot(rot * along, rightW) >= 0f ? 1f : -1f;
 
             Vector3 local = along * (side * Mathf.Max(0f, halfAlong - inset)) + outward * Mathf.Max(0f, edgeDist - inset);
-            Vector3 tiltAxis = Vector3.Cross(Vector3.up, outwardW);
-            Vector3 up = Quaternion.AngleAxis(tiltDegrees, tiltAxis) * Vector3.up;
-            Vector3 fwd = Vector3.ProjectOnPlane(outwardW, up);
             point = top + rot * local;
-            r = Quaternion.LookRotation(fwd, up);
+            r = TiltToward(outwardW, tiltDegrees);
             return true;
+        }
+
+        /// <summary>A prop's rotation at a desk edge: up tilted tiltDegrees toward the viewer, forward pointing outward (horizontal).</summary>
+        public static Quaternion TiltToward(Vector3 outward, float tiltDegrees)
+        {
+            Vector3 tiltAxis = Vector3.Cross(Vector3.up, outward);
+            Vector3 up = Quaternion.AngleAxis(tiltDegrees, tiltAxis) * Vector3.up;
+            return Quaternion.LookRotation(Vector3.ProjectOnPlane(outward, up), up);
+        }
+
+        /// <summary>p moved horizontally to stay at least inset (m) inside the rectangle, at its own height.</summary>
+        public static Vector3 ClampInside(Vector3 top, Quaternion rot, Vector2 size, Vector3 p, float inset)
+        {
+            Vector3 l = Quaternion.Inverse(rot) * (p - top);
+            float hx = Mathf.Max(0f, size.x * 0.5f - inset), hz = Mathf.Max(0f, size.y * 0.5f - inset);
+            l.x = Mathf.Clamp(l.x, -hx, hx);
+            l.z = Mathf.Clamp(l.z, -hz, hz);
+            return top + rot * l;
         }
 
         /// <summary>Horizontal distance (m) from p to the rectangle (0 inside).</summary>

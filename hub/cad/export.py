@@ -113,7 +113,7 @@ def export_part(result: BuildResult, out_dir: Path, *, part: str, params: dict[s
             "glbNodeIndex": nodes[0], "parentId": object_id(parent) if parent else None,
             "material": {"assigned": bool(model) if not shape.children else None,
                          "name": getattr(model, "material", None) or None,
-                         "density": model.density_g_cm3 * 1000 if model else None},
+                         "density": model.density_g_cm3 * 1000 if hasattr(model, "density_g_cm3") else None},
             "mass": round(mass[0] / 1000, 6) if mass else None,
             "volume": round(shape.volume * 1e-9, 12) if not shape.children else None,
             "definitionStatus": "fully_defined", "customProperties": {},

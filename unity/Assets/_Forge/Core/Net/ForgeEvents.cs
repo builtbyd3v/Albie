@@ -4,7 +4,8 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-// Hub event payloads: PROJECT_CONTEXT section 7 (+ 8.8 for notify.*) + CAD_PLAN section 5. Mirror of hub/events.py.
+// Hub event payloads: PROJECT_CONTEXT section 7 (+ 8.8 for notify.*) + CAD_PLAN section 5 + the desk extras (hub
+// README "Desk"). Mirror of hub/events.py.
 // Newtonsoft DTOs: JSON names are the hub's snake_case. Change these only together with section 7 and events.py.
 // CAD REST shapes that aren't events (CadParams, CadMarkers, CadFlight, ...) live in CAD/Scripts/CadData.cs.
 
@@ -275,6 +276,7 @@ public class UiMode
 
 public class NotifyMessage
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
     [JsonProperty("is_dm")] public bool isDm;                 // a DM to the user (channel_name is "dm")
@@ -294,6 +296,7 @@ public class NotifyMessage
 /// <summary>One conversation in notify.channels / GET /messages/channels (channel, private, dm or group-dm).</summary>
 public class SlackChannel
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("id")] public string id;
     [JsonProperty("name")] public string name;
     [JsonProperty("kind")] public string kind;                // channel | private | dm | group-dm
@@ -314,6 +317,7 @@ public class NotifyChannels
 /// <summary>A reply Bit wrote but has NOT sent: show it as a Send / Cancel card. Send = POST /messages/drafts/{id}/send.</summary>
 public class NotifyDraft
 {
+    [JsonProperty("source")] public string source;             // slack | imessage
     [JsonProperty("draft_id")] public string draftId;
     [JsonProperty("channel")] public string channel;
     [JsonProperty("channel_name")] public string channelName;
@@ -358,6 +362,66 @@ public class NotifyDigest
     [JsonProperty("messages")] public List<NotifyMessage> messages = new List<NotifyMessage>();  // newest first, at most 4
 }
 
+// Desk extras (hub/desk, hub README "Desk"): Bit's focus timers, notes and movie screen, on top of any mode.
+
+/// <summary>Which desk extras show: "open", "minimized" (a dot) or "closed". Always the whole set.</summary>
+public class UiWidgets
+{
+    [JsonProperty("timer")] public string timer = "closed";   // the timers
+    [JsonProperty("notes")] public string notes = "closed";
+    [JsonProperty("movie")] public string movie = "closed";
+}
+
+public class DeskTimer
+{
+    [JsonProperty("timer_id")] public string timerId;
+    [JsonProperty("label")] public string label;              // "Focus" unless named ("tea", "tea 2")
+    [JsonProperty("status")] public string status;            // running | paused | ringing
+    [JsonProperty("duration_s")] public float durationS;      // the whole run, including time added
+    [JsonProperty("remaining_s")] public float remainingS;    // when the event was sent: count down from there
+}
+
+/// <summary>Every timer, ringing first, then by time left (the minimized dot shows the first). Empty = none.</summary>
+public class TimersUpdated
+{
+    [JsonProperty("timers")] public List<DeskTimer> timers = new List<DeskTimer>();
+}
+
+public class DeskNote
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("text")] public string text;
+    [JsonProperty("done")] public bool done;
+    [JsonProperty("created_at")] public double createdAt;     // unix seconds
+    [JsonProperty("updated_at")] public double updatedAt;
+}
+
+public class NotesUpdated
+{
+    [JsonProperty("notes")] public List<DeskNote> notes = new List<DeskNote>();  // newest first
+    [JsonProperty("last_removed")] public DeskNote lastRemoved;                // what Undo brings back, else null
+}
+
+public class MovieInfo
+{
+    [JsonProperty("movie_id")] public string movieId;
+    [JsonProperty("title")] public string title;
+    [JsonProperty("year")] public int? year;
+    [JsonProperty("duration_s")] public float? durationS;
+    [JsonProperty("url")] public string url;                  // hub path: ForgeNet.Url(url); serves byte ranges
+    [JsonProperty("subtitles_url")] public string subtitlesUrl;
+}
+
+/// <summary>The movie screen. Seek the player only when <see cref="seekRev"/> changes; otherwise it keeps time.</summary>
+public class MovieState
+{
+    [JsonProperty("status")] public string status = "closed";  // closed | playing | paused
+    [JsonProperty("movie")] public MovieInfo movie;
+    [JsonProperty("position_s")] public float positionS;
+    [JsonProperty("volume")] public float volume = 0.8f;
+    [JsonProperty("seek_rev")] public int seekRev;
+}
+
 /// <summary>
 /// One static event per hub event type. Subscribe in OnEnable, unsubscribe in OnDisable:
 /// <code>ForgeEvents.OnCadModelUpdated += HandleModel;</code>
@@ -386,6 +450,10 @@ public static class ForgeEvents
     public const string NotifySentType = "notify.sent";
     public const string NotifyDigestType = "notify.digest";
     public const string NotifyChannelsType = "notify.channels";
+    public const string UiWidgetsType = "ui.widgets";
+    public const string TimersUpdatedType = "timers.updated";
+    public const string NotesUpdatedType = "notes.updated";
+    public const string MovieStateType = "movie.state";
 
     public static event Action<MlRunState> OnMlRunState;
     public static event Action<MlMetrics> OnMlMetrics;
@@ -407,6 +475,10 @@ public static class ForgeEvents
     public static event Action<NotifySent> OnNotifySent;
     public static event Action<NotifyDigest> OnNotifyDigest;
     public static event Action<NotifyChannels> OnNotifyChannels;
+    public static event Action<UiWidgets> OnUiWidgets;
+    public static event Action<TimersUpdated> OnTimersUpdated;
+    public static event Action<NotesUpdated> OnNotesUpdated;
+    public static event Action<MovieState> OnMovieState;
 
     /// <summary>Raise the typed event for <paramref name="type"/>. Returns false for unknown types.</summary>
     internal static bool Raise(string type, JToken payload)
@@ -433,6 +505,10 @@ public static class ForgeEvents
             case NotifySentType: Invoke(OnNotifySent, payload); return true;
             case NotifyDigestType: Invoke(OnNotifyDigest, payload); return true;
             case NotifyChannelsType: Invoke(OnNotifyChannels, payload); return true;
+            case UiWidgetsType: Invoke(OnUiWidgets, payload); return true;
+            case TimersUpdatedType: Invoke(OnTimersUpdated, payload); return true;
+            case NotesUpdatedType: Invoke(OnNotesUpdated, payload); return true;
+            case MovieStateType: Invoke(OnMovieState, payload); return true;
             default: return false;
         }
     }

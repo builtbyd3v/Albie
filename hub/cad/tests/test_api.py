@@ -36,6 +36,8 @@ def test_edit_undo_flow(client):
     with client.websocket_connect("/ws") as ws:
         sticky = ws.receive_json()  # latest model state is replayed on connect
         assert sticky["type"] == "cad.model_updated" and sticky["payload"]["version"] == 1
+        desk = {ws.receive_json()["type"] for _ in range(4)}  # then the desk extras' fresh replay (hub/desk)
+        assert desk == {"ui.widgets", "timers.updated", "notes.updated", "movie.state"}
 
         t0 = time.perf_counter()
         r = client.post("/cad/params", json={"fin_count": 4, "body_length": 360})

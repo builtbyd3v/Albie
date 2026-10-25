@@ -7,6 +7,7 @@ Shader "Forge/NeonRing"
     {
         _Size ("Quad size (mm)", Float) = 132
         _Radius ("Ring radius (mm)", Float) = 36
+        _Half ("Pill: half length of the straight part (mm), 0 = circle; the quad is _Size + 2 _Half wide", Float) = 0
         _Hue ("Mode hue", Color) = (1, 1, 1, 1)
         _HueT ("Hue strength", Float) = 0.1
         _Near ("Pointer nearness", Range(0, 1)) = 0
@@ -34,7 +35,7 @@ Shader "Forge/NeonRing"
 
             CBUFFER_START(UnityPerMaterial)
             float4 _Hue;
-            float _Size, _Radius, _HueT, _Near, _Hover, _Selected, _Enabled, _Fade, _Outline, _Spin;
+            float _Size, _Radius, _Half, _HueT, _Near, _Hover, _Selected, _Enabled, _Fade, _Outline, _Spin;
             CBUFFER_END
 
             // The comet: conic gradient clockwise from the top (CSS conic-gradient, premultiplied):
@@ -51,8 +52,10 @@ Shader "Forge/NeonRing"
             half4 Frag(Varyings i) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
-                float2 p = (i.uv - 0.5) * _Size;   // mm from the center, +y = the far side
-                float r = length(p);
+                float2 p = (i.uv - 0.5) * float2(_Size + 2.0 * _Half, _Size);   // mm from the center, +y = the far side
+                // A pill is the same ring drawn round a straight centre line (_Half = 0: a circle, as before).
+                float2 q = float2(max(abs(p.x) - _Half, 0.0) * sign(p.x), p.y);
+                float r = length(q);
                 float aa = max(fwidth(r), 1e-3);
                 float R = _Radius;
                 float d = r - R;                   // + outside the circle
@@ -71,7 +74,7 @@ Shader "Forge/NeonRing"
 
                 // Comet glow: the conic light concentrated on the ring line, a Gaussian band (3 mm inside, 5.5 mm
                 // outside) around the core, so the glow travels round the rim instead of sweeping the disc.
-                float u = frac(atan2(p.x, p.y) / 6.2831853 - _Time.y / _Spin);
+                float u = frac(atan2(q.x, q.y) / 6.2831853 - _Time.y / _Spin);
                 float4 comet = Comet(u, hue, hueC);
                 float dr = r - (R - 0.8);
                 float sigma = dr < 0.0 ? 3.0 : 5.5;
@@ -79,7 +82,7 @@ Shader "Forge/NeonRing"
 
                 // Fill disc (selected): bright near the top-middle, fading out, mode hue at the rim.
                 float discMask = 1.0 - smoothstep(R - 1.6 - aa, R - 1.6 + aa, r);
-                float s = length(p - float2(0.0, 0.3 * R)) / (1.52 * R);
+                float s = length(q - float2(0.0, 0.3 * R)) / (1.52 * R);
                 float4 disc = s < 0.55 ? lerp(float4(0.26, 0.26, 0.26, 0.26), float4(0.06, 0.06, 0.06, 0.06), s / 0.55)
                                        : lerp(float4(0.06, 0.06, 0.06, 0.06), float4(hue * hueB, hueB), saturate((s - 0.55) / 0.45));
                 OverPremul(acc, disc * discMask * _Selected);

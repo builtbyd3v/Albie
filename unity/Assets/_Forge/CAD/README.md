@@ -1,6 +1,6 @@
 # CAD module (Unity)
 
-The open design on the desk (rocket, quadcopter, gearbox, or any part script in the hub's library), its design
+The open design on the desk (rocket, quadcopter, gearbox, humanoid robot, or any part script in the hub's library), its design
 panel and its engineering drawing. Inspect brings the model up big in front of you, where you can take it apart.
 Hub side: `hub/cad/`; plan: `CAD_PLAN.md`.
 
@@ -20,7 +20,7 @@ All of them find or create one shared `CadSession`, so they work wherever they'r
 - **Auto** (default): follows `ForgeNet` (Core/Net). Hub live = hub mode, no hub = mocks; if the hub appears later it
   switches to the hub.
 - **Hub**: REST to the hub (`POST /cad/params` on slider release, `/cad/part` to open a design, `/cad/preset`,
-  undo, reset, view, flight). Every change, wherever it came from (the panel, Bit's tools, saving a part script),
+  undo, reset, view, flight). Every change, wherever it came from (the panel, Albie's tools, saving a part script),
   arrives as ForgeNet's `/ws` events (`cad.model_updated`, `cad.view`, `cad.regen_failed`). `GET /cad/latest` is only
   a fallback when the socket is down. The params for a version come from `GET /cad/params?v=N`.
 - **Mock**: `Assets/_Forge/Mocks/cad/` (a few stored versions of each design). Sliders and presets jump to the stored
@@ -46,7 +46,7 @@ with states and motion from sections 6 and 7 (boards: `CadPanels.dc.html`, `CadE
 designs; everything comes from `CadSession`. Board numbers are named constants at the top of each section's class, so a
 layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is switched off.
 
-- **Header** (over Core's, no Core change): the design's glyph (`params.glyph`: rocket, drone, gears, box) on the
+- **Header** (over Core's, no Core change): the design's glyph (`params.glyph`: rocket, drone, gears, robot, box) on the
   mode tile (Core's "CAD" text hidden), the title as the **Designs** menu (a 360 mm popover of the hub's library,
   refreshed each time it opens), and the subtitle "v4 · 4 versions · Live" with the hub dot (amber "Offline, stored
   versions"; pulsing orange "Building v5…").
@@ -54,13 +54,14 @@ layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is 
 - **The verdict, always on top**: on Overview the 218 mm card (the question from the demo kind, `analysis.verdict`'s
   headline with its status dot and sentence, a half-circle dial for the verdict's metric with band arcs and ticks, and
   the to-scale instrument: rocket side view with CG / CP, quad top view with prop discs and overlap lenses, gearbox
-  front view with the pinion's rim; `CadInstrument`); on the other tabs the 56 mm strip (tap for Overview); while a demo
+  front view with the pinion's rim, humanoid top view of its feet, the support polygon and the CG in its balance
+  colour; `CadInstrument`); on the other tabs the 56 mm strip (tap for Overview); while a demo
   runs, telemetry (`CadTelemetry`, fed by `CadSession.DemoFrame`: Fly's phase, T+, altitude and speed, the flight curve
   filling in; Hover's throttle meter, readouts and thrust budget; Run's two dials turning at the shown speed); a red
   banner over it when a build fails (Undo, Dismiss). Building: the card dims to 42% under "Rebuilding with ..." and a
   line of light runs along its top.
 - **Overview**: four tiles (rocket: Apogee, Top speed, To apogee, Off the rail from the flight; others: their first
-  four metrics after the verdict's), the demo's note, and Last change (the request, "v1 → v2 · by Bit · 4 min ago",
+  four metrics after the verdict's), the demo's note, and Last change (the request, "v1 → v2 · by Albie · 4 min ago",
   the parameter diffs, effect chips).
 - **Parameters**: presets and Reset all, then the hub's `groups` in order. Rows: label (orange dot once changed),
   − / + steppers (the hub's `step`, sent 0.4 s after the last tap), a slider whose whole 32 mm track takes the pointer
@@ -105,10 +106,10 @@ layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is 
   On the desk the exploded model lifts so nothing sinks into the base; on the stage it stays centred. Parts taken off
   by hand stay where they are. No explode data: the old spread (axial 0.6, radial 1.5).
 - One graphite chip per kind of part (`Fins  ×3`, material · mass, "each" for copies, an orange dot if this version
-  changed it), stacked in one column beside the model on the side away from the design panel, 46 mm apart, sorted by
+  changed it; a design with more than 12 kinds, the humanoid, gets one chip per mass group instead: `Legs  ×37`), stacked in one column beside the model on the side away from the design panel, 46 mm apart, sorted by
   height. Leaders (elbow 16 mm from the column, ring and dot on the part) draw on as each part arrives (55% to 90%).
 
-### Fly / Hover / Run (`CadDemoPlayer`)
+### Fly / Hover / Run / Walk (`CadDemoPlayer`)
 
 - **Fly** (`launch`, about 15.5 s): 1.2 s countdown on a pad of light (pulses three times; rail 5° off vertical;
   the sim's predicted path dashed with "Apogee 197 m · predicted"). Then `GET /cad/flight` (mock `flight.json`) in
@@ -126,6 +127,13 @@ layout tweak is a number change. The prefab's older UI (`CadUI`, if present) is 
   that don't turn) lifts to 55% of its explode distance and turns 45% glass; every spinner turns at rpm ÷ 100 about
   its own axis (the 3 : 1 shows); dashed pitch circles, rotation arrows at the input / output shaft ends, In / Out
   chips, "Slow motion · 100× slower". Stops after 7.6 s or on Stop, then the lid comes back.
+- **Walk** (`walk`, about 13 s, the humanoid): `GET /cad/motion` (mock `motion.json`): every leg joint and both shoulders
+  (GLB assembly nodes) turn about their pivots, converted into their parents' space at rest so a turned hip carries the
+  knee; the whole model follows the recorded pelvis path with its feet on the base. It steps out to the lap (centred
+  on the base, `walkAroundBase`), walks one 11.2 s lap of Unitree's trained gait (0.37 m/s, 150 steps a minute), steps
+  back. A dashed lap circle, a chip over its head ("Walking · 0.37 m/s", the joint load now), and the telemetry card
+  (live joint-load meter marked at the rating, speed, step rate, peak load, lap progress). Disabled with the hub's
+  reason when it would fall or overload a joint. Works on the stage and life size too.
 - Every demo ends with the model exactly as it was. It stops at once if the version, the view (explode, focus), the
   stage or the mode changes. Pressing it while exploded first assembles.
 
@@ -165,11 +173,16 @@ panel can use either and both stay in sync:
   into it), or key **I**): the model springs off the
   desk to a stage 0.6 m in front of the eyes (toward the desk, not where you're looking) and 0.1 m below them
   (position and turn critically damped, omega 9, along an arc rising 0.14 m; scale omega 10 with a gentle 8% pop).
-  Turned 30° to show a corner (a Run design faces you square on); tipped back 25°, 40° if it's flat, 0° if it's tall.
+  Turned 30° to show a corner, its front (the part's -Y: the drawing's front view) toward you (a Run design faces you
+  square on); tipped back 25°, 40° if it's flat, 0° if it's tall.
   It's fitted to a 0.6 x 0.6 x 0.36 m box, which keeps it in front of CAD mode's VS Code screen (0.8 m away). A flat
   screen (desktop mode, sandbox) sees less than a headset, so there the stage steps back until the box fits in view.
   A ring of light fades in under it with a chip of its scale ("1.4× real size"; `SetTrueSize` shows it 1 : 1);
   dimensions come on and a lid turns 38% glass. All of these are fields on `CadViewer` (Inspect section).
+- **Life size** (a pill above the footer on the stage; `CadSession.SetLifeSize`): the model at its real size standing on
+  the floor, `lifeSizeDistance` (1.15 m) away, turned `lifeSizeAngle` (50°) off the way to the desk in a headset so it
+  stands beside you (straight ahead and further back on a flat screen, so it fits). "Fit to stage" brings it back; the
+  stage ring sits on the floor and its chip reads "Real size, 1 : 1". Off again on the way home.
 - **Back to desk** (or I again, or the ring) springs it home. If CAD mode closes while expanded (`Workspace.modeChanged`,
   or the viewer is disabled), it goes home first, instantly, so it folds with the volume.
 - The desk and the stage each have their own fit, both from the model's mesh bounds: new versions load wherever the
@@ -223,11 +236,12 @@ E explode, U undo, R reset, F the demo (Fly / Hover / Run; again to stop), X a f
 I expand, M measure, N markers.
 (I, M and N are CadViewer's own keys, so they work in desktop mode too.)
 
-Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox), or
+Rebuild everything with **Forge > CAD > Build CAD Prefabs and Sandbox** (prefabs, materials, mock set, sandbox), only
+the mock set with **Forge > CAD > Rebuild Mock Set** (after copying fresh mocks in), or
 only the drawing and versions panels with **Forge > CAD > Build Drawing and Versions Panels** (GUIDs are kept, so Main's
 slots still point at them).
 Refresh the mocks after changing a design: in `hub/` run `python -m cad.make_mocks`, then copy
-`hub/.data/mocks/cad/` here (`parts.json`, `regen_failed.json` and each `<part>/vN/`), renaming `model.glb` to
+`hub/.data/mocks/cad/` here (`parts.json`, `regen_failed.json` and each `<part>/vN/`, `motion.json` included), renaming `model.glb` to
 `model.glb.bytes` and `drawing.png` to `drawing.png.bytes` (so Unity keeps raw bytes instead of importing them), and
 rebuild.
 

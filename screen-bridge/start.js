@@ -6,8 +6,8 @@
 // One-time setup: "window.titleSeparator": " | " in VS Code settings, so Chrome can tell VS Code apart (see below).
 //   npm start                                  # share VS Code
 //   VSCODE_FOLDER=~/cifar npm start            # open that project if VS Code isn't open yet
-//   VSCODE_SIZE=1440x900 npm start             # VS Code's window size in points (default 1280x800, see fitVsCode)
-//   VSCODE_ZOOM=2 npm start                    # bigger text on the headset (default 1 = 120%)
+//   VSCODE_SIZE=1440x900 npm start             # VS Code's window size in points (default: fill the screen)
+//   VSCODE_ZOOM=4 npm start                    # bigger text on the headset (default 3 = 173%)
 //   SCREEN_SOURCE="Entire screen" npm start    # share the whole screen
 // A Quest plugged in over USB is wired up automatically (adb reverse, see below).
 // Ctrl+C stops everything.
@@ -56,14 +56,22 @@ async function openVsCode() {
   return source;
 }
 
-// Sized for the headset, not maximized: the stream is capped at 2048 px wide (Quest texture limit), so a full-screen
-// window gets shrunk and its text ends up small on the panel. 1280x800 pt is 2560x1600 px on Retina: shrunk only to
-// 0.8, 16:10 like the panel. Then the Forge Bit extension zooms to 120%, closes the side bars and the chat, and
-// sizes the terminal (vscode-bit/extension.js, layout).
+// Fills the screen (below the menu bar), so it reads as the real thing on the laptop too. Not macOS full screen: that
+// moves VS Code to its own Space, and a window on another Space can't be captured. The stream is capped at 1920 px
+// wide, so a full-size window gets shrunk to about half; the extension's 173% zoom keeps the text big on the panel.
+// Then the Forge Bit extension closes the side bars and the chat, and sizes the terminal (vscode-bit/extension.js, layout).
+function screenArea() {
+  const script = 'ObjC.import("AppKit"); const s = $.NSScreen.mainScreen, f = s.frame, v = s.visibleFrame;' +
+    "[v.origin.x, f.size.height - v.origin.y - v.size.height, v.size.width, v.size.height].join(' ')";
+  return execFileSync("osascript", ["-l", "JavaScript", "-e", script]).toString().trim().split(" ").map(Number);
+}
+
 async function fitVsCode() {
-  const [width, height] = (process.env.VSCODE_SIZE || "1280x800").split("x").map(Number);
+  let x = 0, y = 25, width, height;
+  if (process.env.VSCODE_SIZE) [width, height] = process.env.VSCODE_SIZE.split("x").map(Number);
+  else [x, y, width, height] = screenArea();
   const script = `tell application "System Events" to tell ${vsCodeWindow}
-    set position to {0, 25}
+    set position to {${x}, ${y}}
     set size to {${width}, ${height}}
   end tell`;
   try {
@@ -73,7 +81,7 @@ async function fitVsCode() {
   }
   const url = `http://127.0.0.1:${process.env.BIT_VSCODE_PORT || 8770}/layout`;
   for (let i = 0; i < 20; i++) {  // the extension starts a few seconds after the window on a cold start
-    const body = JSON.stringify({ zoom: Number(process.env.VSCODE_ZOOM || 1) });
+    const body = JSON.stringify({ zoom: Number(process.env.VSCODE_ZOOM || 3) });
     const ok = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => r.ok, () => false);
     if (ok) return console.log("VS Code laid out for the headset");
     await new Promise((r) => setTimeout(r, 500));
@@ -83,6 +91,42 @@ async function fitVsCode() {
 
 const source = process.env.SCREEN_SOURCE || (await openVsCode());
 if (!process.env.SCREEN_SOURCE) await fitVsCode();
+
+// macOS stops drawing a hidden (Cmd+H) or minimized window, and one in full screen lives on its own Space: the capture
+// then gets no frames at all, and the headset shows nothing until VS Code comes back. Behind other windows is fine
+// (about 55 fps), so put it back there and give the front to whatever app had it.
+function keepVsCodeCapturable() {
+  const script = `tell application "System Events"
+    if not (exists process "Code") then return ""
+    set frontApp to name of first process whose frontmost is true
+    set why to ""
+    if visible of process "Code" is false then
+      set visible of process "Code" to true
+      set why to "hidden"
+    end if
+    tell process "Code"
+      repeat with w in (windows whose name contains " | ")
+        if value of attribute "AXFullScreen" of w is true then
+          set value of attribute "AXFullScreen" of w to false
+          set why to "full screen"
+        end if
+        if value of attribute "AXMinimized" of w is true then
+          set value of attribute "AXMinimized" of w to false
+          set why to "minimized"
+        end if
+      end repeat
+    end tell
+    if why is not "" and frontApp is not "Code" then set frontmost of process frontApp to true
+    return why
+  end tell`;
+  try {
+    const fixed = execFileSync("osascript", ["-e", script], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (fixed) console.log(`VS Code was ${fixed}: put it back behind the front app so the headset keeps getting frames`);
+  } catch {
+    // no Accessibility permission: nothing to do, the stream just pauses while VS Code is hidden
+  }
+}
+if (!process.env.SCREEN_SOURCE) setInterval(keepVsCodeCapturable, 2000);
 
 // Over USB, `adb reverse` makes localhost:<port> on the Quest reach this laptop, so ForgeNet's default
 // hubUrl (localhost) works with no IP to type: 8000 is the hub, 8766 signaling (video itself goes over Wi-Fi),
@@ -144,6 +188,8 @@ setInterval(async () => {
 setInterval(async () => {
   const fps = await page.textContent("#fps").catch(() => "");
   if (fps) console.log(fps);
+  const encoder = await page.textContent("#encoder").catch(() => "");
+  if (encoder) console.log(encoder);
 }, 10000);
 
 process.on("SIGINT", async () => {

@@ -308,6 +308,7 @@ public class CadParamsPanel : MonoBehaviour
         s.exploded = session.View.explode == true;
         s.expanded = session.Inspecting;
         s.partsOff = session.PartsOff;
+        s.lifeSize = session.LifeSize;
         if (!s.building)
         {
             s.pendingParam = null;
@@ -439,13 +440,14 @@ public class CadParamsPanel : MonoBehaviour
         foot.offsetMax = new Vector2(0f, CadPanelFooter.Height);
         footer.Layout();
         bottom -= CadPanelFooter.Height + Gap;
-        if (footer.HintShown || footer.ReassembleShown)
+        if (footer.HintShown || footer.ReassembleShown || footer.LifeSizeShown)
         {
-            // The boards' fly hint (and Reassemble while parts are off on the stage): tucked between the content and
-            // the footer (margins -4 above, -2 below).
-            float lineH = footer.ReassembleShown ? CadPanelFooter.ReassembleH : CadPanelFooter.HintH;
+            // The boards' fly hint (and, on the stage, Reassemble while parts are off and the Life size pill): tucked
+            // between the content and the footer (margins -4 above, -2 below).
+            float lineH = footer.ReassembleShown || footer.LifeSizeShown ? CadPanelFooter.ReassembleH : CadPanelFooter.HintH;
             float hy = h - CadPanelFooter.Height - (Gap - 2f) - lineH;
-            CadUi.Band(footer.Hint.rectTransform, hy, lineH, 4f, 4f);
+            float pill = footer.PlaceLifeSize(hy, lineH, w);
+            CadUi.Band(footer.Hint.rectTransform, hy, lineH, 4f, 4f + (pill > 0f ? pill + 8f : 0f));
             footer.PlaceReassemble(hy, lineH);
             bottom = hy - (Gap - 4f);
         }
@@ -562,6 +564,9 @@ public class CadParamsPanel : MonoBehaviour
     public void Reassemble() => session.Reassemble();
 
     public void ToggleExpand() => session.SetInspecting(!session.Inspecting);
+
+    // On the stage: real size on the floor in front of you, or fitted to the stage again.
+    public void ToggleLifeSize() => session.SetLifeSize(!session.LifeSize);
 
     public void ToggleExplode() => session.SetView(session.View.explode != true, session.View.focusId);
 

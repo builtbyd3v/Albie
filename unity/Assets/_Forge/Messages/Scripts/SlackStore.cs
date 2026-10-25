@@ -7,7 +7,7 @@ using UnityEngine;
 /// on open), each conversation's history (GET /messages/history, cached oldest -> newest, grown by "load earlier" and
 /// notify.message), the user id -> name map learnt from messages (for &lt;@U..&gt; mentions), who "me" is
 /// (GET /messages/users/me) and the recent messages across conversations the Mentions panel lists. Static, so the
-/// Mentions panel, the floating digest copy and the Slack panel agree; subscribes to ForgeEvents once. Live hub only:
+/// Mentions panel and Slack panel agree; subscribes to ForgeEvents once. Live hub only:
 /// with no hub nothing loads and the panels show their offline line. Events fire on the main thread when data changes;
 /// nothing here runs per frame.
 /// </summary>
@@ -152,13 +152,26 @@ public static class SlackStore
         return null;
     }
 
-    /// <summary>The conversation to show first: the hub's default, else the first with unread, else the first.</summary>
-    public static SlackChannel DefaultChannel()
+    /// <summary>The conversation to show first for one provider: default, else unread, else first.</summary>
+    public static SlackChannel DefaultChannel(bool imessage = false)
     {
-        for (int i = 0; i < Channels.Count; i++) if (Channels[i].isDefault) return Channels[i];
-        for (int i = 0; i < Channels.Count; i++) if (Channels[i].unread > 0) return Channels[i];
-        return Channels.Count > 0 ? Channels[0] : null;
+        for (int i = 0; i < Channels.Count; i++)
+            if (IsProvider(Channels[i], imessage) && Channels[i].isDefault) return Channels[i];
+        for (int i = 0; i < Channels.Count; i++)
+            if (IsProvider(Channels[i], imessage) && Channels[i].unread > 0) return Channels[i];
+        for (int i = 0; i < Channels.Count; i++) if (IsProvider(Channels[i], imessage)) return Channels[i];
+        return null;
     }
+
+    public static bool IsProvider(SlackChannel channel, bool imessage)
+    {
+        if (channel == null) return false;
+        bool byId = !string.IsNullOrEmpty(channel.id) && channel.id.StartsWith("im:", StringComparison.Ordinal);
+        return imessage ? channel.source == "imessage" || byId : channel.source != "imessage" && !byId;
+    }
+
+    public static bool IsIMessageSource(string source, string channel = null) => source == "imessage" ||
+        (!string.IsNullOrEmpty(channel) && channel.StartsWith("im:", StringComparison.Ordinal));
 
     public static int TotalUnread
     {

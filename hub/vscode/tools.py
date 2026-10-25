@@ -41,14 +41,28 @@ def call(method: str, route: str, body: dict[str, Any] | None = None) -> Any:
         raise RuntimeError(json.load(e).get("error", str(e))) from None
 
 
+def in_project(path: str) -> str:
+    """Repo-relative path -> absolute, against the hub's project (agent/config.py). The extension resolves relative
+    paths against whatever folder VS Code has open (Unity opens it on unity/), so send it absolute ones."""
+    if os.path.isabs(path):
+        return path
+    from agent.config import ProjectNotFound, resolve_project  # late: agent imports this module
+
+    try:
+        return str(resolve_project(None).path / path)
+    except (ProjectNotFound, OSError):
+        return path
+
+
 def open_file(path: str, line: int = 1) -> Any:
-    """Open a workspace file at a line, centered."""
-    return call("POST", "/open", {"path": path, "line": line})
+    """Open a project file at a line, centered."""
+    return call("POST", "/open", {"path": in_project(path), "line": line})
 
 
 def highlight(path: str, start: int, end: int | None = None, note: str | None = None, ms: int = 4000) -> Any:
     """Make lines glow for a few seconds, with an optional inline note. Bit 'points' at code."""
-    return call("POST", "/highlight", {"path": path, "start": start, "end": end or start, "note": note, "ms": ms})
+    return call("POST", "/highlight",
+                {"path": in_project(path), "start": start, "end": end or start, "note": note, "ms": ms})
 
 
 def get_errors(path: str | None = None) -> Any:
@@ -67,7 +81,7 @@ def run_command(command: str, *args: Any) -> Any:
 
 
 def train() -> Any:
-    """Type forgeBit.trainCommand into VS Code's "Bit" terminal, so the run shows on the streamed screen."""
+    """Type forgeBit.trainCommand into VS Code's "Albie" terminal, so the run shows on the streamed screen."""
     return call("POST", "/train", {})
 
 
@@ -101,7 +115,7 @@ TOOLS: list[dict[str, Any]] = [
                     "workbench.action.zoomReset.",
      "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "vscode_train",
-     "description": "Start the training script in VS Code's 'Bit' terminal, so the run shows on the main screen. "
+     "description": "Start the training script in VS Code's 'Albie' terminal, so the run shows on the main screen. "
                     "If it crashes, you'll get a vscode.event with the exit code.",
      "parameters": {"type": "object", "properties": {}}},
 ]
@@ -124,7 +138,7 @@ async def call_tool(name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(handler, args)
     except urllib.error.URLError as e:
-        return {"error": f"VS Code isn't reachable (is the Forge Bit extension running?): {e.reason}"}
+        return {"error": f"VS Code isn't reachable (is the Forge Albie extension running?): {e.reason}"}
     except (RuntimeError, KeyError) as e:
         return {"error": str(e)}
 

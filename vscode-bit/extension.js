@@ -6,20 +6,21 @@
 //   POST /open      { path, line }
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
-//   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /train                            types forgeBit.trainCommand into the "Albie" terminal
 //   POST /layout    { zoom? }              the headset layout: zoomed editor, Bit's terminal under it, no side bars or chat
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
-//   command_finished  a command in the "Bit" terminal ended, with its exit code
+//   command_finished  a command in the "Albie" terminal ended, with its exit code
 //
-// A "Bit" item in the status bar says what Bit is doing in this window, so it shows on the streamed screen too.
+// An "Albie" item in the status bar says what Albie is doing in this window, so it shows on the streamed screen too.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
 
 let server;
 let terminal;
+const TERMINAL = "Albie"; // the pet's display name; the extension id and settings stay forge-bit / forgeBit
 let statusItem;
 let statusTimer;
 
@@ -124,7 +125,7 @@ async function run({ command, args = [] }) {
 }
 
 function bitTerminal() {
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal(TERMINAL);
   terminal.show(true);
   return terminal;
 }
@@ -137,10 +138,11 @@ function train() {
 
 // screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
 // terminal is where training shows, so the side bar and Copilot chat only cost columns.
-// Zoom is per window (not saved to settings): level 1 = 120%, which reads well on the panel at 1 m.
-// There is no command to set the panel's height, so: editor to its tallest, then 2 steps back. In the
-// 1280x800 window that leaves about 20 lines of code over 8 lines of terminal.
-async function layout({ zoom = 1 }) {
+// Zoom is per window (not saved to settings): level 3 = 173%. The panel is about 1000 headset pixels across, and the
+// full-screen window at 144% was about 1250 px of UI, so 13 px code text got under a headset pixel per pixel; at 173%
+// it is about 1040 px, one to one. There is no command to set the panel's height, so: editor to its tallest, then
+// 2 steps back, which leaves Albie's terminal a few lines under the code.
+async function layout({ zoom = 3 }) {
   const run = (id, times = 1) =>
     Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
   await run("workbench.action.closeSidebar");
@@ -156,13 +158,13 @@ async function layout({ zoom = 1 }) {
 
 // Highlighted while Bit acts, then back to idle after `ms`.
 function status(text, ms = 4000) {
-  statusItem.text = `$(sparkle) Bit: ${text}`;
+  statusItem.text = `$(sparkle) ${TERMINAL}: ${text}`;
   statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
   clearTimeout(statusTimer);
   statusTimer = setTimeout(idle, ms);
 }
 
-function idle(text = "$(sparkle) Bit") {
+function idle(text = `$(sparkle) ${TERMINAL}`) {
   statusItem.text = text;
   statusItem.backgroundColor = undefined;
 }
@@ -170,8 +172,17 @@ function idle(text = "$(sparkle) Bit") {
 const routes = {
   "GET /context": () => context(),
   "GET /errors": (_, query) => errors(query.get("path")),
-  "POST /open": (b) => show(b.path, b.line).then(() => (status(`opened ${path.basename(b.path)}`), null)),
-  "POST /highlight": (b) => highlight(b).then(() => (status(b.note ?? `looking at line ${b.start}`, b.ms), null)),
+  // Where Albie is, readable on the headset: file:line in the status bar, and the line itself glows with a tag.
+  "POST /open": (b) =>
+    (b.line ? highlight({ path: b.path, start: b.line, note: `${TERMINAL} is here`, ms: 3000 }) : show(b.path))
+      .then(() => (status(`${path.basename(b.path)}${b.line ? ":" + b.line : ""}`), null)),
+  "POST /highlight": (b) =>
+    highlight(b).then(() => {
+      const file = path.basename(vscode.window.activeTextEditor?.document.fileName ?? b.path ?? "");
+      const lines = b.end && b.end !== b.start ? `${b.start}-${b.end}` : `${b.start}`;
+      status(`${file}:${lines}${b.note ? " · " + b.note : ""}`, b.ms);
+      return null;
+    }),
   "POST /run": (b) => run(b).then((result) => (status(`ran ${b.command.split(".").pop()}`), { result })),
   "POST /train": () => (train(), status("started training", 6000)),
   "POST /layout": (b) => layout(b).then(() => null),
@@ -225,7 +236,7 @@ function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
     vscode.window.onDidEndTerminalShellExecution((e) => {
-      if (e.terminal.name !== "Bit") return;
+      if (e.terminal.name !== TERMINAL) return;
       push({ kind: "command_finished", command: e.execution.commandLine.value, exit_code: e.exitCode ?? null });
     }),
   );
@@ -252,11 +263,14 @@ function activate(ctx) {
       send(400, { error: e.message });
     }
   });
-  // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
+  // Another window (or the one being reloaded) still has the port: say so and keep trying, so the window that's left
+  // takes over by itself and the hub's /vscode/* comes back without a manual reload.
   server.on("error", (e) => {
     console.error(`[forge-bit] ${e.message}`);
-    idle("$(circle-slash) Bit: busy in another window");
+    idle(`$(circle-slash) ${TERMINAL}: busy in another window`);
+    if (e.code === "EADDRINUSE") setTimeout(() => server.listening || server.listen(port, "127.0.0.1"), 5000);
   });
+  server.on("listening", () => idle());
   server.listen(port, "127.0.0.1");
   ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
 }

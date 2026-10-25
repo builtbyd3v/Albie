@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+DISPLAY_NAME = "Albie"  # what people see and hear; the lead's internal pet id stays "bit"
 AskMode = Literal["qa", "code", "auto"]
 PetMode = Literal["follow", "idle", "listening", "thinking", "working", "speaking"]
 
@@ -66,6 +67,7 @@ class SttStart(_Payload):
     encoding: Literal["pcm16"] = "pcm16"
     require_name: bool = False  # proposed: look-to-talk turn opened while the user wasn't facing Bit
     wake: bool = False  # proposed: always-on VAD segment; only answered if it names a gator (agent/wake.py)
+    facing: bool = False  # proposed: wake turn whose speaker faced Bit at onset; answered by Bit with no name
 
 
 class SttStop(_Payload):
@@ -95,6 +97,11 @@ class WorkspaceMode(_Payload):  # client -> hub: which workspace view is open ("
     reason: str | None = None  # proposed (Addendum H): answering ui.mode, why `mode` isn't the view asked for ("not_at_desk")
 
 
+class PetCardAction(_Payload):  # client -> hub, proposed: a button on a pet.say card ("Fix it", "Not now")
+    pet_id: str | None = None
+    action_id: str
+
+
 class MessagesFocus(_Payload):  # client -> hub: "Reply with Bit" on a message card (handled by hub/messaging)
     pet_id: str | None = None
     channel: str
@@ -112,6 +119,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "crew.roster": CrewRoster,
     "workspace.mode": WorkspaceMode,
     "messages.focus": MessagesFocus,
+    "pet.card_action": PetCardAction,
 }
 
 
