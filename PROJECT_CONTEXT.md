@@ -346,7 +346,7 @@ notify.digest    { count, mentions, line, messages: SlackMessage[] }   (newest f
 
 Panel IDs (used in `ui.highlight` and `target_panel`): `screen-main`, `ml-datastack`, `ml-model3d`, `ml-results`, `ml-training`, `cad-viewer`, `messages`, `messages-mentions`.
 
-Proposed voice addition: `stt.start` gains `facing: bool = false` (wake turns only; true = the user faced Albie at speech onset). Albie answers a hands-free turn only if it names him or the user faced him (facing counts as the name, minus `hub/agent/addressed.py` word rules: talk to a person, fragments, filler alone). An unnamed `require_name` turn (follow-up while looking away) is dropped; "stop" needs the name too.
+Proposed voice addition: `stt.start` gains `facing: bool = false` (wake turns only; true = the user faced Albie at speech onset). Albie answers a hands-free turn only if it names him or the user faced him (facing counts as the name, minus `hub/agent/addressed.py` word rules: talk to a person, fragments, filler alone). An unnamed `require_name` turn (follow-up while looking away) is dropped; "stop" needs the name too. Proposed update (2026-10-25, Dev, solo demo): free speech is the default. Every hands-free turn goes to Albie with no name and no facing check, `require_name` is ignored, and a bare "stop" barges in. `VOICE_NAME_REQUIRED=1` brings back name only (and with it `require_name`, and "stop" needing the name); `VOICE_FACING=1` brings back facing as the name. "<Crew name>, ..." still routes to that crew member.
 
 Proposed ML additions (project setup, sample metadata, VizCard chart cards, live training events, new panel IDs `ml-viz`, `ml-dots`, `ml-live`): `ML_PLAN.md` section 7.
 
