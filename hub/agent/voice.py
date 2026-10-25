@@ -101,7 +101,9 @@ DELEGATE_RULES = (
     "for those, and the brain edits the files open in VS Code right where the user sees them. Never guess those "
     "details yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
-    "ready. Answer everything else yourself."
+    "ready. Answer everything else yourself. When a system note says what broke and you just offered to fix it or "
+    "look at it, a yes means call delegate with mode code at once, with the file, line and error from that note; a "
+    "no means say okay and drop it."
 )
 TOOL_RULES = (
     " Use your other tools yourself for quick actions: read or change the rocket design, open, highlight "
@@ -707,13 +709,16 @@ class GrokVoiceSession(_Base):
             return
         await self._send(_note_item(text))
 
-    async def say(self, text: str) -> None:
-        """Speak text verbatim once Grok (and the user) are done talking; captions come from the runner."""
+    async def say(self, text: str, context: str | None = None) -> None:
+        """Speak text verbatim once Grok (and the user) are done talking; captions come from the runner.
+        `context` is a system note sent right before it: Grok reads it with the line but never says it."""
         deadline = time.monotonic() + DRAIN_TIMEOUT_S
         while (self._response_active or self._response_requested or self._pending_outputs or not self._final_sent) \
                 and time.monotonic() < deadline:
             await asyncio.sleep(0.1)
         await self.start()
+        if context:
+            await self._send(_note_item(context))
         self._suppress_transcript = True
         self._spoke(text)
         await self._send({"type": "conversation.item.create", "item": {

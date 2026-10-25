@@ -325,6 +325,8 @@ Proposed iMessage additions (optional, macOS only, off unless `IMESSAGE_ENABLED=
 
 Proposed desk additions (focus timers, notes, movie screen: `/timers`, `/notes`, `/movie`, `/ui/widgets`, events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`, panel IDs `timer`, `notes`, `movie`): `hub/README.md` "Desk (timers, notes, movie)".
 
+Proposed (Albie proactive): client → hub `pet.card_action {pet_id?, action_id}`: Fix it / Not now on Albie's fix offers (`pet.say` card). `docs/PET_AGENT_CONTRACT.md`.
+
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 
 ---

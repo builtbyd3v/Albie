@@ -43,6 +43,7 @@ def test_looking_at_albie_counts_as_his_name_only_with_voice_facing(text: str) -
     ("Yes please.", "Want me to look at it?", 3.0, True),
     ("Sure, go ahead.", "Should I open train.py?", 5.0, True),
     ("No thanks.", "Want the traceback?", 2.0, True),
+    ("Yes, fix it.", "Line 9 broke the rocket. I kept the last good one. Want me to fix it?", 6.0, True),
     ("Yes please.", "I opened it.", 3.0, False),                 # he didn't ask
     ("Yes please.", "Want me to look at it?", 30.0, False),      # too late
     ("Yes, open train.py.", "Want me to look at it?", 3.0, False),  # more than an answer: say "Albie"
