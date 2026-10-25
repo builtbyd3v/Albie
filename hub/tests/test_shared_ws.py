@@ -75,3 +75,18 @@ def test_health_reports_the_screen_bridge(client: TestClient) -> None:
     body = client.get("/health").json()
     assert body["screen"] == {"enabled": False, "state": "stopped", "source": None}
     assert client.get("/screens/status").json()["enabled"] is False
+
+
+def test_albie_routes_ml_requests_to_the_ml_tools_not_delegate(client: TestClient) -> None:
+    """The scripted ML demo: "what can I do better?" and the "yes" after it must reach ml_improve / ml_apply,
+    not the Claude runner, and the proposal card's buttons reach the ML tools."""
+    from agent import tools, ws
+    from agent.voice import DELEGATE_RULES, TOOL_RULES
+
+    names = {d["name"] for d in tools.grok_definitions()}
+    assert {"ml_open", "ml_status", "ml_improve", "ml_apply", "ml_undo", "ml_train"} <= names
+    for phrase in ("'what can I do better' or 'improve it' is ml_improve", "suggestion is ml_apply",
+                   "is ml_undo", "never to delegate"):
+        assert phrase in TOOL_RULES
+    assert "training runs" not in DELEGATE_RULES and "never delegate it" in DELEGATE_RULES
+    assert "ml" in ws.card_handlers
