@@ -37,11 +37,10 @@ public static class MainSceneBuilder
         ("screen-main", "Assets/_Forge/Screens/ScreenForgePanel.prefab"),
         ("messages", "Assets/_Forge/Messages/Resources/SlackPanel.prefab"),
         ("messages-mentions", "Assets/_Forge/Messages/Resources/MentionsPanel.prefab"),
-        // ML panels (all ForgePanel variants), from Forge > ML > Build Prefabs and Sandbox.
-        ("ml-training", "Assets/_Forge/ML/Resources/MLPanels/TrainingDash.prefab"),
-        ("ml-datastack", "Assets/_Forge/ML/Resources/MLPanels/DataStack.prefab"),
-        ("ml-model3d", "Assets/_Forge/ML/Resources/MLPanels/Model3D.prefab"),
-        ("ml-results", "Assets/_Forge/ML/Resources/MLPanels/ResultsWall.prefab"),
+        ("ml-datastack", "Assets/_Forge/ML/Prefabs/DataStack.prefab"),
+        ("ml-model3d", "Assets/_Forge/ML/Prefabs/Model3D.prefab"),
+        ("ml-results", "Assets/_Forge/ML/Prefabs/ResultsWall.prefab"),
+        ("ml-training", "Assets/_Forge/ML/Prefabs/TrainingDash.prefab"),
     };
 
     [MenuItem("Forge/Build Main Scene")]

@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 05d394ae2a81edd4cbc3c51917e766e3, type: 3}
   m_Name: OculusProjectConfig
   m_EditorClassIdentifier: Oculus.VR.Editor::OVRProjectConfig
-  targetDeviceTypes: 010000000200000003000000040000000500000006000000i
+  targetDeviceTypes: 0200000003000000040000000500000006000000i
   allowOptional3DofHeadTracking: 0
   handTrackingSupport: 1
   handTrackingFrequency: 0
@@ -28,7 +28,7 @@ MonoBehaviour:
   boundaryVisibilitySupport: 0
   disableBackups: 1
   enableNSCConfig: 1
-  securityXmlPath: 
+  securityXmlPath: Assets/_Forge/Desk/Android/network_sec_config.xml
   horizonOsSdkDisabled: 0
   minHorizonOsSdkVersion: 60
   targetHorizonOsSdkVersion: 207
