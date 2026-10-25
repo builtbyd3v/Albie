@@ -1,14 +1,14 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
 Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process), desk
-(timers, notes, movie). The ML router is still to come.
+(timers, notes, movie), ML (training runs, datasets and results for the ML desk; `ml/router.py`).
 `/ws` is the one socket: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. See README "Agent module (pet)". Bit drives the views over it too (agent/workspace.py:
 ui.mode out, workspace.mode back), and his Slack drafts can carry the open CAD design's files (cad/tools.py attachments).
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
-SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py),
+SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py), FORGE_ML_REPO (default ml-examples/cifar10),
 IMESSAGE_* (messaging/imessage/settings.py; off unless IMESSAGE_ENABLED=1 on macOS; only IMESSAGE_ALLOW chats are read).
 """
 from __future__ import annotations
@@ -39,6 +39,8 @@ from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
 from messaging.imessage import IMessageService, IMessageSettings
 from messaging.router import router as messaging_router
+from ml.router import router as ml_router
+from ml.tools import TOOLS as ML_TOOLS, MLTools
 from screens import ScreenBridgeService
 from screens import router as screens_router
 from vscode.router import router as vscode_router
@@ -85,6 +87,16 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
         app.state.desk = desk
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
+        ml_tools = MLTools(app.state, data_dir, speech.speak)  # "Albie, open my ML project / what can I do better?"
+        agent_tools.register(ML_TOOLS, ml_tools.call)
+
+        async def ml_card(session, action_id):
+            if await ml_tools.card_action(action_id):
+                note = getattr(session.voice, "note", None)  # Grok asked the question: it must not apply it again
+                if note is not None:
+                    await note("The user tapped Apply on your ML proposal; it's applied and training. Don't call ml_apply.")
+
+        agent_ws.card_handlers["ml"] = ml_card  # Apply / Not now on Albie's ML proposal card
         await cad.start()
         await slack.start()
         # In the background: the first read of chat.db and the imsg checks never hold up Slack, screens or /health.
@@ -124,6 +136,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(messaging_router)
     app.include_router(screens_router)
     app.include_router(desk_router)
+    app.include_router(ml_router)  # its MLService is created on first use, on app.state.ml
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):

@@ -49,6 +49,8 @@ CANCEL_GRACE_S = 3.0
 
 ClientHandler = Callable[["Session", dict[str, Any]], Awaitable[None]]
 client_handlers: dict[str, ClientHandler] = {}  # type -> handler(session, payload); the handler validates the payload
+CardHandler = Callable[["Session", str], Awaitable[None]]
+card_handlers: dict[str, CardHandler] = {}  # action_id prefix before ":" -> handler(session, action_id); "ml" (main.py)
 
 
 @dataclass
@@ -256,6 +258,10 @@ async def _on_ask(s: Session, ask: AgentAsk) -> None:
 
 async def _on_card_action(s: Session, tap: PetCardAction) -> None:
     """Fix it on a proactive card: the same code fix a spoken "yes" starts, run as a typed ask. Not now: forgotten."""
+    handler = card_handlers.get(tap.action_id.partition(":")[0])
+    if handler is not None:  # another module's card (ML proposal: Apply / Not now)
+        await handler(s, tap.action_id)
+        return
     task = watcher.take_offer(tap.action_id)
     if task is None:
         return

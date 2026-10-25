@@ -3,7 +3,9 @@
 > Companion to `PROJECT_CONTEXT.md` sections 8.3 and 8.4. Written for the two ML people (ML A: Python side, ML B: Unity side) and their coding agents.
 > Contract changes in section 7 are **proposals** until the team agrees (PROJECT_CONTEXT section 12).
 
-**Status 2026-10-23:** plan only, nothing built yet. Decided with Hudson:
+**Status 2026-10-24:** A1–A8 built. L1 picked: live dot wall, per-class accuracy heatmap and probe strip. Python side done (`forge.log(..., model=model)` → `ml.epoch_preds`, `ml.class_acc`, `ml.probe`, all from one pass; mocks in `Mocks/ml/ml_events.json`); Unity panels for the heatmap and probe strip are in `TrainingDash` (+ the probe strip), with `MLSession` following `ml.class_acc` / `ml.probe` (live and history). Unity panels load the hub's data when Live, relabel/remove go through the hub, `/ml/viz` serves chart cards, the ML sandbox runs in the Meta XR Simulator. ML prefabs are in Main's ML mode (PR #6). A6 built (`hub/ml/logtail.py`: TensorBoard / Lightning CSV / HF trainer_state → live `ml.metrics`). A7 built: setup asks the adapter LLM for `.forge/extra_viz.py` (`viz_<viz_id>(ctx)`), `forge.check` validates it, `forge.evaluate` runs it into `viz/<id>.png` / `viz.json`, and `/ml/viz` merges both; CIFAR-10 keeps a hand-written example. Open: teammate repos for A5's cold-open test, Bit's setup cards (Person 5), a Quest build.
+
+**Decided 2026-10-23** with Hudson:
 - A **classifier** (an LLM call) reads the repo's key files and says what type of project it is: image classifier, regression, and so on. Each type has a **fixed list of what to show** (section 5). A second step writes the glue code so those visuals work with this particular repo.
 - The setup only ever writes inside a `.forge/` folder in the repo. Changes to the user's training script are a **proposed patch the user approves**.
 - **Every training run is saved automatically** and can be replayed, so the demo never depends on training behaving live.
@@ -381,6 +383,7 @@ GET  /ml/sample/{id}                         -> { id, name, path, split, label_i
 POST /ml/ingest          { run_id, events: [{ type, payload }] } -> { ok }    forge SDK → hub; the hub rebroadcasts on /ws
 GET  /ml/runs                                -> [{ run_id, started_at, status, epochs, best_metric? }]
 POST /ml/replay          { run_id, speed }   -> { run_id }                    stream a recorded run as if it were live
+GET  /ml/metrics/{run_id}                    -> { run_id, total_epochs, metrics: ml.metrics[], overfit?, class_acc: ml.class_acc[], probe? }   live-graph history for a finished run
 GET  /ml/viz?run_id=                         -> VizCard[]
 GET  /ml/viz/{run_id}/{viz_id}.png           -> PNG                           for kind "image" cards
 
@@ -398,7 +401,8 @@ ml.viz           VizCard (7.6)
 
 only if picked in section 8:
 ml.epoch_preds   { run_id, epoch, pred_idx: int[] }                                         same order as /ml/dataset, N ≤ 1000
-ml.probe         { run_id, epoch, samples: [{ id, pred_idx?, probs?: float[], y_pred? }] }
+ml.class_acc     { run_id, epoch, per_class: (float|null)[] }                               accuracy per class (null: no samples), class order of /ml/classes
+ml.probe         { run_id, epoch, samples: [{ id, label_idx, pred_idx?, probs?: float[], y_pred? }] }   the same 16 samples every epoch
 ml.embedding     { run_id, epoch, ids: string[], label_idx: int[], points: float[][] }      N x 3, N ≤ 1000
 ml.layer_stats   { run_id, epoch, layers: [{ name, update_ratio }] }
 ```

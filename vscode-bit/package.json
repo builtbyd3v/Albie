@@ -50,6 +50,9 @@
           "description": "VS Code command ids that POST /run may execute."
         }
       }
-    }
+    },
+    "commands": [
+      { "command": "forgeBit.openInMlDesk", "title": "Forge: Open this repo in the ML desk" }
+    ]
   }
 }

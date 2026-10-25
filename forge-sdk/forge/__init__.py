@@ -1,0 +1,340 @@
+"""Forge SDK: three calls that stream a training run to the hub.
+
+    import forge
+    forge.watch(model, val_dataset, classes=CLASSES)
+    for epoch ...:
+        forge.log(epoch=e, train_loss=..., train_acc=..., val_loss=..., val_acc=..., lr=..., model=model)
+    forge.evaluate(model, val_loader)
+
+`model=model` on `log` adds the live visuals (ML_PLAN 8): one no_grad pass over the watched val samples
+per epoch, sent as ml.epoch_preds (the dot wall fills in while it trains), ml.class_acc (per-class
+accuracy) and ml.probe (a fixed strip of samples and their prediction bars). Leave it off for curves only.
+
+Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `<run dir>/<run_id>/`:
+the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
+`./forge_runs`. Events also stream to the hub (see forge.client). None of these calls ever raises:
+a failure becomes one warning line and training continues.
+
+If the repo has `.forge/extra_viz.py` (the classifier's project-specific charts, ML_PLAN A7), `evaluate`
+runs it after writing the results and before saying they are ready: figures become `viz/*.png` cards,
+dicts become VizCards in `viz.json`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Sequence
+
+from forge import client, evaluation  # atlas/graph import torch: loaded when first needed
+
+OVERFIT_EPOCHS = 2
+PROBE_SIZE = 16
+
+
+@dataclass
+class _Run:
+    run_id: str
+    dir: Path
+    total_epochs: int = 0
+    t0: float = field(default_factory=time.monotonic)
+    classes: list[str] = field(default_factory=list)
+    prev: tuple[float, float] | None = None  # (train_loss, val_loss) of the last log
+    rises: int = 0
+    alerted: bool = False
+    best_epoch: int | None = None
+    best_val_acc: float | None = None
+    val_data: Any = None    # the dataset given to watch, for the live per-epoch predictions
+    n_samples: int = 1000   # how many of them the atlas (and so the dot wall) holds
+    probe: list[int] | None = None  # sample indices of the probe strip, picked at the first live pass
+
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
+
+    def write_json(self, name: str, data: Any) -> None:
+        (self.dir / name).write_text(json.dumps(data))
+
+
+_run: _Run | None = None
+
+
+def _run_root(run_dir: str | os.PathLike | None) -> Path:
+    if run_dir or os.environ.get("FORGE_RUN_DIR"):
+        return Path(run_dir or os.environ["FORGE_RUN_DIR"])
+    return Path(".forge/runs") if Path(".forge").is_dir() else Path("forge_runs")
+
+
+def _start_run(total_epochs: int = 0, run_dir: str | os.PathLike | None = None) -> _Run:
+    """FORGE_RUN_ID (set by the hub's POST /ml/train) names the first run, so the hub knows it up front."""
+    global _run
+    run_id = os.environ.pop("FORGE_RUN_ID", None) or uuid.uuid4().hex[:8]
+    path = _run_root(run_dir) / run_id
+    path.mkdir(parents=True, exist_ok=True)
+    _run = _Run(run_id, path, total_epochs)
+    _run.write_json("run.json", {"run_id": run_id, "total_epochs": total_epochs, "started_at": time.time()})
+    return _run
+
+
+def _current() -> _Run:
+    """The active run; `log` without `watch` starts one."""
+    return _run if _run is not None else _start_run()
+
+
+def _end_run() -> None:
+    global _run
+    _run = None
+
+
+def _attempt(what: str, fn: Callable[[], Any]) -> Any:
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 - never raise into the training script
+        client.warn(f"{what} failed: {type(exc).__name__}: {exc}", key=what)
+        return None
+
+
+def _num(x: Any) -> float:
+    """Plain float from a float, int, numpy scalar or 0-d tensor."""
+    return float(x.item() if hasattr(x, "item") else x)
+
+
+def _opt(x: Any) -> float | None:
+    return None if x is None else _num(x)
+
+
+def watch(
+    model: Any,
+    val_dataset: Any,
+    classes: Sequence[str],
+    epochs: int = 0,
+    thumb_size: int = 64,
+    run_dir: str | os.PathLike | None = None,
+) -> str | None:
+    """Start a run: capture the model graph and the val dataset atlas. Returns the run id."""
+    run = _attempt("watch", lambda: _start_run(epochs, run_dir))
+    if run is None:
+        return None
+    run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": 0, "total_epochs": epochs})
+    run.classes = [str(c) for c in classes]
+    run.val_data = val_dataset
+    _attempt("classes", lambda: run.write_json("classes.json", run.classes))
+
+    def save_atlas() -> None:
+        from forge import atlas
+
+        image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
+        run.n_samples = len(items)
+        image.save(run.dir / "atlas.png")
+        run.write_json("atlas.json", atlas_meta)
+        run.write_json("dataset.json", items)
+
+    _attempt("dataset atlas", save_atlas)
+
+    def save_graph() -> None:
+        from forge import graph
+
+        example, _ = val_dataset[0]
+        run.write_json("graph.json", graph.describe(model, example))
+        run.emit("ml.graph_ready", {})
+
+    _attempt("model graph", save_graph)
+    return run.run_id
+
+
+def log(
+    epoch: int = 0,
+    train_loss: float | None = None,
+    train_acc: float | None = None,
+    val_loss: float | None = None,
+    val_acc: float | None = None,
+    lr: float | None = None,
+    step: int = 0,
+    model: Any = None,
+    **extra: float,
+) -> None:
+    """Send one ml.metrics tick (end of each epoch); fires ml.overfit_alert when it sees overfitting.
+
+    Any metric can be left out (None). Other numeric metrics (e.g. val_sharpe=1.2) go in `extra`, so a
+    script without loss/accuracy still logs what it has, and no keyword ever raises into training.
+    With `model` (and a `watch` earlier in the run) it also sends the live graphs: ml.epoch_preds,
+    ml.class_acc and ml.probe.
+    """
+
+    def send() -> None:
+        run = _current()
+        metrics = {"run_id": run.run_id, "epoch": int(epoch), "step": int(step), "train_loss": _opt(train_loss),
+                   "train_acc": _opt(train_acc), "val_loss": _opt(val_loss), "val_acc": _opt(val_acc),
+                   "lr": _opt(lr)}
+        if extra:
+            metrics["extra"] = {k: _opt(v) for k, v in extra.items()}
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "training", "epoch": metrics["epoch"],
+                                  "total_epochs": run.total_epochs})
+        run.emit("ml.metrics", metrics)
+        if metrics["val_acc"] is not None and (run.best_val_acc is None or metrics["val_acc"] > run.best_val_acc):
+            run.best_epoch, run.best_val_acc = metrics["epoch"], metrics["val_acc"]
+        if metrics["train_loss"] is not None and metrics["val_loss"] is not None:
+            _check_overfit(run, metrics["train_loss"], metrics["val_loss"], metrics["epoch"])
+        if model is not None and run.val_data is not None:
+            _attempt("live predictions", lambda: _send_live(run, model, metrics["epoch"]))
+
+    _attempt("log", send)
+
+
+def _send_live(run: _Run, model: Any, epoch: int) -> None:
+    """The live graphs (ML_PLAN 8), all from one eval-mode, no_grad pass over the watched val samples:
+    ml.epoch_preds {run_id, epoch, pred_idx} in /ml/dataset order (dot wall),
+    ml.class_acc {run_id, epoch, per_class} (class x epoch heatmap; null for a class with no samples),
+    ml.probe {run_id, epoch, samples: [{id, label_idx, pred_idx, probs}]} (the same PROBE_SIZE samples every epoch)."""
+    from torch.utils.data import Subset
+
+    data = run.val_data
+    if len(data) > run.n_samples:
+        data = Subset(data, range(run.n_samples))
+    ids, labels, probs = _predict_all(model, data)
+    preds = probs.argmax(axis=1).tolist()
+    run.emit("ml.epoch_preds", {"run_id": run.run_id, "epoch": epoch, "pred_idx": preds})
+
+    n_classes = probs.shape[1]
+    hits, counts = [0] * n_classes, [0] * n_classes
+    for label, pred in zip(labels, preds):
+        if 0 <= label < n_classes:
+            counts[label] += 1
+            hits[label] += label == pred
+    per_class = [round(h / c, 4) if c else None for h, c in zip(hits, counts)]
+    run.emit("ml.class_acc", {"run_id": run.run_id, "epoch": epoch, "per_class": per_class})
+
+    if run.probe is None:
+        run.probe = _pick_probe(labels, n_classes)
+    samples = [{"id": ids[i], "label_idx": labels[i], "pred_idx": preds[i],
+                "probs": [round(float(p), 3) for p in probs[i]]} for i in run.probe]
+    run.emit("ml.probe", {"run_id": run.run_id, "epoch": epoch, "samples": samples})
+
+
+def _pick_probe(labels: Sequence[int], n_classes: int) -> list[int]:
+    """PROBE_SIZE sample indices spread over the classes: round-robin, first unused sample of each class
+    in dataset order. Fixed for the run, so the strip shows the same images changing epoch by epoch."""
+    by_class: list[list[int]] = [[] for _ in range(n_classes)]
+    for i, label in enumerate(labels):
+        if 0 <= label < n_classes:
+            by_class[label].append(i)
+    picked: list[int] = []
+    for rank in range(max((len(c) for c in by_class), default=0)):
+        for members in by_class:
+            if rank < len(members) and len(picked) < PROBE_SIZE:
+                picked.append(members[rank])
+    return sorted(picked)
+
+
+def _check_overfit(run: _Run, train_loss: float, val_loss: float, epoch: int) -> None:
+    """Val loss up OVERFIT_EPOCHS epochs in a row while train loss goes down: alert once.
+    Re-arms when val loss improves again."""
+    if run.prev is not None:
+        prev_train, prev_val = run.prev
+        if val_loss > prev_val and train_loss < prev_train:
+            run.rises += 1
+        elif val_loss < prev_val:
+            run.rises, run.alerted = 0, False
+        else:
+            run.rises = 0
+    run.prev = (train_loss, val_loss)
+    if run.rises >= OVERFIT_EPOCHS and not run.alerted:
+        run.alerted = True
+        run.emit("ml.overfit_alert", {"run_id": run.run_id, "epoch": epoch,
+                                      "reason": f"val loss rose {run.rises} epochs in a row while train loss fell"})
+
+
+def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) -> None:
+    """Predict every val sample, write results.json / confusion.json / summary.json, then end the run.
+
+    `val_data` is the val DataLoader or Dataset. It is re-read in a fixed order (a shuffled loader is
+    fine), so results line up with the sample ids from `watch`. Eval mode and no_grad; the model's
+    training mode is restored afterwards.
+    """
+
+    def finish() -> None:
+        run = _current()
+        total = run.total_epochs
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "evaluating", "epoch": total, "total_epochs": total})
+        ids, labels, probs = _predict_all(model, val_data)
+        names = [str(c) for c in classes] if classes else run.classes or [str(k) for k in range(probs.shape[1])]
+        results, confusion, summary = evaluation.classification(ids, labels, probs, names)
+        summary.update(best_epoch=run.best_epoch, best_val_acc=run.best_val_acc,
+                       val_loss=run.prev[1] if run.prev else None)
+        run.write_json("results.json", results)
+        run.write_json("confusion.json", confusion)
+        run.write_json("summary.json", summary)
+        # Extra charts before results_ready, so a panel that refetches GET /ml/viz on that event sees them.
+        _attempt("extra charts", lambda: _extra_charts(run, model, names, ids, labels, probs, results, summary))
+        run.emit("ml.results_ready", {"run_id": run.run_id})
+
+    _attempt("evaluate", finish)
+    run = _run
+    if run is not None:
+        total = run.total_epochs
+        run.emit("ml.run_state", {"run_id": run.run_id, "status": "done", "epoch": total, "total_epochs": total})
+    _end_run()
+    client.poster.flush()
+
+
+def _extra_charts(run: _Run, model: Any, classes: Sequence[str], ids: Sequence[str], labels: Sequence[int],
+                  probs: Any, results: dict, summary: dict) -> None:
+    """Run `<repo>/.forge/extra_viz.py` (ML_PLAN A7) in the repo's own interpreter. Optional: no file, no work."""
+    from forge import viz
+
+    forge_dir = viz.find_forge_dir()
+    if forge_dir is None:
+        return
+    adapter = None
+    try:
+        from forge import adapter as forge_adapter
+
+        adapter = forge_adapter.load(forge_dir.parent)
+    except Exception:  # noqa: BLE001 - extras can still draw from the predictions alone
+        adapter = None
+    samples: list[Any] = []
+    if adapter is not None:
+        try:
+            samples = adapter.samples("val", limit=min(1000, len(ids) or 1000))
+        except Exception:  # noqa: BLE001 - a chart that needs samples gets an empty list, not a failed run
+            samples = []
+    ctx = viz.VizContext(model=model, adapter=adapter, classes=[str(c) for c in classes], samples=samples,
+                         ids=[str(i) for i in ids], labels=[int(v) for v in labels], probs=probs,
+                         results=results, summary=summary, run_dir=run.dir)
+    viz.run_extra_viz(forge_dir, run.dir, ctx)
+
+
+def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:
+    """(ids, labels, [N, C] softmax probabilities) over the whole dataset, in dataset order."""
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+
+    from forge import atlas
+
+    if isinstance(val_data, DataLoader):
+        dataset, batch_size, collate = val_data.dataset, val_data.batch_size or 256, val_data.collate_fn
+    else:
+        dataset, batch_size, collate = val_data, 256, None
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=collate)
+    param = next(model.parameters(), None)
+    device = param.device if param is not None else torch.device("cpu")
+
+    was_training = model.training
+    model.eval()
+    labels, probs = [], []
+    try:
+        with torch.no_grad():
+            for batch in loader:
+                x, y = batch[0], batch[1]
+                out = model(x.to(device))
+                out = out[0] if isinstance(out, (tuple, list)) else out
+                probs.append(torch.softmax(out.float(), dim=1).cpu().numpy())
+                labels.extend(int(v) for v in (y.tolist() if hasattr(y, "tolist") else y))
+    finally:
+        model.train(was_training)
+    ids = getattr(dataset, "ids", None) or [atlas.sample_id(i) for i in range(len(labels))]
+    return list(ids), labels, np.concatenate(probs)

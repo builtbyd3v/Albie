@@ -1,0 +1,44 @@
+[
+  {
+    "viz_id": "loss_trend", "title": "Epoch loss", "subtitle": "train / validation",
+    "panel": "ml-training", "kind": "line",
+    "x": ["1", "2", "3", "4", "5", "6"],
+    "series": [
+      { "name": "train", "y": [1.8, 1.2, 0.82, 0.56, 0.38, 0.27] },
+      { "name": "validation", "y": [1.7, 1.18, 0.9, 0.74, 0.72, 0.81] }
+    ]
+  },
+  {
+    "viz_id": "class_accuracy", "title": "Accuracy by class", "panel": "ml-viz",
+    "kind": "bar", "x": ["air", "auto", "bird", "cat", "deer", "dog"],
+    "series": [{ "name": "accuracy", "y": [0.84, 0.91, 0.72, 0.66, 0.78, 0.69] }]
+  },
+  {
+    "viz_id": "small_confusion", "title": "Confusion sample", "panel": "ml-viz",
+    "kind": "heatmap", "x_labels": ["cat", "dog", "deer"], "y_labels": ["cat", "dog", "deer"],
+    "cells": [[18, 4, 1], [5, 15, 2], [1, 3, 17]]
+  },
+  {
+    "viz_id": "confidence_scatter", "title": "Confidence vs error", "panel": "ml-viz",
+    "kind": "scatter", "x_label": "confidence", "y_label": "loss",
+    "points": [
+      { "x": 0.91, "y": 0.12, "id": "val_0000", "color_idx": 0 },
+      { "x": 0.72, "y": 0.42, "id": "val_0001", "color_idx": 1 },
+      { "x": 0.98, "y": 0.82, "id": "val_0002", "color_idx": 2 },
+      { "x": 0.65, "y": 0.55, "id": "val_0003", "color_idx": 3 }
+    ]
+  },
+  {
+    "viz_id": "mistake_table", "title": "Review queue", "panel": "ml-viz",
+    "kind": "table", "columns": ["sample", "predicted", "confidence"],
+    "rows": [["val_0000", "cat", "91%"], ["val_0001", "dog", "72%"], ["val_0002", "deer", "98%"]]
+  },
+  {
+    "viz_id": "sample_image", "title": "Sample image", "panel": "ml-viz",
+    "kind": "image", "png_url": "/ml/image/val_0000", "alt": "CIFAR-10 validation thumbnail"
+  },
+  {
+    "viz_id": "setup_note", "title": "Run note", "panel": "ml-viz",
+    "kind": "text", "text": "Validation loss starts to rise after epoch four. Review the high-confidence mistakes before accepting this checkpoint."
+  }
+]

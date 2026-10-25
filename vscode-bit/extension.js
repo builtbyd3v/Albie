@@ -14,6 +14,10 @@
 //   command_finished  a command in the "Albie" terminal ended, with its exit code
 //
 // An "Albie" item in the status bar says what Albie is doing in this window, so it shows on the streamed screen too.
+//
+// Command "Forge: Open this repo in the ML desk" tells the hub which repo is open (POST <hubUrl>/ml/project) and
+// follows its setup here: Show diff / Accept / Skip for the training patch, a type picker when the classifier
+// isn't sure. The headset's ML desk unfolds from the same hub events.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
@@ -232,6 +236,78 @@ function errorsOnSave(doc) {
   }, 1500);
 }
 
+function hub(method, route, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(new URL(route, config().get("hubUrl")), {
+      method,
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000,
+    }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => {
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+        if (res.statusCode >= 400) reject(new Error(data.detail || `hub answered ${res.statusCode}`));
+        else resolve(data);
+      });
+    });
+    req.on("error", (e) => reject(new Error(`can't reach the Forge hub at ${config().get("hubUrl")} (${e.message})`)));
+    req.on("timeout", () => req.destroy(new Error("the Forge hub didn't answer")));
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Poll GET /ml/project until setup stops: ready, failed, needs_approval or confirm_type (about a minute or two).
+async function setupResult() {
+  for (let i = 0; i < 150; i++) {
+    const state = await hub("GET", "/ml/project");
+    if (["ready", "failed", "needs_approval", "confirm_type"].includes(state.status)) return state;
+    status(`$(sync~spin) ML desk: ${state.status}…`, 5000);
+    await sleep(2000);
+  }
+  throw new Error("setup is taking over 5 minutes; check the hub");
+}
+
+async function openInMlDesk() {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return vscode.window.showWarningMessage("Forge: open a folder first.");
+  try {
+    status(`$(beaker) ML desk: opening ${path.basename(root)}`, 5000);
+    await hub("POST", "/ml/project", { path: root });
+    let state = await setupResult();
+    if (state.status === "confirm_type") {
+      const pick = await vscode.window.showQuickPick(state.candidates || [], {
+        placeHolder: `Forge isn't sure what ${path.basename(root)} is. Which type is it?`,
+      });
+      if (!pick) return;
+      await hub("POST", "/ml/project/type", { archetype: pick });
+      state = await setupResult();
+    }
+    if (state.status === "needs_approval") {
+      const files = (state.patch?.files || []).map((f) => f.path || f).join(", ");
+      for (;;) {
+        const choice = await vscode.window.showInformationMessage(
+          `${state.summary || "Forge"}: hook up training with a few lines in ${files || "the training script"}?`,
+          "Show diff", "Accept", "Skip");
+        if (choice === "Show diff") { await hub("POST", "/ml/project/diff", {}); continue; }
+        if (!choice) return;
+        await hub("POST", "/ml/project/patch", { accept: choice === "Accept" });
+        state = await hub("GET", "/ml/project");
+        break;
+      }
+    }
+    if (state.status === "failed") throw new Error(state.error || "setup failed");
+    status(`$(check) ML desk: ${state.summary || "ready"}`, 8000);
+    vscode.window.showInformationMessage(`Forge ML desk ready: ${state.summary || path.basename(root)}`);
+  } catch (e) {
+    idle();
+    vscode.window.showErrorMessage(`Forge ML desk: ${e.message}`);
+  }
+}
+
 function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
@@ -272,7 +348,8 @@ function activate(ctx) {
   });
   server.on("listening", () => idle());
   server.listen(port, "127.0.0.1");
-  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
+  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() },
+    vscode.commands.registerCommand("forgeBit.openInMlDesk", openInMlDesk));
 }
 
 function deactivate() {
