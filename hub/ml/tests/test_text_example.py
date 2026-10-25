@@ -19,6 +19,8 @@ from ml import prescan as prescan_mod
 from ml.service import FORGE_SDK, ROOT
 from ml.tests.test_api import make_app
 
+pytest.importorskip("torch")  # train.py runs on this python
+
 EXAMPLE = ROOT / "ml-examples" / "text-classification"
 WORDS = {
     1: ["election", "minister", "troops", "peace", "embassy", "border"],
