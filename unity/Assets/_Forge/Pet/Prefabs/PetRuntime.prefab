@@ -5434,6 +5434,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 275768685626357008, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4743101170165081428}
+    - targetCorrespondingSourceObject: {fileID: 275768685626357008, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5082417721028782837}
   m_SourcePrefab: {fileID: 100100000, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
 --- !u!4 &852566386528534302 stripped
 Transform:
@@ -5588,6 +5591,26 @@ MonoBehaviour:
   loudSeconds: 0.15
   lookToTalk: 1
   lookAngle: 40
+  lookGrace: 1.5
+  lookCountsAsName: 0
+--- !u!114 &5082417721028782837
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5760713368187174452}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2de062f4ba71846e2afc61ff5e31818c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Forge.Pet.GatorFixCard
+  panelPrefab: {fileID: 3969253326686314734, guid: 75efe100cdce7b44780642c7b8c5dbe1, type: 3}
+  client: {fileID: 0}
+  petId: bit
+  size: {x: 0.3, y: 0.18}
+  above: 0.2
+  showSeconds: 20
 --- !u!114 &6704805732026713637 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 1237875458703887617, guid: 9c9a5cd11257448fb999e239599ab882, type: 3}
