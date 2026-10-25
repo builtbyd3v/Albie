@@ -38,7 +38,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Hard cap (s) from the first speech: stop listening and send what was said.")]
         float maxUtterance = 20f;
         [SerializeField, Tooltip("Silence (s) after speech that ends the utterance.")]
-        float endSilence = 2.0f;   // Dev, 2026-10-24: a mid-sentence pause must not end the turn
+        float endSilence = 1.2f;   // 2 s (10-24) made replies late; the hub holds a cut-off half-thought for the rest (lab 2026-10-25)
         [SerializeField, Tooltip("Mic RMS (0..1) that counts as speech.")]
         float speechLevel = 0.03f;
         [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]
@@ -144,6 +144,17 @@ namespace Forge.Pet
             return true;
         }
 
+        /// <summary>The caller already heard speech (GatorFollowUp's barge-in check, 0.3 s over the level): count it, so a
+        /// short "Stop." whose only speech is in the pre-roll still ends on silence. Live 2026-10-25: such a turn
+        /// waited 8 s for speech that had already been said, then was cancelled, and Albie kept talking.</summary>
+        public void MarkSpeechHeard()
+        {
+            if (!_handsFree) return;
+            _heardSpeech = true;
+            _firstSpeech = _lastSpeech = Time.time;
+            _speechTime = minSpeechSeconds;
+        }
+
         /// <summary>Drops the open session without asking anything; the gator goes back to Wandering.</summary>
         public void CancelSession()
         {
@@ -192,6 +203,14 @@ namespace Forge.Pet
 
         void UpdateHandsFree()
         {
+            // Watchdog: a hands-free session whose mic never started (or stopped without a final wait) blocks every other
+            // listener (WakeListener sessionBusy). Live 2026-10-25 04:07-04:11: 4 min deaf. End it after 3 s.
+            if (!_typedMode && (_stt == null || !_stt.IsListening) && _finalDeadline < 0f && Time.time - _sessionStart > 3f)
+            {
+                Debug.LogWarning("[PushToTalk] hands-free session open without a listening mic for 3 s: ending it.");
+                EndHandsFree(false);
+                return;
+            }
             if (_stt == null || !_stt.IsListening || _typedMode) return;   // typed: Enter / Esc end it
             float now = Time.time;
             if (_stt is IMicLevel mic && mic.Level >= speechLevel)

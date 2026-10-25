@@ -41,16 +41,22 @@ namespace Forge.Pet
         bool voiceBargeIn = true;
         // Defaults from an AirPods run: speech 0.05-0.3, noise floor 0.006, the gator's echo ~0.01 x its output level.
         [SerializeField, Tooltip("Mic RMS (0..1) that can count as the user talking over the gator.")]
-        float bargeLevel = 0.03f;
+        float bargeLevel = 0.012f;
         [SerializeField, Tooltip("Mic RMS must also be above this share of the gator's output level (rejects its own echo). Raise it if the gator cuts itself off.")]
         float echoShare = 0.2f;
+        [SerializeField, Tooltip("The echo gate never asks for more than this mic RMS. Raise it if the gator cuts itself off.")]
+        float maxEcho = 0.012f;
         [SerializeField, Tooltip("Seconds of speech before it counts; quiet gaps between syllables count down instead of resetting.")]
         float bargeSeconds = 0.3f;
         // A one-word "Stop!" lasts ~0.3 s, too short for bargeSeconds at normal level, but it is loud (0.15-0.25).
         [SerializeField, Tooltip("Mic RMS that counts as a short, loud word (\"Stop!\").")]
-        float loudLevel = 0.1f;
+        float loudLevel = 0.05f;
         [SerializeField, Tooltip("Seconds above loudLevel that are enough on their own.")]
         float loudSeconds = 0.15f;
+        // Live 2026-10-25: a short "Yeah." after "Want me to apply it?" often never opened a turn (0.3 s over 0.03 is
+        // most of the word) while the WakeListener, which would hear it, is off during this window. No echo then.
+        [SerializeField, Tooltip("After he stops talking: seconds over bargeLevel that open the reply turn.")]
+        float replySeconds = 0.15f;
 
         [Header("Look to talk")]
         [SerializeField, Tooltip("Hands-free speech only counts while the user faces the gator, or names it (\"Albie, ...\"). Buttons and the whistle always work.")]
@@ -67,7 +73,7 @@ namespace Forge.Pet
         HubSpeechToText _monitor;
         Renderer _body;
         bool _following, _subscribed, _speaking, _attending;
-        float _startAt = -1f, _speechFor, _loudFor, _attendUntil, _lastLookAt = -10f, _retryAt = -1f;
+        float _startAt = -1f, _speechFor, _loudFor, _attendUntil, _lastLookAt = -10f, _retryAt = -1f, _peakMic, _peakEcho;
 
         /// <summary>Angle (degrees) to the gator's body at the last check, and the cone it had to fall in: for logs.</summary>
         public float LastLookAngle { get; private set; }
@@ -125,6 +131,9 @@ namespace Forge.Pet
         void OnSpeechEnded()
         {
             _speaking = false;
+            // One line per answer: the loudest mic level heard over him vs the gate, to tune bargeLevel / maxEcho.
+            Debug.Log($"[GatorFollowUp] answer ended: peak mic {_peakMic:F3}, peak echo gate {_peakEcho:F3}, monitored={_monitor != null}");
+            _peakMic = _peakEcho = 0f;
             if (pushToTalk.SessionActive) { StopMonitor(); return; }   // barge-in / Space: someone is already talking
             GatorState s = controller.State;
             if (s == GatorState.Answering || s == GatorState.Wandering || s == GatorState.TaskComplete)
@@ -141,6 +150,14 @@ namespace Forge.Pet
                 if (_speaking && voiceBargeIn) StartMonitor();
             }
             if (_monitor != null && _monitor.IsMonitoring && (_speaking || _attending)) CheckSpeech();
+            else if (!_speaking && !_attending && _startAt < 0f && _retryAt < 0f && !pushToTalk.SessionActive
+                     && pushToTalk.Provider is HubSpeechToText stray && stray.IsMonitoring)
+            {
+                // Nobody is watching this mic, but it keeps the WakeListener off (sessionBusy): let it go.
+                Debug.LogWarning("[GatorFollowUp] stray mic monitor (not speaking, no follow-up window): stopping it.");
+                stray.StopMonitoring();
+                _monitor = null;
+            }
             if (_attending && Time.time >= _attendUntil)
             {
                 _attending = false;                   // nobody replied
@@ -202,11 +219,15 @@ namespace Forge.Pet
         void CheckSpeech()
         {
             bool facing = lookCountsAsName && Facing();
-            float echo = _speaking && _talk != null ? _talk.Level * echoShare : 0f;
+            // Live 2026-10-25 11:04: talking over a 53 s answer and "stop" never cut it off. Level is 0.4-1.0 while he
+            // talks, so the echo gate asked for 0.08-0.2: shouting. Cap it at maxEcho; a loud word ignores it.
+            float echo = _speaking && _talk != null ? Mathf.Min(_talk.Level * echoShare, maxEcho) : 0f;
             float level = _monitor.Level, dt = Time.deltaTime;
+            if (_speaking) { _peakMic = Mathf.Max(_peakMic, level); _peakEcho = Mathf.Max(_peakEcho, echo); }
+            float need = _speaking ? bargeSeconds : replySeconds;
             _speechFor = level >= bargeLevel && level >= echo ? _speechFor + dt : Mathf.Max(0f, _speechFor - dt);
-            _loudFor = level >= loudLevel && level >= echo ? _loudFor + dt : Mathf.Max(0f, _loudFor - dt);
-            if (_speechFor < bargeSeconds && _loudFor < loudSeconds) return;
+            _loudFor = level >= loudLevel ? _loudFor + dt : Mathf.Max(0f, _loudFor - dt);
+            if (_speechFor < need && _loudFor < loudSeconds) return;
             var hub = _monitor;
             bool cutIn = _speaking, reply = _attending;
             _monitor = null;
@@ -215,7 +236,9 @@ namespace Forge.Pet
             // Open the turn first (stt.start sends the pre-roll; SessionActive keeps OnSpeechEnded from reopening), then go quiet locally.
             if (pushToTalk.BeginHandsFree())
             {
-                if (cutIn && facing) _tts.Stop();     // not facing: keep talking; the hub stops him on "Albie, stop"
+                pushToTalk.MarkSpeechHeard();         // 0.3 s of speech is already in the pre-roll
+                // Quiet at once (free speech: no need to face him; live 11:04 the hub saw facing=False on every turn).
+                if (cutIn) _tts.Stop();
                 _following = reply;
             }
             else { hub.RequireName = false; hub.StopMonitoring(); }

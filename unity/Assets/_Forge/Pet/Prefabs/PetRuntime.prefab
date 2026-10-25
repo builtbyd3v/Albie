@@ -5542,7 +5542,7 @@ MonoBehaviour:
   minLevel: 0.02
   noiseRatio: 3
   startSeconds: 0.2
-  endSilence: 2
+  endSilence: 1.2
   prerollSeconds: 0.5
   minSpeech: 0.35
   maxSegment: 12
@@ -5590,10 +5590,10 @@ MonoBehaviour:
   startDelay: 0.35
   wanderAwayWhenDone: 1
   voiceBargeIn: 1
-  bargeLevel: 0.03
+  bargeLevel: 0.012
   echoShare: 0.2
   bargeSeconds: 0.3
-  loudLevel: 0.1
+  loudLevel: 0.05
   loudSeconds: 0.15
   lookToTalk: 1
   lookAngle: 40

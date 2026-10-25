@@ -41,7 +41,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Loud this long (s) before a segment opens.")]
         float startSeconds = 0.2f;
         [SerializeField, Tooltip("Quiet this long (s) closes the segment.")]
-        float endSilence = 2.0f;   // 0.7 / 1.0 cut "Albie, uh, what are the" at the "uh" (live 18:32); Dev: 2 s
+        float endSilence = 1.2f;   // 0.7 / 1.0 cut "Albie, uh, what are the" (live 18:32); 2 s made every reply 0.8 s later. The hub holds half-thoughts now (lab 2026-10-25: 1.2 s, 0 missed)
         [SerializeField, Tooltip("Audio kept from before the segment opened (s), so the first word survives.")]
         float prerollSeconds = 0.5f;
         [SerializeField, Tooltip("Segments with less speech than this (s) are cancelled (coughs, door slams).")]
@@ -54,6 +54,8 @@ namespace Forge.Pet
         float followSeconds = 8f;
         [SerializeField, Tooltip("Wait this long (s) after Bit stops talking / a push-to-talk turn before listening again.")]
         float resumeDelay = 0.6f;
+        [SerializeField, Tooltip("Wait this long (s) after a hands-free / push-to-talk turn ends before listening again.")]
+        float sessionResumeDelay = 0.15f;
 
         /// <summary>Mic RMS of the last chunk (for debugging / UI).</summary>
         public float Level { get; private set; }
@@ -131,7 +133,10 @@ namespace Forge.Pet
                                || (pushToTalk != null && pushToTalk.Provider is HubSpeechToText hub && (hub.IsMonitoring || hub.IsListening));
             bool want = listenForNames && GatorAgentBridge.EventSourceIsHub && _client != null && _client.IsConnected
                         && !sessionBusy && !_ttsTalking && Time.time >= _pausedUntil && MicPermission.HasPermission;
-            if (sessionBusy || _ttsTalking) _pausedUntil = Time.time + resumeDelay;
+            // After his speech: resumeDelay (his echo dies down). After a hands-free turn: almost at once, or the start
+            // of the user's next sentence is lost (lab 2026-10-25: "And then, um ... put on the movie" lost the movie).
+            if (_ttsTalking) _pausedUntil = Time.time + resumeDelay;
+            else if (sessionBusy) _pausedUntil = Mathf.Max(_pausedUntil, Time.time + sessionResumeDelay);
             if (!want)
             {
                 if (_clip != null) { AbortSegment(); StopMic(); }
@@ -140,7 +145,9 @@ namespace Forge.Pet
                 {
                     _pauseLogged = true;
                     Debug.LogWarning($"[WakeListener] not listening for 15 s: names={listenForNames} hub={GatorAgentBridge.EventSourceIsHub} " +
-                                     $"connected={_client != null && _client.IsConnected} sessionBusy={sessionBusy} ttsTalking={_ttsTalking} " +
+                                     $"connected={_client != null && _client.IsConnected} sessionBusy={sessionBusy} (session={pushToTalk != null && pushToTalk.SessionActive} " +
+                                     $"monitor={pushToTalk != null && pushToTalk.Provider is HubSpeechToText h1 && h1.IsMonitoring} " +
+                                     $"listening={pushToTalk != null && pushToTalk.Provider is HubSpeechToText h2 && h2.IsListening}) ttsTalking={_ttsTalking} " +
                                      $"mic={MicPermission.HasPermission}");
                 }
                 return;
