@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from agent.events import Event
@@ -202,3 +203,60 @@ def test_fixed_it_only_after_a_spoken_break() -> None:
         assert _says(sent)[1:] == ["Fixed it. The rocket builds again."]
 
     asyncio.run(run())
+
+
+def test_fix_offers_carry_a_card_and_a_tap_runs_the_fix_once() -> None:
+    async def run() -> None:
+        w, sent, _ = _watcher(gap_s=0)
+        w.notify("cad.regen_failed", {"source": "script", "kind": "build", "error": "bad fin", "error_line": 9,
+                                      "kept_version": 1})
+        await w.idle()
+        card = next(e for e in sent if e.type == "pet.say").payload["card"]
+        assert card["title"] == "bad fin"
+        fix, later = (a["action_id"] for a in card["actions"])
+        assert [a["label"] for a in card["actions"]] == ["Fix it", "Not now"]
+        task = w.take_offer(fix)
+        assert task is not None and f"line 9 of {SCRIPT}: bad fin" in task
+        assert w.take_offer(fix) is None and w.take_offer(later) is None  # once
+        w.notify("vscode.event", {"kind": "errors", "file": "a.py", "count": 0})
+        await w.idle()
+        assert next(e for e in reversed(sent) if e.type == "pet.say").payload.get("card") is None  # nothing to fix
+
+    asyncio.run(run())
+
+
+def test_not_now_forgets_the_offer() -> None:
+    async def run() -> None:
+        w, sent, _ = _watcher(gap_s=0)
+        w.notify("vscode.event", ERR)
+        await w.idle()
+        fix, later = (a["action_id"] for a in next(e for e in sent if e.type == "pet.say").payload["card"]["actions"])
+        assert w.take_offer(later) is None and w.take_offer(fix) is None
+
+    asyncio.run(run())
+
+
+def test_card_tap_over_ws_runs_the_fix_as_a_code_ask(client: Any, monkeypatch: Any) -> None:
+    from agent import ws as agent_ws
+    from agent.watcher import Line, watcher
+
+    asked: list[tuple[str, str]] = []
+
+    def runner():
+        async def run(project: Any, text: str, mode: str, emit: Any, **_: Any) -> str:
+            asked.append((text, mode))
+            return "Fixed it."
+        return run
+
+    monkeypatch.setattr(agent_ws, "get_runner", runner)
+    card = watcher._card(Line("cad", "k", "Line 3 broke the rocket.", "rocket.py", 3, "boom", task="Fix line 3: boom"))
+    assert card is not None and card.actions is not None
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"type": "hello", "payload": {"client": "test", "pet_id": "bit", "project_id": "demo"}})
+        ws.send_json({"type": "pet.card_action", "payload": {"action_id": card.actions[0].action_id}})
+        ws.send_json({"type": "pet.card_action", "payload": {"action_id": card.actions[0].action_id}})  # twice: once
+        for _ in range(50):
+            if asked:
+                break
+            time.sleep(0.02)
+    assert asked == [("Fix line 3: boom", "code")]
