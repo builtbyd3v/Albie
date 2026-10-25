@@ -205,6 +205,18 @@ public class CadView
 {
     [JsonProperty("explode")] public bool? explode;
     [JsonProperty("focus_id")] public string focusId;
+    // proposed: several parts lit at once (all the fins); focusId is the first of them
+    [JsonProperty("focus_ids")] public List<string> focusIds;
+
+    public bool SameFocus(CadView other)
+    {
+        if (other == null || focusId != other.focusId) return false;
+        int n = focusIds?.Count ?? 0;
+        if (n != (other.focusIds?.Count ?? 0)) return false;
+        for (int i = 0; i < n; i++)
+            if (focusIds[i] != other.focusIds[i]) return false;
+        return true;
+    }
 }
 
 /// <summary>
@@ -213,9 +225,10 @@ public class CadView
 /// </summary>
 public class CadAction
 {
-    [JsonProperty("action")] public string action;  // expand | demo | markers | dimensions | tab | reassemble
+    [JsonProperty("action")] public string action;  // expand | demo | markers | dimensions | tab | reassemble | take_off | put_back
     [JsonProperty("on")] public bool? on;            // expand / demo / markers / dimensions: on or off
     [JsonProperty("tab")] public string tab;         // tab: overview | parameters | analysis | history
+    [JsonProperty("part_id")] public string partId;  // proposed, take_off / put_back: the part (put_back: null = the last)
     [JsonProperty("part")] public string part;       // the design it is for
     [JsonProperty("version")] public int? version;   // the version it is for
     [JsonProperty("seq")] public int seq;            // increasing per hub run

@@ -71,6 +71,12 @@ public class CadSession : MonoBehaviour
     public int PartsOff { get; private set; }
     public event Action InspectChanged;  // Inspecting or PartsOff changed
     public event Action ReassembleRequested;
+    // Albie handing you a part (cad.action take_off / put_back). CadTakeApart does it; the Requested events are for it.
+    public event Action<string> TakeOffRequested, PutBackRequested;
+    // CadTakeApart took a part off for Albie (the pet fetches it) or put it back. Ids are real part ids.
+    public event Action<string> PartTaken, PartPutBack;
+    /// <summary>Who carries a part Albie takes off: the pet sets its jaw. Null: the part floats to you by itself.</summary>
+    public Transform PartCarrier { get; set; }
 
     // View only, like Inspecting (the hub doesn't know): what CadViewer draws over the model and its demo. Any panel sets
     // them here; the viewer, wherever Workspace spawned it, reacts.
@@ -357,7 +363,8 @@ public class CadSession : MonoBehaviour
 
     public void SetView(bool explode, string focusId)
     {
-        var view = new CadView { explode = explode, focusId = focusId };
+        // the same focus keeps its other parts (explode toggled while every fin is lit)
+        var view = new CadView { explode = explode, focusId = focusId, focusIds = focusId == View.focusId ? View.focusIds : null };
         ApplyView(view);
         if (!IsMock) StartCoroutine(Post("/cad/view", JsonConvert.SerializeObject(view), refresh: false));
     }
@@ -384,6 +391,20 @@ public class CadSession : MonoBehaviour
 
     /// <summary>Put every part taken off in the Inspect view back (CadTakeApart).</summary>
     public void Reassemble() => ReassembleRequested?.Invoke();
+
+    /// <summary>Albie takes <paramref name="partId"/> off (a group's next one if it is off already) and hands it to you.
+    /// Parts come off on the stage only, so the model goes up first.</summary>
+    public void TakeOff(string partId)
+    {
+        SetInspecting(true);
+        TakeOffRequested?.Invoke(partId);
+    }
+
+    /// <summary>Put <paramref name="partId"/> back; null: the last part Albie took off.</summary>
+    public void PutBack(string partId) => PutBackRequested?.Invoke(partId);
+
+    public void ReportPartTaken(string partId) => PartTaken?.Invoke(partId);
+    public void ReportPartPutBack(string partId) => PartPutBack?.Invoke(partId);
 
     public void SetPartsOff(int count)
     {
@@ -473,6 +494,8 @@ public class CadSession : MonoBehaviour
             case "expand": SetInspecting(a.on ?? true); break;
             case "demo": RequestDemo(a.on ?? true); break;
             case "reassemble": Reassemble(); break;
+            case "take_off": TakeOff(a.partId); break;
+            case "put_back": PutBack(a.partId); break;
             case "tab":
                 int index = Array.IndexOf(TabIds, (a.tab ?? "").ToLowerInvariant());
                 if (index >= 0) TabRequested?.Invoke(index);
@@ -687,7 +710,7 @@ public class CadSession : MonoBehaviour
 
     void OnViewEvent(CadView view)
     {
-        if (IsMock || view == null || (view.explode == View.explode && view.focusId == View.focusId)) return;
+        if (IsMock || view == null || (view.explode == View.explode && view.SameFocus(View))) return;
         ApplyView(view);
     }
 

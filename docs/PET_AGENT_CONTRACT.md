@@ -450,6 +450,10 @@ below; play-tested in desktop mode against the real hub (CAD worker, Slack on st
   `view_error`; the view-only tools (`cad_view`, `cad_demo`) answer an error and publish nothing.
 * `cad_view {expand?, explode?, focus_id?, markers?, dimensions?, tab?}`: explode / focus_id stay on the sticky
   `cad.view` (only published when asked for, so `expand` alone leaves the explode state alone; `focus_id: ""` clears;
+  proposed: `focus_id` may be a list (`FIN_1,NOSE_CONE`) or a group (`FIN_*`, `fins`), sent as `cad.view.focus_ids`
+  with `focus_id` its first part;
+  proposed: `cad_take_part {part_id?, put_back?}` sends `cad.action take_off|put_back` with `part_id` (Unity: the model
+  goes up, the part flies to Albie's jaw and then to the user; taken already = the next of its group);
   `explode: false` also sends `cad.action reassemble`, so parts pulled off in Expand go back too); the rest are
   `cad.action`s. `cad_demo {run?}`: `cad.action demo`; for a `launch` demo the hub computes
   `/cad/flight` for that version first, so Unity's fetch is a cache hit. Blocked (`analysis.demo.blocked`) or `kind:

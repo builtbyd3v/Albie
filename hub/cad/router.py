@@ -255,7 +255,8 @@ def latest(request: Request):
 @router.post("/view")
 async def view(body: CadView, request: Request, cad: CadService = Depends(service)):
     """UI-only: explode the assembly or focus a part. Doesn't change the design."""
-    if body.focus_id is not None and body.focus_id not in cad.current.fingerprints:
-        raise HTTPException(404, f"No object {body.focus_id!r}; objects: {sorted(cad.current.fingerprints)}")
+    for focus in ([body.focus_id] if body.focus_id is not None else []) + body.focus_ids:
+        if focus not in cad.current.fingerprints:
+            raise HTTPException(404, f"No object {focus!r}; objects: {sorted(cad.current.fingerprints)}")
     await request.app.state.bus.publish("cad.view", body)
     return {"ok": True}

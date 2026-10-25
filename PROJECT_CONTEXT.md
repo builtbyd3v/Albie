@@ -343,6 +343,8 @@ Proposed desk additions (focus timers, notes, movie screen: `/timers`, `/notes`,
 
 Proposed (Albie proactive): client → hub `pet.card_action {pet_id?, action_id}`: Fix it / Not now on Albie's fix offers (`pet.say` card). `docs/PET_AGENT_CONTRACT.md`.
 
+Proposed (Albie proactive, feat/albie-proactive): `cad.view.focus_ids: [id]` lights several parts at once (`cad_view focus_id: "FIN_*"` = every fin); `focus_id` stays the first of them, so older builds light one. Additive; `POST /cad/view` accepts it too. `cad.action` gains `take_off` / `put_back` with `part_id` (tool `cad_take_part`): Albie takes a part off on the stage and hands it to you; a group's next part if that one is off; `put_back` with no `part_id` = the last one.
+
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 
 ---

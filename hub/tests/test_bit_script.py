@@ -98,7 +98,7 @@ def test_the_whole_script(world):
 
     # "Can you expand that?"
     assert say(hub, "cad_view", expand=True)["shown"] == ["expand"]
-    assert of(events, "cad.action")[-1] | {"seq": 0} == {"action": "expand", "on": True, "tab": None,
+    assert of(events, "cad.action")[-1] | {"seq": 0} == {"action": "expand", "on": True, "tab": None, "part_id": None,
                                                         "part": "quadcopter", "version": cad.head, "seq": 0}
 
     # "Open up the rocket. Can you show me it flying real quick?"
