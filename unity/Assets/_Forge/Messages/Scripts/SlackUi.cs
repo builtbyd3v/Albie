@@ -35,6 +35,56 @@ public static class SlackUi
     };
     public static Color BubbleColor(string key) => BubbleColors[SlackText.StableHash(key) % BubbleColors.Length];
 
+    // ---- Slack (the Slack panel inside the graphite frame: Slack's dark aubergine theme, simplified) ----
+
+    public static readonly Color SkWindow = new Color(0.235f, 0.110f, 0.251f);      // aubergine: sidebar and window
+    public static readonly Color SkSideText = new Color(0.90f, 0.84f, 0.91f, 0.74f); // read conversations
+    public static readonly Color SkSideHover = new Color(1f, 1f, 1f, 0.08f);
+    public static readonly Color SkSideOn = new Color(0.455f, 0.275f, 0.494f);      // the open conversation
+    public static readonly Color SkSideOnHover = new Color(0.50f, 0.31f, 0.54f);
+    public static readonly Color SkBadge = new Color(0.62f, 0.39f, 0.67f);           // unread count pill
+    public static readonly Color SkPane = new Color(0.102f, 0.114f, 0.129f);        // #1A1D21, the conversation
+    public static readonly Color SkPaneHover = new Color(0.133f, 0.145f, 0.161f);   // #222529, a pointed-at message
+    public static readonly Color SkText = new Color(0.82f, 0.824f, 0.827f);         // #D1D2D3
+    public static readonly Color SkName = new Color(0.973f, 0.973f, 0.973f);
+    public static readonly Color SkMuted = new Color(0.671f, 0.671f, 0.678f);       // #ABABAD
+    public static readonly Color SkLine = new Color(1f, 1f, 1f, 0.11f);
+    public static readonly Color SkLink = new Color(0.114f, 0.608f, 0.82f);         // #1D9BD1
+    public static readonly Color SkNew = new Color(0.878f, 0.118f, 0.353f);         // #E01E5A, the "New" line
+    public static readonly Color SkGreen = new Color(0f, 0.478f, 0.353f);           // #007A5A, Send
+    public static readonly Color SkGreenHover = new Color(0.07f, 0.55f, 0.42f);
+    public static readonly Color SkBorder = new Color(0.337f, 0.345f, 0.337f);      // #565856, the composer's edge
+    public static readonly Color SkBorderFocus = new Color(0.55f, 0.56f, 0.56f);
+    public static readonly Color SkField = new Color(0.133f, 0.145f, 0.161f);       // #222529
+    public static Color Clear => new Color(1f, 1f, 1f, 0f);
+
+    // ---- Icons (Resources/SlackIcons/*.svg, imported as sprites; white, tinted by Image.color) ----
+
+    static readonly System.Collections.Generic.Dictionary<string, Sprite> icons = new System.Collections.Generic.Dictionary<string, Sprite>();
+
+    public static Sprite IconSprite(string name)
+    {
+        if (!icons.TryGetValue(name, out var sprite))
+        {
+            sprite = Resources.Load<Sprite>("SlackIcons/" + name);
+            if (sprite == null) Debug.LogWarning($"[SlackUi] Resources/SlackIcons/{name}.svg missing or not imported as a sprite.");
+            icons[name] = sprite;
+        }
+        return sprite;
+    }
+
+    /// <summary>A white icon (send, lock, caret, sparkle) tinted <paramref name="color"/>; place it like any rect.</summary>
+    public static Image Icon(Transform parent, string name, string icon, Color color)
+    {
+        var rt = Rect(parent, name);
+        var img = rt.gameObject.AddComponent<Image>();
+        img.sprite = IconSprite(icon);
+        img.preserveAspect = true;
+        img.color = color;
+        img.raycastTarget = false;
+        return img;
+    }
+
     // ---- Type (mm) ----
 
     public const float Title = 17f, Name = 13f, Body = 12.5f, Small = 11.5f, Overline = 11f, Time = 10.5f, Pill = 12f;
@@ -108,7 +158,7 @@ public static class SlackUi
         ApplyFont(t);
         t.fontSize = size;
         t.color = color;
-        t.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+        SetBold(t, bold);
         t.alignment = align;
         t.textWrappingMode = wrap ? TextWrappingModes.Normal : TextWrappingModes.NoWrap;
         // Overflow, not Ellipsis, by default: TMP hides a line outright when its box is a hair shorter than the font's
@@ -119,6 +169,19 @@ public static class SlackUi
         t.text = "";
         return t;
     }
+
+    /// <summary>
+    /// Bold, without most of TMP's faux-bold letter spacing: Inter ships one weight here, and TMP widens bold text by the
+    /// font asset's boldSpacing (7), which reads as tracked-out caps next to Slack's tight bold names.
+    /// For text that is bold as a whole; inline &lt;b&gt; keeps TMP's spacing.
+    /// </summary>
+    public static void SetBold(TMP_Text t, bool on)
+    {
+        t.fontStyle = on ? t.fontStyle | FontStyles.Bold : t.fontStyle & ~FontStyles.Bold;
+        t.characterSpacing = on ? -BoldTighten : 0f;
+    }
+
+    public const float BoldTighten = 5.5f;
 
     /// <summary>Inter (Core's ForgeLook asset) when it exists, else TMP's default font.</summary>
     public static void ApplyFont(TMP_Text t)

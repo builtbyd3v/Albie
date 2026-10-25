@@ -54,6 +54,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak, speech.note)
         app.state.slack = slack
         agent_ws.client_handlers["messages.focus"] = slack.focus_from_ws  # "Reply with Bit" from a message card
+        agent_ws.client_handlers["messages.opened"] = slack.opened_from_ws  # Unity's answer to messages.open
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
         app.state.desk = desk

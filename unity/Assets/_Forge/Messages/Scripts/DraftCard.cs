@@ -17,7 +17,7 @@ public class DraftCard : MonoBehaviour
 {
     /// <summary>Panel size (m); the builder and the presenter's docking math both use it.</summary>
     public static readonly Vector2 SizeMeters = new Vector2(0.42f, 0.26f);
-    const float LingerSeconds = 0.8f;
+    const float LingerSeconds = 0.8f, SentLingerSeconds = 1.8f;  // "Sent to #x" stays long enough to read
     static readonly char[] LineBreaks = { '\n', '\r' };
 
     [SerializeField] ForgeSurface sheet;   // translucent slate card inside the panel (text stays opaque)
@@ -29,6 +29,10 @@ public class DraftCard : MonoBehaviour
     [SerializeField] Button cancel;
 
     public NotifyDraft Draft { get; private set; }
+    string recipient;  // "#forge-team" / "Hudson": where Send posts it
+    Color statusColor;
+    bool statusColorKnown;
+    static readonly Color SentColor = new Color(0.17f, 0.67f, 0.46f);  // Slack's green: it went out
     /// <summary>Sent or cancelled; the card is on its way out.</summary>
     public bool Closing { get; private set; }
     /// <summary>What to destroy when the card closes (the presenter's holder); defaults to this object.</summary>
@@ -63,16 +67,24 @@ public class DraftCard : MonoBehaviour
         bool dm = conversation != null ? SlackText.IsDmKind(conversation.kind)
             : (to != null && to.isDm) || d.channelName == "dm" || d.channelName == "group-dm";
         if (dm)
-            header.text = !string.IsNullOrEmpty(d.channelName) && d.channelName != "dm" && d.channelName != "group-dm" ? $"DM to {d.channelName}"
-                : to != null && !string.IsNullOrEmpty(to.userName) ? $"DM to {to.userName}" : "Direct message";
+        {
+            recipient = !string.IsNullOrEmpty(d.channelName) && d.channelName != "dm" && d.channelName != "group-dm" ? d.channelName
+                : to != null && !string.IsNullOrEmpty(to.userName) ? to.userName : null;
+            header.text = recipient != null ? $"DM to {recipient}" : "Direct message";
+        }
         else
-            header.text = string.IsNullOrEmpty(d.channelName) ? "Slack" : $"#{d.channelName.TrimStart('#')}";
+        {
+            recipient = string.IsNullOrEmpty(d.channelName) ? null : $"#{SlackText.Bare(d.channelName)}";
+            header.text = recipient ?? "Slack";
+        }
 
         bool hasReply = to != null && !string.IsNullOrEmpty(to.text);
         replying.gameObject.SetActive(hasReply);
         if (hasReply) replying.text = $"Replying to {SlackText.SenderName(to)}: {FirstLine(to.text)}";
 
         body.text = d.text ?? "";
+        if (!statusColorKnown) { statusColor = status.color; statusColorKnown = true; }
+        status.color = statusColor;
         status.text = d.edited ? "Edited by Albie" : "Albie wrote this";
         SetButtons(true);
     }
@@ -105,7 +117,8 @@ public class DraftCard : MonoBehaviour
     {
         if (Draft == null || Closing) return;
         if (!string.IsNullOrEmpty(s.draftId) && s.draftId != Draft.draftId) return;  // no draft_id = the open draft
-        Close("Sent");
+        status.color = SentColor;
+        Close(recipient != null ? $"Sent to {recipient}" : "Sent", SentLingerSeconds);
     }
 
     void OnCancelled(NotifyDraftCancelled c)
@@ -114,17 +127,17 @@ public class DraftCard : MonoBehaviour
         Close(c.reason == "superseded" ? "Replaced" : c.reason == "expired" ? "Expired" : "Cancelled");
     }
 
-    void Close(string label)
+    void Close(string label, float linger = LingerSeconds)
     {
         Closing = true;
         SetButtons(false);
         status.text = label;
-        StartCoroutine(CloseLater());
+        StartCoroutine(CloseLater(linger));
     }
 
-    IEnumerator CloseLater()
+    IEnumerator CloseLater(float linger)
     {
-        yield return new WaitForSeconds(LingerSeconds);
+        yield return new WaitForSeconds(linger);
         DigestTrigger.FoldOut(this, Root != null ? Root : gameObject);
     }
 

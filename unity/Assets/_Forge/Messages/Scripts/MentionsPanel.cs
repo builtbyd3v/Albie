@@ -174,10 +174,10 @@ public class MentionsPanel : MonoBehaviour
     {
         if (!stubs.TryGetValue(ch.id, out var m)) stubs[ch.id] = m = new NotifyMessage();
         m.channel = ch.id;
-        m.channelName = ch.name;
+        m.channelName = SlackText.Bare(ch.name);  // SlackMessage.channel_name has no '#'; the list's name does
         m.isDm = SlackText.IsDmKind(ch.kind);
         m.user = ch.id;
-        m.userName = SlackText.IsDmKind(ch.kind) ? ch.name : "#" + ch.name;
+        m.userName = SlackText.DisplayName(ch);
         m.text = ch.lastText ?? "";
         m.ts = ch.lastTs;
         m.mentionsMe = ch.mentions > 0;

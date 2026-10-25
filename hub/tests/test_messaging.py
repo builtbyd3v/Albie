@@ -681,7 +681,11 @@ def test_draft_create_send_emits_and_posts_as_user(tmp_path: Path) -> None:
     assert sent is draft and ts == "1700000099.000100" and svc.open_draft is None
     assert svc._user_client.posted == [{"channel": "C1", "text": "yes, by 3", "thread_ts": "1700000010.000100"}]
     assert svc._client.posted == []  # not as Bit
-    assert bus.types() == ["notify.draft", "notify.sent"]
+    assert bus.types() == ["notify.draft", "notify.message", "notify.sent"]  # the post shows in the panel at once
+    posted = bus.last("notify.message")
+    assert (posted.channel, posted.ts, posted.text, posted.thread_ts, posted.is_me, posted.user, posted.user_name) ==         ("C1", ts, "yes, by 3", "1700000010.000100", True, "UME", "adrian")
+    assert svc.store.get("C1", ts) == posted
+    assert svc.store.get("C1", "1700000010.000100").reply_count == 1  # the thread it answered grew
     assert bus.last("notify.sent").model_dump() == {"draft_id": draft.draft_id, "channel": "C1",
                                                     "channel_name": "forge-team", "text": "yes, by 3", "ts": ts}
 
@@ -695,7 +699,9 @@ def test_draft_falls_back_to_bot_without_user_token(tmp_path: Path) -> None:
 
     asyncio.run(run())
     assert svc._client.posted == [{"channel": "C1", "text": "on it", "thread_ts": None}]
-    assert bus.types() == ["notify.draft", "notify.sent"]
+    assert bus.types() == ["notify.draft", "notify.message", "notify.sent"]
+    posted = bus.last("notify.message")
+    assert (posted.user, posted.user_name, posted.is_me) == ("UBOT", "Albie", True)  # Bit is "me" without a user token
 
 
 def test_draft_supersede_cancel_and_unknown(tmp_path: Path) -> None:
@@ -764,7 +770,7 @@ def test_draft_update_re_emits_with_edited(tmp_path: Path) -> None:
     assert (moved.channel, moved.channel_name, moved.thread_ts, moved.reply_to) == ("DU1", "hudson", None, None)
     assert cleared.thread_ts is None and cleared.edited is True
     assert svc._user_client.posted == [{"channel": "DU1", "text": "yes, by 3pm", "thread_ts": None}]
-    assert bus.types() == ["notify.draft"] * 4 + ["notify.sent"]
+    assert bus.types() == ["notify.draft"] * 4 + ["notify.message", "notify.sent"]
     assert [p.draft_id for t, p in bus.events if t == "notify.draft"] == [d.draft_id] * 4
     assert [p.edited for t, p in bus.events if t == "notify.draft"] == [False, True, True, True]
 
@@ -832,7 +838,7 @@ def test_focus_speaks_notes_and_seeds_the_next_send(tmp_path: Path) -> None:
     found, drafted, draft, sent = asyncio.run(run())
     assert found is not None and found.ts == "1700000002.000100"
     assert spoken == [("bit", "hudson in #forge-team says: can you review my PR today. Want me to answer?")]
-    assert bus.types() == ["notify.draft", "notify.sent"]  # voice spoke, so no pet.say caption
+    assert bus.types() == ["notify.draft", "notify.message", "notify.sent"]  # voice spoke, so no pet.say caption
     note = svc.noted[0][1]  # type: ignore[attr-defined]
     assert "hudson" in note and "#forge-team" in note and "can you review my PR today" in note and "messages_send" in note
     assert drafted["status"] == "awaiting_confirmation"
@@ -922,11 +928,11 @@ def test_tools_send_is_draft_then_confirm(tmp_path: Path) -> None:
     assert drafted2["status"] == "awaiting_confirmation"
     assert cancelled == {"status": "cancelled", "draft_id": drafted2["draft_id"]}
     assert "error" in nothing
-    assert bus.types() == ["notify.draft", "notify.sent", "notify.draft", "notify.draft_cancelled"]
+    assert bus.types() == ["notify.draft", "notify.message", "notify.sent", "notify.draft", "notify.draft_cancelled"]
     send_tool = next(t for t in mtools.TOOLS if t["name"] == "messages_send")
     assert "DRAFT" in send_tool["description"] and "NEVER say the message was sent" in send_tool["description"]
     assert {t["name"] for t in mtools.TOOLS} == {"messages_read_latest", "messages_list_channels", "messages_read_channel",
-                                                 "messages_send", "messages_confirm"}
+                                                 "messages_open", "messages_send", "messages_confirm"}
     assert all(t["name"].startswith("messages_") for t in mtools.TOOLS)  # -> the `messages` panel (agent/tools.py PANELS)
 
 
@@ -1080,4 +1086,96 @@ def test_router_panel_endpoints(api) -> None:
     assert c.post("/messages/channels/nowhere/seen").status_code == 404
 
     res = c.get("/messages/users/me")
-    assert res.status_code == 200 and res.json() == {"user_id": "UME", "name": "adrian", "display_name": "adrian"}
+    assert res.status_code == 200 and res.json() == {"user_id": "UME", "name": "adrian", "display_name": "adrian", "team": ""}
+
+
+# ------------------------------------------------------------------ sent posts in the panel, opening a conversation
+def test_slack_echo_of_a_sent_post_is_dropped(tmp_path: Path) -> None:
+    """The hub publishes its own post at once; Slack's echo (user token posts can carry the app's bot_id) adds nothing."""
+    svc, bus, _ = make_service(tmp_path, as_user=True)
+
+    async def run() -> Any:
+        d = await svc.create_draft("on it", "#forge-team")
+        _, ts = await svc.send_draft(d.draft_id)
+        echo = await svc.on_event({"channel": "C1", "user": "UME", "text": "on it", "ts": ts, "bot_id": "B1"})
+        return ts, echo
+
+    ts, echo = asyncio.run(run())
+    assert echo is None
+    assert bus.types().count("notify.message") == 1
+    assert [m.text for m in svc.store.history("C1")] == ["on it"] and svc.store.get("C1", ts).is_me is True
+    assert svc.store.unread() == []  # the user's own post never counts
+
+
+def test_history_keeps_the_users_own_app_posts(tmp_path: Path) -> None:
+    """A post the user made through an app (bot_id + their user id) is theirs; other bots stay out."""
+    svc, _, _ = make_service(tmp_path, as_user=True)
+    reader(svc).history["C1"] = [
+        {"ts": "1700000003.000100", "user": "U9", "bot_id": "B9", "text": "deploy bot says hi"},
+        {"ts": "1700000002.000100", "user": "UME", "bot_id": "B1", "app_id": "A1", "text": "sent from the headset"},
+        {"ts": "1700000001.000100", "user": "U1", "text": "hello"},
+    ]
+    _, rows, _ = asyncio.run(svc.history("C1", 10))
+    assert [(m.text, m.is_me) for m in rows] == [("hello", False), ("sent from the headset", True)]
+
+
+class UnityStub(BusRecorder):
+    """A bus whose 'Unity' answers messages.open like the headset would (or not at all)."""
+
+    def __init__(self, svc_ref: list[Any], answer: dict[str, Any] | None) -> None:
+        super().__init__()
+        self.svc_ref, self.answer = svc_ref, answer
+
+    async def publish(self, type_: str, payload: Any) -> None:
+        await super().publish(type_, payload)
+        if type_ == "messages.open" and self.answer is not None:
+            reply = {"request_id": payload.request_id, "channel": payload.channel, **self.answer}
+            asyncio.get_running_loop().call_soon(
+                lambda: asyncio.ensure_future(self.svc_ref[0].opened_from_ws(None, reply)))
+
+
+def test_open_conversation_round_trip(tmp_path: Path) -> None:
+    ref: list[Any] = []
+    svc, bus, _ = make_service(tmp_path, as_user=True, bus=UnityStub(ref, {"ok": True}))
+    ref.append(svc)
+
+    async def run() -> list[dict[str, Any]]:
+        return [await svc.open_conversation("Hudson"), await mtools.call_tool("messages_open", {"channel": "#forge-team"}, svc),
+                await mtools.call_tool("messages_open", {"channel": ""}, svc),
+                await mtools.call_tool("messages_open", {"channel": "#nowhere"}, svc)]
+
+    dm, channel, empty, missing = asyncio.run(run())
+    assert dm == {"ok": True, "channel": "DU1", "channel_name": "hudson", "kind": "dm"}   # a person -> their DM, opened
+    assert reader(svc).called("conversations.open") == [{"users": "U1"}]
+    assert reader(svc).posted == []                                                      # nothing sent
+    assert channel == {"ok": True, "channel": "C1", "channel_name": "#forge-team", "kind": "channel"}
+    assert "error" in empty and "error" in missing
+    assert bus.types()[:2] == ["notify.channels", "messages.open"]                       # the list has it before Unity opens it
+    assert "DU1" in {c.id for c in bus.events[0][1].channels}
+    opened = bus.events[1][1]
+    assert (opened.pet_id, opened.channel, opened.channel_name, opened.kind) == ("bit", "DU1", "hudson", "dm")
+    assert svc._open_waiters == {}
+
+
+def test_open_conversation_reports_why_unity_refused_or_timed_out(tmp_path: Path) -> None:
+    ref: list[Any] = []
+    svc, _, _ = make_service(tmp_path, as_user=True, bus=UnityStub(ref, {"ok": False, "reason": "not_at_desk"}))
+    ref.append(svc)
+    refused = asyncio.run(svc.open_conversation("#forge-team"))
+    assert "sit down" in refused["error"] and refused["channel"] == "C1"
+
+    quiet, _, _ = make_service(tmp_path, as_user=True, bus=UnityStub([], None))  # an old Unity build: no answer
+    quiet.open_ack_s = 0.05
+    timed_out = asyncio.run(quiet.open_conversation("#forge-team"))
+    assert "didn't answer" in timed_out["error"] and quiet._open_waiters == {}
+
+
+def test_router_open_and_me_team(api) -> None:
+    c = api(True)
+    svc: SlackService = c.app.state.slack
+    svc.open_ack_s = 0.05
+    svc.team_name = "Prefify AI"
+    res = c.post("/messages/open", json={"channel": "#forge-team"})  # no Unity in the test: 409 with the reason
+    assert res.status_code == 409 and "didn't answer" in res.json()["detail"]
+    assert c.post("/messages/open", json={"channel": "#nowhere"}).status_code == 404
+    assert c.get("/messages/users/me").json()["team"] == "Prefify AI"

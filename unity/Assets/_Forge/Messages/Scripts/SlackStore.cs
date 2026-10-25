@@ -23,6 +23,8 @@ public static class SlackStore
     public static readonly List<NotifyMessage> Recent = new List<NotifyMessage>(RecentCap + 1);
     public static string MeId { get; private set; }
     public static string MeName { get; private set; }
+    /// <summary>The Slack workspace's name (the sidebar header), or null until the hub says.</summary>
+    public static string TeamName { get; private set; }
 
     /// <summary>The list or a count changed (notify.channels, a local seen, a live message).</summary>
     public static event Action ChannelsChanged;
@@ -35,6 +37,7 @@ public static class SlackStore
     static readonly Dictionary<string, bool> hasMore = new Dictionary<string, bool>();
     static readonly HashSet<string> loading = new HashSet<string>();
     static readonly Dictionary<string, string> userNames = new Dictionary<string, string>();
+    static readonly HashSet<string> echoes = new HashSet<string>();  // ts of messages added locally by AddOwn
     static bool hooked, channelsRequested, meRequested;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -48,8 +51,9 @@ public static class SlackStore
         hasMore.Clear();
         loading.Clear();
         userNames.Clear();
+        echoes.Clear();
         ChannelsKnown = channelsRequested = meRequested = false;
-        MeId = MeName = null;
+        MeId = MeName = TeamName = null;
         ChannelsChanged = null;
         HistoryChanged = null;
         MessageAdded = null;
@@ -64,6 +68,7 @@ public static class SlackStore
             ForgeEvents.OnNotifyChannels += OnChannels;
             ForgeEvents.OnNotifyMessage += OnMessage;
             ForgeEvents.OnNotifyDigest += OnDigest;
+            ForgeEvents.OnNotifySent += OnSent;
             ForgeNet.StatusChanged += OnStatus;
             if (ForgeNet.TryGetLast(ForgeEvents.NotifyChannelsType, out NotifyChannels sticky)) OnChannels(sticky);
         }
@@ -77,6 +82,7 @@ public static class SlackStore
         ForgeEvents.OnNotifyChannels -= OnChannels;
         ForgeEvents.OnNotifyMessage -= OnMessage;
         ForgeEvents.OnNotifyDigest -= OnDigest;
+        ForgeEvents.OnNotifySent -= OnSent;
         ForgeNet.StatusChanged -= OnStatus;
     }
 
@@ -113,7 +119,9 @@ public static class SlackStore
                 if (me == null) return;
                 MeId = me.userId;
                 MeName = string.IsNullOrEmpty(me.displayName) ? me.name : me.displayName;
+                TeamName = string.IsNullOrEmpty(me.team) ? null : me.team;
                 if (!string.IsNullOrEmpty(MeId) && !string.IsNullOrEmpty(MeName)) userNames[MeId] = MeName;
+                ChannelsChanged?.Invoke();  // the sidebar header shows the workspace's name
             }, error =>
             {
                 meRequested = false;
@@ -142,6 +150,17 @@ public static class SlackStore
         Channels.Clear();
         if (list != null) for (int i = 0; i < list.Count; i++) if (list[i] != null && !string.IsNullOrEmpty(list[i].id)) Channels.Add(list[i]);
         ChannelsKnown = true;
+        ChannelsChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// A conversation the list doesn't have yet (Albie opened a new DM before notify.channels caught up): a row for it
+    /// until the hub's next list replaces the whole set.
+    /// </summary>
+    public static void Provisional(string id, string name, string kind)
+    {
+        if (string.IsNullOrEmpty(id) || Find(id) != null) return;
+        Channels.Add(new SlackChannel { id = id, name = string.IsNullOrEmpty(name) ? id : name, kind = string.IsNullOrEmpty(kind) ? "channel" : kind });
         ChannelsChanged?.Invoke();
     }
 
@@ -255,10 +274,16 @@ public static class SlackStore
         Note(m);
         var list = History(m.channel);
         bool appended = false;
-        if (list != null && IndexOf(list, m.ts) < 0)
+        int at = list != null ? IndexOf(list, m.ts) : -1;
+        if (list != null && at < 0)
         {
             InsertByTime(list, m);
             appended = true;
+        }
+        else if (at >= 0 && echoes.Remove(m.ts))
+        {
+            list[at] = m;  // the hub's copy of a message sent from here: it knows the thread and the initials
+            HistoryChanged?.Invoke(m.channel);
         }
         var c = Find(m.channel);
         if (c != null)
@@ -274,6 +299,39 @@ public static class SlackStore
             ChannelsChanged?.Invoke();
         }
         if (appended) MessageAdded?.Invoke(m.channel, m);
+    }
+
+    /// <summary>
+    /// The user's own message, just sent from the headset: into the conversation right away. The hub also sends it as
+    /// notify.message (and notify.sent), so whichever lands first adds it and the others are no-ops (same ts).
+    /// </summary>
+    public static void AddOwn(string channelId, string text, string ts, string threadTs = null)
+    {
+        if (string.IsNullOrEmpty(channelId) || string.IsNullOrEmpty(ts) || string.IsNullOrEmpty(text)) return;
+        var list = History(channelId);
+        if (list != null && IndexOf(list, ts) >= 0) return;
+        var c = Find(channelId);
+        bool dm = c != null && SlackText.IsDmKind(c.kind);
+        echoes.Add(ts);
+        OnMessage(new NotifyMessage
+        {
+            channel = channelId,
+            channelName = dm ? c.kind : SlackText.Bare(c?.name) ?? "",
+            isDm = dm,
+            user = MeId,
+            userName = string.IsNullOrEmpty(MeName) ? "You" : MeName,
+            text = text,
+            ts = ts,
+            threadTs = threadTs,
+            isMe = true,
+        });
+    }
+
+    // notify.sent: covers a send from the floating card or by voice ("send it") on a hub that predates notify.message
+    // for its own posts. A thread reply lands without its thread here; the hub's notify.message carries it.
+    static void OnSent(NotifySent s)
+    {
+        if (s != null) AddOwn(s.channel, s.text, s.ts);
     }
 
     static void OnDigest(NotifyDigest d)

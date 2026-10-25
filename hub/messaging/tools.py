@@ -1,7 +1,8 @@
 """Bit's messaging tools (voice model + Claude runner), registered through agent/tools.py like the CAD tools.
 
 Reading: messages_read_latest (the inbox, newest first), messages_list_channels (every conversation with its unread
-count), messages_read_channel (the last n in one conversation). Sending is two tools on purpose: messages_send only
+count), messages_read_channel (the last n in one conversation). Showing: messages_open puts a conversation on the
+Slack panel (opens the MSG view). Sending is two tools on purpose: messages_send only
 WRITES a draft (Unity shows it in the composer with Send / Cancel); messages_confirm is the spoken "send it" /
 "never mind". Nothing reaches Slack without one of those two confirmations.
 """
@@ -30,6 +31,14 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "channel": {"type": "string", "description": "#name, id, or a person's name (their DM)"},
          "n": {"type": "integer", "minimum": 1, "maximum": 50, "description": "how many (default 10)"}},
+         "required": ["channel"]}},
+    {"name": "messages_open",
+     "description": "Open a Slack conversation on the user's Slack panel (the MSG view opens if it isn't already): a "
+                    "channel ('#general'), or a person's name for the user's DM with them ('Adrian'). Use it for 'open my "
+                    "chat with Adrian', 'pull up #general', 'show me the thread with Jade'. It only shows it; nothing is "
+                    "sent. The user has to be at their desk. Then say in a few words what you opened.",
+     "parameters": {"type": "object", "properties": {
+         "channel": {"type": "string", "description": "#name, channel id, or a person's name (their DM)"}},
          "required": ["channel"]}},
     {"name": "messages_send",
      "description": "Write a Slack reply on the user's behalf. This only WRITES A DRAFT: nothing is sent. The text "
@@ -81,6 +90,11 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService) -> dict[
             n = max(1, min(int(args.get("n") or 10), 50))
             rec, messages, _ = await svc.history(channel, n)
             return {"channel": rec.id, "channel_name": rec.label, "kind": rec.kind, "messages": [_row(m) for m in messages]}
+        if name == "messages_open":
+            channel = str(args.get("channel") or "").strip()
+            if not channel:
+                return {"error": "channel is empty"}
+            return await svc.open_conversation(channel)
         if name == "messages_send":
             text = str(args.get("text") or "").strip()
             if not text:

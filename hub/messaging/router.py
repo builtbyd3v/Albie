@@ -1,5 +1,6 @@
 """REST for messaging (PROJECT_CONTEXT section 7): the Slack panel's channel list and history
-(/messages/channels, /messages/history, /messages/channels/{id}/seen, /messages/users/me), /messages/latest,
+(/messages/channels, /messages/history, /messages/channels/{id}/seen, /messages/users/me), /messages/open (show a
+conversation in Unity, the messages_open tool's REST form), /messages/latest,
 /messages/drafts (create, PATCH, send, cancel), /messages/digest, and /messages/focus (the REST form of the ws
 `messages.focus` message: "Reply with Bit" on a card).
 
@@ -89,6 +90,19 @@ class MeReply(BaseModel):
     user_id: str
     name: str
     display_name: str
+    team: str = ""                    # the workspace's name ("" until Slack connected)
+
+
+class OpenRequest(BaseModel):
+    channel: str                      # id, #name, or a person's name (their DM)
+    pet_id: str = "bit"
+
+
+class OpenReply(BaseModel):
+    ok: bool = True
+    channel: str
+    channel_name: str
+    kind: Literal["channel", "private", "dm", "group-dm"]
 
 
 class DigestRequest(BaseModel):
@@ -139,6 +153,19 @@ async def seen(channel_id: str, svc: SlackService = Depends(enabled)) -> SeenRep
 async def me(svc: SlackService = Depends(enabled)) -> MeReply:
     """Who the hub posts as (the user with SLACK_USER_TOKEN, else Bit)."""
     return MeReply(**await svc.me())
+
+
+@router.post("/open", response_model=OpenReply)
+async def open_conversation(req: OpenRequest, svc: SlackService = Depends(enabled)) -> OpenReply:
+    """Same as the messages_open tool: Unity opens the MSG view on that conversation. 409 when Unity can't (the user
+    isn't at the desk) or didn't answer."""
+    try:
+        out = await svc.open_conversation(req.channel, req.pet_id)
+    except Exception as e:  # noqa: BLE001
+        raise _slack_error(e, "Slack error") from None
+    if "error" in out:
+        raise HTTPException(409, out["error"])
+    return OpenReply(channel=out["channel"], channel_name=out["channel_name"], kind=out["kind"])
 
 
 @router.get("/latest", response_model=list[SlackMessage])
