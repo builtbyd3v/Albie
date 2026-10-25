@@ -469,7 +469,8 @@ namespace Forge.ML
             var s = session.Data.samples[selected];
             int classes = session.Data.classes.Length, pred = Mathf.Clamp(s.pred_idx, 0, classes - 1);
             Color status = StatusColor(s);
-            MLUI.Caps(card, "Image", 16, 16, 60);
+            bool isText = !string.IsNullOrEmpty(s.text);
+            MLUI.Caps(card, isText ? "Text" : "Image", 16, 16, 60);
             var id = MLUI.Text(card, s.name ?? s.id, 62, 14, w - 106, 14, 9.5f); id.color = MLUI.Faint; id.textWrappingMode = TextWrappingModes.NoWrap; id.overflowMode = TextOverflowModes.Truncate;
             MLUI.Pill(card, "×", w - 40, 10, 26, 22, DismissDetail).name = "Close";
             MLUI.Surface(card, 14, 36, 100, 100, new Color(status.r, status.g, status.b, 0.18f), 10, 0.7f);
@@ -499,6 +500,13 @@ namespace Forge.ML
                 var pct = MLUI.Text(card, p.ToString("0%"), w - 50, y, 36, row, 9.5f); pct.alignment = TextAlignmentOptions.TopRight; pct.color = isPred ? status : MLUI.Sub;
             }
             float actions = h - 38;
+            float textTop = rowTop + classes * row + 10;
+            if (isText && actions - 8 - textTop > 30)  // the whole text under the bars; the card at the top shows its first words
+            {
+                MLUI.Fill(card, 16, textTop, w - 32, 1, new Color(1, 1, 1, 0.07f));
+                var body = MLUI.Text(card, s.text, 16, textTop + 8, w - 32, actions - 16 - textTop, 10);
+                body.overflowMode = TextOverflowModes.Ellipsis;
+            }
             MLUI.Button(card, "Relabel", 14, actions, 70, 26, () => { relabeling = true; ShowDetail(); });
             MLUI.Button(card, "Remove", 90, actions, 66, 26, () => session.Remove(s));
             MLUI.Button(card, "Looks fine", 162, actions, w - 176, 26, DismissDetail);

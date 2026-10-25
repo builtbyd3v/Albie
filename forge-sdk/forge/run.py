@@ -84,9 +84,12 @@ def run_dataset(ad: forge_adapter.Adapter, out: Path, split: str = "val", limit:
             full.save(out / "images" / f"{s.id}.png")
     elif kind == "row":
         items = [{"id": s.id, "name": s.name, "kind": "row", "y": float(s.label)} for s in samples]
-    else:
-        items = [{"id": s.id, "name": s.name, "kind": "text", "label_idx": int(s.label), "text": str(s.item)}
-                 for s in samples]
+    else:  # text: a card per sample in the atlas, so the image panels show the texts (and the full text in items)
+        image, atlas_meta, items = atlas.build_text([str(s.item) for s in samples], [int(s.label) for s in samples],
+                                                    [s.id for s in samples], [s.name for s in samples], split)
+        out.mkdir(parents=True, exist_ok=True)
+        image.save(out / "atlas.png")
+        _write(out / "atlas.json", atlas_meta)
     _write(out / "dataset.json", items)
     # Per-sample metadata for GET /ml/sample/{id} (picked-image card); predictions are added after eval.
     meta = {s.id: {"id": s.id, "name": s.name, "split": split, "meta": s.meta,

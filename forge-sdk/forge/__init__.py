@@ -51,6 +51,7 @@ class _Run:
     val_data: Any = None    # the dataset given to watch, for the live per-epoch predictions
     n_samples: int = 1000   # how many of them the atlas (and so the dot wall) holds
     probe: list[int] | None = None  # sample indices of the probe strip, picked at the first live pass
+    text: bool = False      # watched a text dataset (`texts`): evaluate records text_classification
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         client.emit(event_type, payload, run_id=self.run_id, run_dir=self.dir, t0=self.t0)
@@ -126,7 +127,15 @@ def watch(
     def save_atlas() -> None:
         from forge import atlas
 
-        image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
+        texts = atlas.dataset_texts(val_dataset)
+        if texts is not None:  # a text classifier (`val_dataset.texts`): a card per text, and the text itself
+            labels = getattr(val_dataset, "labels", None)
+            labels = labels if labels is not None else [atlas._label(val_dataset[i][1]) for i in range(len(texts))]
+            image, atlas_meta, items = atlas.build_text(texts, labels, getattr(val_dataset, "ids", None),
+                                                        getattr(val_dataset, "names", None))
+            run.text = True
+        else:
+            image, atlas_meta, items = atlas.build(val_dataset, cell=thumb_size)
         run.n_samples = len(items)
         image.save(run.dir / "atlas.png")
         run.write_json("atlas.json", atlas_meta)
@@ -261,7 +270,8 @@ def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) ->
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "evaluating", "epoch": total, "total_epochs": total})
         ids, labels, probs = _predict_all(model, val_data)
         names = [str(c) for c in classes] if classes else run.classes or [str(k) for k in range(probs.shape[1])]
-        results, confusion, summary = evaluation.classification(ids, labels, probs, names)
+        archetype = "text_classification" if run.text else "image_classification"
+        results, confusion, summary = evaluation.classification(ids, labels, probs, names, archetype=archetype)
         summary.update(best_epoch=run.best_epoch, best_val_acc=run.best_val_acc,
                        val_loss=run.prev[1] if run.prev else None)
         run.write_json("results.json", results)

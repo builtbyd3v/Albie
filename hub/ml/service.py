@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .archetypes import ARCHETYPES, layout
-from .github_import import inspect_repository
+from .github_import import CLONE_FORMAT, clone_repository, inspect_repository
 from .models import VizCard
 from .prescan import resolve_python
 
@@ -30,6 +30,9 @@ DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
 FORGE_SDK = ROOT / "forge-sdk"
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 RUNNER_TIMEOUT_S = 180
+# Project setup steps that wait (ML_PLAN 6): no training until the project is ready (or was never set up).
+SETUP_STEPS = ("scanning", "classifying", "confirm_type", "adapting", "checking", "needs_approval")
+RUN_VIEW_FILES = ("dataset.json", "atlas.json", "atlas.png")  # what a forge.watch run writes about its val samples
 RUNNER_JOBS = {"graph.json": "graph", "dataset.json": "dataset", "atlas.json": "dataset", "atlas.png": "dataset",
                "samples.json": "dataset"}
 
@@ -128,6 +131,12 @@ class MLService:
 
     # --- project files (graph, dataset, atlas): runner output, else the latest run's copy ------
     def project_path(self, name: str, compute: bool = True) -> Path:
+        if name in RUN_VIEW_FILES:
+            # A training run's own dataset view (forge.watch) uses the ids of its results and live predictions; the
+            # setup runner's copy can number the samples differently (an LLM-written adapter), so the run's wins.
+            run = self.latest_run("dataset.json")
+            if run is not None and (run / name).exists():
+                return run / name
         path = self.project_dir / name
         if path.exists():
             return path
@@ -399,6 +408,10 @@ class MLService:
     def start_training(self, epochs: int, hub_url: str) -> str:
         if self.training_active():
             raise Conflict(f"run {self.train_run_id} is still training")
+        status = self.project.get("status")
+        if status in SETUP_STEPS:  # e.g. Train before Accept would run the script without its forge calls
+            raise Conflict("accept or skip the setup patch first" if status == "needs_approval"
+                           else f"{self.repo.name} is still being set up ({status}); train once it's ready")
         cmd = self.profile().get("train_cmd")
         if not cmd:
             raise Conflict(f"no train_cmd in {self.forge_dir / 'profile.json'}")
@@ -420,36 +433,55 @@ class MLService:
         return run_id
 
     def import_github(self, url: str) -> dict[str, Any]:
-        """Inspect a public GitHub URL. Source files are only statically inspected, never executed."""
-        result = inspect_repository(url)
-        if result.get("supported") and self.training_active():
+        """A public GitHub URL. The preset CIFAR-10 + SmallCNN layout (read statically, never run) trains the
+        checked-in ml-examples/cifar10 copy, and says so in `runs`. Any other repo is cloned (github_import) and
+        opened like a local one: the router then runs the cold-open setup, and it trains with its own train_cmd."""
+        if self.training_active():
             raise Conflict(f"run {self.train_run_id} is still training; import after it finishes")
-        self.github_imports[result["import_id"]] = result
+        result = inspect_repository(url)
         if result.get("supported"):
+            runs = f"ml-examples/cifar10 (the checked-in CIFAR-10 + SmallCNN copy; {result['repository']} has the same format)"
+            result.update(mode="preset", runs=runs)
             self.repo = (ROOT / "ml-examples" / "cifar10").resolve()
             self.project = {"path": str(self.repo), "status": "ready", "source": result["url"],
                             "repository": result["repository"], "archetype": "image_classification",
-                            "format": result["format"]}
+                            "format": result["format"], "runs": runs}
+        else:
+            cloned = clone_repository(url)
+            runs = f"{cloned['repository']}@{cloned['ref']} (its own code, cloned to {cloned['path']})"
+            result.update(cloned, supported=True, mode="clone", format=CLONE_FORMAT, model=None, dataset=None,
+                          files=[], reason=None, runs=runs)
+            self.open_project(cloned["path"])
+            self.project.update(source=result["url"], repository=result["repository"], format=CLONE_FORMAT, runs=runs)
+        self.github_imports[result["import_id"]] = result
         return result
 
     def start_github_training(self, import_id: str, epochs: int, hub_url: str) -> str:
-        """Train only the checked-in CIFAR-10/SmallCNN implementation for a supported import."""
+        """A cloned import: its own train_cmd, once its setup is ready. The preset: the checked-in CIFAR-10 worker."""
         if self.training_active():
             raise Conflict(f"run {self.train_run_id} is still training")
         imported = self.github_imports.get(import_id)
         if imported is None:
             raise NotFound(f"no GitHub import {import_id!r}; import the repository again")
+        if imported.get("mode") == "clone":
+            if Path(imported["path"]).resolve() != self.repo:
+                raise Conflict("another project was opened after this import; import the repository again")
+            status = self.project.get("status")
+            if status != "ready":
+                raise Conflict(f"{imported['repository']} isn't ready to train yet (setup is {status}); "
+                               "wait for setup, then Accept or Skip the patch")
+            return self.start_training(epochs, hub_url)
         if not imported.get("supported") or imported.get("format") != "cifar10-smallcnn-v1":
             raise Conflict("this GitHub repository does not match a supported PyTorch training format")
         if not 5 <= epochs <= 10:
-            raise Conflict("GitHub training is limited to 5–10 epochs")
+            raise Conflict("the CIFAR-10 preset trains for 5–10 epochs")
 
-        # The GitHub files are not imported or executed. This known format maps to our reviewed local dataset/model.
+        # The preset's GitHub files are not imported or executed: this format maps to our reviewed local copy.
         approved_repo = ROOT / "ml-examples" / "cifar10"
         self.repo = approved_repo.resolve()
         self.project = {"path": str(self.repo), "status": "ready", "source": imported["url"],
                         "repository": imported["repository"], "archetype": "image_classification",
-                        "format": imported["format"]}
+                        "format": imported["format"], "runs": imported.get("runs")}
         run_id = uuid.uuid4().hex[:8]
         env = {k: v for k, v in os.environ.items() if k not in ("FORGE_OFFLINE", "FORGE_RUN_DIR")}
         env.update(FORGE_HUB=hub_url.rstrip("/"), FORGE_RUN_ID=run_id, FORGE_RUN_DIR=str(self.runs_dir),
@@ -505,6 +537,8 @@ class MLService:
         """Record one setup step. Returns (ml.project_state payload, ml.layout payload or None)."""
         profile = fields.pop("profile", None)
         state: dict[str, Any] = {"path": str(self.repo), "status": status}
+        if self.project.get("path") == state["path"]:  # a GitHub import keeps where it came from and what runs
+            state.update({k: self.project[k] for k in ("source", "repository", "format", "runs") if k in self.project})
         state.update({k: v for k, v in fields.items() if v is not None})
         if profile is not None:
             state["profile"] = profile.model_dump(by_alias=True)
@@ -516,7 +550,8 @@ class MLService:
             new_layout = layout(state.get("archetype", "generic"), extra)
             state["layout"] = new_layout
         self.project = state
-        event = {k: state[k] for k in ("path", "status", "archetype", "candidates", "summary", "error") if k in state}
+        event = {k: state[k] for k in ("path", "status", "archetype", "candidates", "summary", "error", "repository", "runs")
+                 if k in state}
         return event, new_layout
 
     def _manifest(self) -> dict:

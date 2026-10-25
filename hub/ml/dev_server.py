@@ -4,10 +4,11 @@ Use it while the ml router isn't mounted in hub/main.py yet (Person 5 owns that 
 Run from hub/: uvicorn ml.dev_server:app --port 8000
 """
 
+import asyncio
 import logging
 import os
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from events import EventBus
 from ml.router import router
@@ -36,4 +37,14 @@ app.include_router(router)
 
 @app.websocket("/ws")
 async def ws(websocket: WebSocket) -> None:
-    await app.state.bus.serve(websocket)
+    # Not bus.serve: that reads text only, and Unity also sends binary frames (mic audio for the pet), which made
+    # it drop the socket every few seconds. The dev server has no agent, so whatever Unity sends is ignored.
+    await websocket.accept()
+    await app.state.bus.attach(websocket)
+    try:
+        while (await websocket.receive())["type"] != "websocket.disconnect":
+            pass
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        pass
+    finally:
+        app.state.bus.detach(websocket)

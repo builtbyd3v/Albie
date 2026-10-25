@@ -15,13 +15,14 @@ namespace Forge.ML
     public class TrainingDash : MonoBehaviour
     {
         public MLSession session;
-        [Tooltip("Epochs for the Train button (5–10 for imported GitHub repositories).")][Range(5, 10)] public int trainEpochs = 10;
+        [Tooltip("Epochs for the Train button (the CIFAR-10 preset import allows 5–10).")][Range(5, 10)] public int trainEpochs = 10;
         const float Kpi = 0, ProgressY = 52, ChartY = 64, ChartHeight = 132, ImportY = 204, PresetY = 236, BannerY = 266, SectionY = 302, SummaryY = 320;
         TMP_Text epochValue, trainLossValue, valLossValue, valAccValue, lrValue, statusText, bannerLabel, bannerText, sectionTitle, lossMax, runMetrics;
         ForgeSurface progress, statusChip, banner, bannerDot;
         ForgePill train;
         TMP_InputField githubUrl;
-        RectTransform presetRow;
+        RectTransform presetRow, actionRow;
+        string actionKey, shownSource;  // what the action row and the subtitle last showed
         bool presetsLoaded;
         MLCurve loss, accuracy;
         RectTransform root, summary;
@@ -55,11 +56,15 @@ namespace Forge.ML
             // A run that logs neither loss nor accuracy (a backtest, a regression with only r2) shows its own numbers here.
             runMetrics = MLUI.Text(root, "", 12, ChartY + 34, width - 24, ChartHeight - 40, 13);
 
-            // Import a public GitHub repository (POST /ml/github/import); Train then trains it (5–10 epochs).
+            // Import a public GitHub repository (POST /ml/github/import): the CIFAR-10 preset trains our checked-in copy,
+            // anything else is cloned and set up on the laptop (progress in the banner), then Train runs its own code.
             githubUrl = MLUI.Input(root, "Public GitHub repository", "https://github.com/owner/repository", 0, ImportY, width - 110, 28);
             MLUI.Button(root, "Import", width - 100, ImportY, 100, 28, () => session.ImportGitHub(githubUrl.text));
             // Preset repos from the hub (GET /ml/github/presets): one press fills the URL and imports, no typing in the headset.
             presetRow = MLUI.Rect("GitHub presets", root, 0, PresetY, width - 170, 24);
+            // Same place, while setup waits on the user: Show patch / Accept / Skip, or one pill per project type.
+            actionRow = MLUI.Rect("Project setup actions", root, 0, PresetY, width - 170, 24);
+            actionRow.gameObject.SetActive(false);
             MLUI.Button(root, "Neural Net Lab", width - 160, PresetY, 160, 24, () => MLWorkspaceBridge.ShowLab(true));
             ForgeNet.StatusChanged += OnNetStatus;
             if (ForgeNet.Status == ForgeNetStatus.Live) LoadPresets();
@@ -110,10 +115,13 @@ namespace Forge.ML
             progress.rectTransform.sizeDelta = new Vector2(width * (e + 1) / Mathf.Max(1, session.TotalEpochs), 4);
             progress.color = session.Done ? MLUI.Good : MLUI.Accent;
             train.Button.interactable = !session.TrainBusy;  // a second press while starting or training does nothing
+            RefreshProject();
 
             int best = MLReport.BestEpoch(session.Data.metrics, e);
             loss.marker = accuracy.marker = session.Done || session.Overfit ? best : -1;
-            if (session.Overfit)
+            if (session.ProjectSettingUp && !string.IsNullOrEmpty(session.Notice))  // a new project's step beats the old run's banner
+                Banner(MLUI.Accent, "Setup", session.Notice);
+            else if (session.Overfit)
                 Banner(MLUI.Warn, "Overfitting", (string.IsNullOrEmpty(session.OverfitReason) ? "validation loss rose twice while training loss fell" : session.OverfitReason)
                     + (best >= 0 ? $"  ·  best epoch {best + 1}" : ""));
             else if (!string.IsNullOrEmpty(session.Notice)) Banner(MLUI.Accent, "Hub", session.Notice);
@@ -322,6 +330,44 @@ namespace Forge.ML
             if (value < 0) return new Color(1, 1, 1, 0.04f);
             value = Mathf.Clamp01(value);
             return value < 0.5f ? Color.Lerp(MLUI.Bad, MLUI.Warn, value * 2f) : Color.Lerp(MLUI.Warn, MLUI.Good, value * 2f - 1f);
+        }
+        // The setup's waiting steps get their buttons; the header says whose code a Train press runs.
+        void RefreshProject()
+        {
+            string status = session.ProjectStatus;
+            string key = status == "needs_approval" ? status : status == "confirm_type" && session.ProjectCandidates != null
+                ? status + ":" + string.Join(",", session.ProjectCandidates) : null;
+            if (key != actionKey)
+            {
+                actionKey = key;
+                for (int i = actionRow.childCount - 1; i >= 0; i--) Destroy(actionRow.GetChild(i).gameObject);
+                if (key == "needs_approval")
+                {
+                    MLUI.Pill(actionRow, "Show patch", 0, 0, 108, 24, session.ShowPatch);
+                    MLUI.Pill(actionRow, "Accept", 116, 0, 86, 24, () => session.ApprovePatch(true)).On = true;
+                    MLUI.Pill(actionRow, "Skip", 210, 0, 70, 24, () => session.ApprovePatch(false));
+                }
+                else if (key != null)
+                {
+                    var caption = MLUI.Caps(actionRow, "Type", 2, 6, 40, 14, 9.5f); caption.color = MLUI.Faint;
+                    float x = 44;
+                    foreach (var archetype in session.ProjectCandidates)
+                    {
+                        string type = archetype, label = archetype.Replace('_', ' ');
+                        float w = 26 + label.Length * 7f;
+                        if (x + w > actionRow.rect.width) break;
+                        MLUI.Pill(actionRow, label, x, 0, w, 24, () => session.ConfirmProjectType(type));
+                        x += w + 8;
+                    }
+                }
+                actionRow.gameObject.SetActive(key != null);
+                presetRow.gameObject.SetActive(key == null);
+            }
+            if (session.ProjectSource != shownSource)
+            {
+                shownSource = session.ProjectSource;
+                GetComponent<ForgePanel>().Subtitle = shownSource ?? "";
+            }
         }
         void OnNetStatus(ForgeNetStatus status) { if (status == ForgeNetStatus.Live && !presetsLoaded) LoadPresets(); }
         void LoadPresets()
