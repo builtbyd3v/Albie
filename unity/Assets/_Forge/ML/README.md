@@ -14,27 +14,42 @@ Simulator, activate it (Window > Meta > Meta XR Simulator > Activate), select
 **Forge > ML > Use OpenXR Simulator**, then restart Play mode; the toggle is
 remembered per machine. Saved XR settings are unchanged.
 
-- **DataStack:** atlas-backed GPU-instanced quads, fanning around the scrub position.
-  Click a card or select Inspect to open a larger metadata card to its right. It
-  shows available name/path, split, source image shape, file size and model
-  prediction/confidence. Missing mock metadata is shown as unavailable. Put back,
-  desktop **X** or right-controller **B** returns it. Only nearby cards are drawn;
-  all samples remain scrubbable.
-- **Model3D:** one block per layer, logarithmic output-dimension sizing, type colors,
-  input/output shape labels, sequential pulse on each metrics tick, and hover/select
-  details for each layer.
-- **ResultsWall:** an atlas-backed GPU-instanced dot wall (up to 1,000 validation
-  images in one draw call), ordered by true class and tinted green/red by correctness.
-  Hover shows a thumbnail. All/Wrong and confusion-pair filters update the wall.
-  **Show mistakes** and **Most confident** open a 24-image paged gallery; **By class**
-  opens a class picker for that gallery. Select a dot or image for the detail card,
-  predicted confidence and per-class probability bars. Relabel opens a class picker,
-  Remove excludes the sample, Looks fine closes the card, and **X / right B** returns
-  to the wall/gallery.
-- **TrainingDash:** train/val loss and accuracy curves, epoch progress, LR,
-  overfit detection (two successive validation-loss increases as train loss falls),
-  final confusion matrix and per-class accuracy. Click a matrix cell to filter
-  ResultsWall by true/predicted pair. Replay restarts the training animation.
+All panels share the Forge look through `Shared/MLUI.cs`: Inter text, graphite cards,
+Horizon pills, one palette (right/wrong/warning, train/val, per-class colors).
+
+- **DataStack:** a cover-flow deck of GPU-instanced rounded cards (`Shaders/MLAtlas.shader`)
+  with momentum scrolling that snaps to a card (wheel, drag, thumbstick, arrow keys).
+  Click the focused card (or a neighbour) to pick it: the deck slides left and the
+  metadata card shows name/path, split, image shape, file size and prediction.
+  Scrolling more than 1.5 cards away puts it back (Put back / **X** / right **B** still
+  work). The barcode at the bottom (`MLScrubBar`) has one tick per image in its class
+  color; click or drag it to jump.
+- **Model3D:** layers grouped into blocks (a conv block, the flatten, each dense layer),
+  each an edge-lit glass slab (`Shaders/MLSlab.shader`) sized by its output (wide = big
+  feature maps, deep = many channels), stacked on a light spine (`MLBeam.shader`) that
+  carries a packet down on every metrics tick. Hover grows a block and shows a callout
+  (shapes, params, layers); click it or **Open** to unfold it into one slab per layer
+  with labels (hover or click a layer for in/out shapes and params). **Open all** /
+  **Close all**, drag to turn, scroll to zoom, **Reset view**.
+- **ResultsWall** (the Results panel), five tabs drawn from `Shared/MLReport.cs`:
+  - **Overview:** fit verdict (good fit / overfitting / underfitting, with why), an
+    accuracy dial that counts up when a run finishes, train vs val, best epoch;
+    accuracy, macro F1, top-3, mean confidence, calibration error, mistakes;
+    strongest and weakest classes.
+  - **Classes:** precision, recall, F1 and image count per class, best first.
+  - **Confusion:** the matrix (click a cell for its images) and the most confused pairs
+    with example thumbnails.
+  - **Confidence:** how sure it was when right vs wrong, and a calibration chart with ECE.
+  - **Images:** every image as a dot (`MLDotField`, one UI mesh), one block per class
+    with its accuracy, green right / red wrong. Hover previews, select opens the detail
+    card (probabilities, Relabel / Remove / Looks fine). **Show mistakes**, **Suspect
+    labels** (wrong images ranked by loss, most likely mislabelled first) and **By class**
+    open a 24-image paged gallery. Clicking a class, pair or cell anywhere opens this tab
+    filtered to it.
+- **TrainingDash:** epoch, losses, val accuracy and LR as big numbers, a status chip,
+  **Train** (POST `/ml/train`, needs the hub) and **Replay**; loss and accuracy curves
+  with the best epoch marked; a banner for overfitting, hub notices or the finished
+  run; per-class accuracy over the epochs and the 16-image probe strip.
 - **VizCard:** reusable ForgePanel renderer with line, bar, heatmap, scatter,
   table, image, and text modes. `LoadJson()` accepts the section 7.6 card contract;
   scatter points emit their sample id. The sandbox's local `MLVizCardMocks.json`

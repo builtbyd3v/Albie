@@ -20,15 +20,20 @@ public static class MLSandboxBuilder
             throw new System.InvalidOperationException("Core ForgePanel prefab is required. Ask Core to build its prefabs first.");
         BuildMockReferences();
         var atlas = new Material(Shader.Find("Forge/ML/InstancedAtlas")) { enableInstancing = true };
-        var block = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-        SaveMaterial(atlas, Folder+"Atlas.mat"); SaveMaterial(block, Folder+"Layer.mat");
+        SaveMaterial(atlas, Folder+"Atlas.mat");
+        SaveMaterial(new Material(Shader.Find("Forge/ML/Slab")), Folder+"Slab.mat");
+        SaveMaterial(new Material(Shader.Find("Forge/ML/Beam")), Folder+"Beam.mat");
         var stack = Panel<DataStack>("DataStack", "ml-datastack", "Dataset", new Vector2(.60f,.42f));
         stack.GetComponent<DataStack>().atlasMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Atlas.mat");
         Save(stack,"DataStack");
-        var model = Panel<Model3D>("Model3D", "ml-model3d", "Model architecture", new Vector2(.48f,.60f));
-        model.GetComponent<Model3D>().blockMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Layer.mat");
+        var model = Panel<Model3D>("Model3D", "ml-model3d", "Model architecture", new Vector2(.56f,.50f));
+        model.GetComponent<Model3D>().slabMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Slab.mat");
+        model.GetComponent<Model3D>().beamMaterial = AssetDatabase.LoadAssetAtPath<Material>(Folder+"Beam.mat");
         Save(model,"Model3D");
-        Save(Panel<ResultsWall>("ResultsWall", "ml-results", "Validation results", new Vector2(.65f,.45f)),"ResultsWall");
+        SaveMaterial(new Material(Shader.Find("Forge/ML/DotUI")), Folder+"DotUI.mat");
+        var results = Panel<ResultsWall>("ResultsWall", "ml-results", "Results", new Vector2(.74f,.50f));
+        results.GetComponent<ResultsWall>().dotMaterialAsset = AssetDatabase.LoadAssetAtPath<Material>(Folder+"DotUI.mat");
+        Save(results,"ResultsWall");
         Save(Panel<TrainingDash>("TrainingDash", "ml-training", "Training dashboard", new Vector2(.78f,.58f)),"TrainingDash");
         Save(Panel<VizCard>("VizCard", "ml-viz-card", "Visualization", new Vector2(.78f,.42f)),"VizCard");
         Save(Panel<RegressionResults>("RegressionResults", "ml-regression-results", "Regression results", new Vector2(.78f,.42f)),"RegressionResults");
@@ -67,9 +72,9 @@ public static class MLSandboxBuilder
 #endif
         events.AddComponent<PointableCanvasModule>().ExclusiveMode = false;
         var session = new GameObject("Shared ML session"); session.AddComponent<MLSession>(); session.AddComponent<MLLayoutController>();
-        Place("DataStack", new Vector3(-.93f,1.35f,0), camera);
+        Place("DataStack", new Vector3(-1f,1.35f,0), camera);
         Place("Model3D", new Vector3(-.39f,1.35f,0), camera);
-        Place("ResultsWall", new Vector3(.26f,1.35f,0), camera);
+        Place("ResultsWall", new Vector3(.31f,1.35f,0), camera);
         Place("TrainingDash", new Vector3(.02f,1.95f,.15f), camera);
         Place("VizCard", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);
         Place("RegressionResults", new Vector3(.76f,1.35f,.1f), camera).SetActive(false);

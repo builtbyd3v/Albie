@@ -64,9 +64,13 @@ public static class MLSmokeCheck
             Debug.Log($"[ML smoke] Replay={session.UsesGeneratedMocks}, live-graph mock={session.HasReplayLiveGraphs}, epoch={session.EpochIndex}, probes={dash.ProbeCount}, accuracy epochs={dash.AccuracyEpochCount}");
             Require(dash.ProbeCount == 16 && dash.AccuracyEpochCount > 0, "Training dashboard animates the 16-sample probe strip and class-accuracy heatmap during mock replay");
             var model = UnityEngine.Object.FindAnyObjectByType<Model3D>();
+            Require(model.GroupCount > 0 && model.GroupCount < session.Data.layers.Length, "Model3D groups layers into blocks");
+            model.SetOpen(0, true);
+            Require(model.IsOpen(0), "Opening a block unfolds its layers");
             string outputShape = string.Join("×", session.Data.layers[0].out_shape); bool readableShape = false;
             foreach (var label in model.GetComponent<ForgePanel>().Content.GetComponentsInChildren<TMPro.TMP_Text>(true))
-                if (label.text == outputShape && label.fontSize >= 15) readableShape = true;
+                if (label.text.Contains(outputShape) && label.fontSize >= 11) readableShape = true;
+            model.CollapseAll();
             Require(readableShape, "Model layer output dimensions use readable text");
             var predictions = new int[session.Data.samples.Length];
             for (int i = 0; i < predictions.Length; i++) predictions[i] = session.Data.samples[i].pred_idx;
@@ -139,21 +143,34 @@ public static class MLSmokeCheck
             Require(regression.samples.Length == 24, "Regression fixture loads mock rows"); regression.Show(5);
             UnityEngine.Object.Destroy(regressionObject);
             var content = wall.GetComponent<ForgePanel>().Content;
-            Require(content.Find("Dot wall") != null && wall.VisibleDotCount == session.Data.samples.Length, "One instanced dot per validation image renders");
-            content.Find("Show mistakes").GetComponent<Button>().onClick.Invoke();
+            Require(wall.ActiveTab == ResultsWall.Tab.Overview && wall.Report != null && wall.Report.evaluated > 0, "Results opens on the Overview tab with a report");
+            foreach (ResultsWall.Tab tab in Enum.GetValues(typeof(ResultsWall.Tab)))
+            {
+                wall.ShowTab(tab);
+                Require(content.Find(tab + " page").gameObject.activeSelf && content.Find(tab + " page").childCount > 0, "Results tab draws: " + tab);
+            }
+            Require(wall.Report.byF1.Length == session.Data.classes.Length && wall.Report.pairs.Count > 0, "Report ranks classes and confused pairs");
+            wall.ShowTab(ResultsWall.Tab.Images);
+            var images = content.Find("Images page");
+            Require(images.Find("Dot wall") != null && wall.VisibleDotCount == session.Data.samples.Length, "One dot per validation image renders");
+            ActiveButton(images, "Show mistakes").onClick.Invoke();
             Require(wall.IsGallery && wall.GalleryItemCount > 24, "Show mistakes opens a paged gallery");
-            int thumbs = 0; foreach (Transform child in content.Find("Dot wall/Dynamic content")) if (child.name.StartsWith("Mistake ")) thumbs++;
+            int thumbs = 0; foreach (Transform child in images.Find("Dot wall/Dynamic content")) if (child.gameObject.activeSelf && child.name.StartsWith("Mistake ")) thumbs++;
             Require(thumbs == 24, "Mistakes gallery shows 24 thumbnails per page");
-            content.Find("›").GetComponent<Button>().onClick.Invoke();
+            ActiveButton(images, "›").onClick.Invoke();
             Require(wall.GalleryPage == 1, "Mistakes gallery advances pages");
-            content.Find("By class").GetComponent<Button>().onClick.Invoke();
+            ActiveButton(images, "By class").onClick.Invoke();
             Require(wall.IsClassPicker, "By class opens a class picker");
-            content.Find("Dot wall/Dynamic content/airplane").GetComponent<Button>().onClick.Invoke();
+            images.Find("Dot wall/Dynamic content/airplane").GetComponent<Button>().onClick.Invoke();
             Require(wall.IsGallery && wall.ActiveClassFilter == 0, "Class picker filters the mistakes gallery");
-            content.Find("Dot wall/Dynamic content").GetChild(0).GetComponent<Button>().onClick.Invoke();
+            Array.Find(images.Find("Dot wall/Dynamic content").GetComponentsInChildren<Button>(), b => b.name.StartsWith("Mistake ")).onClick.Invoke();
             Require(!string.IsNullOrEmpty(wall.SelectedId), "Gallery thumbnail opens the sample detail card");
-            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
-            Require(!wall.IsGallery && wall.VisibleDotCount == session.Data.samples.Length, "All dots returns to the full dot wall");
+            wall.ShowSuspects();
+            Require(wall.IsGallery && wall.GalleryItemCount == wall.Report.suspects.Count, "Suspect labels lists the wrong images by loss");
+            wall.ShowClass(3);
+            Require(wall.ActiveTab == ResultsWall.Tab.Images && !wall.IsGallery && wall.ActiveClassFilter == 3 && wall.VisibleDotCount == wall.Report.support[3], "A class opens its images on the wall");
+            ActiveButton(images, "All images").onClick.Invoke();
+            Require(!wall.IsGallery && wall.VisibleDotCount == session.Data.samples.Length, "All images returns to the full dot wall");
             var sample = Array.Find(session.Data.samples, s => !s.correct);
             Require(sample != null, "Fixture includes wrong predictions");
             int original = sample.true_idx;
@@ -163,29 +180,26 @@ public static class MLSmokeCheck
             session.Remove(sample);
             Require(sample.removed && wall.VisibleDotCount == session.Data.samples.Length - 1, "Remove refreshes dot wall");
             session.ApplySampleUpdate(sample.id, original, false);
+            wall.ShowTab(ResultsWall.Tab.Overview);
             session.SelectPair(original,sample.pred_idx);
             int expected = 0;
             foreach (var s in session.Data.samples) if (s.true_idx == original && s.pred_idx == sample.pred_idx) expected++;
-            Require(wall.VisibleDotCount == expected, "Confusion pair filters dot wall");
-            content.Find("All dots").GetComponent<Button>().onClick.Invoke();
+            Require(wall.ActiveTab == ResultsWall.Tab.Images && wall.VisibleDotCount == expected, "Confusion pair opens its images");
+            ActiveButton(images, "All images").onClick.Invoke();
             Require(wall.VisibleDotCount == session.Data.samples.Length, "All resets dot wall filter");
             session.Restart();
             var replay = Newtonsoft.Json.JsonConvert.DeserializeObject<MLReplayEvent[]>(session.mockAssets.events.text);
             foreach (var e in replay) session.ApplyReplayEvent(e);
             Require(session.Done && session.TotalEpochs == 15 && session.EpochIndex == 14, "Timestamped replay completes 15 epochs");
             Require(session.Overfit, "Replay detects overfitting");
+            Require(wall.ActiveTab == ResultsWall.Tab.Overview && wall.Report.fit == MLReport.Fit.Overfitting, "Finishing the run opens the Overview with its verdict");
+            wall.ShowTab(ResultsWall.Tab.Confusion);
+            Require(Array.FindAll(content.GetComponentsInChildren<Button>(), b => b.gameObject.activeInHierarchy && b.name.StartsWith("Confusion ")).Length == session.Data.classes.Length * session.Data.classes.Length, "Confusion tab has a clickable matrix");
 
-            var summary = dash.GetComponent<ForgePanel>().Content.Find("Evaluation");
-            Require(Array.FindAll(summary.GetComponentsInChildren<Button>(), b => b.gameObject.activeInHierarchy && b.name.StartsWith("Confusion ")).Length == session.Data.classes.Length * session.Data.classes.Length, "Completion creates clickable confusion matrix");
-            ActiveButton(summary, "Live graphs").onClick.Invoke();
-            Require(ActiveButton(summary, "Results") != null && dash.ProbeCount == 16 && dash.AccuracyEpochCount == 15, "Completed run can reopen its live graphs");
-            session.SetRunState("done", session.TotalEpochs);
-            Require(ActiveButton(summary, "Results") != null, "Refresh preserves the chosen live-graphs view");
-            ActiveButton(summary, "Results").onClick.Invoke();
-            Require(ActiveButton(summary, "Live graphs") != null, "Results button restores the confusion matrix");
+            var dashContent = dash.GetComponent<ForgePanel>().Content;
+            Require(dashContent.Find("Live graphs") != null && dash.ProbeCount == 16 && dash.AccuracyEpochCount == 15, "Training panel keeps its live graphs after the run");
             session.Restart(); Require(!session.Done && session.EpochIndex == -1, "Replay resets progress");
-            Require(ActiveButton(summary, "Results") != null, "Restart returns to live graphs");
-            var train = ActiveButton(dash.GetComponent<ForgePanel>().Content, "Train");
+            var train = ActiveButton(dashContent, "Train");
             Require(train != null, "Training panel exposes Train");
             if (!session.IsLive)
             {
