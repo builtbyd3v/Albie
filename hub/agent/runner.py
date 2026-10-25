@@ -109,6 +109,15 @@ CODE_PROMPT = (
 )
 
 
+EDIT_IN_PLACE_PROMPT = (
+    PERSONA
+    + " You are making a change in the folder the user has open in VS Code right now, in place: no branch, no "
+    "commit. Create or edit the files directly; each one opens live in VS Code as you change it. Keep changes "
+    "minimal and focused, and do not delete anything you were not asked to. When done, finish with a 1-2 sentence "
+    "plain-text summary of what you changed, naming files relative to the folder."
+)
+
+
 def _model() -> str:
     return os.getenv("AGENT_MODEL", "claude-sonnet-5-5")
 
@@ -149,7 +158,8 @@ def _options(project: ProjectConfig, mode: ConcreteMode, pet_id: str = "bit",
         approved = tools
         from .crew import lead_rules  # registers the crew tools; imported late (crew imports this module lazily)
 
-        prompt = (QA_PROMPT if mode == "qa" else CODE_PROMPT) + lead_rules()
+        code_prompt = EDIT_IN_PLACE_PROMPT if project.edit_in_place else CODE_PROMPT  # the sandbox has no branch
+        prompt = (QA_PROMPT if mode == "qa" else code_prompt) + lead_rules()
     else:
         tools, approved = _crew_tools(agent, mode)
         prompt = crew_prompt(agent, mode)
