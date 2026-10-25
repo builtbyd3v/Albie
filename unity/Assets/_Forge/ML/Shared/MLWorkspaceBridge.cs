@@ -28,24 +28,47 @@ namespace Forge.ML
             workspace = GetComponent<Workspace>();
             Configure(null);
             subscription = ForgeNet.On("ml.layout", ApplyLayout, true);
+            ForgeNet.StatusChanged += OnNetStatus;
+            if (ForgeNet.Status == ForgeNetStatus.Live) OnNetStatus(ForgeNetStatus.Live);
         }
-        void OnDestroy() { subscription?.Dispose(); }
+        void OnDestroy() { subscription?.Dispose(); ForgeNet.StatusChanged -= OnNetStatus; }
+
+        // ml.layout is sent once, when setup finishes: a headset that connects later (app started after the hub
+        // opened the repo, a reconnect) asks for the open project's layout instead.
+        void OnNetStatus(ForgeNetStatus status)
+        {
+            if (status != ForgeNetStatus.Live) return;
+            ForgeNet.Get("/ml/project", text =>
+            {
+                JToken layout;
+                try { layout = JObject.Parse(text)["layout"]; }
+                catch (Exception) { return; }
+                if (layout != null && layout.Type == JTokenType.Object) ApplyLayout(layout);
+            }, _ => { });
+        }
 
         void ApplyLayout(JToken payload)
         {
             var panels = payload == null ? null : payload["panels"] as JArray;
             if (panels == null) return;
             var requested = new List<string>();
+            bool regression = payload.Value<string>("archetype") == "regression";
             foreach (var token in panels)
             {
                 string id = token.Value<string>();
-                if (id == "ml-dots") id = "ml-results";
+                // Regression: "results" is the predicted-vs-actual scatter. The image stack and the layer blocks
+                // have no table-row or scikit-learn view yet, so they'd show the image demo: leave them out.
+                if (regression && (id == "ml-datastack" || id == "ml-model3d")) continue;
+                if (regression && id == "ml-results") id = "ml-regression-results";
+                else if (id == "ml-dots") id = "ml-results";
                 else if (id == "ml-live") id = "ml-training";
                 else if (id == "ml-viz") id = "ml-viz-card";
                 else if (id == "ml-regression") id = "ml-regression-results";
                 if (Array.IndexOf(Supported, id) >= 0 && !requested.Contains(id)) requested.Add(id);
             }
             Configure(requested);
+            // "open": Albie opened the project (ml_open), so the ML desk unfolds without a tap on the dock.
+            if (payload.Value<bool?>("open") == true && workspace.ActiveMode != ModeId) workspace.Open(ModeId);
         }
 
         void Configure(List<string> requested)

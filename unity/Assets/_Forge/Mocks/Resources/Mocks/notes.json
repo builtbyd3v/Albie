@@ -1,0 +1,26 @@
+{
+  "notes": [
+    {
+      "id": "n3a91c0",
+      "text": "Ask Adrian about the gator's jump timing",
+      "done": false,
+      "created_at": 1793030340.0,
+      "updated_at": 1793030340.0
+    },
+    {
+      "id": "n1f2e77",
+      "text": "Push the demo build by 3",
+      "done": true,
+      "created_at": 1793028600.0,
+      "updated_at": 1793030100.0
+    },
+    {
+      "id": "n08bd42",
+      "text": "Re-record the fallback ML run",
+      "done": false,
+      "created_at": 1793023200.0,
+      "updated_at": 1793023200.0
+    }
+  ],
+  "last_removed": null
+}

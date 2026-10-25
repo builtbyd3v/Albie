@@ -162,6 +162,23 @@ def test_viz_png_extras_become_image_cards(client, image_repo):
     assert client.get("/ml/viz/..%2F..%2Fsecrets/x.png").status_code == 404
 
 
+def test_viz_dict_extras_merge_into_the_cards(client, image_repo):
+    """A7: `.forge/extra_viz.py` dicts land in the run's viz.json and are served, validated, next to built-ins."""
+    run = image_repo / ".forge" / "runs" / "mock0001"
+    (run / "viz.json").write_text(json.dumps([
+        {"viz_id": "class_balance", "title": "Class balance", "kind": "bar", "x": ["cat", "dog"],
+         "series": [{"name": "n", "y": [7, 3]}]},
+        {"viz_id": "per_class_accuracy", "title": "Duplicate", "kind": "text", "text": "ignored"},
+        {"viz_id": "ghost", "title": "No file", "kind": "image", "png_url": "/ml/viz/mock0001/ghost.png"},
+        {"viz_id": "bad", "title": "no kind"},
+    ]))
+    by_id = {c["viz_id"]: c for c in client.get("/ml/viz").json()}
+    assert by_id["class_balance"]["kind"] == "bar" and by_id["class_balance"]["panel"] == "ml-viz"
+    assert by_id["class_balance"]["run_id"] == "mock0001"
+    assert by_id["per_class_accuracy"]["title"] != "Duplicate"  # the built-in card wins, no duplicates
+    assert "ghost" not in by_id and "bad" not in by_id  # no file behind the image / invalid card
+
+
 def test_viz_cards_for_regression(tmp_path):
     make_mocks.regression(tmp_path / "reg")
     with TestClient(make_app(tmp_path / "reg")) as c:
@@ -185,6 +202,19 @@ def test_train_launches_the_repo_command_with_run_id_and_hub(tmp_path):
     svc.train_proc.wait(timeout=30)
     ran = json.loads((repo / "ran.json").read_text())
     assert ran == {"argv": ["--epochs", "3"], "run_id": run_id, "hub": "http://127.0.0.1:8765"}
+
+
+def test_train_leaves_a_command_without_epochs_unchanged(tmp_path):
+    """A script that reads its own argv (here: an optional CSV path) must not get --epochs appended."""
+    repo = tmp_path / "repo"
+    (repo / ".forge").mkdir(parents=True)
+    (repo / ".forge" / "profile.json").write_text(json.dumps(
+        {"archetype": "regression", "python": sys.executable, "train_cmd": "python backtest.py"}))
+    (repo / "backtest.py").write_text("import json, sys\njson.dump(sys.argv[1:], open('ran.json', 'w'))\n")
+    svc = MLService(repo)
+    svc.start_training(5, "http://127.0.0.1:8765/")
+    svc.train_proc.wait(timeout=30)
+    assert json.loads((repo / "ran.json").read_text()) == []
 
 
 REGRESSION_ADAPTER = '''

@@ -5,7 +5,7 @@ using UnityEngine.EventSystems;
 
 /// <summary>
 /// One Slack message on a translucent slate card (MessageCard.prefab, pooled by its owners; 1 canvas unit = 1 mm).
-/// Two styles: <see cref="Style.Inbox"/> (Mentions panel, the floating digest copy): initials bubble, name + channel,
+/// Two styles: <see cref="Style.Inbox"/> (Mentions panel): initials bubble, name + channel,
 /// relative time, up to two lines of text; hover lifts it 1 cm toward the viewer and makes it opaque; click opens the
 /// conversation. <see cref="Style.Thread"/> (the Slack panel's message list): bubble, name, time, the whole text,
 /// "N replies" when the hub reports a thread, the user's own rows tinted. Mentions of the user get a thin accent strip.
@@ -14,7 +14,7 @@ using UnityEngine.EventSystems;
 /// </summary>
 public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerClickHandler
 {
-    public enum Style { Inbox, Thread }
+    public enum Style { Inbox, Thread, IMessage }
 
     [SerializeField] ForgeSurface shadow;
     [SerializeField] ForgeSurface frame;      // the slate fill; alpha RestAlpha at rest, 1 on hover (Inbox)
@@ -67,15 +67,21 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         string name = SlackText.SenderName(m);
         if (initial != null) initial.text = SlackText.Initials(m);
         if (bubble != null) bubble.color = SlackUi.BubbleColor(string.IsNullOrEmpty(m.user) ? name : m.user);
+        bool imessage = style == Style.IMessage;
+        SlackUi.Show(bubble, !imessage);
         if (nameText != null)
         {
+            SlackUi.Show(nameText, !imessage);
             nameText.text = style == Style.Inbox && !string.IsNullOrEmpty(channelLabel)
                 ? name + "  <alpha=#80><size=85%>" + channelLabel
                 : m.isMe ? name + "  <alpha=#80><size=85%>you" : name;
         }
         body.text = rendered;
+        body.color = Color.white;
+        body.fontSize = imessage ? 13.5f : SlackUi.Body;
         body.overflowMode = style == Style.Inbox ? TextOverflowModes.Ellipsis : TextOverflowModes.Overflow;
-        if (accent != null) SlackUi.Show(accent, m.mentionsMe && !m.isMe);
+        if (timeText != null) SlackUi.Show(timeText, !imessage);
+        if (accent != null) SlackUi.Show(accent, !imessage && m.mentionsMe && !m.isMe);
         if (meta != null)
         {
             bool replies = style == Style.Thread && m.replyCount.HasValue && m.replyCount.Value > 0;
@@ -97,6 +103,11 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     public float Measure(float w)
     {
         if (CardStyle == Style.Inbox) return InboxHeight;
+        if (CardStyle == Style.IMessage)
+        {
+            float bubbleTextW = Mathf.Max(28f, w - 26f);
+            return Mathf.Max(36f, SlackUi.Height(body, rendered, bubbleTextW) + 20f);
+        }
         if (Mathf.Approximately(w, width)) return measured;
         width = w;
         float textW = Mathf.Max(20f, w - NameX - PadX);
@@ -106,9 +117,27 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         return measured;
     }
 
+    /// <summary>A compact natural bubble width, capped so long messages wrap on phone-like panels.</summary>
+    public float PreferredBubbleWidth(float maxWidth)
+    {
+        if (CardStyle != Style.IMessage) return maxWidth;
+        return Mathf.Clamp(body.GetPreferredValues(rendered).x + 26f, 90f, Mathf.Max(90f, maxWidth));
+    }
+
     /// <summary>Place the children for a card <paramref name="w"/> x <paramref name="h"/> (the owner set the card's rect).</summary>
     public void Layout(float w, float h)
     {
+        if (CardStyle == Style.IMessage)
+        {
+            const float padX = 13f, padY = 8f;
+            if (frame != null)
+            {
+                frame.Corner = 18f;
+                frame.color = Message != null && Message.isMe ? SlackUi.IMessageOutgoing : SlackUi.IMessageIncoming;
+            }
+            SlackUi.Place(body.rectTransform, padX, padY, Mathf.Max(20f, w - padX * 2f), Mathf.Max(16f, h - padY * 2f));
+            return;
+        }
         bool inbox = CardStyle == Style.Inbox;
         float b = inbox ? BubbleI : BubbleT;
         float nameX = inbox ? NameXI : NameX;
@@ -133,7 +162,9 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         ApplyRest();
     }
 
-    Color RestFill => Message != null && Message.isMe ? SlackUi.MeFill : SlackUi.CardFill;
+    Color RestFill => CardStyle == Style.IMessage
+        ? Message != null && Message.isMe ? SlackUi.IMessageOutgoing : SlackUi.IMessageIncoming
+        : Message != null && Message.isMe ? SlackUi.MeFill : SlackUi.CardFill;
 
     void ApplyRest()
     {
@@ -150,7 +181,7 @@ public class MessageCard : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     {
         if (Message == null || on == hovered) return;
         hovered = on;
-        if (CardStyle == Style.Thread)
+        if (CardStyle == Style.Thread || CardStyle == Style.IMessage)
         {
             // List rows: just a touch brighter, no motion (the list may be scrolling under the pointer).
             Color c = RestFill;

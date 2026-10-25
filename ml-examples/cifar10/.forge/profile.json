@@ -11,7 +11,10 @@
   "input_shape": [3, 32, 32],
   "checkpoint": "checkpoints/best.pt",
   "existing_logs": [],
-  "extra_viz": [],
+  "extra_viz": [
+    { "viz_id": "noise_accuracy", "why": "the demo's point: most confident mistakes are flipped labels, not model errors" },
+    { "viz_id": "confidence_split", "why": "wrong predictions are often very confident, which is where a bad label hides" }
+  ],
   "summary": "Image classifier, 10 classes, small CNN on CIFAR-10.",
   "notes": "Hand-written golden example. 3% of labels are flipped on purpose (noise.json)."
 }

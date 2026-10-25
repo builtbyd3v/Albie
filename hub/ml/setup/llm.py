@@ -31,14 +31,22 @@ class LLMResult:
 
 
 _client = None
+NO_PACKAGE = "the anthropic package isn't installed in the hub's Python: pip install -r hub/ml/requirements.txt"
+
+
+def _anthropic():
+    """The anthropic module, or the README's clear error instead of a raw ImportError mid-setup."""
+    try:
+        import anthropic
+    except ImportError as exc:
+        raise LLMError(NO_PACKAGE) from exc
+    return anthropic
 
 
 def _get_client():
     global _client
     if _client is None:
-        import anthropic
-
-        _client = anthropic.Anthropic()
+        _client = _anthropic().Anthropic()
     return _client
 
 
@@ -49,8 +57,7 @@ def complete_json(system: str, messages: list[dict], schema: dict, *, timeout: f
     `messages` is the conversation so far. For another round, append
     {"role": "assistant", "content": result.content} and the next user message.
     """
-    import anthropic
-
+    anthropic = _anthropic()
     client = _get_client().with_options(timeout=timeout, max_retries=1)
     try:
         with client.beta.messages.stream(

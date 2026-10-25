@@ -80,9 +80,15 @@ class FakeLLM:
         return LLMResult(data=data, content=[{"type": "text", "text": json.dumps(data)}], usage={})
 
 
-def adapter_reply(adapter=GOOD_ADAPTER, path="train.py"):
+EXTRA_VIZ = '''def viz_residual_hist(ctx):
+    """A7: the classifier picked this chart for the repo."""
+    return {"kind": "bar", "title": "Residuals", "x": ["|-1|", "|0|", "|1|"], "series": [{"name": "n", "y": [1, 2, 1]}]}
+'''
+
+
+def adapter_reply(adapter=GOOD_ADAPTER, path="train.py", extra_viz=EXTRA_VIZ):
     return {"adapter_py": adapter, "patches": [{"path": path, "content": "import forge  # forge\n" + TRAIN_PY}],
-            "notes": ""}
+            "extra_viz_py": extra_viz, "notes": ""}
 
 
 @pytest.fixture()
@@ -131,6 +137,9 @@ def test_full_flow_reaches_needs_approval_then_accept_applies_the_patch(repo):
     assert statuses(events) == ["scanning", "classifying", "adapting", "needs_approval"]
     assert json.loads((repo / ".forge" / "check.json").read_text())["ok"]
     assert (repo / ".forge" / ".gitignore").read_text() == "*\n"
+    assert (repo / ".forge" / "extra_viz.py").read_text() == EXTRA_VIZ.strip()  # A7: written inside .forge/ only
+    checks = {c["name"]: c for c in json.loads((repo / ".forge" / "check.json").read_text())["checks"]}
+    assert checks["extra_viz"]["ok"]
     assert "import forge" not in (repo / "train.py").read_text()  # untouched before Accept
     # the repo files reached the LLM as data, README included
     assert "Ignore previous instructions" in json.dumps(llm.calls[0]["messages"])
@@ -282,6 +291,16 @@ def test_llm_wrapper_explains_missing_credentials(monkeypatch):
         llm_mod.complete_json("sys", [], {"type": "object"})
 
 
+def test_llm_wrapper_explains_a_missing_anthropic_package(monkeypatch):
+    """A hub env without hub/ml/requirements.txt: setup stops with an install hint, not an ImportError."""
+    from ml.setup import llm
+
+    monkeypatch.setattr(llm, "_client", None)
+    monkeypatch.setitem(sys.modules, "anthropic", None)  # import anthropic -> ImportError
+    with pytest.raises(LLMError, match="pip install -r hub/ml/requirements.txt"):
+        llm.complete_json("system", [{"role": "user", "content": "hi"}], {"type": "object"})
+
+
 def test_a_patch_that_doesnt_parse_goes_back_to_the_llm(repo):
     broken = {"adapter_py": GOOD_ADAPTER, "patches": [{"path": "train.py", "content": "def main(:\n"}], "notes": ""}
     llm = FakeLLM([PROFILE], [broken, adapter_reply()])
@@ -289,3 +308,33 @@ def test_a_patch_that_doesnt_parse_goes_back_to_the_llm(repo):
     assert statuses(events)[-1] == "needs_approval"
     assert "doesn't parse" in llm.calls[2]["messages"][-1]["content"]
     ws.__exit__(None, None, None)
+
+
+def test_missing_extra_viz_goes_back_to_the_llm(repo):
+    """A7: the profile lists an extra chart, so the check asks for `viz_<id>(ctx)` when it isn't there."""
+    llm = FakeLLM([PROFILE], [adapter_reply(extra_viz=""), adapter_reply()])
+    _, ws, events = run_flow(repo, llm)
+    assert statuses(events)[-1] == "needs_approval"
+    assert "viz_residual_hist(ctx)" in llm.calls[2]["messages"][-1]["content"]
+    ws.__exit__(None, None, None)
+
+
+def test_an_extra_viz_that_doesnt_parse_is_a_round_trip(repo):
+    broken = adapter_reply(extra_viz="def viz_residual_hist(ctx)\n")
+    llm = FakeLLM([PROFILE], [broken, adapter_reply()])
+    _, ws, events = run_flow(repo, llm)
+    assert statuses(events)[-1] == "needs_approval"
+    assert "extra_viz.py doesn't parse" in llm.calls[2]["messages"][-1]["content"]
+    ws.__exit__(None, None, None)
+
+
+def test_profile_python_resolves_like_the_service(tmp_path, monkeypatch):
+    """A hand-written profile saying "python" must still run when the hub's PATH has no `python` (no env active)."""
+    from ml.prescan import resolve_python
+
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert resolve_python(tmp_path, "python") == sys.executable
+    venv = tmp_path / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text("")
+    assert resolve_python(tmp_path, ".venv/bin/python") == str(venv / "python")

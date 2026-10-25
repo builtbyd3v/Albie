@@ -14,12 +14,18 @@
 - Meta XR All-in-One SDK 207, OpenXR, Meta XR Simulator
 - com.unity.webrtc (screen streaming), glTFast (runtime GLB loading)
 - Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback)
+- SciPy (BSD-3): convex hulls for the humanoid design (hub/cad/parts/humanoid.py)
+- Offline data prep only, not run by the hub (hub/cad/tools_offline/): trimesh (MIT) and fast-simplification (MIT) for the G1 meshes; MuJoCo (Apache-2.0), PyTorch (BSD-3), PyYAML (MIT) and matplotlib to record the G1 walk clip
 - [TEAM: add NativeWebSocket, Newtonsoft JSON, DOTween, XCharts, PyTorch, etc. once they are actually used]
 
 ## APIs and services
 - TypeSafe Jev (repo-aware panel picking spike)
+- macOS Messages, optional and off by default (`IMESSAGE_ENABLED=1`): the hub reads the local `~/Library/Messages/chat.db` read-only
+- imsg CLI (github.com/steipete/imsg, Homebrew tap `steipete/tap/imsg`): sends confirmed iMessage drafts. Optional, never installed by the hub; the user installs it
 - [TEAM: Grok Voice Agent API, WhatsApp Cloud API, cloudflared/ngrok, if used]
 
 ## Assets and data
+- Unitree G1 robot description (URDF and meshes) from unitreerobotics/unitree_ros, BSD 3-Clause, in hub/cad/data/unitree_g1/ (license: see hub/cad/data/unitree_g1/LICENSE, details in NOTICE.md)
+- Unitree G1 walking policy from unitreerobotics/unitree_rl_gym, BSD 3-Clause, used offline to record walk_clip.json (license: see hub/cad/data/unitree_g1/LICENSE-unitree_rl_gym)
 - CIFAR-10 dataset (if used for the ML demo)
 - [TEAM: pet model source and license, e.g. Quaternius CC0]

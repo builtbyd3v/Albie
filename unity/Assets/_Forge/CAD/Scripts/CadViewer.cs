@@ -78,6 +78,8 @@ public class CadViewer : MonoBehaviour
     public float spinSlowdown = 100f;
     [Tooltip("Run: seconds running at speed before it stops by itself (pressing Run again stops it sooner).")]
     public float spinSeconds = 7.6f;
+    [Tooltip("Walk: the lap goes round the base (it steps out to it first) rather than setting off from where it stands.")]
+    public bool walkAroundBase = true;
 
     [Header("Inspect / Expand: the big view in front of you")]
     [Tooltip("The stage's centre is this far in front of the eyes (m), toward the desk...")]
@@ -95,6 +97,10 @@ public class CadViewer : MonoBehaviour
     public float stageFlatTilt = 40f;
     [Tooltip("Expand / Back to desk: any value above 0 springs the model there (about 0.6 s); 0 jumps.")]
     public float inspectSeconds = 0.6f;
+    [Tooltip("Life size: the model stands on the floor this far in front of the eyes (m; further on a flat screen, so it fits)...")]
+    public float lifeSizeDistance = 1.15f;
+    [Tooltip("...turned this far (deg) off the way to the desk in a headset, so it stands beside you, clear of the desk.")]
+    public float lifeSizeAngle = 50f;
 
     // ---- API (for panels; the session's SetView / SetInspecting / RequestDemo / SetMeasuring / SetMarkersShown agree) ----
 
@@ -129,12 +135,15 @@ public class CadViewer : MonoBehaviour
 
     public bool Expanded => onStage;
 
-    /// <summary>On the stage: the model at its real size (true) or fitted to the stage (false, the default).</summary>
+    /// <summary>On the stage: the model at its real size (true), standing on the floor in front of you, or fitted to the
+    /// stage (false, the default). The session's LifeSize (the panel's pill) sets it.</summary>
     public void SetTrueSize(bool on)
     {
         if (on == trueSize) return;
         trueSize = on;
-        if (onStage && current != null) PlaceOnStage(animate: true);
+        if (!onStage) return;
+        PoseStage();
+        if (current != null) PlaceOnStage(animate: true);
     }
 
     public bool TrueSize => trueSize;
@@ -164,6 +173,7 @@ public class CadViewer : MonoBehaviour
         player.propTurnsPerSecond = propTurnsPerSecond;
         player.spinSlowdown = spinSlowdown;
         player.spinSeconds = spinSeconds;
+        player.walkAroundBase = walkAroundBase;
         return player.Start(session);
     }
 
@@ -566,6 +576,12 @@ public class CadViewer : MonoBehaviour
 
     void OnInspectChanged()
     {
+        if (onStage && session.Inspecting && session.LifeSize != trueSize && !goingHome)
+        {
+            player.Stop(instant: true);  // a demo moves the holder; so does the trip
+            SetTrueSize(session.LifeSize);
+            return;
+        }
         if (goingHome || session.Inspecting == onStage) return;  // also raised when the number of parts off changes
         player.Stop(instant: true);  // a demo moves the holder; so does the trip
         if (session.Inspecting) GoToStage();
@@ -595,6 +611,7 @@ public class CadViewer : MonoBehaviour
     {
         if (!onStage || goingHome) return;
         onStage = false;
+        trueSize = false;
         goingHome = true;
         try
         {
@@ -656,13 +673,30 @@ public class CadViewer : MonoBehaviour
             // But no further than keeps the box in front of CAD mode's VS Code screen (0.8 m), which would hide it.
             distance = Mathf.Min(Mathf.Max(distance, fit + stageSize.z * 0.5f), StageMaxDistance);
         }
+        if (trueSize)
+        {
+            // Life size: on the floor, far enough off to see it whole (beside you in a headset, clear of the desk).
+            float tall = assembled.size.y, reach = Mathf.Max(assembled.size.x, assembled.size.z);
+            float at = lifeSizeDistance + reach * 0.5f;
+            if (cam != null && !cam.stereoEnabled)
+            {
+                float tan = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+                at = Mathf.Max(at, tall * 0.6f / tan + reach * 0.5f);
+            }
+            else toward = Quaternion.Euler(0f, lifeSizeAngle, 0f) * toward;
+            Vector3 foot = head.position + toward * at;
+            foot.y = CadLook.FloorY();
+            stage.SetPositionAndRotation(foot, Quaternion.LookRotation(toward, Vector3.up));
+            return;
+        }
         Vector3 centre = head.position + toward * distance + Vector3.down * stageDrop;
         centre.y = Mathf.Max(centre.y, transform.position.y + stageSize.y * 0.5f + 0.02f);
         stage.SetPositionAndRotation(centre, Quaternion.LookRotation(toward, Vector3.up));
     }
 
     // The assembled model, turned to show a corner (and its top), fitted to the stage box and centred on the stage.
-    // Tall designs stay upright, flat ones tip back further, and a Run design faces you square on.
+    // Tall designs stay upright, flat ones tip back further, and a Run design faces you square on. Its front (the part's
+    // -Y, the drawing's front view: the robot's face, the gearbox's input) toward you: the stage's +Z points away.
     void PlaceOnStage(bool animate)
     {
         var b = assembled;
@@ -670,13 +704,20 @@ public class CadViewer : MonoBehaviour
         stageTall = b.size.y > 1.2f * footprint;
         bool flat = b.size.y < 0.35f * footprint;
         var demo = Demo;
-        float yaw = demo != null && demo.kind == CadDemoPlayer.Spin ? 0f : stageYaw;
+        float yaw = (demo != null && demo.kind == CadDemoPlayer.Spin ? 0f : stageYaw) + 180f;
         stageTurn = Quaternion.Euler(stageTall ? 0f : flat ? stageFlatTilt : stageTilt, 0f, 0f) * Quaternion.Euler(0f, yaw, 0f);
         var size = TurnedSize(b.size, stageTurn);
         stageScale = Mathf.Min(stageSize.x / Mathf.Max(size.x, 1e-4f), stageSize.y / Mathf.Max(size.y, 1e-4f),
             stageSize.z / Mathf.Max(size.z, 1e-4f));
         stageFitted = true;
-        float s = trueSize ? 1f : stageScale;
+        if (trueSize)
+        {
+            // Real size, upright, its feet on the stage's origin (the floor), turned to show a corner.
+            stageTurn = Quaternion.Euler(0f, yaw, 0f);
+            FlyTo(stage, -(stageTurn * new Vector3(b.center.x, b.min.y, b.center.z)), stageTurn, 1f, animate ? inspectSeconds : 0f);
+            return;
+        }
+        float s = stageScale;
         FlyTo(stage, -(stageTurn * b.center) * s, stageTurn, s, animate ? inspectSeconds : 0f);
     }
 
@@ -759,8 +800,8 @@ public class CadViewer : MonoBehaviour
         }
         float s = trueSize ? 1f : stageScale;
         var size = TurnedSize(assembled.size, stageTurn) * s;
-        Vector3 c = stage.position + Vector3.down * (size.y * (stageTall ? 0.5f : 0.34f) + 0.02f);
-        float r = Mathf.Clamp(Mathf.Max(size.x, size.z) * 0.46f, 0.13f, 0.26f);
+        Vector3 c = trueSize ? stage.position + Vector3.up * 0.004f : stage.position + Vector3.down * (size.y * (stageTall ? 0.5f : 0.34f) + 0.02f);
+        float r = trueSize ? Mathf.Max(size.x, size.z) * 0.62f : Mathf.Clamp(Mathf.Max(size.x, size.z) * 0.46f, 0.13f, 0.26f);
         stageLines.Begin(eye);
         stageLines.Disc(c, Vector3.up, r * 1.12f, CadLook.Alpha(CadLook.Hue, 0.3f * stageRing));
         stageLines.Circle(c, Vector3.up, r, CadLook.Line, CadLook.Alpha(Color.Lerp(Color.white, CadLook.Hue, 0.4f), 0.9f * stageRing), 72);

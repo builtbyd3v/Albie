@@ -43,6 +43,7 @@ def _recv(ws: Any) -> tuple[str, Any]:
 def test_cad_and_voice_share_one_socket(client: TestClient) -> None:
     with client.websocket_connect("/ws") as ws:
         assert _recv(ws)[0] == "cad.model_updated"  # sticky CAD state still replayed first
+        assert {_recv(ws)[0] for _ in range(4)} == {"ui.widgets", "timers.updated", "notes.updated", "movie.state"}  # desk
         ws.send_json({"type": "hello", "payload": {"client": "unity", "pet_id": "bit", "project_id": "demo"}})
         assert _recv(ws) == ("voice.ready", {"pet_id": "bit", "provider": "fake", "sample_rate": 24000})
 

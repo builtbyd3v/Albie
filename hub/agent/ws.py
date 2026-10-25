@@ -7,7 +7,7 @@ events over the bus; agent.cancel -> interrupt; stt.start / binary PCM16 / stt.s
 -> stt.partial / stt.final. With VOICE_PROVIDER=grok|fake the same stt.* frames drive a
 voice session instead (agent/voice.py: speech back as tts.* + binary, owner socket only).
 Wake turns (stt.start {wake: true}, agent/wake.py): always-on speech segments, answered only when they name a
-gator ("Hey Bit ...", "Tester, ..."). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
+gator ("Hey Albie ...", "Tester, ...") or the user faces Albie (facing: true). Crew (agent/crew.py): crew.roster -> membership; agent.ask / agent.cancel whose pet_id is a crew member
 run that member's own background turn instead of the socket's turn. workspace.mode {mode}: which view Unity
 shows; kept on the session, told to the voice model as a one-line note, and gates Bit's crew tools (CODE view only).
 Other modules own their client -> hub messages on this socket through ``client_handlers`` (main.py registers
@@ -158,7 +158,7 @@ async def _on_text(s: Session, raw: str) -> None:
             s.stt_cancelled = False
             s.wake_turn = start.wake and s.wake is not None
             if s.wake_turn:
-                s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None)  # type: ignore[union-attr]
+                s.wake.begin(start.pet_id if start.pet_id != s.pet_id else None, facing=start.facing)  # type: ignore[union-attr]
             if s.voice is not None:
                 await _voice_call(s, lambda: s.voice.begin_turn(require_name=start.require_name, wake=s.wake_turn))
             else:
@@ -297,6 +297,9 @@ async def _open_voice(s: Session, h: Hello) -> None:
     if voice is None:
         return
     voice.wake_router = s.wake
+    judge = getattr(voice, "addressed", None)  # unnamed facing / follow-up turns: judged with Albie's last line
+    if s.wake is not None and judge is not None:
+        s.wake.judge = judge
     voice.workspace_mode = s.mode  # a workspace.mode that arrived before voice opened still counts
     s.voice = voice
     speech.register(s.pet_id, voice)  # lets /messages/digest make Bit speak unprompted
@@ -327,10 +330,27 @@ async def _run_delegate(s: Session, task: str, mode: str) -> str:
     concrete = classify_mode(task, mode or project.default_mode)
     s.control = TurnControl()
     s.turn_mode = concrete
-    emit = Emitter(s.pet_id, redact=[str(project.path)])
+    emit = _QuietSteps(Emitter(s.pet_id, redact=[str(project.path)]), s.pet_id)
     coro = get_runner()(project, task, concrete, emit, pet_id=s.pet_id, control=s.control)
     s.turn = asyncio.create_task(_guarded(coro, emit, s.pet_id))
     return await s.turn
+
+
+class _QuietSteps:
+    """Voice delegate runs: the bubble shows what Albie says, not each runner step. Live 20:0x the task title and
+    every "Editing / Running: ..." step (with full paths) showed in his bubble. Steps become one pet.state working
+    (he walks to the VS Code screen); the summary and his spoken answer still come through."""
+
+    def __init__(self, emit: Emitter, pet_id: str) -> None:
+        self._emit, self._pet_id, self._working = emit, pet_id, False
+
+    async def __call__(self, event: Event) -> None:
+        if event.type in ("agent.task_started", "agent.task_progress"):
+            if not self._working:
+                self._working = True
+                await self._emit(ev.pet_state(self._pet_id, "working", target_panel="screen-main"))
+            return
+        await self._emit(event)
 
 
 async def _voice_call(s: Session, fn) -> None:
@@ -339,6 +359,11 @@ async def _voice_call(s: Session, fn) -> None:
     try:
         await fn()
     except Exception as exc:
+        if isinstance(exc, (OSError, asyncio.TimeoutError)) or type(exc).__module__.startswith("websockets"):
+            # A network blip (Grok unreachable for a moment): keep voice, its next turn reconnects. Switching it
+            # off left the socket on the stt.py fallback, which hears nothing (STT_PROVIDER=none), until a rehello.
+            log.warning("voice call failed (%s): keeping voice, the next turn reconnects", exc)
+            return
         log.exception("voice session failed")
         if s.voice is voice and voice is not None:
             s.voice = None
@@ -395,5 +420,9 @@ async def _on_stt_stop(s: Session) -> None:
         decision = await s.wake.final(text)
         if decision.respond:
             await _on_ask(s, AgentAsk(pet_id=s.pet_id, text=decision.rest or text))
+        return
+    if s.wake is not None and s.wake.crew_target(text):  # "Tester, ..." in Bit's own turn: the crew gator's
+        await Emitter(s.pet_id)(ev.stt_final(s.pet_id, ""))  # Bit: nothing to answer
+        await s.wake.final(text)
         return
     await Emitter(s.pet_id)(ev.stt_final(s.pet_id, text))

@@ -41,7 +41,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent.events import MessagesFocus
+from agent.events import DISPLAY_NAME, MessagesFocus
 from events import (ChannelSummary, Draft, EventBus, NotifyChannels, NotifyDigest, NotifyDraftCancelled, NotifySent,
                     SlackMessage)
 
@@ -264,6 +264,7 @@ class SlackService:
         self._has_more: dict[str, bool] = {}
         self._recent: deque[tuple[str, str]] = deque(maxlen=200)  # (channel, ts) already recorded live
         self._warned_as_bot = False
+        self.extra_channel_summaries: Callable[[], list[ChannelSummary]] | None = None
         self.channels_debounce_s = CHANNELS_DEBOUNCE_S
         self.channels_refresh_s = CHANNELS_REFRESH_S
         # drafts: exactly one open at a time
@@ -567,12 +568,15 @@ class SlackService:
                                        last_ts=last.ts if last else None, last_text=last.text if last else None,
                                        topic=rec.topic, is_default=rec.id == default))
         rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
+        if self.extra_channel_summaries is not None:
+            rows.extend(self.extra_channel_summaries())
+            rows.sort(key=lambda r: (0 if r.kind in ("dm", "group-dm") and r.unread else 1, -_ts(r.last_ts)))
         return rows
 
     def channels_changed(self) -> None:
         """Something in the channel list moved (a message, a seen mark, the list itself): push notify.channels soon.
         Debounced: one push per `channels_debounce_s`, always with the state at that moment."""
-        if not self.enabled or (self._push is not None and not self._push.done()):
+        if (not self.enabled and self.extra_channel_summaries is None) or (self._push is not None and not self._push.done()):
             return
         try:
             self._push = asyncio.get_running_loop().create_task(self._push_channels(), name="slack-notify-channels")
@@ -595,7 +599,7 @@ class SlackService:
         if self.as_user and self.user_id:
             u = await self.user(self.user_id)
             return {"user_id": self.user_id, "name": self.user_name or u.name or self.user_id, "display_name": u.label}
-        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": "Bit"}
+        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": DISPLAY_NAME}
 
     # ------------------------------------------------------------------ inbound
     def accepts(self, event: dict[str, Any], live: bool = True) -> bool:
@@ -742,7 +746,7 @@ class SlackService:
             person = await self.find_user(value)
             if person is not None:
                 return await self.dm_with(person.id)
-        who = "you are" if self.as_user else "Bit is"
+        who = "you are" if self.as_user else f"{DISPLAY_NAME} is"
         raise LookupError(f"No Slack channel named #{name} (is it one {who} in?) and nobody called {value.lstrip('#')!r}")
 
     async def dm_with(self, user_id: str) -> str:

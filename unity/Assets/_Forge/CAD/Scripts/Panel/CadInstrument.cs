@@ -6,7 +6,8 @@ using UnityEngine;
 /// parameters, with what the verdict is about. Rocket: side view, CG (blue) and CP (red) from the tip, their gap
 /// bracketed in the status colour. Quadcopter: top view, prop discs, the gap between neighbouring tips in green or red
 /// lenses where they overlap. Gearbox: front view down the shafts, both gears (dashed pitch circles), the pinion's rim
-/// filled in its status colour. A 100 mm (or 50 mm) scale bar. Ported from the boards' schematicSpec.
+/// filled in its status colour. Humanoid: top view of its feet and the support polygon round them, the CG over it in its
+/// balance status colour, "82 mm inside". A 100 mm (or 50 mm) scale bar. Ported from the boards' schematicSpec.
 /// <see cref="Build"/> works the geometry out once per version into a list of drawing ops (replayed by
 /// <see cref="Paint"/> when the mesh rebuilds) and a list of labels. A design it doesn't know gets none
 /// (<see cref="Has"/> false): the card then drops its right column.
@@ -55,6 +56,7 @@ public sealed class CadInstrument
         if (Num(p, "body_length") > 0 && Num(p, "body_diameter") > 0 && p.Find("fin_span") != null) Has = Rocket(p, a, status);
         else if (Num(p, "arm_length") > 0 && Num(p, "prop_diameter") > 0) Has = Quad(p, a);
         else if (Num(p, "module") > 0 && Num(p, "pinion_teeth") > 0 && Num(p, "gear_teeth") > 0) Has = Gearbox(p, a);
+        else if (p.Find("stance") != null && p.Find("squat") != null) Has = Humanoid(p, a);
         return Has;
     }
 
@@ -162,6 +164,97 @@ public sealed class CadInstrument
     }
 
     static LabelStyle StyleOf(string status) => status == "bad" ? LabelStyle.Bad : status == "warn" ? LabelStyle.Warn : LabelStyle.Ok;
+
+    // ---- Humanoid: top view of the feet, front toward you, the CG over them ----
+
+    bool Humanoid(CadParams p, CadAnalysis a)
+    {
+        const float FootL = 207f, FootW = 78f;     // a G1 sole, mm
+        float stance = Num(p, "stance"), step = Num(p, "step");
+        // Top view in part mm: x is the robot's left (your right), "ahead" its front (down the card, toward you).
+        Vector2 left = new Vector2(stance * 0.5f, step * 0.5f), right = new Vector2(-stance * 0.5f, -step * 0.5f);
+        Vector2 cg = Top(a, "cg", Vector2.zero), middle = Top(a, "support", Vector2.zero);
+        float xe = Mathf.Max(stance * 0.5f + FootW * 0.5f, Mathf.Abs(cg.x)) + 12f;
+        float ae = Mathf.Max(step * 0.5f + FootL * 0.5f, Mathf.Abs(cg.y)) + 12f;
+        float s = Mathf.Min((W - 12f) / (2f * xe), (H - 44f) / (2f * ae));
+        float cx = W * 0.5f, cy = (H - 22f) * 0.5f + 4f;
+        float X(float x) => cx + x * s;
+        float Y(float ahead) => cy + ahead * s;
+        // The support polygon: round both soles, dashed.
+        var corners = new List<Vector2>(8);
+        foreach (var f in new[] { left, right })
+            for (int i = 0; i < 4; i++)
+                corners.Add(f + new Vector2((i & 1) == 0 ? -FootW * 0.5f : FootW * 0.5f, (i & 2) == 0 ? -FootL * 0.5f : FootL * 0.5f));
+        var hull = Hull(corners);
+        Begin();
+        foreach (var c in hull) Pt(X(c.x), Y(c.y));
+        End(Kind.Fill, true, 0f, CadUi.White(0.05f));
+        Again(Kind.Dash, true, 1f, CadUi.White(0.45f), 3f, 3f);
+        // The soles.
+        foreach (var f in new[] { left, right })
+        {
+            float hw = FootW * 0.5f * s, hl = FootL * 0.5f * s, rr = hw * 0.8f;
+            float x0 = X(f.x), y0 = Y(f.y);
+            Begin();
+            for (int c = 0; c < 4; c++)
+            {
+                float qx = c == 0 || c == 3 ? hw - rr : -(hw - rr), qy = c < 2 ? hl - rr : -(hl - rr);
+                for (int i = 0; i <= 5; i++)
+                {
+                    float t = (90f * c + 90f * i / 5f) * Mathf.Deg2Rad;
+                    Pt(x0 + qx + rr * Mathf.Cos(t), y0 + qy + rr * Mathf.Sin(t));
+                }
+            }
+            End(Kind.Fill, true, 0f, CadUi.White(0.12f));
+            Again(Kind.Stroke, true, 1.1f, CadUi.White(0.6f));
+        }
+        Text(X(left.x), Y(left.y + FootL * 0.5f) + 3f, "L", LabelStyle.Muted, Side.Center);
+        Text(X(right.x), Y(right.y + FootL * 0.5f) + 3f, "R", LabelStyle.Muted, Side.Center);
+        // The CG over them, and how far inside (or out) it is.
+        float margin = Metric(a, "balance");
+        var metric = a?.metrics?.Find(m => m.id == "balance");
+        string status = metric?.status ?? "ok";
+        Color c2 = CadUi.Status(status);
+        Line(X(middle.x), Y(middle.y), X(cg.x), Y(cg.y), 1f, CadUi.White(0.35f));
+        Disc(X(cg.x), Y(cg.y), 5.5f, CadUi.Alpha(c2, 0.25f));
+        Ring(X(cg.x), Y(cg.y), 5.5f, 1.6f, c2);
+        Disc(X(cg.x), Y(cg.y), 2.4f, CadLook.CgBlue);
+        Text(X(cg.x) + 9f, Y(cg.y) - 7f, "CG", LabelStyle.Cg, Side.Right);
+        if (metric != null)
+            Text(cx, 4f, margin >= 0f ? Mathf.RoundToInt(margin) + " mm inside" : Mathf.RoundToInt(-margin) + " mm outside", StyleOf(status), Side.Center);
+        Text(cx, Y(ae - 12f) + 2f, "front", LabelStyle.Muted, Side.Center);
+        ScaleBar(s, 100f);
+        return true;
+    }
+
+    // A marker's ground point in the top view (part mm: x, and ahead = toward its front), from its model-frame position.
+    static Vector2 Top(CadAnalysis a, string id, Vector2 fallback)
+    {
+        if (a?.markerList != null)
+            foreach (var m in a.markerList)
+                if (m != null && m.id == id && m.pos != null && m.pos.Length >= 3) return new Vector2(m.pos[0] * 1000f, m.pos[2] * 1000f);
+        return fallback;
+    }
+
+    // Convex hull, counter-clockwise (monotone chain).
+    static List<Vector2> Hull(List<Vector2> pts)
+    {
+        pts.Sort((u, v) => u.x != v.x ? u.x.CompareTo(v.x) : u.y.CompareTo(v.y));
+        var hull = new List<Vector2>(pts.Count + 1);
+        float Cross(Vector2 o, Vector2 u, Vector2 v) => (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x);
+        for (int pass = 0; pass < 2; pass++)
+        {
+            int start = hull.Count;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var q = pts[pass == 0 ? i : pts.Count - 1 - i];
+                while (hull.Count >= start + 2 && Cross(hull[hull.Count - 2], hull[hull.Count - 1], q) <= 0f) hull.RemoveAt(hull.Count - 1);
+                hull.Add(q);
+            }
+            hull.RemoveAt(hull.Count - 1);
+        }
+        return hull;
+    }
 
     // ---- Rocket: side view, nose up ----
 

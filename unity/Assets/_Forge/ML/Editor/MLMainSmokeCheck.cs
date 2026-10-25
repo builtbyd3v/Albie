@@ -63,6 +63,9 @@ public static class MLMainSmokeCheck
             if (now < next) return;
             if (stage == 0)
             {
+                var canvasInput = UnityEngine.Object.FindAnyObjectByType<PointableCanvasModule>();
+                Require(canvasInput != null && !canvasInput.ExclusiveMode,
+                    "Main's Interaction SDK canvas allows coexisting UI inputs for controller and hand rays");
                 workspace = UnityEngine.Object.FindAnyObjectByType<Workspace>();
                 Require(workspace != null, "Main contains Workspace");
                 workspace.presence.forceSeated = true;

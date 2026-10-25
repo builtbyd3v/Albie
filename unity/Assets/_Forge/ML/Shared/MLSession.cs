@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace Forge.ML
@@ -13,7 +15,25 @@ namespace Forge.ML
         [NonSerialized] public bool removed;
     }
     [Serializable] public class MLLayer { public string name, type; public int[] in_shape, out_shape; public int @params; }
-    [Serializable] public class MLMetrics { public string run_id; public int epoch, step; public float train_loss, train_acc, val_loss, val_acc, lr; }
+    // A metric the run didn't log arrives as null (a backtest has no loss, most logs no lr): it becomes NaN, so one
+    // missing value doesn't drop the whole tick. `extra` holds the run's other numbers (val_sharpe, r2, ...).
+    [Serializable] public class MLMetrics
+    {
+        public string run_id; public int epoch, step;
+        [JsonConverter(typeof(MLNullAsNaN))] public float train_loss, train_acc, val_loss, val_acc, lr;
+        public Dictionary<string, float?> extra;  // JsonUtility skips it; Newtonsoft (hub, mocks) fills it
+        public bool HasLoss => !float.IsNaN(train_loss) || !float.IsNaN(val_loss);
+        public bool HasAccuracy => !float.IsNaN(train_acc) || !float.IsNaN(val_acc);
+    }
+    public class MLNullAsNaN : JsonConverter<float>
+    {
+        public override float ReadJson(JsonReader reader, Type type, float existing, bool hasExisting, JsonSerializer serializer) =>
+            reader.TokenType == JsonToken.Null ? float.NaN : Convert.ToSingle(reader.Value);
+        public override void WriteJson(JsonWriter writer, float value, JsonSerializer serializer)
+        {
+            if (float.IsNaN(value)) writer.WriteNull(); else writer.WriteValue(value);
+        }
+    }
     [Serializable] public class MLFixture { public string[] classes; public MLSample[] samples; public MLLayer[] layers; public MLMetrics[] metrics; [NonSerialized] public int[][] confusion; }
     [Serializable] public class MLProbeSample { public string id; public int label_idx = -1, pred_idx = -1; public float[] probs; public float y_pred; }
     [Serializable] public class MLProbePayload { public string run_id; public int epoch; public MLProbeSample[] samples; }
@@ -63,6 +83,8 @@ namespace Forge.ML
         public string GitHubImportId { get; private set; }
         // One line for the Training panel: why there's no live data, or what Train is doing.
         public string Notice { get; private set; }
+        // Live hub with ML, but the open repo has no image dataset (no classes/atlas): the image panels sit out.
+        public bool NoImageData { get; private set; }
         public event Action Changed;
         // Data and Atlas were replaced from the hub: rebind textures, rebuild anything built from Data at Start.
         public event Action Reloaded;
@@ -80,7 +102,7 @@ namespace Forge.ML
         int nextEvent;
         bool ownsAtlas, loading, reloadQueued;
         string atlasUrl;
-        IDisposable epochPreds;
+        IDisposable epochPreds, metricsEvents;
         IDisposable classAccEvents;
         IDisposable probeEvents;
         public const int AtlasColumns = 8;
@@ -98,7 +120,8 @@ namespace Forge.ML
         void OnEnable()
         {
             ForgeEvents.OnMlRunState += OnLiveRunState;
-            ForgeEvents.OnMlMetrics += OnLiveMetrics;
+            // By name, not ForgeEvents.OnMlMetrics: Core's MlMetrics can't hold a null metric or `extra`, and drops the tick.
+            metricsEvents = ForgeNet.On("ml.metrics", OnLiveMetrics);
             ForgeEvents.OnMlOverfitAlert += OnLiveOverfit;
             ForgeEvents.OnMlSampleUpdated += OnLiveSampleUpdated;
             ForgeEvents.OnMlResultsReady += OnLiveResultsReady;
@@ -113,7 +136,7 @@ namespace Forge.ML
         void OnDisable()
         {
             ForgeEvents.OnMlRunState -= OnLiveRunState;
-            ForgeEvents.OnMlMetrics -= OnLiveMetrics;
+            metricsEvents?.Dispose(); metricsEvents = null;
             ForgeEvents.OnMlOverfitAlert -= OnLiveOverfit;
             ForgeEvents.OnMlSampleUpdated -= OnLiveSampleUpdated;
             ForgeEvents.OnMlResultsReady -= OnLiveResultsReady;
@@ -374,6 +397,17 @@ namespace Forge.ML
             if (loading) { reloadQueued = true; return; }
             StartCoroutine(LoadRoutine(runId));
         }
+        // ForgeNet.Get<T> parses inside its callback: a payload that doesn't fit T (a regression row's null label)
+        // throws there, the request coroutine dies, and LoadRoutine waiting on it never resumes, so `loading`
+        // stays set and every later reload is lost. Parse here and turn the error into an ordinary failure.
+        static Coroutine Fetch<T>(string path, Action<T> ok, Action<string> fail) =>
+            ForgeNet.Get(path, text =>
+            {
+                T value;
+                try { value = JsonConvert.DeserializeObject<T>(text); }
+                catch (Exception e) { fail?.Invoke($"{path}: {e.Message}"); return; }
+                ok(value);
+            }, fail);
         System.Collections.IEnumerator LoadRoutine(string runId)
         {
             loading = true;
@@ -381,24 +415,33 @@ namespace Forge.ML
             Action<string> fail = e => error ??= e;
             string[] classes = null; MLDatasetEntry[] entries = null; MLAtlasMetadata meta = null; MLGraph graph = null;
             MLRunInfo[] runs = null; MLResults results = null; MLConfusion confusion = null; MLMetricsHistory history = null; byte[] png = null;
-            yield return ForgeNet.Get<string[]>("/ml/classes", v => classes = v, fail);
-            yield return ForgeNet.Get<MLDatasetEntry[]>("/ml/dataset?split=val", v => entries = v, fail);
-            yield return ForgeNet.Get<MLAtlasMetadata>("/ml/atlas?split=val", v => meta = v, fail);
-            yield return ForgeNet.Get<MLGraph>("/ml/graph", v => graph = v, _ => { });  // optional: keep the current model
+            yield return Fetch<string[]>("/ml/classes", v => classes = v, fail);
+            yield return Fetch<MLDatasetEntry[]>("/ml/dataset?split=val", v => entries = v, fail);
+            yield return Fetch<MLAtlasMetadata>("/ml/atlas?split=val", v => meta = v, fail);
+            yield return Fetch<MLGraph>("/ml/graph", v => graph = v, _ => { });  // optional: keep the current model
             if (string.IsNullOrEmpty(runId))
             {
-                yield return ForgeNet.Get<MLRunInfo[]>("/ml/runs", v => runs = v, _ => { });
+                yield return Fetch<MLRunInfo[]>("/ml/runs", v => runs = v, _ => { });
                 if (runs != null) foreach (var run in runs) if (run.status == "done") { runId = run.run_id; break; }
             }
             if (!string.IsNullOrEmpty(runId))
             {
-                yield return ForgeNet.Get<MLResults>($"/ml/results/{runId}", v => results = v, _ => { });
-                yield return ForgeNet.Get<MLConfusion>($"/ml/confusion/{runId}", v => confusion = v, _ => { });
-                yield return ForgeNet.Get<MLMetricsHistory>($"/ml/metrics/{runId}", v => history = v, _ => { });
+                yield return Fetch<MLResults>($"/ml/results/{runId}", v => results = v, _ => { });
+                yield return Fetch<MLConfusion>($"/ml/confusion/{runId}", v => confusion = v, _ => { });
+                yield return Fetch<MLMetricsHistory>($"/ml/metrics/{runId}", v => history = v, _ => { });
             }
             if (error == null && meta != null && meta.atlas_url != atlasUrl) yield return ForgeNet.GetBytes(meta.atlas_url, v => png = v, fail);
+            bool noImages = error != null || classes == null || entries == null || meta == null || entries.Length == 0;
+            bool hubHasMl = false;
+            if (noImages) yield return ForgeNet.Get("/ml/project", _ => hubHasMl = true, _ => { });
             loading = false;
-            if (error != null || classes == null || entries == null || meta == null || entries.Length == 0)
+            if (noImages && hubHasMl)
+            {
+                // The hub serves ML, but this repo isn't an image dataset (regression, a backtest, ...): no image
+                // demo; its runs show their own metrics, and the layout brings the panels that fit it.
+                NoImageData = true; Notice = null; replay = false; Changed?.Invoke();
+            }
+            else if (noImages)
             {
                 // Connected to a hub without the ML router (or an empty repo): play the demo run so the panels
                 // aren't blank, and say why on the Training panel.
@@ -410,6 +453,7 @@ namespace Forge.ML
             else
             {
                 if (Notice != null && Notice.StartsWith("No ML data")) Notice = null;
+                NoImageData = false;
                 ApplyHubData(classes, entries, meta, graph, runId, results, confusion, history, png);
             }
             if (reloadQueued) { reloadQueued = false; LoadFromHub(RunId); }
@@ -463,12 +507,16 @@ namespace Forge.ML
             if (history?.probe != null) ProbeUpdated?.Invoke(history.probe);
             SamplesChanged?.Invoke(); Changed?.Invoke();
         }
-        void OnLiveMetrics(global::MlMetrics tick)
+        void OnLiveMetrics(Newtonsoft.Json.Linq.JToken payload)
         {
-            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || tick == null) return;
+            if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || payload == null) return;
+            MLMetrics tick;
+            try { tick = ReadMetrics(payload); }
+            catch (Exception e) { Debug.LogWarning("[ML] Unreadable ml.metrics: " + e.Message); return; }
             replay = false;
-            ApplyMetrics(new MLMetrics { run_id = tick.runId, epoch = tick.epoch, step = tick.step, train_loss = tick.trainLoss, train_acc = tick.trainAcc, val_loss = tick.valLoss, val_acc = tick.valAcc, lr = tick.lr });
+            ApplyMetrics(tick);
         }
+        public static MLMetrics ReadMetrics(Newtonsoft.Json.Linq.JToken payload) => payload.ToObject<MLMetrics>();
         void OnLiveOverfit(global::MlOverfitAlert alert)
         {
             if (!useLiveEvents || ForgeNet.Status != ForgeNetStatus.Live || alert == null) return;

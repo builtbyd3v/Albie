@@ -14,6 +14,10 @@ Each run's artifacts (graph, atlas, dataset, events.jsonl, ...) are written to `
 the `run_dir` argument, else `$FORGE_RUN_DIR`, else `.forge/runs` in a repo set up for forge, else
 `./forge_runs`. Events also stream to the hub (see forge.client). None of these calls ever raises:
 a failure becomes one warning line and training continues.
+
+If the repo has `.forge/extra_viz.py` (the classifier's project-specific charts, ML_PLAN A7), `evaluate`
+runs it after writing the results and before saying they are ready: figures become `viz/*.png` cards,
+dicts become VizCards in `viz.json`.
 """
 
 from __future__ import annotations
@@ -263,6 +267,8 @@ def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) ->
         run.write_json("results.json", results)
         run.write_json("confusion.json", confusion)
         run.write_json("summary.json", summary)
+        # Extra charts before results_ready, so a panel that refetches GET /ml/viz on that event sees them.
+        _attempt("extra charts", lambda: _extra_charts(run, model, names, ids, labels, probs, results, summary))
         run.emit("ml.results_ready", {"run_id": run.run_id})
 
     _attempt("evaluate", finish)
@@ -272,6 +278,33 @@ def evaluate(model: Any, val_data: Any, classes: Sequence[str] | None = None) ->
         run.emit("ml.run_state", {"run_id": run.run_id, "status": "done", "epoch": total, "total_epochs": total})
     _end_run()
     client.poster.flush()
+
+
+def _extra_charts(run: _Run, model: Any, classes: Sequence[str], ids: Sequence[str], labels: Sequence[int],
+                  probs: Any, results: dict, summary: dict) -> None:
+    """Run `<repo>/.forge/extra_viz.py` (ML_PLAN A7) in the repo's own interpreter. Optional: no file, no work."""
+    from forge import viz
+
+    forge_dir = viz.find_forge_dir()
+    if forge_dir is None:
+        return
+    adapter = None
+    try:
+        from forge import adapter as forge_adapter
+
+        adapter = forge_adapter.load(forge_dir.parent)
+    except Exception:  # noqa: BLE001 - extras can still draw from the predictions alone
+        adapter = None
+    samples: list[Any] = []
+    if adapter is not None:
+        try:
+            samples = adapter.samples("val", limit=min(1000, len(ids) or 1000))
+        except Exception:  # noqa: BLE001 - a chart that needs samples gets an empty list, not a failed run
+            samples = []
+    ctx = viz.VizContext(model=model, adapter=adapter, classes=[str(c) for c in classes], samples=samples,
+                         ids=[str(i) for i in ids], labels=[int(v) for v in labels], probs=probs,
+                         results=results, summary=summary, run_dir=run.dir)
+    viz.run_extra_viz(forge_dir, run.dir, ctx)
 
 
 def _predict_all(model: Any, val_data: Any) -> tuple[list[str], list[int], Any]:

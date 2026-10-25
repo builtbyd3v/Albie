@@ -6,20 +6,25 @@
 //   POST /open      { path, line }
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
-//   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /train                            types forgeBit.trainCommand into the "Albie" terminal
 //   POST /layout    { zoom? }              the headset layout: zoomed editor, Bit's terminal under it, no side bars or chat
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
-//   command_finished  a command in the "Bit" terminal ended, with its exit code
+//   command_finished  a command in the "Albie" terminal ended, with its exit code
 //
-// A "Bit" item in the status bar says what Bit is doing in this window, so it shows on the streamed screen too.
+// An "Albie" item in the status bar says what Albie is doing in this window, so it shows on the streamed screen too.
+//
+// Command "Forge: Open this repo in the ML desk" tells the hub which repo is open (POST <hubUrl>/ml/project) and
+// follows its setup here: Show diff / Accept / Skip for the training patch, a type picker when the classifier
+// isn't sure. The headset's ML desk unfolds from the same hub events.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
 
 let server;
 let terminal;
+const TERMINAL = "Albie"; // the pet's display name; the extension id and settings stay forge-bit / forgeBit
 let statusItem;
 let statusTimer;
 
@@ -124,7 +129,7 @@ async function run({ command, args = [] }) {
 }
 
 function bitTerminal() {
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal(TERMINAL);
   terminal.show(true);
   return terminal;
 }
@@ -137,10 +142,10 @@ function train() {
 
 // screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
 // terminal is where training shows, so the side bar and Copilot chat only cost columns.
-// Zoom is per window (not saved to settings): level 1 = 120%, which reads well on the panel at 1 m.
-// There is no command to set the panel's height, so: editor to its tallest, then 2 steps back. In the
-// 1280x800 window that leaves about 20 lines of code over 8 lines of terminal.
-async function layout({ zoom = 1 }) {
+// Zoom is per window (not saved to settings): level 2 = 144%, big enough on the panel at 1 m once the full-screen
+// window is shrunk to the stream's 1920 px. There is no command to set the panel's height, so: editor to its
+// tallest, then 2 steps back, which leaves Bit's terminal a few lines under the code.
+async function layout({ zoom = 2 }) {
   const run = (id, times = 1) =>
     Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
   await run("workbench.action.closeSidebar");
@@ -156,13 +161,13 @@ async function layout({ zoom = 1 }) {
 
 // Highlighted while Bit acts, then back to idle after `ms`.
 function status(text, ms = 4000) {
-  statusItem.text = `$(sparkle) Bit: ${text}`;
+  statusItem.text = `$(sparkle) ${TERMINAL}: ${text}`;
   statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
   clearTimeout(statusTimer);
   statusTimer = setTimeout(idle, ms);
 }
 
-function idle(text = "$(sparkle) Bit") {
+function idle(text = `$(sparkle) ${TERMINAL}`) {
   statusItem.text = text;
   statusItem.backgroundColor = undefined;
 }
@@ -221,11 +226,83 @@ function errorsOnSave(doc) {
   }, 1500);
 }
 
+function hub(method, route, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(new URL(route, config().get("hubUrl")), {
+      method,
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000,
+    }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => {
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+        if (res.statusCode >= 400) reject(new Error(data.detail || `hub answered ${res.statusCode}`));
+        else resolve(data);
+      });
+    });
+    req.on("error", (e) => reject(new Error(`can't reach the Forge hub at ${config().get("hubUrl")} (${e.message})`)));
+    req.on("timeout", () => req.destroy(new Error("the Forge hub didn't answer")));
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Poll GET /ml/project until setup stops: ready, failed, needs_approval or confirm_type (about a minute or two).
+async function setupResult() {
+  for (let i = 0; i < 150; i++) {
+    const state = await hub("GET", "/ml/project");
+    if (["ready", "failed", "needs_approval", "confirm_type"].includes(state.status)) return state;
+    status(`$(sync~spin) ML desk: ${state.status}…`, 5000);
+    await sleep(2000);
+  }
+  throw new Error("setup is taking over 5 minutes; check the hub");
+}
+
+async function openInMlDesk() {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return vscode.window.showWarningMessage("Forge: open a folder first.");
+  try {
+    status(`$(beaker) ML desk: opening ${path.basename(root)}`, 5000);
+    await hub("POST", "/ml/project", { path: root });
+    let state = await setupResult();
+    if (state.status === "confirm_type") {
+      const pick = await vscode.window.showQuickPick(state.candidates || [], {
+        placeHolder: `Forge isn't sure what ${path.basename(root)} is. Which type is it?`,
+      });
+      if (!pick) return;
+      await hub("POST", "/ml/project/type", { archetype: pick });
+      state = await setupResult();
+    }
+    if (state.status === "needs_approval") {
+      const files = (state.patch?.files || []).map((f) => f.path || f).join(", ");
+      for (;;) {
+        const choice = await vscode.window.showInformationMessage(
+          `${state.summary || "Forge"}: hook up training with a few lines in ${files || "the training script"}?`,
+          "Show diff", "Accept", "Skip");
+        if (choice === "Show diff") { await hub("POST", "/ml/project/diff", {}); continue; }
+        if (!choice) return;
+        await hub("POST", "/ml/project/patch", { accept: choice === "Accept" });
+        state = await hub("GET", "/ml/project");
+        break;
+      }
+    }
+    if (state.status === "failed") throw new Error(state.error || "setup failed");
+    status(`$(check) ML desk: ${state.summary || "ready"}`, 8000);
+    vscode.window.showInformationMessage(`Forge ML desk ready: ${state.summary || path.basename(root)}`);
+  } catch (e) {
+    idle();
+    vscode.window.showErrorMessage(`Forge ML desk: ${e.message}`);
+  }
+}
+
 function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
     vscode.window.onDidEndTerminalShellExecution((e) => {
-      if (e.terminal.name !== "Bit") return;
+      if (e.terminal.name !== TERMINAL) return;
       push({ kind: "command_finished", command: e.execution.commandLine.value, exit_code: e.exitCode ?? null });
     }),
   );
@@ -255,10 +332,11 @@ function activate(ctx) {
   // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
   server.on("error", (e) => {
     console.error(`[forge-bit] ${e.message}`);
-    idle("$(circle-slash) Bit: busy in another window");
+    idle(`$(circle-slash) ${TERMINAL}: busy in another window`);
   });
   server.listen(port, "127.0.0.1");
-  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
+  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() },
+    vscode.commands.registerCommand("forgeBit.openInMlDesk", openInMlDesk));
 }
 
 function deactivate() {

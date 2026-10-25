@@ -91,8 +91,28 @@ def run_checks(repo: str | Path, n: int = 8) -> dict:
         c.skip("predict", "no samples or no model")
 
     elapsed = time.monotonic() - start
+    c.run("extra_viz", lambda: _check_extra_viz(repo, prof))
     c.run("time", lambda: _assert(elapsed < TIME_LIMIT_S, f"took {elapsed:.1f}s, limit {TIME_LIMIT_S}s"))
     return _finish(repo, c, start)
+
+
+def _check_extra_viz(repo: Path, prof: dict | None) -> str:
+    """`profile.extra_viz` ids must each have a `viz_<id>(ctx)` function in `.forge/extra_viz.py` (ML_PLAN A7).
+    No file and no extras: nothing to check. The charts themselves run later, at the end of a training run."""
+    wanted = [str(v.get("viz_id")) for v in (prof or {}).get("extra_viz", []) if isinstance(v, dict) and v.get("viz_id")]
+    if not wanted:
+        return ""  # no extras picked: nothing to validate (a leftover file is inert)
+    path = repo / ".forge" / "extra_viz.py"
+    if not path.exists():
+        raise AssertionError(f"the profile asks for {', '.join(f'viz_{v}(ctx)' for v in wanted)} but "
+                             f".forge/extra_viz.py is missing; write those functions")
+    from forge import viz
+
+    functions = viz.chart_functions(viz.load_module(path))
+    missing = [viz_id for viz_id in wanted if viz_id not in functions]
+    assert not missing, ("extra_viz.py must define " + ", ".join(f"viz_{v}(ctx)" for v in missing) +
+                         f"; it defines {', '.join(sorted(functions)) or 'nothing'}")
+    return f"{len(wanted)} charts"
 
 
 def _assert(cond: bool, msg: str) -> str:

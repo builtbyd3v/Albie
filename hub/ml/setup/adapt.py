@@ -38,6 +38,7 @@ SCHEMA = {
             "items": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
                       "required": ["path", "content"], "additionalProperties": False},
         },
+        "extra_viz_py": {"type": "string"},  # optional: ML_PLAN A7, only when profile.extra_viz is non-empty
         "notes": {"type": "string"},
     },
     "required": ["adapter_py", "patches", "notes"],
@@ -84,7 +85,10 @@ def safe_patch_path(repo: Path, rel: str) -> Path:
 
 
 def write_outputs(repo: Path, data: dict) -> list[str]:
-    """Write the adapter and the proposed patch inside .forge/ only. Returns the patched repo paths."""
+    """Write the adapter, the proposed patch and the extra charts inside .forge/ only.
+
+    Returns the patched repo paths.
+    """
     forge = repo / ".forge"
     forge.mkdir(exist_ok=True)
     if not (forge / ".gitignore").exists():
@@ -95,11 +99,19 @@ def write_outputs(repo: Path, data: dict) -> list[str]:
             compile(content, rel, "exec")
         except SyntaxError as exc:
             raise GuardrailError(f"patched {rel} doesn't parse: line {exc.lineno}: {exc.msg}") from exc
+    extras = (data.get("extra_viz_py") or "").strip()
+    if extras:
+        try:
+            compile(extras, ".forge/extra_viz.py", "exec")
+        except SyntaxError as exc:
+            raise GuardrailError(f"extra_viz.py doesn't parse: line {exc.lineno}: {exc.msg}") from exc
     adapter = forge / "adapter.py"
     if adapter.exists() and not (forge / "adapter.generated").exists():
         shutil.copyfile(adapter, forge / "adapter.prev.py")  # never silently replace a hand-written adapter
     adapter.write_text(data["adapter_py"])
     (forge / "adapter.generated").write_text("written by forge setup; delete to mark adapter.py hand-written\n")
+    if extras:
+        (forge / "extra_viz.py").write_text(extras)  # ML_PLAN A7: the classifier's project-specific charts
     patch_dir = forge / "patch"
     shutil.rmtree(patch_dir, ignore_errors=True)
     manifest = {}
@@ -134,7 +146,7 @@ def feedback(check: dict) -> str:
     failed = [c for c in check.get("checks", []) if not c["ok"]]
     lines = [f"- {c['name']}: {c['detail'][-2500:]}" for c in failed]
     return ("forge.check failed:\n" + "\n".join(lines) +
-            "\nWrite corrected versions of adapter_py and patches, in full.")
+            "\nWrite corrected versions of adapter_py, extra_viz_py and patches, in full.")
 
 
 def adapt(repo: str | Path, profile: Profile, files: dict[str, str], python: str,

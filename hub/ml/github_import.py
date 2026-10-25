@@ -78,7 +78,10 @@ def _get_json(path: str, *, ref: str | None = None) -> object:
             return json.loads(data)
     except HTTPError as exc:
         if exc.code == 404:
-            raise GitHubImportError("Repository or branch not found. Make sure it is public.") from exc
+            raise GitHubImportError(
+                "Repository or branch not found, or not visible to the configured GitHub token. "
+                "Check the owner/repository, ref, and public visibility."
+            ) from exc
         if exc.code == 403:
             raise GitHubImportError("GitHub API rate limit reached; try again later or configure GITHUB_TOKEN.") from exc
         raise GitHubImportError(f"GitHub API returned HTTP {exc.code}.") from exc

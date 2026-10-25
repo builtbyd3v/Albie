@@ -7,7 +7,7 @@ namespace Forge.Pet
 {
     /// <summary>
     /// The first-arrival greeting: a translucent card with the digest line ("You have 3 new messages, 1 mentions you.")
-    /// floating beside Bit, and a START ring (one of Hudson's dock rings, <see cref="DockRing"/>) to its right. Both are
+    /// floating beside Bit, and a START pill (one of Hudson's dock controls, <see cref="DockRing"/>) to its right. Both are
     /// built into PetRuntime.prefab by the editor (Forge > Pet > Build All, PetRuntimeSetup / ArrivalSetup), saved
     /// inactive, and driven by <see cref="ArrivalDirector"/>: <see cref="Show"/> places them in the desk frame and pops
     /// them in, <see cref="Fold"/> scales them away. Pressing START (mouse, Interaction SDK ray / poke through the ring's
@@ -22,7 +22,7 @@ namespace Forge.Pet
         [SerializeField] DockRing startRing;
         [SerializeField, Tooltip("Card centre from the greeting spot, desk frame (m): right of it, up, into the desk.")]
         Vector3 cardOffset = new Vector3(0.28f, 0.21f, -0.02f);
-        [SerializeField, Tooltip("Gap (m) between the card's right edge and the START ring.")]
+        [SerializeField, Tooltip("Gap (m) between the card's right edge and the START pill.")]
         float ringGap = 0.05f;
 
         /// <summary>START was pressed (once per Show).</summary>
@@ -61,7 +61,7 @@ namespace Forge.Pet
             Vector3 spot = frame.InverseTransformPoint(greetingSpot);
             Vector3 cardLocal = new Vector3(spot.x + cardOffset.x, cardOffset.y, spot.z + cardOffset.z);
             float cardHalf = card != null ? card.sizeDelta.x * 0.5f * ForgePanel.MetersPerUnit : 0.15f;
-            float ringRadius = startRing != null ? startRing.Radius * ForgePanel.MetersPerUnit : 0.045f;
+            float ringRadius = startRing != null ? startRing.HalfWidth * ForgePanel.MetersPerUnit : 0.08f;   // half the pill's width
             Vector3 ringLocal = cardLocal + new Vector3(cardHalf + ringGap + ringRadius, 0f, 0f);
 
             gameObject.SetActive(true);
@@ -121,7 +121,7 @@ namespace Forge.Pet
             gameObject.SetActive(false);
         }
 
-        /// <summary>The START ring's Button (mouse / ray / poke) lands here.</summary>
+        /// <summary>The START pill's Button (mouse / ray / poke) lands here.</summary>
         public void OnStartPressed()
         {
             if (!IsShown || _pressed) return;

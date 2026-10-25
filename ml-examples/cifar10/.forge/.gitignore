@@ -4,3 +4,4 @@
 !.gitignore
 !profile.json
 !adapter.py
+!extra_viz.py

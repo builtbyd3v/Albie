@@ -16,13 +16,14 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .archetypes import ARCHETYPES, layout
 from .github_import import inspect_repository
+from .models import VizCard
+from .prescan import resolve_python
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -83,11 +84,7 @@ class MLService:
 
     def python(self) -> str:
         """The repo's interpreter (profile.python), so torch never has to be in the hub's env."""
-        configured = self.profile().get("python") or "python"
-        candidate = self.repo / configured
-        if candidate.exists():
-            return str(candidate)
-        return shutil.which(configured) or sys.executable
+        return resolve_python(self.repo, self.profile().get("python"))
 
     # --- runs ---------------------------------------------------------------------------------
     def _run_dirs(self) -> list[Path]:
@@ -265,6 +262,36 @@ class MLService:
                 cards.append({"viz_id": png.stem, "run_id": run_id, "panel": "ml-viz", "kind": "image",
                               "title": png.stem.replace("_", " ").capitalize(), "png_url": f"/ml/viz/{run_id}/{png.stem}.png",
                               "alt": png.stem.replace("_", " ")})
+        cards += self._extra_cards(run, run_id, {c["viz_id"] for c in cards})
+        return cards
+
+    def _extra_cards(self, run: Path, run_id: str, seen: set[str]) -> list[dict]:
+        """Charts from `.forge/extra_viz.py` (ML_PLAN A7), written to the run's viz.json. Figures are already
+        picked up as PNG cards above; here only dict VizCards are merged, validated against models.VizCard."""
+        path = run / "viz.json"
+        if not path.exists():
+            return []
+        try:
+            raw = _read_json(path)
+        except (OSError, ValueError):
+            return []
+        cards = []
+        for item in raw if isinstance(raw, list) else []:
+            try:
+                card = VizCard.model_validate(item).model_dump(exclude_none=True)
+                card["run_id"] = run_id
+                card["panel"] = card.get("panel") or "ml-viz"
+                if card["kind"] == "image":
+                    png = run / "viz" / f"{safe_id(card['viz_id'], 'viz id')}.png"
+                    if not png.exists():
+                        continue  # an image card with no file behind it would draw empty
+                    card["png_url"] = f"/ml/viz/{run_id}/{card['viz_id']}.png"
+            except Exception:  # noqa: BLE001 - one bad extra card never breaks /ml/viz
+                continue
+            if card["viz_id"] in seen:
+                continue
+            seen.add(card["viz_id"])
+            cards.append(card)
         return cards
 
     def viz_png(self, run_id: str, viz_id: str) -> Path:
@@ -378,10 +405,10 @@ class MLService:
         argv = shlex.split(cmd)
         if argv[0] in ("python", "python3"):
             argv[0] = self.python()
-        if "--epochs" in argv:
+        # Only a command that already takes --epochs gets the requested count; appending it to one that
+        # doesn't would break scripts that read their own argv (e.g. a CSV path as the first argument).
+        if "--epochs" in argv[:-1]:
             argv[argv.index("--epochs") + 1] = str(epochs)
-        else:
-            argv += ["--epochs", str(epochs)]
         run_id = uuid.uuid4().hex[:8]
         env = {k: v for k, v in os.environ.items() if k not in ("FORGE_OFFLINE", "FORGE_RUN_DIR")}
         env.update(FORGE_HUB=hub_url.rstrip("/"), FORGE_RUN_ID=run_id,

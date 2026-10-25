@@ -1,0 +1,14 @@
+{
+  "status": "paused",
+  "movie": {
+    "movie_id": "obsession",
+    "title": "Obsession",
+    "year": 2025,
+    "duration_s": 6519.8,
+    "url": "/movie/files/obsession.mp4",
+    "subtitles_url": "/movie/files/obsession.en.srt"
+  },
+  "position_s": 1200.0,
+  "volume": 0.8,
+  "seek_rev": 0
+}

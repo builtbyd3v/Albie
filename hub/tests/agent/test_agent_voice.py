@@ -98,7 +98,7 @@ def test_session_update_config() -> None:
         assert sess["audio"]["input"]["format"] == {"type": "audio/pcm", "rate": 16000}
         assert sess["audio"]["output"]["format"] == {"type": "audio/pcm", "rate": 48000}
         assert sess["audio"]["input"]["transcription"]["model"] == "grok-transcribe"
-        assert "Bit" in sess["instructions"]
+        assert "Albie" in sess["instructions"]
         await s.close()
 
     asyncio.run(run())
@@ -118,9 +118,9 @@ def test_push_to_talk_turn_maps_to_our_events() -> None:
 
         T = "conversation.item.input_audio_transcription"
         grok.push(type=f"{T}.updated", transcript="Hey")
-        grok.push(type=f"{T}.updated", transcript="Hey Bit")
+        grok.push(type=f"{T}.updated", transcript="Hey Albie")
         grok.push(type="input_audio_buffer.committed")
-        grok.push(type=f"{T}.completed", transcript="Hey Bit!")
+        grok.push(type=f"{T}.completed", transcript="Hey Albie!")
         grok.push(type="response.created", response={"id": "r1"})
         grok.push(type="response.output_audio.delta", delta=_b64(b"\x01\x00" * 10))
         grok.push(type="response.output_audio_transcript.delta", delta="Hi")
@@ -141,16 +141,16 @@ def test_push_to_talk_turn_maps_to_our_events() -> None:
         ]
         events = [v for k, v in sink.log if k != "bytes"]
         partials = [e.payload["text"] for e in events if e.type == "stt.partial"]
-        assert partials == ["Hey", "Hey Bit"]
+        assert partials == ["Hey", "Hey Albie"]
         final = next(e for e in events if e.type == "stt.final")
-        assert final.payload == {"pet_id": "bit", "text": "Hey Bit!", "voice": True}
+        assert final.payload == {"pet_id": "bit", "text": "Hey Albie!", "voice": True}
         start = next(e for e in events if e.type == "tts.start")
         assert start.payload["sample_rate"] == 48000 and start.payload["encoding"] == "pcm16"
         end = next(e for e in events if e.type == "tts.end")
         assert end.payload["utterance_id"] == start.payload["utterance_id"]
         answers = [e.payload["text"] for e in events if e.type.startswith("agent.") and "text" in e.payload]
         assert answers == ["Hi", "Hi there!", "Hi there!"]
-        assert s.is_echo("hey bit!") and not s.is_echo("something else")
+        assert s.is_echo("hey albie!") and not s.is_echo("something else")
         await s.close()
 
     asyncio.run(run())
@@ -230,6 +230,21 @@ def test_grok_error_becomes_agent_error() -> None:
         await _settle()
         assert sink.flat() == ["emit:stt.final", "emit:agent.error"]
         assert "rate limited" in sink.log[-1][1].payload["message"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_item_not_found_error_is_harmless() -> None:
+    """A dropped turn's conversation.item.delete can race Grok, which answers 'Item not found'. No bubble, and the
+    open turn keeps going."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn()
+        grok.push(type="error", error={"type": "invalid_request_error", "message": "Item not found: item_1"})
+        await _settle()
+        assert sink.flat() == [] and not s._final_sent
         await s.close()
 
     asyncio.run(run())
@@ -507,19 +522,19 @@ def test_interim_completed_transcripts_are_not_final() -> None:
         await s.begin_turn()
         await s.feed(b"\x00\x00" * 4000)
         T = "conversation.item.input_audio_transcription"
-        grok.push(type=f"{T}.updated", transcript="... bid. How's")
-        grok.push(type=f"{T}.completed", transcript="... bid. How's")
-        grok.push(type=f"{T}.completed", transcript="... bit. How stable is my rocket")
+        grok.push(type=f"{T}.updated", transcript="... alby. How's")
+        grok.push(type=f"{T}.completed", transcript="... alby. How's")
+        grok.push(type=f"{T}.completed", transcript="... Albie. How stable is my rocket")
         await _settle()
         await s.commit_turn()
         grok.push(type="input_audio_buffer.committed")
-        grok.push(type=f"{T}.completed", transcript="Bit, how stable is my rocket right now?")
+        grok.push(type=f"{T}.completed", transcript="Albie, how stable is my rocket right now?")
         grok.push(type="response.created")
         await _settle()
         finals = [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"]
-        assert finals == ["Bit, how stable is my rocket right now?"]
+        assert finals == ["Albie, how stable is my rocket right now?"]
         partials = [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.partial"]
-        assert partials == ["... bid. How's", "... bit. How stable is my rocket"]
+        assert partials == ["... alby. How's", "... Albie. How stable is my rocket"]
         await s.close()
 
     asyncio.run(run())
@@ -556,7 +571,7 @@ def test_turn_grok_ignores_ends_as_empty(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.parametrize("text,stop", [
-    ("Stop.", True), ("Wait, stop, Bit.", True), ("Okay, quiet.", True), ("Never mind.", True), ("Stop that.", True),
+    ("Stop.", True), ("Wait, stop, Albie.", True), ("Al bee, stop.", True), ("Okay, quiet.", True), ("Never mind.", True), ("Stop that.", True),
     ("Shh!", True), ("Wait, what does static margin mean?", False), ("Explain fins.", False), ("", False),
 ])
 def test_stop_words(text: str, stop: bool) -> None:
@@ -570,7 +585,7 @@ def test_rocket_terms_lead_the_transcription_hints() -> None:
 
 
 def test_stop_word_ends_the_turn_without_a_reply() -> None:
-    """'Stop' over Bit: he goes quiet without answering 'Okay, quiet', and no tool runs."""
+    """'Stop' over Albie: he goes quiet without answering 'Okay, quiet', and no tool runs."""
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
@@ -595,17 +610,19 @@ def test_stop_word_ends_the_turn_without_a_reply() -> None:
 
 
 @pytest.mark.parametrize("text,named", [
-    ("Bit, what's my static margin?", True), ("Hey Bit what is apogee", True), ("Okay Bit, explain fins.", True),
-    ("How stable is it, Bit?", True), ("... bid. How's my rocket?", True),
-    ("I'm a bit tired", False), ("What did you think of the talk?", False), ("", False),
+    ("Albie, what's my static margin?", True), ("Hey Albie what is apogee", True), ("Okay Albee, explain fins.", True),
+    ("How stable is it, Alby?", True), ("... elbie. How's my rocket?", True), ("Al bee, what's apogee?", True),
+    ("Hey al be what is apogee", True), ("Al b, explain fins.", True), ("I'm a bit tired", False),
+    ("Bit, what's my static margin?", False), ("Sit down, please.", False), ("What did you think of the talk?", False),
+    ("I told Al be quiet", False), ("", False),
 ])
 def test_has_name(text: str, named: bool) -> None:
     assert voice_mod.has_name(text) is named
 
 
-@pytest.mark.parametrize("said,answered", [("So what did you think of the demo?", False), ("Bit, what is apogee?", True)])
+@pytest.mark.parametrize("said,answered", [("So what did you think of the demo?", False), ("Albie, what is apogee?", True)])
 def test_turn_that_needs_the_name(said: str, answered: bool) -> None:
-    """Look-to-talk: a turn opened while the user wasn't facing Bit only counts if they say his name.
+    """Look-to-talk: a turn opened while the user wasn't facing Albie only counts if they say his name.
     Side conversation is dropped silently: no captions, no reply."""
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
@@ -635,15 +652,15 @@ def test_turn_that_needs_the_name(said: str, answered: bool) -> None:
 
 
 def test_name_heard_only_in_an_interim_transcript_counts() -> None:
-    """Captured live: 'Bit, what's a fin for?' came in as 'Sit', then was re-transcribed without it."""
+    """Captured live (as 'Bit'): 'Albie, what's a fin for?' came in with the name, then was re-transcribed without it."""
     async def run() -> None:
         grok, sink = MockGrok(), Sink()
         s = _session(grok, sink)
         await s.begin_turn(require_name=True)
         await s.feed(b"\x10\x00" * 9600)
         T = "conversation.item.input_audio_transcription"
-        grok.push(type=f"{T}.updated", transcript="Sit")
-        grok.push(type=f"{T}.completed", transcript="Sit")
+        grok.push(type=f"{T}.updated", transcript="Al bee")
+        grok.push(type=f"{T}.completed", transcript="Al bee")
         grok.push(type=f"{T}.updated", transcript="What's a fin for?")
         await _settle()
         await s.commit_turn()
@@ -656,6 +673,146 @@ def test_name_heard_only_in_an_interim_transcript_counts() -> None:
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("text,named", [("Sit", True), ("Sit down, please.", True), ("Please sit down.", False), ("Bet you can't", True)])
-def test_first_word_near_misses(text: str, named: bool) -> None:
-    assert voice_mod.has_name(text) is named
+@pytest.mark.parametrize("text", ["wait a bit", "a bit more", "Wait a bit, Albie is busy", "can you wait a bit"])
+def test_a_bit_never_names_him(text: str) -> None:
+    assert voice_mod.has_name(text, last=False) is False
+    assert voice_mod.has_name(text) is False
+
+
+def test_partials_only_count_the_name_up_front() -> None:
+    """A growing partial always ends on its newest word: 'I told Alby' must not mark the turn named for good."""
+    assert voice_mod.has_name("I told Alby", last=False) is False
+    assert voice_mod.has_name("Hey Albie what", last=False) is True
+    assert voice_mod.has_name("How stable is it, Albie?") is True  # the last word counts on the final
+
+
+def test_name_as_last_word_of_a_partial_does_not_count() -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn(require_name=True)
+        await s.feed(b"\x10\x00" * 9600)
+        T = "conversation.item.input_audio_transcription"
+        grok.push(type=f"{T}.updated", transcript="I told Alby")
+        grok.push(type=f"{T}.updated", transcript="I told Alby's mom we'd come")
+        await _settle()
+        assert s._named is False
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type=f"{T}.completed", transcript="I told Alby's mom we'd come")
+        grok.push(type="response.created")
+        await _settle()
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+        assert not [k for k, v in sink.log if k == "emit" and v.type == "stt.partial"]
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_each_turn_logs_one_line(caplog: pytest.LogCaptureFixture) -> None:
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        s = _session(grok, sink)
+        await s.begin_turn(require_name=True)
+        await s.feed(b"\x10\x00" * 9600)
+        T = "conversation.item.input_audio_transcription"
+        grok.push(type=f"{T}.updated", transcript="Albie, what")
+        await s.commit_turn()
+        grok.push(type="input_audio_buffer.committed")
+        grok.push(type=f"{T}.completed", transcript="What is apogee?")
+        await _settle()
+        await s.close()
+
+    with caplog.at_level("INFO", logger="agent.voice"):
+        asyncio.run(run())
+    turns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("turn:")]
+    assert turns == ["turn: 'What is apogee?' require_name=True named=partial stop=False wake=False facing=False "
+                     "gated=False judged=None answered"]
+
+
+def test_a_dead_grok_socket_is_dropped_and_the_next_turn_reconnects() -> None:
+    """Live 18:19: a send on a socket that died (Wi-Fi blip) raised out of feed() and switched voice off for good."""
+    async def run() -> None:
+        grok, sink = MockGrok(), Sink()
+        connects = []
+        real_connect = grok.connect
+
+        async def counting(url: str, key: str) -> MockGrok:
+            connects.append(url)
+            return await real_connect(url, key)
+
+        grok.connect = counting  # type: ignore[method-assign]
+        s = _session(grok, sink)
+        await s.begin_turn()
+
+        async def broken(_: str) -> None:
+            raise ConnectionError("no close frame received or sent")
+
+        grok.send = broken  # type: ignore[method-assign]
+        await s.feed(b"\x10\x00" * 1600)  # must not raise
+        assert s._ws is None
+        await s.commit_turn()  # nothing to commit: an empty final, so Unity goes back to idle
+        assert [v.payload["text"] for k, v in sink.log if k == "emit" and v.type == "stt.final"] == [""]
+        del grok.send  # Wi-Fi back
+        await s.begin_turn()
+        assert s._ws is not None and len(connects) == 2
+        await s.close()
+
+    asyncio.run(run())
+
+
+def test_voice_stays_on_after_a_network_error() -> None:
+    """Live 18:19-18:28: after one ConnectionClosedError every turn went to the stt.py fallback and came back empty."""
+    from types import SimpleNamespace
+
+    import websockets.exceptions
+
+    from agent import ws as ws_mod
+
+    async def run() -> None:
+        errors: list[str] = []
+        voice = object()
+
+        async def reply_error(message: str, pet_id: str | None = None) -> None:
+            errors.append(message)
+
+        s = SimpleNamespace(voice=voice, pet_id="bit", reply_error=reply_error)
+
+        async def blip() -> None:
+            raise websockets.exceptions.ConnectionClosedError(None, None)
+
+        await ws_mod._voice_call(s, blip)
+        assert s.voice is voice and errors == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("text, tidy", [
+    ("Editing /Users/dev/Documents/GitHub/albie-sandbox/ml/train.py now", "Editing train.py now"),
+    ("I made ~/Documents/GitHub/albie-sandbox/frog.py for you.", "I made frog.py for you."),
+    ("ml/train.py is fine", "ml/train.py is fine"),
+    ("open http://localhost:8000/ml/x", "open http://localhost:8000/ml/x"),
+])
+def test_paths_in_the_bubble_and_speech_are_file_names(text: str, tidy: str) -> None:
+    """Live 20:0x: Albie's bubble showed /Users/dev/Documents/GitHub/albie-sandbox/ml/train.py."""
+    from agent.bus import tidy_paths
+
+    assert tidy_paths(text) == tidy
+
+
+def test_voice_delegate_steps_stay_out_of_the_bubble() -> None:
+    from agent.ws import _QuietSteps
+
+    async def run() -> None:
+        sent: list[Event] = []
+
+        async def emit(e: Event) -> None:
+            sent.append(e)
+
+        quiet = _QuietSteps(emit, "bit")  # type: ignore[arg-type]
+        await quiet(voice_mod.ev.task_started("bit", "t1", "Create frog.py in /Users/dev/x"))
+        await quiet(voice_mod.ev.task_progress("bit", "t1", "Editing frog.py"))
+        await quiet(voice_mod.ev.task_complete("bit", "t1", "Made frog.py."))
+        assert [(e.type, e.payload.get("mode")) for e in sent] == [("pet.state", "working"), ("agent.task_complete", None)]
+
+    asyncio.run(run())

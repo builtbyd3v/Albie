@@ -4,25 +4,19 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// "New for you" (MentionsPanel.prefab: a ForgePanel variant, panel id <c>messages-mentions</c>, slot Left of the MSG
-/// mode): unread DMs and mentions across conversations as <see cref="MessageCard"/>s, newest first, capped at
+/// "Mentions & notifications" (MentionsPanel.prefab: a ForgePanel variant, panel id <c>messages-mentions</c>, slot Left
+/// of the MSG mode): unread DMs and mentions across conversations as <see cref="MessageCard"/>s, newest first, capped at
 /// <see cref="MaxRows"/> with a "+N more" line. Rows come from <see cref="SlackStore"/>: the conversations with unread
 /// counts (notify.channels) and the recent messages known for them (history, notify.message, the digest); a conversation
-/// with unread but no known messages shows its last line. Tapping a row opens that conversation in the Slack panel
+/// with unread but no known messages shows its last line. Tapping a row opens that conversation in its provider panel
 /// (<see cref="SlackPanel.Active"/>.Open, or MSG mode with it pending) and the row clears once the hub marks it seen.
-/// <see cref="floating"/> copies (DigestTrigger, beside Bit while MSG mode is closed) show the digest's messages instead
-/// and open MSG mode when tapped. Rebuilt only when data or size changes; rows are pooled. This replaces the old
-/// MessagesPanel.
+/// Rebuilt only when data or size changes; rows are pooled. This replaces the old MessagesPanel.
 /// </summary>
 public class MentionsPanel : MonoBehaviour
 {
     public const int MaxRows = 8;
-    public const int FloatingRows = 4;
     const float RowGap = 6f, HeadH = 16f, FooterH = 18f;
     static readonly WaitForSeconds ClockTick = new WaitForSeconds(30f);
-
-    [Tooltip("Spawned by DigestTrigger beside Bit while MSG mode is closed: shows the last digest; tapping opens MSG mode.")]
-    public bool floating;
 
     public ForgePanel Panel { get; private set; }
 
@@ -32,7 +26,6 @@ public class MentionsPanel : MonoBehaviour
     readonly List<MessageCard> cards = new List<MessageCard>(MaxRows);
     readonly List<NotifyMessage> items = new List<NotifyMessage>(MaxRows + 1);
     readonly Dictionary<string, NotifyMessage> stubs = new Dictionary<string, NotifyMessage>();  // per channel: "last line" rows
-    NotifyDigest digest;
     int shown, more;
     bool dataDirty, layoutDirty;
     Vector2 lastSize;
@@ -45,7 +38,7 @@ public class MentionsPanel : MonoBehaviour
         var placeholder = content.Find("Placeholder");
         if (placeholder != null) placeholder.gameObject.SetActive(false);
         heading = SlackUi.OverlineText(content, "Heading");
-        heading.text = "New for you";
+        heading.text = "Mentions & notifications";
         list = SlackUi.Rect(content, "List");
         footer = SlackUi.Text(content, "Footer", SlackUi.Small, SlackUi.Subtext, align: TextAlignmentOptions.Center);
         empty = SlackUi.Text(content, "Empty", SlackUi.Body, SlackUi.Subtext, align: TextAlignmentOptions.Center, wrap: true);
@@ -59,9 +52,7 @@ public class MentionsPanel : MonoBehaviour
         SlackStore.ChannelsChanged += MarkDirty;
         SlackStore.HistoryChanged += MarkDirty;
         SlackStore.MessageAdded += MarkDirty;
-        ForgeEvents.OnNotifyDigest += OnDigest;
         ForgeNet.StatusChanged += MarkDirty;
-        if (floating && digest == null && ForgeNet.TryGetLast(ForgeEvents.NotifyDigestType, out NotifyDigest last)) digest = last;
         dataDirty = layoutDirty = true;
         clock = StartCoroutine(Clock());
     }
@@ -71,7 +62,6 @@ public class MentionsPanel : MonoBehaviour
         SlackStore.ChannelsChanged -= MarkDirty;
         SlackStore.HistoryChanged -= MarkDirty;
         SlackStore.MessageAdded -= MarkDirty;
-        ForgeEvents.OnNotifyDigest -= OnDigest;
         ForgeNet.StatusChanged -= MarkDirty;
         if (clock != null) { StopCoroutine(clock); clock = null; }
     }
@@ -80,19 +70,6 @@ public class MentionsPanel : MonoBehaviour
     void MarkDirty(string _) => dataDirty = true;
     void MarkDirty(string _, NotifyMessage __) => dataDirty = true;
     void MarkDirty(ForgeNetStatus _) => dataDirty = true;
-
-    void OnDigest(NotifyDigest d)
-    {
-        if (floating) digest = d;
-        dataDirty = true;
-    }
-
-    /// <summary>The floating copy: show this digest (DigestTrigger sets it before the panel enables).</summary>
-    public void ShowDigest(NotifyDigest d)
-    {
-        digest = d;
-        dataDirty = true;
-    }
 
     void LateUpdate()
     {
@@ -123,21 +100,10 @@ public class MentionsPanel : MonoBehaviour
         layoutDirty = true;
         items.Clear();
         more = 0;
-        int cap = floating ? FloatingRows : MaxRows;
-
-        if (floating)
-        {
-            if (digest?.messages != null)
-                for (int i = 0; i < digest.messages.Count && items.Count < cap; i++)
-                    if (digest.messages[i] != null) items.Add(digest.messages[i]);
-            more = digest != null ? Mathf.Max(0, digest.count - items.Count) : 0;
-        }
-        else
-        {
-            Collect();
-            more = Mathf.Max(0, items.Count - cap);
-            while (items.Count > cap) items.RemoveAt(items.Count - 1);
-        }
+        int cap = MaxRows;
+        Collect();
+        more = Mathf.Max(0, items.Count - cap);
+        while (items.Count > cap) items.RemoveAt(items.Count - 1);
 
         shown = items.Count;
         if (template != null)
@@ -161,9 +127,9 @@ public class MentionsPanel : MonoBehaviour
         if (none)
         {
             bool live = ForgeNet.Status == ForgeNetStatus.Live;
-            empty.text = !live ? "Hub offline" : floating || SlackStore.ChannelsKnown ? "You're all caught up" : "Loading…";
+            empty.text = !live ? "Hub offline" : SlackStore.ChannelsKnown ? "You're all caught up" : "Loading…";
         }
-        if (Panel != null && !floating)
+        if (Panel != null)
         {
             int unread = SlackStore.TotalUnread;
             Panel.Subtitle = unread == 0 ? "" : unread == 1 ? "1 unread" : unread + " unread";
@@ -171,7 +137,8 @@ public class MentionsPanel : MonoBehaviour
     }
 
     // Unread DMs and mentions, newest first: for each conversation with unread, its newest known messages (as many as
-    // are unread) that are DMs or mention the user; none known -> one row with the conversation's last line.
+    // are unread) that are DMs or mention the user; none known -> one row with the conversation's last line. Group
+    // chats and channels without a mention stay out, so a busy inbox doesn't flood the panel.
     void Collect()
     {
         var channels = SlackStore.Channels;
@@ -232,12 +199,13 @@ public class MentionsPanel : MonoBehaviour
         return card;
     }
 
-    // Open the conversation in the Slack panel; from the floating copy, open MSG mode with it pending.
+    // Open the conversation in its provider panel, or open MSG mode with it pending.
     void OnRow(MessageCard card)
     {
         var m = card.Message;
         if (m == null || string.IsNullOrEmpty(m.channel)) return;
-        if (SlackPanel.Active != null) SlackPanel.Active.Open(m.channel);
+        var target = SlackPanel.ForChannel(m.channel);
+        if (target != null) target.Open(m.channel);
         else
         {
             SlackPanel.PendingChannel = m.channel;
