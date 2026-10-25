@@ -8,6 +8,11 @@
 
 ## 0. Status (update this as you go)
 
+**2026-10-24, Hudson (desk, branch `desk/movie-marks`):**
+- **Done (hub), movie marks:** "Albie, save minute 45 as Tony Stark starts building Iron Man" (or "save this spot as ..." while it plays) keeps a named spot per movie; later "skip to where Tony starts building Iron Man" jumps there (and puts that movie on if another is). Tool `movie_marks {action: save|list|remove}` + `movie_control seek {mark}`; REST `/movie/marks`. Hub only: Unity just sees the seek. No dots on the scrubber.
+- **Volume by voice:** "turn it down pretty low" / "20%" / "a bit louder" (`movie_control volume {volume | by}`; 20 is read as 20%).
+- **Fixed: the movie stayed quiet after Albie spoke.** It ducked on `pet.state` speaking, which the hub leaves on until the next turn; it now follows Albie's voice actually playing (`StreamedPcmTextToSpeech.IsTalking`).
+
 **2026-10-24, Hudson (Bit runs the workspace, branch `agent/bit-control`):**
 - **Done: hub and Unity, play-tested end to end** (desktop mode, real hub and CAD worker, Slack on stubs). From the desk with nothing open, by voice alone: "Bit, open the quadcopter. Expand it. Now the rocket, show me it flying. Make the shaft 10% longer. Draft a message to Adrian with all the files for the supplier. Rephrase it. Send it."
   - Bit opens views himself: the `ui_open_view` tool, `ui.mode` out, Unity's `workspace.mode` back. CAD tools open the CAD view on their own.
@@ -32,7 +37,7 @@
   - **Notes** ("add that to my notes", "pull up my notes"): beside the open panels; check off, remove with Undo.
   - **Movie** ("put the movie on"): a big screen high over the desk streaming `hub/.data/media/*.mp4` from the hub (resumes where you stopped, subtitles, quieter while Albie talks).
   - **Dots:** the timers and the notes minimize into a neon dot (the soonest timer's minutes / the open count). Tap to open there; hold to carry it.
-- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 11 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`. In Main they sit under the Workspace: `DeskBootstrap` adds them at runtime to any scene with a Workspace that lacks them (so a Main rebuilt by any branch's builder has them), and Main's builder adds them too. Proposed contract: hub/README "Desk (timers, notes, movie)".
+- Hub: `hub/desk/` (REST `/timers`, `/notes`, `/movie`, `/ui/widgets`; events `ui.widgets`, `timers.updated`, `notes.updated`, `movie.state`; 12 tools). Unity: `Assets/_Forge/Desk/` (README there; sandbox `DeskSandbox.unity` works hub-off) and Core `WorkspaceExtras` (the layer outside the modes), `PanelOrb`, `ForgeRim`. In Main they sit under the Workspace: `DeskBootstrap` adds them at runtime to any scene with a Workspace that lacks them (so a Main rebuilt by any branch's builder has them), and Main's builder adds them too. Proposed contract: hub/README "Desk (timers, notes, movie)".
 - Core changes: `Workspace.TopEdge` / `BesidePose` / `LayoutEye` (read-only helpers), `PanelManipulator.AddMinimize` + `PointedAt`, `EventBus.sticky_fresh` (hub). Main.unity itself is unchanged.
 - The pet's name in the extras' UI is one field (`DeskExtras.assistantName`, "Albie").
 
