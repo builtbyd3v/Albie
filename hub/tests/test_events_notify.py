@@ -52,8 +52,17 @@ def test_draft_and_cancelled_keys() -> None:
     from events import Draft, NotifyDraftCancelled
 
     d = Draft(draft_id="d1", channel="C01", channel_name="forge-team", text="yes, by 3").model_dump()
-    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "source"]
-    assert d["edited"] is False and d["source"] == "slack"
+    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "attachments",
+                       "source"]
+    assert d["edited"] is False and d["attachments"] == [] and d["source"] == "slack"
+
+    from events import Attachment
+
+    a = Attachment(id="rocket-v7-step", name="rocket_v7.step", kind="step", bytes=10, path="C:/hub/.data/x.step")
+    assert a.model_dump() == {"id": "rocket-v7-step", "name": "rocket_v7.step", "title": "", "kind": "step",
+                              "bytes": 10, "source": ""}  # the hub's path never leaves it
+    assert "x.step" not in Draft(draft_id="d2", channel="C01", channel_name="x", text="t",
+                                 attachments=[a]).model_dump_json()
 
     from events import ChannelSummary, NotifyChannels
 

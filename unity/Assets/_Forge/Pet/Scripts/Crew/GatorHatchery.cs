@@ -18,9 +18,11 @@ namespace Forge.Pet
     /// types here) and mouse clicks. The picker billboards toward the user (yaw only). No allocations per frame.
     /// Gate: while GatorCrew.CrewAllowed is false (the code mode is closed in Main) the whole egg is hidden and inert;
     /// it comes back when the mode opens. Sandbox scenes have no Workspace, so the egg is always out there.
+    /// Once the whistle sits by Hudson's DeskDock, the egg sits just past the whistle (away from the dock) and slides with it.
     /// </summary>
     [RequireComponent(typeof(BoxCollider))]
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(60)]   // LateUpdate after WhistleButton's, which follows the dock
     public class GatorHatchery : MonoBehaviour
     {
         [SerializeField, Tooltip("Egg renderer (white). Empty = first child Renderer.")]
@@ -48,6 +50,10 @@ namespace Forge.Pet
         bool rightSide = false;
         [SerializeField, Tooltip("No desk after this many seconds: place next to the gator spawn.")]
         float noDeskFallbackSeconds = 2f;
+        [SerializeField, Tooltip("While the whistle sits by the DeskDock, sit just past it (away from the dock) and slide with it.")]
+        bool besideWhistle = true;
+        [SerializeField, Tooltip("Gap (m) between the whistle's edge and the egg's.")]
+        float whistleGap = 0.015f;
 
         [Header("Look")]
         [SerializeField, Tooltip("\"Spawn Crew Agent\" height above the egg (m).")]
@@ -86,7 +92,7 @@ namespace Forge.Pet
         Vector3 _eggRest, _eggScale;
         int _index;
         float _lastPress = -10f, _pressedUntil = -1f, _startTime, _nextPlaceCheck, _lastUse, _slide;
-        bool _placedFallback, _hasSpawn, _gated;
+        bool _placedFallback, _hasSpawn, _gated, _byWhistle;
         Vector3 _spawnPos, _spawnRight = Vector3.right;
 
         void Awake()
@@ -169,7 +175,7 @@ namespace Forge.Pet
             if (Time.time >= _nextPlaceCheck)
             {
                 _nextPlaceCheck = Time.time + 0.5f;
-                if (autoPlace) UpdatePlacement();
+                if (autoPlace && !_byWhistle) UpdatePlacement();
                 BindCrew();
             }
             bool gated = _crew != null && !_crew.CrewAllowed;
@@ -195,6 +201,11 @@ namespace Forge.Pet
                 _slide = Mathf.MoveTowards(_slide, 0f, Time.deltaTime / SlideSeconds);
                 LayoutCarousel();
             }
+        }
+
+        void LateUpdate()
+        {
+            _byWhistle = autoPlace && besideWhistle && FollowWhistle();
         }
 
         // Hide the egg, its label, the picker and the poke / ray children while gated; put them back when the mode opens.
@@ -417,6 +428,33 @@ namespace Forge.Pet
             transform.SetPositionAndRotation(pos, r);
             Placed = true;
             _placedFallback = false;
+        }
+
+        // Every frame while a whistle sits by the dock: just past it on the side away from the dock, level and facing the
+        // user like the egg's corner spot, so it slides with the dock (‹ ›, grip drag) right after the whistle does. No room
+        // past the whistle at the desk's end: just behind it (into the desk) instead.
+        bool FollowWhistle()
+        {
+            var all = WhistleButton.All;
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (!all[i].TryGetDockSpot(out Vector3 at, out Vector3 away, out float whistleHalf)) continue;
+                float half = _collider.size.x * transform.lossyScale.x * 0.5f;
+                Vector3 inward = Vector3.Cross(away, Vector3.up);
+                Vector3 pos = at + away * (whistleHalf + whistleGap + half);
+                GatorNavSurface desk = GatorNavSurface.Desk;
+                if (desk != null && desk.IsBuilt
+                    && (DeskCorner.ClampInside(desk.TopCenter, desk.Rotation, desk.Size, pos, half) - pos).sqrMagnitude > 0.005f * 0.005f)
+                    pos = at + inward * (whistleHalf + whistleGap + half);   // ponytail: assumes the whistle is about as deep as wide
+                pos += Vector3.up * (_collider.size.y * transform.lossyScale.y * 0.5f);
+                Quaternion r = Quaternion.LookRotation(-inward, Vector3.up);
+                if ((pos - transform.position).sqrMagnitude > 0.0005f * 0.0005f || Quaternion.Angle(r, transform.rotation) > 0.1f)
+                    transform.SetPositionAndRotation(pos, r);
+                Placed = true;
+                _placedFallback = false;
+                return true;
+            }
+            return false;
         }
 
         void PlaceFallback()

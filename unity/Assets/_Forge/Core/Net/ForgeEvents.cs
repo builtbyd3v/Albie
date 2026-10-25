@@ -205,6 +205,33 @@ public class CadView
 {
     [JsonProperty("explode")] public bool? explode;
     [JsonProperty("focus_id")] public string focusId;
+    // proposed: several parts lit at once (all the fins); focusId is the first of them
+    [JsonProperty("focus_ids")] public List<string> focusIds;
+
+    public bool SameFocus(CadView other)
+    {
+        if (other == null || focusId != other.focusId) return false;
+        int n = focusIds?.Count ?? 0;
+        if (n != (other.focusIds?.Count ?? 0)) return false;
+        for (int i = 0; i < n; i++)
+            if (focusIds[i] != other.focusIds[i]) return false;
+        return true;
+    }
+}
+
+/// <summary>
+/// Bit pressing a button in the CAD view (cad.action, PET_AGENT_CONTRACT Addendum H). Not sticky: it means "now".
+/// CadSession applies it once the viewer shows <see cref="version"/> of <see cref="part"/>.
+/// </summary>
+public class CadAction
+{
+    [JsonProperty("action")] public string action;  // expand | demo | markers | dimensions | tab | reassemble | take_off | put_back
+    [JsonProperty("on")] public bool? on;            // expand / demo / markers / dimensions: on or off
+    [JsonProperty("tab")] public string tab;         // tab: overview | parameters | analysis | history
+    [JsonProperty("part_id")] public string partId;  // proposed, take_off / put_back: the part (put_back: null = the last)
+    [JsonProperty("part")] public string part;       // the design it is for
+    [JsonProperty("version")] public int? version;   // the version it is for
+    [JsonProperty("seq")] public int seq;            // increasing per hub run
 }
 
 public class PetState
@@ -239,6 +266,12 @@ public class UiHighlight
     [JsonProperty("panel")] public string panel;
     [JsonProperty("item_ids")] public List<string> itemIds;
     [JsonProperty("class_idx")] public int? classIdx;
+}
+
+/// <summary>Bit opens a workspace view (ui.mode, Addendum H); <see cref="WorkspaceRemote"/> answers with workspace.mode.</summary>
+public class UiMode
+{
+    [JsonProperty("mode")] public string mode;  // ml | cad | code | messages; "" closes the open one
 }
 
 public class NotifyMessage
@@ -292,6 +325,18 @@ public class NotifyDraft
     [JsonProperty("thread_ts")] public string threadTs;
     [JsonProperty("reply_to")] public NotifyMessage replyTo;  // the message this answers, when there is one
     [JsonProperty("edited")] public bool edited;              // re-emitted after PATCH /messages/drafts/{id}
+    [JsonProperty("attachments")] public List<DraftAttachment> attachments = new List<DraftAttachment>();  // sent with it (Addendum H)
+}
+
+/// <summary>A file on a draft (the hub keeps it and uploads it with the text on Send), e.g. a CAD design's STEP.</summary>
+public class DraftAttachment
+{
+    [JsonProperty("id")] public string id;
+    [JsonProperty("name")] public string name;    // rocket_v12.step
+    [JsonProperty("title")] public string title;  // "CAD model (STEP)"
+    [JsonProperty("kind")] public string kind;    // step | stl | drawing | parts | file
+    [JsonProperty("bytes")] public long bytes;
+    [JsonProperty("source")] public string source;
 }
 
 public class NotifyDraftCancelled
@@ -394,6 +439,8 @@ public static class ForgeEvents
     public const string CadModelUpdatedType = "cad.model_updated";
     public const string CadRegenFailedType = "cad.regen_failed";
     public const string CadViewType = "cad.view";
+    public const string CadActionType = "cad.action";
+    public const string UiModeType = "ui.mode";
     public const string PetStateType = "pet.state";
     public const string PetSayType = "pet.say";
     public const string UiHighlightType = "ui.highlight";
@@ -417,6 +464,8 @@ public static class ForgeEvents
     public static event Action<CadModelUpdated> OnCadModelUpdated;
     public static event Action<CadRegenFailed> OnCadRegenFailed;
     public static event Action<CadView> OnCadView;
+    public static event Action<CadAction> OnCadAction;
+    public static event Action<UiMode> OnUiMode;
     public static event Action<PetState> OnPetState;
     public static event Action<PetSay> OnPetSay;
     public static event Action<UiHighlight> OnUiHighlight;
@@ -445,6 +494,8 @@ public static class ForgeEvents
             case CadModelUpdatedType: Invoke(OnCadModelUpdated, payload); return true;
             case CadRegenFailedType: Invoke(OnCadRegenFailed, payload); return true;
             case CadViewType: Invoke(OnCadView, payload); return true;
+            case CadActionType: Invoke(OnCadAction, payload); return true;
+            case UiModeType: Invoke(OnUiMode, payload); return true;
             case PetStateType: Invoke(OnPetState, payload); return true;
             case PetSayType: Invoke(OnPetSay, payload); return true;
             case UiHighlightType: Invoke(OnUiHighlight, payload); return true;
