@@ -42,6 +42,29 @@ class TrainRequest(BaseModel):
     epochs: int
 
 
+class GitHubImportRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=512)
+
+
+class GitHubImportResponse(BaseModel):
+    import_id: str
+    repository: str
+    url: str
+    ref: str
+    supported: bool
+    format: str | None = None
+    model: str | None = None
+    dataset: str | None = None
+    files: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    file_shas: dict[str, str] = Field(default_factory=dict)
+
+
+class GitHubTrainRequest(BaseModel):
+    import_id: str = Field(min_length=1, max_length=32)
+    epochs: int = Field(default=10, ge=5, le=10)
+
+
 class TrainResponse(BaseModel):
     run_id: str
 

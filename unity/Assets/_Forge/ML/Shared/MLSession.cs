@@ -39,6 +39,13 @@ namespace Forge.ML
     [Serializable] public class MLProbePayload { public string run_id; public int epoch; public MLProbeSample[] samples; }
     [Serializable] public class MLClassAccuracyPayload { public string run_id; public int epoch; public float?[] per_class; }
     public class MLRunInfo { public string run_id, status; public int? epochs; }
+    [Serializable] public class MLTrainResponse { public string run_id; }
+    [Serializable] public class MLGitHubImport
+    {
+        public string import_id, repository, url, @ref, format, model, dataset, reason;
+        public bool supported;
+        public string[] files;
+    }
     // GET /ml/metrics/{run_id}: a finished run's curves, so panels opened after training still show them.
     public class MLMetricsHistory
     {
@@ -73,6 +80,7 @@ namespace Forge.ML
         public bool IsLive => useLiveEvents && ForgeNet.Status == ForgeNetStatus.Live;
         public bool HubData { get; private set; }
         public string RunId { get; private set; }
+        public string GitHubImportId { get; private set; }
         // One line for the Training panel: why there's no live data, or what Train is doing.
         public string Notice { get; private set; }
         // POST /ml/train sent, no answer yet. Train ignores presses until it clears, or while a run trains.
@@ -232,8 +240,44 @@ namespace Forge.ML
             }
             if (TrainBusy) return;  // a second POST only gets the hub's 409 "still training"
             TrainPending = true; Notice = "Starting training..."; Changed?.Invoke();
+            if (!string.IsNullOrEmpty(GitHubImportId))
+            {
+                ForgeNet.Post<MLTrainResponse>("/ml/github/train", new { import_id = GitHubImportId, epochs }, response =>
+                {
+                    TrainPending = false; Changed?.Invoke();
+                    if (response != null) { RunId = response.run_id; LoadFromHub(RunId); }
+                }, e => { TrainPending = false; Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+                return;
+            }
             ForgeNet.Post("/ml/train", new { epochs }, _ => { TrainPending = false; Changed?.Invoke(); },
                 e => { TrainPending = false; Notice = "Train failed: " + e; Changed?.Invoke(); Debug.LogWarning("[ML] Train failed: " + e); });
+        }
+        public void ImportGitHub(string url)
+        {
+            if (!IsLive)
+            {
+                Notice = "GitHub import needs the hub: start it on the laptop and set ForgeNet's Hub Url.";
+                Changed?.Invoke(); return;
+            }
+            if (string.IsNullOrWhiteSpace(url)) { Notice = "Paste a public GitHub repository URL first."; Changed?.Invoke(); return; }
+            Notice = "Inspecting public GitHub repository..."; Changed?.Invoke();
+            ForgeNet.Post<MLGitHubImport>("/ml/github/import", new { url = url.Trim() }, result =>
+            {
+                GitHubImportId = result != null && result.supported ? result.import_id : null;
+                Notice = result == null ? "GitHub import returned no result." : result.supported
+                    ? $"Supported: {result.repository} · {result.model} on {result.dataset}. Train is ready."
+                    : $"Unsupported repository: {result.reason}";
+                if (GitHubImportId != null) LoadFromHub(null);
+                Changed?.Invoke();
+            }, error => { GitHubImportId = null; Notice = "GitHub import failed: " + HubDetail(error); Changed?.Invoke(); });
+        }
+        // "422 HTTP/1.1 422 Unprocessable Entity {"detail":"..."}" -> the hub's own sentence, for the panel's banner.
+        static string HubDetail(string error)
+        {
+            int brace = error == null ? -1 : error.IndexOf('{');
+            if (brace < 0) return error;
+            try { return Newtonsoft.Json.Linq.JObject.Parse(error.Substring(brace)).Value<string>("detail") ?? error; }
+            catch (Exception) { return error; }
         }
         public void SelectPair(int truth, int predicted) => PairSelected?.Invoke(truth, predicted);
         // Live: the hub writes labels_override.json and echoes ml.sample_updated, which applies the change.
