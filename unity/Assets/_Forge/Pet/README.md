@@ -32,7 +32,7 @@ PetRuntime
   to their left, nudged out of the dock keep-out) and faces them (`GatorController.StationAt`, plain Wandering, not
   Listening) → `POST /messages/digest` (`DigestTrigger.RequestDigest`, 3 s hub wait, 5 s reply cap) → the **greeting card**
   shows the digest `line` ("You have 3 new messages, 1 mentions you." / "You have no new messages today." / "Hub offline."
-  when the hub never came up; it is swapped in if the hub connects later) with the **START ring** to its right. The hub
+  when the hub never came up; it is swapped in if the hub connects later) with the **START pill** on a frosted bar, low over the desk straight in front of the user. The hub
   speaks the same line. No timeout: the card stays until START or Away. START → card + ring fold (`ArrivalGreeting.Fold`),
   the dock comes in (frame slides in from the right, rings plop on), Albie walks to `afterStartSpot` (his side of the desk,
   `GatorController.WanderTo`), and after the dock has landed `Workspace.Open("code")` (falls back to `"screens"`).

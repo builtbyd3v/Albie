@@ -7,7 +7,8 @@ namespace Forge.Pet
 {
     /// <summary>
     /// The first-arrival greeting: a translucent card with the digest line ("You have 3 new messages, 1 mentions you.")
-    /// floating beside Bit, and a START pill (one of Hudson's dock controls, <see cref="DockRing"/>) to its right. Both are
+    /// floating beside Bit, and a START pill (one of Hudson's dock controls, <see cref="DockRing"/>) on a frosted bar, low over
+    /// the desk straight in front of the user. Both are
     /// built into PetRuntime.prefab by the editor (Forge > Pet > Build All, PetRuntimeSetup / ArrivalSetup), saved
     /// inactive, and driven by <see cref="ArrivalDirector"/>: <see cref="Show"/> places them in the desk frame and pops
     /// them in, <see cref="Fold"/> scales them away. Pressing START (mouse, Interaction SDK ray / poke through the ring's
@@ -22,8 +23,14 @@ namespace Forge.Pet
         [SerializeField] DockRing startRing;
         [SerializeField, Tooltip("Card centre from the greeting spot, desk frame (m): right of it, up, into the desk.")]
         Vector3 cardOffset = new Vector3(0.28f, 0.21f, -0.02f);
-        [SerializeField, Tooltip("Gap (m) between the card's right edge and the START pill.")]
-        float ringGap = 0.05f;
+        // START pill centre, desk frame (m): x from straight in front of the user's eyes, 22 cm up, a little in. Code, not a
+        // serialized field: a prefab imported before the field existed keeps the old default baked in its import.
+        static readonly Vector3 StartOffset = new Vector3(0f, 0.22f, 0.14f);
+
+        // The frosted bar around the pill (mm of room each side) and how see-through it is.
+        const float FrostPad = 16f, FrostAlpha = 0.6f;
+        // Room (m) between the card's right edge and the frosted bar, when the card would reach over it.
+        const float CardGap = 0.03f;
 
         /// <summary>START was pressed (once per Show).</summary>
         public event Action StartPressed;
@@ -46,6 +53,7 @@ namespace Forge.Pet
             {
                 _ringScale = startRing.transform.localScale;
                 startRing.Button.onClick.AddListener(OnStartPressed);
+                Frost(startRing);
             }
         }
 
@@ -59,10 +67,13 @@ namespace Forge.Pet
             if (presence == null || presence.Frame == null) return;
             Transform frame = presence.Frame;
             Vector3 spot = frame.InverseTransformPoint(greetingSpot);
-            Vector3 cardLocal = new Vector3(spot.x + cardOffset.x, cardOffset.y, spot.z + cardOffset.z);
+            float reach = Mathf.Max(0f, presence.FrameWidth * 0.5f - 0.15f);   // keep the bar on this desk
+            float ringX = Mathf.Clamp(presence.EyeInFrame().x + StartOffset.x, -reach, reach);
+            Vector3 ringLocal = new Vector3(ringX, StartOffset.y, StartOffset.z);
             float cardHalf = card != null ? card.sizeDelta.x * 0.5f * ForgePanel.MetersPerUnit : 0.15f;
-            float ringRadius = startRing != null ? startRing.HalfWidth * ForgePanel.MetersPerUnit : 0.08f;   // half the pill's width
-            Vector3 ringLocal = cardLocal + new Vector3(cardHalf + ringGap + ringRadius, 0f, 0f);
+            float barHalf = startRing != null ? (startRing.HalfWidth + FrostPad) * ForgePanel.MetersPerUnit : 0.1f;
+            float cardX = Mathf.Min(spot.x + cardOffset.x, ringX - barHalf - CardGap - cardHalf);   // never over the bar
+            Vector3 cardLocal = new Vector3(cardX, cardOffset.y, spot.z + cardOffset.z);
 
             gameObject.SetActive(true);
             if (headline != null) headline.text = line ?? "";
@@ -82,6 +93,29 @@ namespace Forge.Pet
                 startRing.Interactable = true;
                 DigestTrigger.PopIn(this, t);
             }
+        }
+
+        // A frosted bar behind the pill: ForgePanel's graphite surface (gradient, top rim light, soft shadow), see-through.
+        // A real blur needs a grab pass, too costly at 72 fps on Quest. Built once here, so the saved prefab needs no
+        // rebuild; its own canvas sorts it under the ring's light.
+        static void Frost(DockRing ring)
+        {
+            if (ring.transform.Find("Frost") != null) return;
+            var go = new GameObject("Frost", typeof(RectTransform), typeof(Canvas));
+            go.layer = ring.gameObject.layer;
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(ring.transform, false);
+            rt.SetAsFirstSibling();
+            rt.localPosition = new Vector3(0f, 0f, 0.5f);   // behind the pool (canvas +Z points away from the user)
+            rt.sizeDelta = new Vector2(2f * (ring.HalfWidth + FrostPad), 2f * (ring.Radius + FrostPad));
+            var canvas = go.GetComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = -1;
+            var surface = go.AddComponent<ForgeSurface>();
+            surface.raycastTarget = false;
+            surface.Style = ForgeSurface.Kind.Panel;
+            surface.Pill = true;
+            surface.color = new Color(1f, 1f, 1f, FrostAlpha);
         }
 
         /// <summary>Change the headline while shown (the hub came live and answered the digest after all).</summary>

@@ -202,7 +202,7 @@ namespace Forge.ML
         void ShowMistakes() { gallery = true; wrongDots = true; suspects = classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); }
         public void ShowSuspects() { gallery = true; wrongDots = true; suspects = true; classPicker = relabeling = false; classFilter = truth = predicted = -1; selected = -1; page = 0; Refresh(); ShowTab(Tab.Images); }
         void ShowClassPicker() { classPicker = true; gallery = relabeling = false; selected = -1; page = 0; Refresh(); }
-        void ChooseClass(int index) { classFilter = index; gallery = true; wrongDots = true; suspects = false; classPicker = relabeling = false; truth = predicted = -1; selected = -1; page = 0; Refresh(); }
+        public void ChooseClass(int index) { classFilter = index; gallery = true; wrongDots = true; suspects = false; classPicker = relabeling = false; truth = predicted = -1; selected = -1; page = 0; Refresh(); }
         void ChangePage(int delta)
         {
             if (!gallery) return;

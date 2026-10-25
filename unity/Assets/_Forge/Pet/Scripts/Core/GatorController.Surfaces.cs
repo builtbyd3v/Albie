@@ -81,14 +81,14 @@ namespace Forge.Pet
             hopping = true;
         }
 
-        /// <summary>Hop onto GatorNavSurface.Desk at the edge nearest the user, then face them.</summary>
-        public void HopToUserDesk()
+        /// <summary>Hop onto GatorNavSurface.Desk at the edge nearest the user (or at <paramref name="at"/>), then face them.</summary>
+        public void HopToUserDesk(Vector3? at = null)
         {
             if (hopping) return;
             GatorNavSurface desk = GatorNavSurface.Desk;
             if (desk == null || !desk.IsBuilt) { Debug.LogWarning("[GatorController] HopToUserDesk: no desk surface built.", this); return; }
             Transform head = PetUser.Head;
-            Vector3 landing = head != null ? desk.ClosestPoint(head.position, deskEdgeInset) : desk.TopCenter;
+            Vector3 landing = at ?? (head != null ? desk.ClosestPoint(head.position, deskEdgeInset) : desk.TopCenter);
             landing = KeepOutSafePoint(desk, landing);     // never land on the laptop / DeskDock keep-out
 
             if (CurrentSurface == desk && OnMesh)

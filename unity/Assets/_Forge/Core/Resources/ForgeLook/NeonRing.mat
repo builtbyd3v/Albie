@@ -27,6 +27,7 @@ Material:
     m_Floats:
     - _Enabled: 1
     - _Fade: 1
+    - _Half: 0
     - _Hover: 0
     - _HueT: 0.1
     - _Near: 0
