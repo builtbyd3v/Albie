@@ -76,7 +76,15 @@ Full steps and gotchas: [SETUP.md](SETUP.md).
 
 ## Team
 
-Built at Gator Hack V (UF AI Days 2026) by Dev Goswami, Hudson Marr, Adrian (apscual), Satyabrata (Satyabratadas) and Nandani Rai.
+Built at Gator Hack V (UF AI Days 2026) by:
+
+| Name | Department / major |
+|---|---|
+| Dev Goswami | BS Software Engineering, WGU |
+| Adrian Pascual | Computer Science, CISE, College of Engineering |
+| Satyabrata Das | Artificial Intelligence Systems, Department of Engineering Education (EED) |
+| Hudson Marr | Electrical Engineering, ECE |
+| Nandani Rai | MS in Computer Science |
 
 ## License
 
