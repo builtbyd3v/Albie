@@ -18,7 +18,7 @@ using UnityEngine.UI;
 /// It comes in centered on the edge and slides along it, keeping <see cref="endRoom"/> free at each end of the desk (the
 /// gator's whistle sits just past its right end: <see cref="TryGetRightSide"/>): ‹ and › at its ends (they fade in only
 /// while a pointer is on them) move it a step, and holding the right controller's grip (middle mouse button in desktop
-/// mode) while pointing anywhere on it drags it.
+/// mode) while pointing anywhere on it drags it; with hands, pinch on it and slide.
 /// Input stays flat: each button is an invisible raycast Image + Button on the dock canvas that never moves. The light
 /// is quads under "Light" (Forge/NeonFrame, NeonRing, LightPool) and 3D Inter labels, styled by <see cref="ForgeTheme"/>;
 /// the ring pieces come from <see cref="DockRing"/>, which also makes one on its own. Built from <see cref="Workspace.modes"/>.
@@ -98,9 +98,16 @@ public class DeskDock : MonoBehaviour
     // Grip drag: the right controller's ray (or the desktop mouse) holding the dock, and the dock's x minus where that
     // pointer met the desk when the grip closed (m, desk frame), so the dock keeps its place under the pointer.
     RayInteractor dragRay;
-    bool dragging, dragMouse;
+    bool dragging, dragMouse, dragPinch;
     float dragGrab;
     const float DragMargin = 15f;  // the grip catches this far outside the frame too (mm)
+    // Pinch drag (hands): the hand ray pinching on the dock, where it met the desk when the pinch closed (m, desk frame),
+    // and how far it has to slide along the edge before the pinch is a drag rather than a press (m).
+    RayInteractor pinchRay;
+    float pinchX;
+    const float DragStart = 0.02f;
+    readonly HashSet<RayInteractor> pinching = new HashSet<RayInteractor>();
+    readonly HashSet<RayInteractor> pinchStarted = new HashSet<RayInteractor>();
 
     // Interaction SDK pointers, found when the dock shows (the rig is picked by then).
     RayInteractor[] rays = new RayInteractor[0];
@@ -282,8 +289,7 @@ public class DeskDock : MonoBehaviour
         edgeWidth = deskWidth;
         if (nudgeAnim != null) StopCoroutine(nudgeAnim);
         nudgeAnim = null;
-        dragging = false;
-        dragRay = null;
+        EndDrag();
         transform.SetParent(deskFrame, false);
         float width = ((RectTransform)transform).sizeDelta.x * ForgePanel.MetersPerUnit;
         float fit = Mathf.Min(1f, (deskWidth - 0.04f) / Mathf.Max(width, 0.01f));
@@ -391,15 +397,22 @@ public class DeskDock : MonoBehaviour
 
     // Grip drag. Starts when the right controller's grip (or the middle mouse button in desktop mode) closes while its
     // ray points at the dock; then every frame the dock follows where that ray meets the desk, along the edge only, until
-    // the button opens. Not during the entrance.
+    // the button opens. Hands have no grip: a pinch on the dock becomes the same drag (see UpdatePinch). Not during the
+    // entrance.
     void UpdateDrag()
     {
         var rig = DesktopRig.Current;
         var mouse = Mouse.current;
         bool desktop = rig != null && rig.isActiveAndEnabled && mouse != null;
+        UpdatePinching();
         if (!dragging)
         {
-            if (!IsShown || anim != null) return;
+            if (!IsShown || anim != null)
+            {
+                pinchRay = null;
+                return;
+            }
+            if (UpdatePinch()) return;
             bool grip = OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
             bool middle = !grip && desktop && mouse.middleButton.wasPressedThisFrame;
             if (!grip && !middle) return;
@@ -417,11 +430,12 @@ public class DeskDock : MonoBehaviour
 
         bool held = dragMouse
             ? desktop && mouse.middleButton.isPressed
-            : dragRay != null && dragRay.isActiveAndEnabled && OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch);
+            : dragRay != null && dragRay.isActiveAndEnabled && (dragPinch
+                ? dragRay.State == InteractorState.Select
+                : OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch));
         if (!held || !IsShown || anim != null)
         {
-            dragging = false;
-            dragRay = null;
+            EndDrag();
             return;
         }
         if (!TryDeskX(dragMouse ? rig.PointerRay : dragRay.Ray, out float at)) return;  // pointing off the desk: stay put
@@ -431,6 +445,61 @@ public class DeskDock : MonoBehaviour
         p.x = offset;
         transform.localPosition = p;
         ShowNudgeLimits();
+    }
+
+    // Hands: a pinch that closes while its ray is on the dock becomes a drag once it has slid DragStart along the edge.
+    // Until then it's an ordinary press, so a quick pinch on a ring still clicks it. Once dragging, the dock's buttons are
+    // off until the pinch opens, so letting go doesn't click the ring under it. True while a pinch is pending.
+    bool UpdatePinch()
+    {
+        if (pinchRay != null)
+        {
+            if (!pinchRay.isActiveAndEnabled || pinchRay.State != InteractorState.Select)
+            {
+                pinchRay = null;
+                return false;
+            }
+            if (!TryDeskX(pinchRay.Ray, out float x) || Mathf.Abs(x - pinchX) < DragStart) return true;
+            dragging = dragPinch = true;
+            dragMouse = false;
+            dragRay = pinchRay;
+            dragGrab = transform.localPosition.x - pinchX;
+            pinchRay = null;
+            group.interactable = false;
+            if (nudgeAnim != null) StopCoroutine(nudgeAnim);
+            nudgeAnim = null;
+            return true;
+        }
+        if (!ForgePointer.HandsActive) return false;
+        foreach (var r in rays)
+        {
+            if (r == null || !pinchStarted.Contains(r)) continue;
+            Ray ray = r.Ray;
+            if (!PointsAtDock(ray) || !TryDeskX(ray, out float x)) continue;
+            pinchRay = r;
+            pinchX = x;
+            return true;
+        }
+        return false;
+    }
+
+    // Which rays are selecting (pinch or trigger closed), and which of them closed this frame.
+    void UpdatePinching()
+    {
+        pinchStarted.Clear();
+        foreach (var r in rays)
+        {
+            bool selecting = r != null && r.isActiveAndEnabled && r.State == InteractorState.Select;
+            if (selecting && pinching.Add(r)) pinchStarted.Add(r);
+            else if (!selecting) pinching.Remove(r);
+        }
+    }
+
+    void EndDrag()
+    {
+        if (dragPinch && IsShown && anim == null) group.interactable = true;
+        dragging = dragPinch = false;
+        dragRay = pinchRay = null;
     }
 
     // The right controller's ray, if it's the one in use (the rig has a hand ray on that side too).
