@@ -22,7 +22,7 @@ from typing import Any
 
 from agent import events as ev
 
-from . import improve
+from . import github, improve
 from .router import _stop_tail, service, start_run, start_setup
 from .service import Conflict, NotFound
 from .setup.adapt import ROOT
@@ -41,6 +41,16 @@ TOOLS: list[dict[str, Any]] = [
                     "('the ML stuff I've been working on'). Then say the last run's score from the result.",
      "parameters": {"type": "object", "properties": {
          "project": {"type": "string", "description": "folder name or path, if the user named one (e.g. 'cifar10')"}}}},
+    {"name": "ml_github",
+     "description": "Pull an ML project from GitHub and open it on the ML desk ('pull up the pytorch cifar repo'). "
+                    "First call it with what the user said: it finds the repo but downloads nothing. Say its name "
+                    "and owner and ask if that's the one. Only after a yes, call it again with confirm true and "
+                    "query set to the full_name it returned: it downloads the repo, works out what kind of model "
+                    "it is, and that model's panels unfold. A new repo takes about a minute; say you're setting it up.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "the repo as the user said it, owner/repo, or a GitHub URL"},
+         "confirm": {"type": "boolean", "description": "true only after the user said yes to the repo you found"}},
+         "required": ["query"]}},
     {"name": "ml_status",
      "description": "The open ML project: whether it's training, and the last run's numbers (validation "
                     "accuracy, train/val gap, weakest classes). Use it for 'how's my model doing?'.",
@@ -117,6 +127,8 @@ class MLTools:
         try:
             if name == "ml_open":
                 return await self.open(str(args.get("project") or "").strip())
+            if name == "ml_github":
+                return await self.github(str(args.get("query") or "").strip(), args.get("confirm") is True)
             if name == "ml_status":
                 return self.status()
             if name == "ml_improve":
@@ -194,6 +206,17 @@ class MLTools:
             out["error"] = svc.project.get("error")
         out.update(self._last_run())
         return out
+
+    async def github(self, query: str, confirm: bool) -> dict[str, Any]:
+        """Find the repo; only on the confirmed second call download it and open it like ml_open."""
+        if not query:
+            raise ValueError("say which GitHub repo to pull up")
+        found = await asyncio.to_thread(github.find, query)
+        if not confirm:
+            return {**found, "note": "Nothing downloaded yet. Ask the user if this is the repo; "
+                                     "if yes, call ml_github again with confirm true."}
+        path = await asyncio.to_thread(github.clone, found["full_name"], self.recent_path.parent / "github")
+        return {"repo": found["full_name"], **await self.open(str(path))}
 
     def _last_run(self) -> dict[str, Any]:
         try:
