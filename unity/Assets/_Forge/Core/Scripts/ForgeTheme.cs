@@ -27,11 +27,13 @@ public static class ForgeTheme
     public const float DockCorner = 28f, DockDivider = 46f, DockRise = 25f, DockModeLabel = 15.5f, DockToolLabel = 10.7f;
     public const float DockTilt = 22f;           // how far a raised ring turns toward the head (deg)
     public const float DockNearRange = 110f;     // pointer distance at which a ring starts to brighten (mm)
+    public const float DockNudgeRing = 44f, DockNudgeLabel = 22f;  // the ‹ › rings at the ends that slide the dock
 
     // Timings (s).
     public const float HoverFade = 0.3f, PressTime = 0.12f, LiftTime = 0.6f, HeadSmoothing = 0.35f, SelectFade = 0.45f;
     // Dock entrance: the frame slides in along the front edge, then the rings plop on one by one.
     public const float DockSlideTime = 0.6f, DockPlopTime = 0.25f, DockPlopStagger = 0.08f;
+    public const float DockNudgeTime = 0.3f;  // ‹ / ›: one step along the desk
 
     // Motion (s). A mode unfolds out of the dock ring that was pressed and folds back into it; Flat / Curve and Reset
     // spring the items to their new places. Items go centre out (Main, the pair beside it, the outer pair, Above) and

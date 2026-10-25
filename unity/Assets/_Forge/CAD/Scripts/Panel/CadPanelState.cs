@@ -40,15 +40,17 @@ public sealed class CadPanelState
     public object pendingValue;
     public bool canUndo;
     public int partsOff;                // parts taken off on the stage (Reassemble)
+    public bool lifeSize;               // on the stage at its real size (the Life size pill)
 
     public CadMetric Metric(string id) => a?.metrics?.Find(m => m.id == id);
 
-    /// <summary>The verdict card's question, from the demo: launch / hover fly, spin runs.</summary>
+    /// <summary>The verdict card's question, from the demo: launch / hover fly, spin runs, walk stands.</summary>
     public static string Question(CadDemo d)
     {
         string kind = d?.kind;
         if (kind == CadDemoPlayer.Launch || kind == CadDemoPlayer.Hover) return "Will it fly?";
         if (kind == CadDemoPlayer.Spin) return "Will it run?";
+        if (kind == CadDemoPlayer.Walk) return "Will it stand?";
         return "Is it sound?";
     }
 

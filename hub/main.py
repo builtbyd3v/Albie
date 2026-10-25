@@ -1,7 +1,7 @@
 """Forge hub: one FastAPI process, a router per module, one `/ws` event bus.
 
-Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process), ML (training
-runs, datasets and results for the ML desk; `ml/router.py`).
+Modules: CAD, agent (pet), VS Code push, messaging (Slack), screens (the screen-bridge child process), desk
+(timers, notes, movie), ML (training runs, datasets and results for the ML desk; `ml/router.py`).
 `/ws` is the one socket: the EventBus publishes to it and the agent (pet) session reads it, since Unity talks to
 the hub through one ForgeNet socket. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
@@ -27,6 +27,9 @@ from agent.app import health_fields as agent_health, load_env
 from agent.watcher import watcher as proactive
 from cad.router import router as cad_router
 from cad.service import CadService, watch_script
+from desk import DeskService
+from desk import tools as desk_tools
+from desk.router import router as desk_router
 from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
@@ -53,6 +56,9 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         app.state.slack = slack
         agent_ws.client_handlers["messages.focus"] = slack.focus_from_ws  # "Reply with Bit" from a message card
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
+        desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
+        app.state.desk = desk
+        agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         await cad.start()
         await slack.start()
         screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)
@@ -68,6 +74,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                 watcher.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher
+            desk.stop()
             await screens.stop()
             await slack.stop()
             await cad.stop()
@@ -79,6 +86,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     app.include_router(vscode_router)
     app.include_router(messaging_router)
     app.include_router(screens_router)
+    app.include_router(desk_router)
     app.include_router(ml_router)  # its MLService is created on first use, on app.state.ml
 
     @app.websocket("/ws")
@@ -95,7 +103,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
     @app.get("/health")
     def health():
         return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
-                "screen": app.state.screens.health(), **agent_health()}
+                "screen": app.state.screens.health(), "desk": app.state.desk.health(), **agent_health()}
 
     return app
 

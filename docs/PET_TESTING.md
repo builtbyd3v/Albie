@@ -50,7 +50,7 @@ Unity talks to the hub only through Core's `ForgeNet` (`/ws`; the address is `hu
 `Forge.HubUrl`, default `http://localhost:8000`). In the sandbox scene select `GatorAssistant` and **untick the
 `MockEventSource` component** (it overrides the config while enabled), then Play:
 - console: `[GatorAgentBridge] ... -> hub via ForgeNet`, `[ForgeNet] Live at http://localhost:8000`, `[AgentClient] hello sent over ForgeNet`.
-- Voice: say "Hey Bit, ..." (WakeListener), or hold **Space** (HubSpeechToText streams the mic), or whistle (**F**). Events come
+- Voice: say "Hey Albie, ..." (WakeListener), or hold **Space** (HubSpeechToText streams the mic), or whistle (**F**). Events come
   back from the hub (`stt.*`, `pet.state`, `agent.partial_answer`, `tts.*`, …). There is no typed text path to the hub any more.
 - Optional: `hub/.venv/bin/python hub/scripts/ws_smoke.py "where is the websocket handler?" --mode qa` prints the raw event stream.
 Re-tick `MockEventSource` before committing the scene (or just don't save it).
@@ -68,16 +68,16 @@ Real agent (needs `ANTHROPIC_API_KEY`): `FAKE_AGENT=0 .venv/bin/uvicorn main:app
    mock enabled the typed field opens, with it disabled (hub) the mic streams.
 6. Deactivate the simulator afterwards (same menu) or normal Play stays routed to it.
 
-## 4. Bit in Main.unity
+## 4. Albie in Main.unity
 
 Core's **Forge ▸ Build Main Scene** instantiates `Assets/_Forge/Pet/Prefabs/PetRuntime.prefab` (built by step 0.2); nothing
 is placed by hand. Run the hub, Play `Main`, walk up to a table and sit (desktop rig: `E`). Expect, in order, `[Arrival]` lines:
 `Near the desk.` → `Hop onto the desk.` → `Landed on the desk.` → `Seated.` → `POST /messages/digest.` → `Digest: N message(s);
-waiting for Bit to say it.` / `Digest: nothing new.` → `Waiting for screen.status 'sharing'` → `Opened mode 'code'` (or
-`'screens'` until Core renames it). Walk away: `Away: following the user.` and Bit hops down. The crew egg appears only
+waiting for Albie to say it.` / `Digest: nothing new.` → `Waiting for screen.status 'sharing'` → `Opened mode 'code'` (or
+`'screens'` until Core renames it). Walk away: `Away: following the user.` and Albie hops down. The crew egg appears only
 while the code mode is open; close it and the crew goes quiet (`[GatorCrew] Code mode closed: crew muted.`). A
-`pet.state working` with `target_panel` from the hub walks Bit to that panel. With PR 26 merged his mouth moves while he
-speaks. Click a Messages card: `messages.focus` goes to the hub and Bit reads it out.
+`pet.state working` with `target_panel` from the hub walks Albie to that panel. With PR 26 merged his mouth moves while he
+speaks. Click a Messages card: `messages.focus` goes to the hub and Albie reads it out.
 
 ## Where to look when something's off
 
@@ -85,6 +85,6 @@ speaks. Click a Messages card: `messages.focus` goes to the hub and Bit reads it
 - Gator doesn't move → it isn't on a NavMesh: in the sandbox `GatorSandboxNav` builds the floor/desk surfaces in `Awake`; check its fields are wired (re-run Build All).
 - Feet slide → tune `GatorController.walkSpeed/runSpeed` (0.6 / 1.8 m/s) on the prefab.
 - Hub mode but nothing happens → `ForgeNet` status (the DeskDock's dot: green live, amber mock) and `AgentClient.Status` in the inspector; the hub must be reachable from the device (Quest: laptop LAN IP in `Forge.HubUrl` or `adb reverse tcp:8000 tcp:8000`).
-- Bit doesn't hop up in Main → the `[Arrival]` log says why (`No desk surface yet`: the room has no TABLE, or MRUK hasn't loaded). `Hub not live; digest skipped` is normal without the hub.
+- Albie doesn't hop up in Main → the `[Arrival]` log says why (`No desk surface yet`: the room has no TABLE, or MRUK hasn't loaded). `Hub not live; digest skipped` is normal without the hub.
 - Space does nothing in Main → there is no typed text box there by design; talk (WakeListener / hold Space with a mic) or whistle.
 - Logs: `unity/Logs/Editor.log`; hub: terminal running uvicorn.

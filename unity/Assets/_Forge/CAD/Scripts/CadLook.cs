@@ -243,6 +243,13 @@ public static class CadLook
         return DefaultCeiling;
     }
 
+    /// <summary>The room's floor (world y): the scan's floor, else 0 (as in Main and the sandbox).</summary>
+    public static float FloorY()
+    {
+        var room = Room;
+        return room != null && room.FloorAnchor != null ? room.FloorAnchor.transform.position.y : 0f;
+    }
+
     /// <summary>Inside the room's walls (true when there's no room scan to ask).</summary>
     public static bool InRoom(Vector3 world)
     {

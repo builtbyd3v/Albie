@@ -25,7 +25,7 @@ from typing import Any, Iterable
 from cad.analysis import Masses, leaves, to_gltf
 from cad.export import object_id
 from cad.flight import INCLINATION_DEG, RAIL_M
-from cad.part_api import (Analysis, BuildResult, Demo, Dimension, Explode, ExplodeMove, Marker, Vec, Verdict,
+from cad.part_api import (Analysis, BuildResult, Demo, Dimension, Explode, ExplodeMove, Marker, Motion, Vec, Verdict,
                           box_dimensions)
 
 MAIN_AXIS_BIAS = 2.0    # auto explode: an offset along the design's longest side counts double...
@@ -48,6 +48,13 @@ def direction(d: Vec) -> list[float]:
     if not (math.isfinite(n) and n > 1e-9):
         raise ValueError(f"direction {tuple(d)} has no length")
     return [round(x / n, 5) + 0.0, round(z / n, 5) + 0.0, round(-y / n, 5) + 0.0]
+
+
+def rotation(q: tuple[float, float, float, float]) -> list[float]:
+    """Part rotation (quaternion x, y, z, w; Z up) in the model frame: the same turn about the converted axis."""
+    x, y, z, w = (float(v) for v in q)
+    n = math.sqrt(x * x + y * y + z * z + w * w) or 1.0
+    return [round(x / n, 6) + 0.0, round(z / n, 6) + 0.0, round(-y / n, 6) + 0.0, round(w / n, 6) + 0.0]
 
 
 def title(label: str) -> str:
@@ -226,3 +233,26 @@ def demo(d: Demo, labels: list[str]) -> dict[str, Any]:
             "values": {k: round(float(v), 4) for k, v in d.values.items()},
             "spin_parts": spin, "readouts": [m.schema() for m in d.readouts], "assumptions": list(d.assumptions),
             "blocked": d.blocked or None, "reveal_ids": [object_id(label) for label in d.reveal]}
+
+
+def motion(m: Motion, nodes: list[str]) -> dict[str, Any]:
+    """A keyframed motion (GET /cad/motion, the walk) in the model frame. joints: the GLB nodes (assemblies) to turn,
+    each about origin + dir by angles_deg[i] at sample i, relative to the version's pose (right-hand rule in glTF,
+    like spin's rpm); root: where the whole model is at sample i, pos (m) and rot (x, y, z, w), applied as
+    rot * p + pos to a model point p."""
+    unknown = [j.part for j in m.joints if j.part not in nodes]
+    if unknown:
+        raise ValueError(f"motion turns {unknown}, which aren't nodes of the model")
+    lengths = {len(j.angles_deg) for j in m.joints} | ({len(m.positions)} if m.positions else set())
+    if len(lengths) > 1 or (m.rotations and len(m.rotations) != len(m.positions)):
+        raise ValueError(f"motion tracks have different lengths: {sorted(lengths)}")
+    samples = lengths.pop() if lengths else 0
+    return {"rate_hz": float(m.rate_hz), "loop": bool(m.loop), "samples": samples,
+            "duration_s": round(samples / m.rate_hz, 4) if m.rate_hz else 0.0,
+            "joints": [{"id": object_id(j.part), "origin": point(j.origin), "dir": direction(j.direction),
+                        "angles_deg": [round(float(a), 2) for a in j.angles_deg]} for j in m.joints],
+            "root": {"pos": [point(p) for p in m.positions], "rot": [rotation(q) for q in m.rotations]}
+                    if m.positions else None,
+            "centre": None if m.centre is None else point(m.centre),
+            "values": {k: round(float(v), 4) for k, v in m.values.items()},
+            "tracks": {k: [round(float(v), 3) for v in track] for k, track in m.tracks.items()}}

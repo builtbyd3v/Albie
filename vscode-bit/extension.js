@@ -6,14 +6,14 @@
 //   POST /open      { path, line }
 //   POST /highlight { path?, start, end, note?, ms? }   glow lines (1-based), optional inline note
 //   POST /run       { command, args? }     only ids in forgeBit.allowedCommands
-//   POST /train                            types forgeBit.trainCommand into the "Bit" terminal
+//   POST /train                            types forgeBit.trainCommand into the "Albie" terminal
 //   POST /layout    { zoom? }              the headset layout: zoomed editor, Bit's terminal under it, no side bars or chat
 //
 // It also pushes to the hub (POST <forgeBit.hubUrl>/vscode/event) so Bit can speak up on its own:
 //   errors            a saved file has errors (first one + count), or its errors are now fixed (count 0)
-//   command_finished  a command in the "Bit" terminal ended, with its exit code
+//   command_finished  a command in the "Albie" terminal ended, with its exit code
 //
-// A "Bit" item in the status bar says what Bit is doing in this window, so it shows on the streamed screen too.
+// An "Albie" item in the status bar says what Albie is doing in this window, so it shows on the streamed screen too.
 //
 // Command "Forge: Open this repo in the ML desk" tells the hub which repo is open (POST <hubUrl>/ml/project) and
 // follows its setup here: Show diff / Accept / Skip for the training patch, a type picker when the classifier
@@ -24,6 +24,7 @@ const vscode = require("vscode");
 
 let server;
 let terminal;
+const TERMINAL = "Albie"; // the pet's display name; the extension id and settings stay forge-bit / forgeBit
 let statusItem;
 let statusTimer;
 
@@ -128,7 +129,7 @@ async function run({ command, args = [] }) {
 }
 
 function bitTerminal() {
-  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal("Bit");
+  if (!terminal || terminal.exitStatus) terminal = vscode.window.createTerminal(TERMINAL);
   terminal.show(true);
   return terminal;
 }
@@ -160,13 +161,13 @@ async function layout({ zoom = 2 }) {
 
 // Highlighted while Bit acts, then back to idle after `ms`.
 function status(text, ms = 4000) {
-  statusItem.text = `$(sparkle) Bit: ${text}`;
+  statusItem.text = `$(sparkle) ${TERMINAL}: ${text}`;
   statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
   clearTimeout(statusTimer);
   statusTimer = setTimeout(idle, ms);
 }
 
-function idle(text = "$(sparkle) Bit") {
+function idle(text = `$(sparkle) ${TERMINAL}`) {
   statusItem.text = text;
   statusItem.backgroundColor = undefined;
 }
@@ -301,7 +302,7 @@ function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
     vscode.window.onDidEndTerminalShellExecution((e) => {
-      if (e.terminal.name !== "Bit") return;
+      if (e.terminal.name !== TERMINAL) return;
       push({ kind: "command_finished", command: e.execution.commandLine.value, exit_code: e.exitCode ?? null });
     }),
   );
@@ -331,7 +332,7 @@ function activate(ctx) {
   // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
   server.on("error", (e) => {
     console.error(`[forge-bit] ${e.message}`);
-    idle("$(circle-slash) Bit: busy in another window");
+    idle(`$(circle-slash) ${TERMINAL}: busy in another window`);
   });
   server.listen(port, "127.0.0.1");
   ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() },

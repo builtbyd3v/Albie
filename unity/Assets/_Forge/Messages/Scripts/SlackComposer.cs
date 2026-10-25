@@ -80,7 +80,7 @@ public class SlackComposer
         caption = SlackUi.Text(root, "Caption", SlackUi.Small, SlackUi.Subtext);
         caption.overflowMode = TextOverflowModes.Ellipsis;
         cancel = SlackButton.CreatePill(root, "Cancel", SlackButton.Pill, Cancel);
-        askBit = SlackButton.CreatePill(root, "Ask Bit", SlackButton.Pill, AskBit);
+        askBit = SlackButton.CreatePill(root, "Ask Albie", SlackButton.Pill, AskBit);
         send = SlackButton.CreatePill(root, "Send", SlackButton.Primary, Send);
         SlackUi.Show(cancel, false);
         RefreshButtons();
@@ -222,9 +222,9 @@ public class SlackComposer
     void AskBit()
     {
         var m = owner.LatestMessage();
-        if (m == null || string.IsNullOrEmpty(m.ts)) { Status("Nothing here for Bit to read yet"); return; }
+        if (m == null || string.IsNullOrEmpty(m.ts)) { Status("Nothing here for Albie to read yet"); return; }
         if (!owner.FocusBit(m)) Status("Hub offline");
-        else Status("Bit is reading it…");
+        else Status("Albie is reading it…");
     }
 
     // ---- Hub events (routed by SlackPanel) ----
@@ -293,7 +293,7 @@ public class SlackComposer
     void RefreshCaption()
     {
         if (statusText != null) caption.text = statusText;
-        else if (draftId != null) caption.text = "Bit wrote this · edit it, then Send";
+        else if (draftId != null) caption.text = "Albie wrote this · edit it, then Send";
         else caption.text = "";
     }
 

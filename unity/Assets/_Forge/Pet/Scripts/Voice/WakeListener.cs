@@ -8,7 +8,8 @@ namespace Forge.Pet
     /// Say a gator's name and it listens (docs/PET_AGENT_CONTRACT.md, Addendum E). The mic stays on; a small
     /// energy VAD (adaptive noise floor) cuts the room's speech into segments, and each segment goes to the hub as a
     /// wake turn: stt.start {wake: true} + 0.5 s of pre-roll (so the name itself isn't clipped) + PCM16 + stt.stop.
-    /// The hub (agent/wake.py) only answers segments that name a gator ("Hey Bit ...", "Tester, run the tests");
+    /// The hub (agent/wake.py) only answers segments that name a gator ("Hey Albie ...", "Tester, run the tests")
+    /// or that start while the user faces Bit (stt.start {facing: true}, GatorFollowUp.UserFacing);
     /// everything else is dropped without a caption. "Hey &lt;name&gt;" alone comes back as wake.listen:
     ///  * Bit  → PushToTalk.BeginHandsFree (a normal hands-free turn, then GatorFollowUp keeps the conversation going);
     ///  * crew → that gator turns to Listening and the next segment is sent for it (no name needed) for followSeconds.
@@ -29,6 +30,8 @@ namespace Forge.Pet
         GatorAgentBridge bridge;
         [SerializeField, Tooltip("Auto-found on this GameObject / scene if empty.")]
         PushToTalk pushToTalk;
+        [SerializeField, Tooltip("Look-to-talk cone (its lookAngle). Auto-found on this GameObject / scene if empty.")]
+        GatorFollowUp followUp;
 
         [Header("Voice activity detection")]
         [SerializeField, Tooltip("Speech must be at least this loud (mic RMS 0..1), whatever the room noise.")]
@@ -38,7 +41,7 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Loud this long (s) before a segment opens.")]
         float startSeconds = 0.2f;
         [SerializeField, Tooltip("Quiet this long (s) closes the segment.")]
-        float endSilence = 0.7f;
+        float endSilence = 1.0f;   // 0.7 cut "Albie, uh, what are the" at the "uh" (live 18:32)
         [SerializeField, Tooltip("Audio kept from before the segment opened (s), so the first word survives.")]
         float prerollSeconds = 0.5f;
         [SerializeField, Tooltip("Segments with less speech than this (s) are cancelled (coughs, door slams).")]
@@ -80,6 +83,8 @@ namespace Forge.Pet
             if (bridge == null) bridge = FindAnyObjectByType<GatorAgentBridge>();
             if (pushToTalk == null) pushToTalk = GetComponent<PushToTalk>();
             if (pushToTalk == null) pushToTalk = FindAnyObjectByType<PushToTalk>();
+            if (followUp == null) followUp = GetComponent<GatorFollowUp>();
+            if (followUp == null) followUp = FindAnyObjectByType<GatorFollowUp>();
         }
 
         void Start()
@@ -182,7 +187,10 @@ namespace Forge.Pet
 
         void BeginSegment()
         {
-            var start = new JObject { ["pet_id"] = _target ?? LeadPetId, ["wake"] = true, ["sample_rate"] = Rate, ["encoding"] = "pcm16" };
+            bool facing = followUp != null && followUp.UserFacing;   // at speech onset: facing Bit = no name needed. ponytail: reuses GatorFollowUp's cone, no shared helper class
+            if (followUp != null)   // one line per segment: why facing missed (angle vs cone), read from quest-unity.log
+                Debug.Log($"[WakeListener] segment: facing={facing} angle={followUp.LastLookAngle:F0} limit={followUp.LastLookLimit:F0}");
+            var start = new JObject { ["pet_id"] = _target ?? LeadPetId, ["wake"] = true, ["facing"] = facing, ["sample_rate"] = Rate, ["encoding"] = "pcm16" };
             _client.Send("stt.start", start);
             // Pre-roll, oldest first (it includes the chunks that crossed the threshold).
             int first = (_ringHead - _ringCount + _ring.Length) % _ring.Length;

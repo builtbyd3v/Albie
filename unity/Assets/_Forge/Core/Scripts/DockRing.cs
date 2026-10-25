@@ -256,8 +256,18 @@ public class DockRing : MonoBehaviour
 
     void OnEnable()
     {
+        // ForgeTheme.Quad is made in code, not an asset, so a ring saved into a prefab by an editor builder (the START
+        // pill in PetRuntime) comes back with no mesh on its ring and pool: only the label drew. Put it back.
+        RestoreQuad(ring);
+        RestoreQuad(pool);
         shown = new Vector4(-1f, -1f, -1f, -1f);
         nextInteractorSearch = 0f;
+    }
+
+    static void RestoreQuad(MeshRenderer renderer)
+    {
+        if (renderer != null && renderer.TryGetComponent(out MeshFilter filter) && filter.sharedMesh == null)
+            filter.sharedMesh = ForgeTheme.Quad;
     }
 
     void LateUpdate()

@@ -129,7 +129,7 @@ def check_scene(analysis: dict, meta: dict, schema: list[dict] | None = None) ->
     assert sorted(in_rows) == sorted(parts), "each part in exactly one row"
 
     demo = analysis["demo"]
-    assert demo["kind"] in ("launch", "hover", "spin", "none")
+    assert demo["kind"] in ("launch", "hover", "spin", "walk", "none")
     for s in demo["spin_parts"]:
         assert s["id"] in parts and unit(s["dir"]) and s["spin"] == ("ccw" if s["rpm"] > 0 else "cw"), s
         assert s["motor_id"] is None or s["motor_id"] in parts
@@ -626,7 +626,7 @@ def test_change_labels_in_words():
         return VersionRecord(version=3, parent=parent, created_at=0.0, source=source, part="rocket", params={},
                              param_schema=[], analysis={}, fingerprints={}, script_sha="")
     assert [version_label(old(s)) for s in ("script", "reset", "pet", "api")] == \
-        ["Saved rocket.py", "Reset to defaults", "Changed by Bit", "Edited"]
+        ["Saved rocket.py", "Reset to defaults", "Changed by Albie", "Edited"]
     assert version_label(old("open", parent=None)) == "Defaults"
 
 

@@ -10,6 +10,8 @@ using UnityEngine;
 /// hover power, and the thrust budget bar.
 /// Run: phase, "Slow motion · 100× slower", input and output dials whose hands turn at the shown speed, rpm and torque
 /// under each, the ratio chip and the hub's note.
+/// Walk: phase, "Lap 4.2 / 11.2 s", a joint-load meter (marked at the motors' rating) with the load now in 40 mm digits,
+/// speed / step rate / peak load over the lap, the lap's progress and the hub's note.
 /// Built once; per frame only the numbers that changed and the moving parts (no allocations).
 /// </summary>
 public sealed class CadTelemetry
@@ -57,6 +59,17 @@ public sealed class CadTelemetry
     readonly CadLiveText rpmInLive, rpmOutLive;
     readonly RectTransform ratioChip;
     float angleIn, inRpm = 3000f, outRpm = 1000f, ratio = 3f, slowdown = 100f;
+
+    // Walk.
+    readonly RectTransform walk;
+    readonly CadShape loadMeter;
+    readonly TextMeshProUGUI walkNums, walkLine;
+    readonly CadLiveText walkLive;
+    readonly TextMeshProUGUI[] walkLabels = new TextMeshProUGUI[3], walkValues = new TextMeshProUGUI[3];
+    readonly ForgeSurface lapFill;
+    readonly RectTransform lapTrack;
+    float load, lapS = 11f, lapShown = -1f;
+    const float LoadScale = 150f;   // the meter's top, % of rating
 
     string kind;
     CadPanelState state;
@@ -148,6 +161,33 @@ public sealed class CadTelemetry
         noteText = CadUi.Text(spin, "Note", CadUi.Body, CadUi.White(0.62f), wrap: true);
         noteText.alignment = TextAlignmentOptions.TopLeft;
         CadUi.LineHeight(noteText, 1.35f);
+
+        // ---- Walk ----
+        walk = CadUi.Rect(Root, "Walk");
+        CadUi.Stretch(walk, 0f, 0f, 0f, 0f);
+        loadMeter = CadUi.Shape(walk, "Meter", PaintLoadMeter);
+        walkNums = CadUi.Text(walk, "Numbers", CadUi.Digits, Color.white, align: TextAlignmentOptions.TopLeft);
+        walkNums.characterSpacing = -2f;
+        walkNums.overflowMode = TextOverflowModes.Overflow;
+        walkLive = new CadLiveText(walkNums);
+        for (int i = 0; i < 3; i++)
+        {
+            var cell = CadUi.Surface(walk, "Readout" + i, CadUi.White(0.05f), 10f);
+            walkLabels[i] = CadUi.Text(cell.transform, "Label", CadUi.Unit, CadUi.White(0.5f));
+            CadUi.Band(walkLabels[i].rectTransform, 6f, 13f, 8f, 6f);
+            walkValues[i] = CadUi.Text(cell.transform, "Value", 13.5f, Color.white, bold: true);
+            CadUi.Band(walkValues[i].rectTransform, 21f, 17f, 8f, 6f);
+        }
+        walkLabels[0].text = "Speed";
+        walkLabels[1].text = "Step rate";
+        walkLabels[2].text = "Peak load";
+        var lap = CadUi.Surface(walk, "Lap", CadUi.White(0.1f), 4f);
+        lapTrack = lap.rectTransform;
+        lapFill = CadUi.Surface(lap.transform, "Fill", CadUi.Hue, 4f);
+        lapFill.Glow = 0.4f;
+        walkLine = CadUi.Text(walk, "Line", CadUi.Body, CadUi.White(0.62f), wrap: true);
+        walkLine.alignment = TextAlignmentOptions.TopLeft;
+        CadUi.LineHeight(walkLine, 1.35f);
     }
 
     // A dial's hand: from the centre to 7 mm short of the rim, turning about its foot.
@@ -175,12 +215,16 @@ public sealed class CadTelemetry
         for (int i = 0; i < 3; i++) rowLive[i].Invalidate();
         rpmInLive.Invalidate();
         rpmOutLive.Invalidate();
+        walkLive.Invalidate();
         CadUi.Show(launch, kind == CadDemoPlayer.Launch);
         CadUi.Show(hover, kind == CadDemoPlayer.Hover);
         CadUi.Show(spin, kind == CadDemoPlayer.Spin);
-        SetPhase(kind == CadDemoPlayer.Launch ? "Countdown" : kind == CadDemoPlayer.Hover ? "Spin-up" : "Opening");
+        CadUi.Show(walk, kind == CadDemoPlayer.Walk);
+        SetPhase(kind == CadDemoPlayer.Launch ? "Countdown" : kind == CadDemoPlayer.Hover ? "Spin-up" :
+            kind == CadDemoPlayer.Walk ? "Stepping out" : "Opening");
         if (kind == CadDemoPlayer.Launch) BeginLaunch(s);
         else if (kind == CadDemoPlayer.Hover) BeginHover(s);
+        else if (kind == CadDemoPlayer.Walk) BeginWalk(s);
         else BeginSpin(s);
         Layout();
     }
@@ -215,6 +259,7 @@ public sealed class CadTelemetry
         }
         else if (kind == CadDemoPlayer.Hover) LayoutHover(w);
         else if (kind == CadDemoPlayer.Spin) LayoutSpin(w);
+        else if (kind == CadDemoPlayer.Walk) LayoutWalk(w);
     }
 
     /// <summary>A frame of the running demo (every frame): numbers that changed, the curve, the hands.</summary>
@@ -225,6 +270,7 @@ public sealed class CadTelemetry
         phaseDot.canvasRenderer.SetAlpha(0.45f + 0.55f * (0.5f + 0.5f * Mathf.Cos(pulse * 2f * Mathf.PI)));
         if (kind == CadDemoPlayer.Launch) FrameLaunch(f);
         else if (kind == CadDemoPlayer.Hover) FrameHover(f);
+        else if (kind == CadDemoPlayer.Walk) FrameWalk(f);
         else FrameSpin(f, dt);
     }
 
@@ -473,6 +519,80 @@ public sealed class CadTelemetry
         handOut.localRotation = Quaternion.Euler(0f, 0f, angleIn / ratio);
         rpmInLive.Begin().Int(Mathf.RoundToInt(inRpm * k / 10f) * 10).Add("<size=55%><alpha=#8C> rpm").Apply();
         rpmOutLive.Begin().Int(Mathf.RoundToInt(outRpm * k / 10f) * 10).Add("<size=55%><alpha=#8C> rpm").Apply();
+    }
+
+    // ---- Walk ----
+
+    void BeginWalk(CadPanelState s)
+    {
+        var v = s.demo?.values;
+        float Get(string key, float fallback) => v != null && v.TryGetValue(key, out float x) ? x : fallback;
+        lapS = Mathf.Max(0.1f, Get("lap_s", 11.2f));
+        walkValues[0].text = CadUi.F(Get("speed_m_s", 0f), "0.00") + " m/s";
+        walkValues[1].text = CadUi.F(Get("step_rate_hz", 0f) * 60f, "0") + " /min";
+        CadMetric peak = s.demo?.readouts?.Find(m => m != null && m.id == "walk_load");
+        walkValues[2].text = peak != null && !string.IsNullOrEmpty(peak.display) ? peak.display : CadUi.F(Get("peak_load_pct", 0f), "0") + "%";
+        walkLine.text = s.demo?.note ?? "";
+        load = 0f;
+        lapShown = -1f;
+        time.Begin().Add("Lap  0.0 / ").Fixed(lapS, 1).Add(" s").Apply();
+        loadMeter.Redraw();
+    }
+
+    void LayoutWalk(float w)
+    {
+        float top = PadTop + TopRowH + Gap, bottom = CardH - PadBottom;
+        CadUi.Place(loadMeter.rectTransform, PadX, top, MeterW, bottom - top);
+        float x = PadX + MeterW + 14f, mainW = w - x - PadX;
+        CadUi.Band(walkNums.rectTransform, top + (1f - CadUi.InterLine) * CadUi.Digits * 0.5f, 52f, x, PadX);
+        float rowsY = top + CadUi.Digits + Gap, cellW = (mainW - 12f) / 3f;
+        for (int i = 0; i < 3; i++) CadUi.Place((RectTransform)walkLabels[i].transform.parent, x + i * (cellW + 6f), rowsY, cellW, 43f);
+        float lineH = CadUi.Height(walkLine, walkLine.text, mainW);
+        CadUi.Band(walkLine.rectTransform, bottom - lineH, lineH + 1f, x, PadX);
+        CadUi.Band(lapTrack, bottom - lineH - Gap - 8f, 8f, x, PadX);
+        SetLap(0f);
+    }
+
+    void SetLap(float share)
+    {
+        var fill = lapFill.rectTransform;
+        fill.anchorMin = Vector2.zero;
+        fill.anchorMax = new Vector2(Mathf.Max(0.015f, Mathf.Clamp01(share)), 1f);
+        fill.offsetMin = fill.offsetMax = Vector2.zero;
+    }
+
+    void FrameWalk(CadDemoFrame f)
+    {
+        float t = Mathf.Round(f.timeS * 10f) / 10f;
+        if (t != lapShown)
+        {
+            lapShown = t;
+            time.Begin().Add("Lap  ").Fixed(t, 1).Add(" / ").Fixed(lapS, 1).Add(" s").Apply();
+            SetLap(f.progress);
+        }
+        if (Mathf.Abs(f.load - load) > 0.5f)
+        {
+            load = f.load;
+            loadMeter.Redraw();
+        }
+        walkLive.Begin().Add("<b>").Int(Mathf.RoundToInt(f.load), false).Add("</b><space=6><size=30%><alpha=#8C>% of rating, hardest joint").Apply();
+    }
+
+    // The load meter: a 22 mm column filled to the load now (of 150%), orange, amber past 60%, red past the rating;
+    // the rating (100%) marked across it.
+    void PaintLoadMeter(CadShape s)
+    {
+        float w = s.Width, h = s.Height;
+        s.Begin().RoundRect(0f, 0f, w, h, 11f).Fill(CadUi.White(0.08f));
+        float fh = h * Mathf.Clamp01(load / LoadScale);
+        if (fh > 1f)
+        {
+            float r = Mathf.Min(11f, fh * 0.5f);
+            Color c = load > 100f ? new Color(1f, 0.42f, 0.35f) : load > 60f ? new Color(1f, 0.71f, 0.28f) : CadUi.Hue;
+            s.Begin().RoundRect(0f, h - fh, w, fh, r).Fill(c);
+        }
+        float y = h - h * (100f / LoadScale);
+        s.FillRect(-2f, y - 1f, w + 4f, 2f, CadUi.White(0.85f));
     }
 
     // A dial: a white rim with a soft glow and twelve ticks.
