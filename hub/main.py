@@ -8,7 +8,7 @@ Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it w
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
 SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py),
-IMESSAGE_* (messaging/imessage/settings.py; off unless IMESSAGE_ENABLED=1 on macOS).
+IMESSAGE_* (messaging/imessage/settings.py; off unless IMESSAGE_ENABLED=1 on macOS; only IMESSAGE_ALLOW chats are read).
 """
 from __future__ import annotations
 

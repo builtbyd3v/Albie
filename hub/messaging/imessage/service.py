@@ -1,4 +1,8 @@
-"""Read-only iMessage ingestion for macOS hosts signed into Messages."""
+"""Read-only iMessage ingestion for macOS hosts signed into Messages.
+
+Only 1:1 chats with IMESSAGE_ALLOW handles are read, shown, counted or sent to (db.py filters in SQL). Logs carry
+counts only, never message text or handles.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +19,7 @@ from events import ChannelSummary, Draft, EventBus, NotifyDraftCancelled, Notify
 from messaging.store import MessageStore
 from messaging.slack_client import DraftError
 
-from .db import MessagesDatabaseError, chat_rowid, connect, outgoing_match, rows, text_body, timestamp
+from .db import MessagesDatabaseError, chat_rowid, chats, connect, outgoing_match, rows, text_body, timestamp
 from .sender import IMessageSendError, IMessageSender
 from .settings import IMessageSettings
 
@@ -33,7 +37,8 @@ class IMessageService:
         self.error: str | None = None
         self.last_rowid = 0
         self._task: asyncio.Task[None] | None = None
-        self.sender = IMessageSender(settings.cli)
+        self.allow = settings.allow
+        self.sender = IMessageSender(settings.cli, settings.allow)
         self.chat_names: dict[str, str] = {}
         self.open_draft: Draft | None = None
         self._expiry: asyncio.Task[None] | None = None
@@ -47,18 +52,30 @@ class IMessageService:
         if not self.enabled:
             self.status = "disabled (IMESSAGE_ENABLED=false)"
             return
+        if not self.allow:  # fail closed: no allowlist means nothing is read at all
+            self.status = "enabled, no allowed contacts (set IMESSAGE_ALLOW)"
+            log.warning("iMessage %s", self.status)
+            return
         try:
             await self.sender.start()
             if not self.sender.status.available:
                 log.warning("iMessage sending unavailable: %s", self.sender.status.error)
-            for chat in await self.sender.chats():
+            with closing(connect(self.settings.db_path)) as db:
+                allowed = {str(row["guid"]) for row in chats(db, allow=self.allow)}
+            for chat in await self.sender.chats():  # imsg lists every chat: keep only allowlisted names
                 guid = str(chat.get("guid") or "")
                 name = str(chat.get("contact_name") or chat.get("name") or "").strip()
-                if guid and name:
+                if guid in allowed and name:
                     self.chat_names[guid] = name
+            # Seen marks of chats that are no longer allowlisted (an older allowlist, or none) leave state.json.
+            stale = [c for c in self.store.seen if c.startswith("im:") and c[3:] not in allowed]
+            for channel in stale:
+                del self.store.seen[channel]
+            if stale:
+                self.store._save()  # ponytail: no public "forget" on MessageStore for one caller
             with closing(connect(self.settings.db_path)) as db:
                 cutoff = time.time() - self.settings.recent_days * 86_400
-                initial = list(reversed(rows(db, limit=1000, since_unix=cutoff)))
+                initial = list(reversed(rows(db, allow=self.allow, limit=1000, since_unix=cutoff)))
                 for row in initial:
                     await self._ingest(row, notify=False)
                     self.last_rowid = max(self.last_rowid, int(row["rowid"]))
@@ -73,7 +90,8 @@ class IMessageService:
             if self.channels_changed is not None:
                 self.channels_changed()
             self._task = asyncio.create_task(self._poll(), name="imessage-poll")
-            log.info("iMessage reader connected to local Messages database")
+            log.info("iMessage reader connected: %d allowed contacts, %d chats, %d recent messages",
+                     len(self.allow), len(allowed), len(initial))
         except (MessagesDatabaseError, sqlite3.Error, OSError) as exc:
             self.available = False
             self.error = str(exc)
@@ -99,7 +117,7 @@ class IMessageService:
 
     def health(self) -> dict[str, Any]:
         return {"enabled": self.enabled, "available": self.available, "status": self.status,
-                "error": self.error, "digest": self.settings.digest,
+                "error": self.error, "digest": self.settings.digest, "allowed_contacts": len(self.allow),
                 "setup_instructions": "Enable Full Disk Access for the app running the hub in System Settings > "
                                       "Privacy & Security > Full Disk Access, then restart the hub.",
                 "full_disk_access_settings": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
@@ -127,25 +145,26 @@ class IMessageService:
         always False (so the panel shows no "Load earlier")."""
         guid = await self.resolve_channel(channel)
         with closing(connect(self.settings.db_path)) as db:
-            chat = db.execute("SELECT display_name, chat_identifier, style FROM chat WHERE guid = ? LIMIT 1", (guid,)).fetchone()
-            fetched = [] if before else rows(db, limit=limit, chat_guid=guid)
-        if chat is None:
-            raise LookupError(f"No iMessage conversation {channel!r}")
+            found = chats(db, allow=self.allow, chat_guid=guid)
+            fetched = [] if before or not found else rows(db, allow=self.allow, limit=limit, chat_guid=guid)
+        if not found:
+            raise LookupError("No allowlisted iMessage conversation with that id (see IMESSAGE_ALLOW)")
+        chat = found[0]
         messages = [self._message(row) for row in reversed(fetched)]
         for message in messages:
             self.store.add(message)
-        return f"im:{guid}", self._chat_label(guid, chat), "dm" if int(chat[2] or 0) == 45 else "group-dm", messages, False
+        return f"im:{guid}", self._chat_label(guid, chat), "dm" if int(chat["style"] or 0) == 45 else "group-dm", messages, False
 
     def _chat_label(self, guid: str, chat: Any) -> str:
-        return self.chat_names.get(guid) or str(chat[0] or chat[1] or f"im:{guid}")
+        return self.chat_names.get(guid) or str(chat["display_name"] or chat["chat_identifier"] or f"im:{guid}")
 
     def chat_name(self, guid: str) -> str:
         """A chat's display name without reading its messages (drafts need only the name)."""
         with closing(connect(self.settings.db_path)) as db:
-            chat = db.execute("SELECT display_name, chat_identifier FROM chat WHERE guid = ? LIMIT 1", (guid,)).fetchone()
-        if chat is None:
-            raise LookupError(f"No iMessage conversation im:{guid}")
-        return self._chat_label(guid, chat)
+            found = chats(db, allow=self.allow, chat_guid=guid)
+        if not found:
+            raise LookupError("No allowlisted iMessage conversation with that id (see IMESSAGE_ALLOW)")
+        return self._chat_label(guid, found[0])
 
     async def resolve_channel(self, value: str | None) -> str:
         if not value:
@@ -154,15 +173,18 @@ class IMessageService:
             raise LookupError("Choose an iMessage conversation first")
         wanted = value.strip()
         if wanted.startswith("im:"):
+            with closing(connect(self.settings.db_path)) as db:
+                if not chats(db, allow=self.allow, chat_guid=wanted[3:]):
+                    raise LookupError("That iMessage conversation is not in IMESSAGE_ALLOW")
             return wanted[3:]
         if not self.available:
             raise LookupError("iMessage is unavailable on this Mac")
         with closing(connect(self.settings.db_path)) as db:
-            chats = db.execute("SELECT guid, chat_identifier, display_name FROM chat ORDER BY ROWID DESC LIMIT 1000").fetchall()
-        exact = [r for r in chats if wanted.lower() in {str(r[1] or "").lower(), str(r[2] or "").lower(),
+            allowed = chats(db, allow=self.allow)
+        exact = [r for r in allowed if wanted.lower() in {str(r[1] or "").lower(), str(r[2] or "").lower(),
                                                         self.chat_names.get(str(r[0]), "").lower()}]
         if not exact:
-            exact = [r for r in chats if wanted.lower() in " ".join((str(r[2] or ""),
+            exact = [r for r in allowed if wanted.lower() in " ".join((str(r[2] or ""),
                                                                        self.chat_names.get(str(r[0]), ""))).lower()]
         if len(exact) > 1:
             raise LookupError(f"More than one iMessage chat matches {wanted!r}; use its im:<chat-guid> id")
@@ -218,13 +240,13 @@ class IMessageService:
             raise DraftError(f"No open iMessage draft{f' {draft_id}' if draft_id else ''} (sent, cancelled or expired?)")
         guid = draft.channel.removeprefix("im:")
         with closing(connect(self.settings.db_path)) as db:
-            chat = chat_rowid(db, guid)
+            chat = chat_rowid(db, guid, allow=self.allow)
             before_rowid = int(db.execute("SELECT COALESCE(MAX(ROWID), 0) FROM message").fetchone()[0] or 0)
         if chat is None:
-            raise DraftError(f"iMessage conversation {draft.channel} no longer exists")
+            raise DraftError("iMessage conversation no longer exists or is not in IMESSAGE_ALLOW")
         self._take(draft.draft_id)
         try:
-            await self.sender.send(chat[0], draft.text)
+            await self.sender.send(chat[0], draft.text, handle=chat[1])
         except Exception:
             await self.bus.publish("notify.draft_cancelled",
                                    NotifyDraftCancelled(draft_id=draft.draft_id, reason="send_failed"))
@@ -233,7 +255,7 @@ class IMessageService:
         deadline = time.monotonic() + 8.0
         while time.monotonic() < deadline:
             with closing(connect(self.settings.db_path)) as db:
-                confirmed = outgoing_match(db, guid, draft.text, before_rowid)
+                confirmed = outgoing_match(db, guid, draft.text, before_rowid, allow=self.allow)
             if confirmed:
                 break
             await asyncio.sleep(0.25)
@@ -296,7 +318,7 @@ class IMessageService:
         while True:
             try:
                 with closing(connect(self.settings.db_path)) as db:
-                    batch = list(reversed(rows(db, after_rowid=self.last_rowid, limit=200)))
+                    batch = list(reversed(rows(db, allow=self.allow, after_rowid=self.last_rowid, limit=200)))
                 for row in batch:
                     await self._ingest(row)
                     self.last_rowid = max(self.last_rowid, int(row["rowid"]))
