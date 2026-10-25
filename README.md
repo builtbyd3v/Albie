@@ -5,6 +5,7 @@ Albie is a mixed reality workspace for engineers on Meta Quest 3 and 3S, led by 
 - Built at Gator Hack V (UF AI Days 2026) by a team of five. Unity 6 and the Meta XR SDK on the headset; a Python FastAPI hub on the laptop runs the voice (Grok), the deep work (Claude), and the ML, CAD and messaging modules.
 - Demo video (3 min): https://youtu.be/28D1QIcsdzI
 - AI tools: we built Albie with Claude Code (Anthropic) and Codex (OpenAI) as coding assistants, as the MLH rules allow. At run time Albie uses the Grok Voice Agent API, the Claude Agent SDK and the Claude API. Details in [docs/DISCLOSURE.md](docs/DISCLOSURE.md).
+- Ready for Meta's VR Glasses: the project passes the Device Readiness Check in Meta XR SDK 207 ([screenshot](docs/images/device-readiness-check.png)).
 - Run it: [docs/SETUP.md](docs/SETUP.md) (full guide, also for a coding agent) or [docs/DEV.md](docs/DEV.md) (short version). Third-party code, assets and AI tools: [docs/DISCLOSURE.md](docs/DISCLOSURE.md).
 
 ## What it does
