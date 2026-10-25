@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 
 from fastapi import WebSocket
@@ -72,6 +73,17 @@ class Bus:
 bus = Bus()
 
 
+# An absolute path (/Users/dev/.../ml/train.py, ~/x/y.py), not a URL (http://host/x) and not a relative one (ml/train.py).
+_ABS_PATH = re.compile(r"(?<![\w.:/~])(?:~/|/)(?:[\w.\-]+/)+([\w.\-]+)")
+
+
+def tidy_paths(text: str) -> str:
+    """Absolute paths -> their file name, for anything shown in Albie's bubble or spoken (live 20:0x he showed
+    /Users/dev/Documents/GitHub/albie-sandbox/ml/train.py). Paths under the project are made relative first by the
+    Emitter's redact list."""
+    return _ABS_PATH.sub(r"\1", text) if "/" in text else text
+
+
 class Emitter:
     """Per-turn emit callable: adds companion pet.state, redacts paths, broadcasts.
 
@@ -97,14 +109,12 @@ class Emitter:
         self._emit_pet_say = os.getenv("AGENT_EMIT_PET_SAY", "0") == "1"
 
     def _scrub(self, event: Event) -> Event:
-        if not self._redact:
-            return event
         payload = dict(event.payload)
         for key, val in payload.items():
             if isinstance(val, str):
                 for r in self._redact:
                     val = val.replace(r, "")
-                payload[key] = val
+                payload[key] = tidy_paths(val)
         return Event(type=event.type, payload=payload)
 
     async def __call__(self, event: Event) -> None:

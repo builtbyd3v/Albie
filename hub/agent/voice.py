@@ -60,6 +60,7 @@ from . import addressed
 from . import events as ev
 from . import tools
 from .crew import TYPES, lead_rules
+from .bus import tidy_paths
 from .events import Event
 from .wake import ALIASES, SPLIT_FIRST, SPLIT_SECOND
 
@@ -84,7 +85,7 @@ PERSONA = (
     "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
     "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
     "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
-    "function names plainly. Transcripts often turn \"ML\" into \"email\": Forge has no email panel, so "
+    "function names plainly, and never read a folder path aloud: just the file name. Transcripts often turn \"ML\" into \"email\": Forge has no email panel, so "
     "\"email\" means ML (the machine learning desk)."
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
@@ -695,7 +696,7 @@ class GrokVoiceSession(_Base):
             answer = "Oops, my brain hiccuped on that one. Can you ask again?"
         if not answer:
             return  # cancelled / superseded: nothing to say
-        await self.say(answer)
+        await self.say(tidy_paths(answer))  # spoken verbatim: "/Users/dev/.../ml/train.py" is read out as "train.py"
 
     async def note(self, text: str) -> None:
         """One line of context Grok reads but doesn't answer (a system message). While the socket is idle-closed
