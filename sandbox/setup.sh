@@ -15,11 +15,14 @@ fi
 mkdir -p "$dest/ml" "$dest/cad"
 
 # ML: the CIFAR-10 trainer the ML desk runs, with its .forge setup. Tracked files only; the 1.2 GB dataset is linked.
-(cd "$repo/ml-examples/cifar10" && git ls-files -z . | xargs -0 tar -cf -) | (cd "$dest/ml" && tar -xf -)
-# The dataset is gitignored, so only checkouts that trained have it: link the first one found (this one first).
-for d in "$repo" $(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p'); do
-  if [ -d "$d/ml-examples/cifar10/data" ]; then ln -s "$d/ml-examples/cifar10/data" "$dest/ml/data"; break; fi
-done
+# Skipped until the ML desk (ml-examples/) is in this checkout.
+if [ -d "$repo/ml-examples/cifar10" ]; then
+  (cd "$repo/ml-examples/cifar10" && git ls-files -z . | xargs -0 tar -cf -) | (cd "$dest/ml" && tar -xf -)
+  # The dataset is gitignored, so only checkouts that trained have it: link the first one found (this one first).
+  for d in "$repo" $(git -C "$repo" worktree list --porcelain | sed -n 's/^worktree //p'); do
+    if [ -d "$d/ml-examples/cifar10/data" ]; then ln -s "$d/ml-examples/cifar10/data" "$dest/ml/data"; break; fi
+  done
+fi
 
 # CAD: every part script (the hub watches this folder through FORGE_CAD_SCRIPT and rebuilds the model on save).
 cp "$repo"/hub/cad/parts/*.py "$dest/cad/"
