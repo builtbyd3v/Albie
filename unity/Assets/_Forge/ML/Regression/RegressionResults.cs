@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -10,15 +12,58 @@ namespace Forge.ML
         [System.Serializable] public class Sample { public string id; public float yTrue, yPred; }
         public Sample[] samples;
         RectTransform root, detail;
+        string message;  // shown instead of the scatter while the hub has no regression results
         void Start() => Initialize();
-        public void Initialize() { root = GetComponent<ForgePanel>().Content; if (samples == null || samples.Length == 0) samples = DemoSamples(); Draw(); }
+        void OnEnable() { ForgeEvents.OnMlResultsReady += OnResultsReady; ForgeNet.StatusChanged += OnNetStatus; }
+        void OnDisable() { ForgeEvents.OnMlResultsReady -= OnResultsReady; ForgeNet.StatusChanged -= OnNetStatus; }
+        public void Initialize()
+        {
+            root = GetComponent<ForgePanel>().Content;
+            if (samples == null || samples.Length == 0) samples = DemoSamples();
+            Draw();
+            if (ForgeNet.Status == ForgeNetStatus.Live) LoadFromHub(null);
+        }
+        void OnNetStatus(ForgeNetStatus status) { if (status == ForgeNetStatus.Live && root != null) LoadFromHub(null); }
+        void OnResultsReady(global::MlResultsReady ready) { if (ready != null && root != null) LoadFromHub(ready.runId); }
+        // Live hub: the run's GET /ml/results ({samples: [{id, y_true, y_pred, residual}]}); without a run id the
+        // latest finished one. A run that never evaluated (a backtest) has none: say so instead of demo points.
+        void LoadFromHub(string runId)
+        {
+            if (!string.IsNullOrEmpty(runId)) { FetchResults(runId); return; }
+            ForgeNet.Get("/ml/runs", text =>
+            {
+                foreach (var run in JArray.Parse(text))
+                    if (run.Value<string>("status") == "done") { FetchResults(run.Value<string>("run_id")); return; }
+                ShowMessage("No predicted-vs-actual results yet: they appear after a run that evaluates on validation rows.");
+            }, _ => { });
+        }
+        void FetchResults(string runId)
+        {
+            ForgeNet.Get($"/ml/results/{runId}", text =>
+            {
+                var loaded = new List<Sample>();
+                foreach (var row in JObject.Parse(text)["samples"] as JArray ?? new JArray())
+                {
+                    var yTrue = row["y_true"]; var yPred = row["y_pred"];
+                    if (yTrue == null || yPred == null || yTrue.Type == JTokenType.Null || yPred.Type == JTokenType.Null) continue;
+                    loaded.Add(new Sample { id = row.Value<string>("id"), yTrue = yTrue.Value<float>(), yPred = yPred.Value<float>() });
+                }
+                if (loaded.Count == 0) { ShowMessage($"Run {runId} has no regression results."); return; }
+                samples = loaded.ToArray(); message = null; Draw();
+            }, _ => ShowMessage("No predicted-vs-actual results yet: they appear after a run that evaluates on validation rows."));
+        }
+        void ShowMessage(string text) { message = text; Draw(); }
         void Draw()
         {
             MLUI.Clear(root); MLUI.Text(root, "Predicted vs actual", 8, 4, 450, 25, 16);
+            if (message != null) { MLUI.Text(root, message, 14, 60, 700, 60, 16); detail = null; return; }
             var plot = MLUI.Rect("Regression scatter", root, 14, 38, 420, 280);
             MLUI.Fill(plot, 0, 274, 410, 2, new Color(.45f,.55f,.65f)); MLUI.Fill(plot, 0, 0, 2, 276, new Color(.45f,.55f,.65f));
-            float max = .01f; foreach (var sample in samples) max = Mathf.Max(max, sample.yTrue, sample.yPred);
-            for (int i = 0; i < samples.Length; i++) { var s = samples[i]; var dot = MLUI.Rect("Point " + i, plot, s.yTrue / max * 398 - 5, 270 - s.yPred / max * 258 - 5, 11, 11).gameObject; dot.AddComponent<Image>().color = new Color(1f,.62f,.22f); var point = dot.AddComponent<RegressionPoint>(); point.owner = this; point.index = i; }
+            // One shared range for both axes (min to max, so negative targets fit), keeping the diagonal honest.
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var sample in samples) { lo = Mathf.Min(lo, sample.yTrue, sample.yPred); hi = Mathf.Max(hi, sample.yTrue, sample.yPred); }
+            float span = Mathf.Max(1e-6f, hi - lo);
+            for (int i = 0; i < samples.Length; i++) { var s = samples[i]; var dot = MLUI.Rect("Point " + i, plot, (s.yTrue - lo) / span * 398 - 5, 270 - (s.yPred - lo) / span * 258 - 5, 11, 11).gameObject; dot.AddComponent<Image>().color = new Color(1f,.62f,.22f); var point = dot.AddComponent<RegressionPoint>(); point.owner = this; point.index = i; }
             MLUI.Text(root, "actual →", 340, 318, 100, 22, 11); MLUI.Text(root, "predicted ↑", 0, 38, 90, 22, 11);
             detail = MLUI.Rect("Row detail", root, 448, 38, 280, 280); Show(0);
         }

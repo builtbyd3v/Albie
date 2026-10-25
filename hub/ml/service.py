@@ -16,13 +16,13 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .archetypes import ARCHETYPES, layout
 from .models import VizCard
+from .prescan import resolve_python
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPO = ROOT / "ml-examples" / "cifar10"
@@ -82,11 +82,7 @@ class MLService:
 
     def python(self) -> str:
         """The repo's interpreter (profile.python), so torch never has to be in the hub's env."""
-        configured = self.profile().get("python") or "python"
-        candidate = self.repo / configured
-        if candidate.exists():
-            return str(candidate)
-        return shutil.which(configured) or sys.executable
+        return resolve_python(self.repo, self.profile().get("python"))
 
     # --- runs ---------------------------------------------------------------------------------
     def _run_dirs(self) -> list[Path]:

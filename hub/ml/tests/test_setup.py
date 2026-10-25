@@ -326,3 +326,15 @@ def test_an_extra_viz_that_doesnt_parse_is_a_round_trip(repo):
     assert statuses(events)[-1] == "needs_approval"
     assert "extra_viz.py doesn't parse" in llm.calls[2]["messages"][-1]["content"]
     ws.__exit__(None, None, None)
+
+
+def test_profile_python_resolves_like_the_service(tmp_path, monkeypatch):
+    """A hand-written profile saying "python" must still run when the hub's PATH has no `python` (no env active)."""
+    from ml.prescan import resolve_python
+
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert resolve_python(tmp_path, "python") == sys.executable
+    venv = tmp_path / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").write_text("")
+    assert resolve_python(tmp_path, ".venv/bin/python") == str(venv / "python")

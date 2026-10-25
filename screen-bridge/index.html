@@ -176,7 +176,11 @@
         : ["failed", "disconnected", "closed"].includes(pc.connectionState) ? "off" : "wait";
       setStatus(`video: ${pc.connectionState}${codec}`, state);
     };
-    const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], { direction: "sendonly" });
+    // Chrome's default screen-share bitrate smears small text; 12 Mbps is easy on a local network.
+    const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], {
+      direction: "sendonly",
+      sendEncodings: [{ maxBitrate: 12_000_000, maxFramerate: 30 }],
+    });
     // H.264 first: the Quest decodes it in hardware.
     const codecs = RTCRtpSender.getCapabilities("video").codecs;
     transceiver.setCodecPreferences([
