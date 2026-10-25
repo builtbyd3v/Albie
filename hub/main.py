@@ -7,7 +7,8 @@ the hub through one ForgeNet socket. See README "Agent module (pet)".
 Run from hub/:  uvicorn main:app --host 0.0.0.0 --port 8000   (no --reload: it would restart the CAD worker)
 
 Env: FORGE_DATA_DIR (default hub/.data), FORGE_CAD_SCRIPT (default hub/cad/parts/rocket.py), SLACK_* (messaging/settings.py),
-SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py), FORGE_ML_REPO (default ml-examples/cifar10).
+SCREEN_BRIDGE=1|0 and SCREEN_BRIDGE_DIR (screens/service.py), FORGE_ML_REPO (default ml-examples/cifar10),
+IMESSAGE_* (messaging/imessage/settings.py; off unless IMESSAGE_ENABLED=1 on macOS; only IMESSAGE_ALLOW chats are read).
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ from desk.router import router as desk_router
 from events import EventBus
 from messaging import MessageStore, SlackService, SlackSettings
 from messaging import tools as messaging_tools
+from messaging.imessage import IMessageService, IMessageSettings
 from messaging.router import router as messaging_router
 from ml.router import router as ml_router
 from ml.tools import TOOLS as ML_TOOLS, MLTools
@@ -55,8 +57,29 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register_cad(cad, bus)  # Bit's CAD tools for Grok and the Claude runner
         slack = SlackService(SlackSettings.from_env(), MessageStore(data_dir / "messages"), bus, speech.speak, speech.note)
         app.state.slack = slack
-        agent_ws.client_handlers["messages.focus"] = slack.focus_from_ws  # "Reply with Bit" from a message card
-        agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(name, args, slack))
+        imessage = None
+        imessage_settings = IMessageSettings.from_env()
+        if imessage_settings.enabled:  # opt-in and Mac-only: nothing is read or shown unless IMESSAGE_ENABLED=1
+            imessage = IMessageService(imessage_settings, slack.store, bus, speech.note)
+            slack.extra_channel_summaries = imessage.channel_summaries
+            imessage.channels_changed = slack.channels_changed
+        app.state.imessage = imessage
+
+        async def messages_focus(session, payload):
+            channel = str(payload.get("channel") or "")
+            # One message in focus across both providers: a bare "reply to that" answers the last one tapped.
+            if channel.startswith("im:") and imessage is not None:
+                if await imessage.focus(channel, str(payload.get("ts") or ""),
+                                        str(payload.get("pet_id") or getattr(session, "pet_id", "bit"))):
+                    slack.focused = None
+            else:
+                await slack.focus_from_ws(session, payload)
+                if imessage is not None and slack.focused is not None and slack.focused.channel == channel:
+                    imessage.focused = None
+
+        agent_ws.client_handlers["messages.focus"] = messages_focus  # reply flow from either provider
+        agent_tools.register(messaging_tools.TOOLS,
+                            lambda name, args: messaging_tools.call_tool(name, args, slack, imessage))
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
         app.state.desk = desk
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
@@ -64,6 +87,8 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(ML_TOOLS, ml_tools.call)
         await cad.start()
         await slack.start()
+        # In the background: the first read of chat.db and the imsg checks never hold up Slack, screens or /health.
+        imessage_start = asyncio.create_task(imessage.start(), name="imessage-start") if imessage is not None else None
         screens = ScreenBridgeService(bus)  # npm start in screen-bridge/, killed with the hub (SCREEN_BRIDGE=0 to skip)
         app.state.screens = screens
         await screens.start()
@@ -79,6 +104,12 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                     await watcher
             desk.stop()
             await screens.stop()
+            if imessage_start is not None:
+                imessage_start.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await imessage_start
+            if imessage is not None:
+                await imessage.stop()
             await slack.stop()
             await cad.stop()
 
@@ -105,8 +136,12 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
 
     @app.get("/health")
     def health():
+        imessage_health = (app.state.imessage.health() if app.state.imessage is not None else
+                           {"enabled": False, "available": False, "status": "off (IMESSAGE_ENABLED=1 on a Mac to turn on)",
+                            "error": None, "digest": False})
         return {"ok": True, "cad_version": app.state.cad.head, "slack": app.state.slack.health(),
-                "screen": app.state.screens.health(), "desk": app.state.desk.health(), **agent_health()}
+                "imessage": imessage_health, "screen": app.state.screens.health(), "desk": app.state.desk.health(),
+                **agent_health()}
 
     return app
 

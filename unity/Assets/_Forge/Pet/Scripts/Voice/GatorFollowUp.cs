@@ -59,6 +59,8 @@ namespace Forge.Pet
         float lookAngle = 40f;   // 25 never fired on the Quest (live 18:3x: facing=False every turn)
         [SerializeField, Tooltip("Looking at the gator this recently (s) still counts: you glance at it, then turn to speak.")]
         float lookGrace = 1.5f;
+        [SerializeField, Tooltip("Facing the gator counts as saying its name. Off: every hands-free sentence needs \"Albie\" (at the desk it sits in front of the screen, so looking at the screen read as looking at it). Pair with the hub's VOICE_FACING=1.")]
+        bool lookCountsAsName;
 
         ITextToSpeech _tts;
         ITalkLevel _talk;
@@ -151,7 +153,7 @@ namespace Forge.Pet
         // went out ungated and "He's not into that, bro." was answered.
         bool GateNextTurn()
         {
-            if (pushToTalk.Provider is HubSpeechToText hub) hub.RequireName = !Facing();
+            if (pushToTalk.Provider is HubSpeechToText hub) hub.RequireName = !(lookCountsAsName && Facing());
             return true;
         }
 
@@ -192,7 +194,7 @@ namespace Forge.Pet
 
         void CheckSpeech()
         {
-            bool facing = Facing();
+            bool facing = lookCountsAsName && Facing();
             float echo = _speaking && _talk != null ? _talk.Level * echoShare : 0f;
             float level = _monitor.Level, dt = Time.deltaTime;
             _speechFor = level >= bargeLevel && level >= echo ? _speechFor + dt : Mathf.Max(0f, _speechFor - dt);

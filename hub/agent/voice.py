@@ -60,6 +60,7 @@ from . import addressed
 from . import events as ev
 from . import tools
 from .crew import TYPES, lead_rules
+from .bus import tidy_paths
 from .events import Event
 from .wake import ALIASES, SPLIT_FIRST, SPLIT_SECOND
 
@@ -84,7 +85,7 @@ PERSONA = (
     "a mixed-reality workspace for engineers. Talk like a cheerful cartoon sidekick: warm, bouncy and always "
     "helpful. Never use interjections or filler sounds such as 'ooh', 'hehe', 'wow' or 'yay'; show "
     "personality through word choice instead. No lists, no markdown, never read code aloud; say file and "
-    "function names plainly. Transcripts often turn \"ML\" into \"email\": Forge has no email panel, so "
+    "function names plainly, and never read a folder path aloud: just the file name. Transcripts often turn \"ML\" into \"email\": Forge has no email panel, so "
     "\"email\" means ML (the machine learning desk)."
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
@@ -96,8 +97,9 @@ BREVITY = (
 BREVITY_NOW = " Reply now in at most two short sentences."
 DELEGATE_RULES = (
     " Your delegate tool is for anything needing real analysis of the user's code, repository, files, project "
-    "or training runs, and for any request to write, fix or change code; never guess those details "
-    "yourself. Give it a self-contained task that includes what the user asked and any context from the "
+    "or training runs, and for any request to write, fix or change code or to create a new file; use mode code "
+    "for those, and the brain edits the files open in VS Code right where the user sees them. Never guess those "
+    "details yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
     "ready. Answer everything else yourself."
 )
@@ -105,7 +107,12 @@ TOOL_RULES = (
     " Use your other tools yourself for quick actions: read or change the rocket design, open, highlight "
     "or check code in VS Code, set the focus timer, keep the user's notes, and play the movie on the big screen. "
     "Call them instead of guessing, then say in one short line what you did. "
-    "Slack replies go out under the user's own name and are never sent directly: messages_send only writes a draft "
+    "Open, highlight or check code in VS Code yourself: to open or show a file that exists, call vscode_open_file "
+    "(vscode_get_context first if they say 'this' or 'my code'), to point at lines call vscode_highlight. Never use "
+    "the crew (spawn_agent, assign_task) to open, show, create or edit a file: the crew works on its own branch, "
+    "which the user can't see in VS Code. Use the crew only when the user names a crew member or asks for help in "
+    "parallel. "
+    "Slack and iMessage replies go out under the user's own account and are never sent directly: messages_send only writes a draft "
     "that pops up for them to confirm, so say what you wrote and ask them to tap Send or say 'send it'; "
     "messages_confirm is for their yes or no."
 )
@@ -141,7 +148,9 @@ STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "pl
                                                                 "mind", "now", "right"}
 NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
-WAKE_FINAL_TIMEOUT_S = 5.0  # a wake turn with no transcription.completed by then is decided on the last partial
+WAKE_FINAL_TIMEOUT_S = 8.0  # a wake turn with no transcription.completed by then is decided on the last partial
+# (5 s decided on partials over the phone hotspot, live 19:29-19:30; Unity's PushToTalk finalTimeout is 10 s)
+GROK_PING_TIMEOUT_S = 60.0  # the hotspot delayed keepalive pongs past websockets' 20 s default: 4 drops in 11 min
 
 
 def provider() -> str:
@@ -259,9 +268,10 @@ class _Base:
     async def _wake_decided(self, respond: bool) -> None:
         """Wake turn routed: answer it (respond) or forget it."""
 
-    async def addressed(self, text: str, gated: bool = False) -> bool:
-        """WakeRouter.judge: was this unnamed sentence said to Albie? His last line is the context."""
-        return await addressed.judge(text, self.last_reply or None, gated=gated)
+    async def addressed(self, text: str, facing: bool = False) -> bool:
+        """WakeRouter.judge: was this unnamed sentence said to Albie? His last line (and how long ago) is the context."""
+        age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
+        return await addressed.judge(text, self.last_reply or None, age, facing=facing)
 
     def _spoke(self, text: str) -> None:
         if text.strip():
@@ -293,7 +303,7 @@ class GrokVoiceSession(_Base):
         self._dropping = False  # that reply is being cancelled (until its response.done)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
-        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "20"))
+        self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))  # 20 s cost a reconnect (up to 6 s on the hotspot) after every quiet spell
         self._ws: Any = None
         self._reader: asyncio.Task[None] | None = None
         self._watchdog: asyncio.Task[None] | None = None
@@ -305,6 +315,7 @@ class GrokVoiceSession(_Base):
         self._commits: deque[_Commit] = deque()  # sent input_audio_buffer.commit, waiting for .committed (in order)
         self._by_item: dict[str, _Commit] = {}  # committed, waiting for the transcript
         self._timed_out_seq = -1  # the turn _wake_timeout decided without a transcript
+        self._timed_out_answered = False  # ...and answered it on the partial: its late transcript must not answer again
         self._wake_answered = False  # the last wake turn was routed to a reply (for the turn log)
         # current response
         self._utt: str | None = None
@@ -450,6 +461,7 @@ class GrokVoiceSession(_Base):
             self._timed_out_seq = seq
             log.info("wake turn: no transcript %.0f s after commit, deciding on %r", WAKE_FINAL_TIMEOUT_S, self._partial)
             await self._final()
+            self._timed_out_answered = self._wake_answered
 
     async def _late_transcript(self, c: _Commit, text: str) -> None:
         """A wake turn's transcript after its turn was superseded or timed out: route it now with its own flags."""
@@ -566,6 +578,8 @@ class GrokVoiceSession(_Base):
         elif t == "conversation.item.input_audio_transcription.completed":
             c = self._by_item.pop(msg.get("item_id") or "", None)
             if c is not None and (c.seq != self._turn_seq or (self._final_sent and c.seq == self._timed_out_seq)):
+                if c.seq == self._timed_out_seq and self._timed_out_answered:
+                    return  # answered on its partial already (live 19:29: "...new room" answered twice)
                 if c.wake:  # an earlier segment's words: never this turn's, and not lost either
                     await self._late_transcript(c, msg.get("transcript") or "")
                 return
@@ -653,6 +667,7 @@ class GrokVoiceSession(_Base):
         except (json.JSONDecodeError, TypeError, ValueError):
             args = {}
         await self._emit(ev.tool_call(self.pet_id, call_id, name, args))
+        log.info("tool: %s %s", name, json.dumps(args)[:200])  # which tool a request was routed to (VS Code vs crew)
         if name == "delegate" and self._delegate is not None and str(args.get("task", "")).strip():
             mode = args.get("mode") if args.get("mode") in ("qa", "code", "auto") else "auto"
             # Grok has no "pending" results: acknowledge now so it can say "on it", speak the answer later.
@@ -681,7 +696,7 @@ class GrokVoiceSession(_Base):
             answer = "Oops, my brain hiccuped on that one. Can you ask again?"
         if not answer:
             return  # cancelled / superseded: nothing to say
-        await self.say(answer)
+        await self.say(tidy_paths(answer))  # spoken verbatim: "/Users/dev/.../ml/train.py" is read out as "train.py"
 
     async def note(self, text: str) -> None:
         """One line of context Grok reads but doesn't answer (a system message). While the socket is idle-closed
@@ -860,7 +875,7 @@ async def _ws_connect(url: str, api_key: str) -> Any:
     from websockets.asyncio.client import connect  # only needed with VOICE_PROVIDER=grok
 
     return await connect(url, additional_headers={"Authorization": f"Bearer {api_key}"},
-                         max_size=None, open_timeout=10)
+                         max_size=None, open_timeout=10, ping_timeout=GROK_PING_TIMEOUT_S)
 
 
 def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, send_bytes: SendBytes,
@@ -891,14 +906,19 @@ NAME_WORDS = ALIASES["bit"]  # albie, albee, alby, elbie (agent/wake.py)
 
 
 def has_name(text: str, last: bool = True) -> bool:
-    """Albie is addressed: "Albie, ...", "Hey Albie ...", "Al bee, ...", "..., Albie?". Only the first two words,
-    plus the last one when ``last`` (final transcripts only: a growing partial always ends on its newest word)."""
-    words = re.findall(r"[a-z]+", text.lower())
-    for i in (0, 1):  # "Al bee" at the start is the name heard as two words
-        if words[i:i + 1] == [SPLIT_FIRST] and words[i + 1:i + 2] and words[i + 1] in SPLIT_SECOND:
-            words[i:i + 2] = ["albie"]
-            break
-    return any(w in NAME_WORDS for w in words[:2] + (words[-1:] if last else []))
+    """Albie is addressed: "Albie, ...", "Hey Albie ...", "Al bee, ...", "..., Albie?". The first two words of any
+    sentence ("Switch to code. Albie, switch to code."), plus the last word when ``last`` (final transcripts only: a
+    growing partial always ends on its newest word)."""
+    sentences = [re.findall(r"[a-z]+", s) for s in re.split(r"[.?!]+(?=\s|$)", text.lower())]
+    sentences = [s for s in sentences if s]
+    for words in sentences:
+        for i in (0, 1):  # "Al bee" at the start is the name heard as two words
+            if words[i:i + 1] == [SPLIT_FIRST] and words[i + 1:i + 2] and words[i + 1] in SPLIT_SECOND:
+                words[i:i + 2] = ["albie"]
+                break
+        if any(w in NAME_WORDS for w in words[:2]):
+            return True
+    return bool(last and sentences and sentences[-1][-1] in NAME_WORDS)
 
 
 def keyterms_for(repo: Path | None) -> list[str]:

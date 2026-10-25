@@ -30,6 +30,12 @@ public class SlackButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         rest = SlackUi.AccentA(0.88f), hover = SlackUi.AccentA(1f), on = SlackUi.AccentA(1f), onHover = SlackUi.AccentA(1f),
         ink = SlackUi.Ink, onInk = SlackUi.Ink, bold = true,
     };
+    /// <summary>Apple blue primary action used by the iMessage composer.</summary>
+    public static readonly Look IMessagePrimary = new Look
+    {
+        rest = SlackUi.IMessageBlue, hover = new Color(0.12f, 0.56f, 1f), on = SlackUi.IMessageBlue,
+        onHover = new Color(0.12f, 0.56f, 1f), ink = Color.white, onInk = Color.white, bold = true,
+    };
     /// <summary>Conversation and mention rows: the module's card fill, lighter when pointed at, solid when selected.</summary>
     public static readonly Look Row = new Look
     {

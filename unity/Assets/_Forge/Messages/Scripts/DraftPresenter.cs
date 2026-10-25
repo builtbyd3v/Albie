@@ -1,8 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Routes notify.draft (PROJECT_CONTEXT 8.8). With the Slack panel open (<see cref="SlackPanel.Active"/>) the draft goes
-/// into its composer as editable text, with Send / Cancel and the conversation switched to the draft's. Otherwise it pops
+/// Routes notify.draft (PROJECT_CONTEXT 8.8). With the matching provider panel open, the draft goes into its composer
+/// as editable text, with Send / Cancel and the conversation switched to the draft's. Otherwise it pops
 /// a <see cref="DraftCard"/> (Send / Cancel) floating at the desk's front-right beside Bit, a little closer to the user
 /// near the user, or in front of the camera when there is no desk. One card at a time: a new draft replaces the
 /// open one (the hub also emits notify.draft_cancelled with reason superseded for it).
@@ -39,11 +39,13 @@ public class DraftPresenter : MonoBehaviour
         SlackPanel.ActiveChanged -= OnPanelsChanged;
     }
 
-    // The Slack panel opened while a card floats: the composer takes over the draft, the card folds.
+    // The matching provider panel opened while a card floats: its composer takes over the draft, the card folds.
     void OnPanelsChanged()
     {
-        if (SlackPanel.Active == null || card == null || card.Closing) return;
-        SlackPanel.Active.ReceiveDraft(card.Draft);
+        if (card == null || card.Closing) return;
+        var panel = SlackPanel.ForSource(card.Draft != null ? card.Draft.source : null);
+        if (panel == null) return;
+        panel.ReceiveDraft(card.Draft);
         DigestTrigger.FoldOut(this, card.Root != null ? card.Root : card.gameObject);
         card = null;
     }
@@ -51,7 +53,7 @@ public class DraftPresenter : MonoBehaviour
     void OnDraft(NotifyDraft d)
     {
         if (d == null || string.IsNullOrEmpty(d.draftId)) return;
-        if (SlackPanel.Active != null) return;  // the panel subscribes itself and puts it in the composer
+        if (SlackPanel.ForSource(d.source) != null) return;  // the matching panel handles it in its composer
         if (card != null)
         {
             if (card.Draft != null && card.Draft.draftId == d.draftId && d.edited)

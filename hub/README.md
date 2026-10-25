@@ -178,7 +178,7 @@ events, task_complete (branch `pet/fake-123`). The text `error` gives agent.erro
 (seconds, default 0.6) sets the pacing.
 
 Real mode: `ANTHROPIC_API_KEY` in `hub/.env` (or the shell) and `FAKE_AGENT=0`.
-`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`medium`).
+`AGENT_MODEL` (default `claude-sonnet-5-5`), `AGENT_QA_EFFORT` (`low`), `AGENT_CODE_EFFORT` (`low`).
 
 - **qa**: tools `Read, Grep, Glob` only, `permission_mode="dontAsk"`, `cwd` = repo, short spoken persona.
 - **code**: the hub checks out `pet/<slug>-<id>` first (skipped, and said so, if not a git repo), then runs
@@ -262,7 +262,7 @@ The client sends `hello` first, then `agent.ask` / `agent.cancel` / `stt.*` / `w
 The proposed `agent.*` / `stt.*` events are preceded by an existing-contract `pet.state` whenever the
 pet's mode changes; `AGENT_EMIT_PET_SAY=1` also mirrors `agent.answer_done` as `pet.say`.
 
-## Messaging (Slack)
+## Messaging (Slack and iMessage)
 
 Albie reads **your** Slack inbox and replies **under your name**, never without a confirmation. The app is defined by
 `hub/manifest.json` (bot user, bot + user scopes, bot + user events, Socket Mode, Messages tab); `hub/.slack/` makes
@@ -293,8 +293,41 @@ SLACK_USER_ID=U...              # optional, derived from the user token; only ne
 SLACK_DEFAULT_CHANNEL=#forge-team
 ```
 
-Bot + app tokens empty = messaging disabled (one warning at startup, every `/messages/*` endpoint but `/digest` answers
-503; `/digest` returns an empty digest). `GET /health` shows `slack: {enabled, connected, as_user, bot_user_id, user_id, channels, open_draft}`.
+### Optional iMessage (macOS)
+
+Off by default. With `IMESSAGE_ENABLED=1` on macOS, the hub reads `~/Library/Messages/chat.db` read-only (texts from
+the last `IMESSAGE_RECENT_DAYS`, default 3) and adds those conversations to the shared inbox and Albie's messaging tools.
+
+**Privacy allowlist (required).** `IMESSAGE_ALLOW` is a comma-separated list of phone numbers (any format: `(352)
+555-0123`, `352.555.0123` and `+1 352 555 0123` are the same; a bare 10-digit number is US, `+1`) or emails (case does
+not matter). Only 1:1 chats with those handles are read, filtered in the SQL query itself, so no other text ever reaches
+the hub, events, headset, Albie, the digest or logs. Group chats are always hidden, even when every member is allowed.
+Sending is refused for anything else before `imsg` runs. Enabled with an empty or missing `IMESSAGE_ALLOW` loads
+nothing (`/health`: `enabled, no allowed contacts (set IMESSAGE_ALLOW)`). Logs carry counts only.
+It starts in the background, so it never delays Slack, screens or `/health`. Sending needs the `imsg` CLI, which the
+hub never installs: without it iMessage is read-only, and the startup log and `/health` (`send_error`) say to run
+`brew install steipete/tap/imsg` (a third-party tap) yourself. On macOS 26, `imsg` verifies sends against the Messages database because
+AppleScript can report success without a real outgoing row.
+
+In the Unity MSG mode, mentions and unread notifications appear on the left and Slack (`messages`) in the center. Only
+when `/health` reports `imessage.available` does `MessagesLayout` add the iMessage panel (`messages-imessage`) in the
+center and move Slack to the right. Selecting an unread item opens its conversation in the matching provider panel.
+
+The first startup also checks whether the hub can read Messages. If macOS blocks access, grant **Full Disk Access**
+to the app running the hub (for example Terminal, iTerm, or VS Code) in **System Settings > Privacy & Security >
+Full Disk Access**, then restart the hub. macOS requires this explicit user action; `/health` returns the setup
+instructions and a direct link to that Settings pane. The first send may prompt for **Automation** permission to
+control Messages; allow it. Set `IMESSAGE_CLI` only when you intentionally use a custom `imsg` executable.
+`/health` exposes `imessage.available` and `imessage.send_available` separately.
+
+Albie uses the same confirmation flow for both providers: `messages_send` creates a draft, then only `messages_confirm`
+after a clear user confirmation sends it. For an iMessage reply, pass the source message's `ts` as `reply_to_ts`; for
+a chosen conversation, pass its `im:<chat-guid>` id as `channel`. To start a new draft, set `via: "imessage"` and
+name an existing conversation. The current CLI adapter targets existing chats; it does not start a brand-new chat.
+`IMESSAGE_DIGEST=false` keeps texts out of the spoken sit-down digest while leaving their unread marks intact.
+
+Bot + app tokens empty = Slack is disabled, but iMessage (when enabled) can still power supported inbox and draft endpoints.
+Slack-specific endpoints return 503. `/health` reports Slack and iMessage separately.
 
 Live check without Unity:
 
@@ -324,11 +357,11 @@ or a person's name: "tell Hudson ..." drafts into their DM (opened with `convers
 
 | | |
 |---|---|
-| `GET /messages/channels` | `{channels: ChannelSummary[]}`: every conversation you are in (`id, name, kind: channel\|private\|dm\|group-dm, unread, mentions, last_ts, last_text, topic, is_default`), DMs / group DMs with unread first, then by `last_ts` desc. `name` is `#forge-team`, the person (dm) or the people (group-dm). |
-| `GET /messages/history?channel=&limit=50&before=` | `{channel, channel_name, kind, messages: SlackMessage[], has_more}`: the conversation's top-level messages oldest -> newest (limit max 100; `before` = a ts, pages backwards). Threaded messages carry `reply_count`; your own posts are there with `is_me`. From the store when it has the page, else `conversations.history` merged into it. |
+| `GET /messages/channels` | `{channels: ChannelSummary[]}`: Slack and available iMessage conversations, with provider `source`; DMs / group DMs include unread counts, sorted by `last_ts` desc. iMessage IDs start with `im:`. |
+| `GET /messages/history?channel=&limit=50&before=` | `{channel, channel_name, kind, messages: SlackMessage[], has_more}`: Slack or iMessage history oldest -> newest; iMessage uses `chat.db` and `im:<chat-guid>`. |
 | `POST /messages/channels/{id}/seen` | the conversation is open in the panel -> `{ok, unread: 0}`; `notify.channels` follows |
 | `GET /messages/users/me` | `{user_id, name, display_name}`: who the hub posts as |
-| `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage`: channel, channel_name, is_dm, user, user_name, text, ts, thread_ts, mentions_me, reply_count, edited, is_me, user_initials) |
+| `GET /messages/latest?n=5` | newest inbox messages across every conversation (`SlackMessage` includes `source: slack\|imessage`) |
 | `POST /messages/drafts {text, reply_to_ts?, channel?, thread_ts?}` | write a draft -> `Draft {draft_id, channel, channel_name, text, thread_ts, reply_to, edited}`; `reply_to_ts` picks the channel and thread of the message being answered; `channel` is an id, `#name` or a person's name (their DM), omitted = that channel or `SLACK_DEFAULT_CHANNEL` |
 | `PATCH /messages/drafts/{id} {text?, channel?, thread_ts?}` | the user edited the draft -> the `Draft` again, same `draft_id`, `edited: true`, `notify.draft` re-emitted; 404 if it is gone, 422 for empty text |
 | `POST /messages/drafts/{id}/send` | post it as you -> `{ts}`; 404 if the draft is gone (sent, cancelled, expired, superseded) |
@@ -336,7 +369,7 @@ or a person's name: "tell Hudson ..." drafts into their DM (opened with `convers
 | `POST /messages/digest {pet_id?}` | Unity calls it when `DeskPresence` goes Seated: everything unread in every conversation -> `notify.digest` (newest 4), `pet.say` with the one-line summary, spoken on the live voice session (`agent/speech.py`). Marks every conversation seen. |
 | `POST /messages/focus {pet_id?, channel, ts}` | "Reply with Albie" on a message (same as the ws message `messages.focus`): Albie says "<who> in <#channel or a DM> says: <text>. Want me to answer?" (voice, else `pet.say`), and the next `messages_send` without a target replies in that thread. 404 if the message isn't one of that conversation's last 200. |
 | `/ws` events | `notify.message` (each message, your own included with `is_me`), `notify.channels {channels}` (sticky, debounced 300 ms), `notify.draft`, `notify.sent {draft_id, ...}`, `notify.draft_cancelled {draft_id, reason}`, `notify.digest`; client -> hub: `messages.focus {pet_id, channel, ts}` |
-| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?}` (draft only; no target = the message in focus; a person's name = their DM), `messages_confirm {send, draft_id?}` |
+| Albie's tools | `messages_read_latest {n?}`, `messages_list_channels {}`, `messages_read_channel {channel, n?}`, `messages_send {text, reply_to_ts?, channel?, thread_ts?, via?}` (draft only; no target = the message in focus; a person's name = their DM; iMessage replies route by source; `via: imessage` starts a new iMessage draft), `messages_confirm {send, draft_id?}` |
 | Rate limits | one `Retry-After` is waited out per request (per run for the backfill and the 60 s channel refresh); the next one is a `503 {"detail": {"error": "ratelimited", "retry_after"}}` and one log line |
 
 **Startup backfill and the channel list.** Right after Socket Mode connects, a background task caches the workspace's

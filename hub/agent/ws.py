@@ -330,10 +330,27 @@ async def _run_delegate(s: Session, task: str, mode: str) -> str:
     concrete = classify_mode(task, mode or project.default_mode)
     s.control = TurnControl()
     s.turn_mode = concrete
-    emit = Emitter(s.pet_id, redact=[str(project.path)])
+    emit = _QuietSteps(Emitter(s.pet_id, redact=[str(project.path)]), s.pet_id)
     coro = get_runner()(project, task, concrete, emit, pet_id=s.pet_id, control=s.control)
     s.turn = asyncio.create_task(_guarded(coro, emit, s.pet_id))
     return await s.turn
+
+
+class _QuietSteps:
+    """Voice delegate runs: the bubble shows what Albie says, not each runner step. Live 20:0x the task title and
+    every "Editing / Running: ..." step (with full paths) showed in his bubble. Steps become one pet.state working
+    (he walks to the VS Code screen); the summary and his spoken answer still come through."""
+
+    def __init__(self, emit: Emitter, pet_id: str) -> None:
+        self._emit, self._pet_id, self._working = emit, pet_id, False
+
+    async def __call__(self, event: Event) -> None:
+        if event.type in ("agent.task_started", "agent.task_progress"):
+            if not self._working:
+                self._working = True
+                await self._emit(ev.pet_state(self._pet_id, "working", target_panel="screen-main"))
+            return
+        await self._emit(event)
 
 
 async def _voice_call(s: Session, fn) -> None:
