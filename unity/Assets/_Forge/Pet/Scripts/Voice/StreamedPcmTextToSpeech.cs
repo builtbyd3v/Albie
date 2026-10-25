@@ -81,6 +81,8 @@ namespace Forge.Pet
 
         // main-thread state
         bool _streaming, _ended, _speaking, _fake;
+        int _lastFrameTick;   // Environment.TickCount of the last tts.start / audio frame (written off the main thread too)
+        const int StallMs = 2000;   // streaming, ring empty, nothing new for this long: the tts.end was lost
         float _fakeUntil, _fakeStart;
 
         void Awake()
@@ -165,6 +167,7 @@ namespace Forge.Pet
                     SetInputRate(e.GetInt("sample_rate", _outRate));
                     _streaming = true;
                     _ended = false;
+                    _lastFrameTick = Environment.TickCount;
                     break;
                 case "tts.end":
                     if (_streaming) _ended = true;
@@ -178,6 +181,7 @@ namespace Forge.Pet
         void OnBinary(byte[] data, int length)
         {
             if (!_streaming || _ended || data == null || length < 2) return;   // stale frames after a stop
+            _lastFrameTick = Environment.TickCount;
             long w = _write;
             long r = Interlocked.Read(ref _read);
             int n = length / 2;
@@ -242,8 +246,10 @@ namespace Forge.Pet
                     _gate = true;
                     BeginSpeaking();
                 }
-                else if (_ended && avail <= 0)
+                else if (avail <= 0 && (_ended || unchecked(Environment.TickCount - _lastFrameTick) > StallMs))
                 {
+                    // Live 19:35: the hub socket dropped mid-reply, tts.end never came, and SpeechEnded never fired, so
+                    // WakeListener (and GatorFollowUp) thought he was still talking and stopped listening for good.
                     _gate = false;
                     _streaming = false;
                     _ended = false;

@@ -49,7 +49,8 @@ public class SlackComposer
         root = SlackUi.Rect(parent, "Composer");
 
         fieldRect = SlackUi.Rect(root, "Field");
-        fieldFill = SlackUi.Card(fieldRect, SlackUi.RowCorner, raycast: true);
+        fieldFill = SlackUi.Card(fieldRect, owner.IsIMessagePanel ? 24f : SlackUi.RowCorner, raycast: true);
+        if (owner.IsIMessagePanel) fieldFill.color = SlackUi.IMessageComposer;
         var area = SlackUi.Rect(fieldRect, "TextArea");
         SlackUi.Stretch(area, 12f, 8f, 12f, 8f);
         area.gameObject.AddComponent<RectMask2D>();
@@ -57,7 +58,7 @@ public class SlackComposer
         text.richText = false;
         SlackUi.Stretch(text.rectTransform, 0f, 0f, 0f, 0f);
         placeholder = SlackUi.Text(area, "Placeholder", SlackUi.Body, SlackUi.Subtext, align: TextAlignmentOptions.TopLeft, wrap: true);
-        placeholder.text = "Message";
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : "Message";
         SlackUi.Stretch(placeholder.rectTransform, 0f, 0f, 0f, 0f);
 
         field = fieldRect.gameObject.AddComponent<TMP_InputField>();
@@ -86,8 +87,8 @@ public class SlackComposer
         files.overflowMode = TextOverflowModes.Ellipsis;
         files.gameObject.SetActive(false);
         cancel = SlackButton.CreatePill(root, "Cancel", SlackButton.Pill, Cancel);
-        askBit = SlackButton.CreatePill(root, "Ask Bit", SlackButton.Pill, AskBit);
-        send = SlackButton.CreatePill(root, "Send", SlackButton.Primary, Send);
+        askBit = SlackButton.CreatePill(root, "Ask Albie", SlackButton.Pill, AskBit);
+        send = SlackButton.CreatePill(root, "Send", owner.IsIMessagePanel ? SlackButton.IMessagePrimary : SlackButton.Primary, Send);
         SlackUi.Show(cancel, false);
         RefreshButtons();
     }
@@ -123,7 +124,7 @@ public class SlackComposer
     public void SetChannel(SlackChannel c)
     {
         channel = c;
-        placeholder.text = c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
         RefreshButtons();
     }
 
@@ -234,9 +235,9 @@ public class SlackComposer
     void AskBit()
     {
         var m = owner.LatestMessage();
-        if (m == null || string.IsNullOrEmpty(m.ts)) { Status("Nothing here for Bit to read yet"); return; }
+        if (m == null || string.IsNullOrEmpty(m.ts)) { Status("Nothing here for Albie to read yet"); return; }
         if (!owner.FocusBit(m)) Status("Hub offline");
-        else Status("Bit is reading it…");
+        else Status("Albie is reading it…");
     }
 
     // ---- Hub events (routed by SlackPanel) ----
@@ -253,7 +254,7 @@ public class SlackComposer
             if (!sending && d.text != null && d.text != (field.text ?? ""))
             {
                 field.SetTextWithoutNotify(d.text);
-                Status("Bit reworded it");
+                Status("Albie reworded it");
             }
             draftText = d.text;
             SetFiles(d);
@@ -327,7 +328,7 @@ public class SlackComposer
     void RefreshCaption()
     {
         if (statusText != null) caption.text = statusText;
-        else if (draftId != null) caption.text = "Bit wrote this · edit it, then Send";
+        else if (draftId != null) caption.text = "Albie wrote this · edit it, then Send";
         else caption.text = "";
     }
 

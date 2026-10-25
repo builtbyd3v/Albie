@@ -3,8 +3,8 @@
 //   PetRuntime/ArrivalGreeting (saved inactive; ArrivalGreeting + ArrivalDirector drive it)
 //   ├─ GreetingCard     world-space canvas (1 unit = 1 mm, 300 x 110): a light translucent rounded sheet with a soft shadow,
 //   │                   a MSG-hue accent strip and the headline in Inter (ForgeTheme.Font / PanelText): the digest line.
-//   └─ Ring START       one of Hudson's dock rings (Core DockRing.Create: neon ring + glowing label, hue ForgeTheme.Code,
-//                       90 mm) with its invisible uGUI Button, plus Interaction SDK ray + poke canvas interaction added
+//   └─ START            one of Hudson's dock controls (Core DockRing.Create: neon pill + glowing label, hue ForgeTheme.Code,
+//                       176 x 64 mm) with its invisible uGUI Button, plus Interaction SDK ray + poke canvas interaction added
 //                       through the SDK's QuickActions (looked up by name, so this compiles without the SDK; the mouse
 //                       always works through the canvas' GraphicRaycaster and DesktopRig).
 // Idempotent (PetRuntimeSetup rebuilds the whole prefab). No Meta types referenced here, per the Pet rules.
@@ -22,7 +22,8 @@ namespace Forge.Pet.Editor
     public static class ArrivalSetup
     {
         static readonly Vector2 CardMm = new Vector2(300f, 110f);
-        const float RingMm = 90f;
+        // START: a pill in the dock's light (same ring shader, round ends), sized like a mode ring, wider.
+        const float StartHeightMm = 64f, StartWidthMm = 176f;
         // The Messages cards' light fill (rest alpha 0.8) and the MSG hue for the strip; text colours from ForgeTheme.
         static readonly Color CardFill = new Color(0.12f, 0.15f, 0.21f, 0.8f);
         static readonly Color Shadow = new Color(0f, 0f, 0f, 0.25f);
@@ -63,8 +64,8 @@ namespace Forge.Pet.Editor
             headline.color = ForgeTheme.PanelText;
             Stretch(headline.rectTransform, 28f, 14f, 18f, 14f);
 
-            // ---- START ring (Core's dock ring, on its own) ----
-            DockRing ring = DockRing.Create(go.transform, "START", ForgeTheme.Code, RingMm, null);
+            // ---- START pill (Core's dock ring light as a pill, on its own) ----
+            DockRing ring = DockRing.Create(go.transform, "START", ForgeTheme.Code, StartHeightMm, StartWidthMm, null);
             ring.transform.localPosition = new Vector3(0.25f, 0f, 0f);   // placed for real at runtime (ArrivalGreeting.Show)
 
             var greeting = go.AddComponent<ArrivalGreeting>();

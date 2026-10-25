@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable
 
 from build123d import CenterOf, GeomType
 
-from cad.part_api import Analysis, BuildResult, Metric, RocketSpec, ShellMass, SolidMass
+from cad.part_api import Analysis, BuildResult, FixedMass, Metric, RocketSpec, ShellMass, SolidMass
 
 # Static margin bands in calibers (NASA Student Launch: stable >= 1, 1.5 to 2.0 desirable).
 UNSTABLE_BELOW, MARGINAL_BELOW, OVERSTABLE_ABOVE = 1.0, 1.5, 2.5
@@ -38,6 +38,8 @@ def leaves(shape):
 
 def part_mass(shape, model) -> tuple[float, tuple[float, float, float]] | None:
     """(grams, centre in part mm) for one part, or None if the script gave it no mass model."""
+    if isinstance(model, FixedMass):
+        return float(model.mass_g), tuple(float(v) for v in model.cg_mm)
     if isinstance(model, SolidMass):
         c = shape.center(CenterOf.MASS)
         return shape.volume * model.density_g_cm3 / 1000, (c.X, c.Y, c.Z)

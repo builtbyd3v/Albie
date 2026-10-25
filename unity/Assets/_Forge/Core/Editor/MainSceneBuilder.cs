@@ -24,6 +24,7 @@ public static class MainSceneBuilder
     const string DesktopRoomJsonPath = "Assets/_Forge/Core/Rooms/SimLivingRoom.json";
     // The pet: gator + voice + whistle + crew + hatchery + ArrivalDirector, one root object in the room.
     const string PetRuntimePath = "Assets/_Forge/Pet/Prefabs/PetRuntime.prefab";
+    const string DeskExtrasPath = "Assets/_Forge/Desk/Resources/DeskExtras.prefab";
 
     // Module prefabs slotted into the workspace modes, by item id (the panel IDs of PROJECT_CONTEXT section 7).
     // Items without one get a placeholder ForgePanel/ForgeVolume.
@@ -110,6 +111,20 @@ public static class MainSceneBuilder
         var petPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PetRuntimePath);
         if (petPrefab != null) ((GameObject)PrefabUtility.InstantiatePrefab(petPrefab)).name = "PetRuntime";
         else Debug.LogWarning($"[MainSceneBuilder] {PetRuntimePath} not found; Main has no pet. Build it (Pet module) and build Main again.");
+
+        // Bit's desk extras (timers, notes, the movie), on top of any mode: the Desk module's prefab, hosted by
+        // WorkspaceExtras (its host field set by name, so Core doesn't need the module's types).
+        var extras = root.AddComponent<WorkspaceExtras>();
+        extras.workspace = workspace;
+        var deskPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(DeskExtrasPath);
+        if (deskPrefab == null) Debug.LogWarning($"[MainSceneBuilder] {DeskExtrasPath} not found (Forge > Desk > Build Desk Prefabs); no desk extras.");
+        else
+        {
+            var desk = (GameObject)PrefabUtility.InstantiatePrefab(deskPrefab, root.transform);
+            var link = new SerializedObject(desk.GetComponent("DeskExtras"));
+            link.FindProperty("host").objectReferenceValue = extras;
+            link.ApplyModifiedPropertiesWithoutUndo();
+        }
 
         // Desktop mode (no headset or simulator): first-person rig, and the room drawn from MRUK's data since
         // there's no passthrough. Saved inactive; RigSelector turns on whichever rig applies when Play starts.

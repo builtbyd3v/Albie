@@ -18,6 +18,7 @@ public class CadMockSet : ScriptableObject
         public TextAsset parameters;    // params.json (GET /cad/params)
         public TextAsset modelUpdated;  // model_updated.json (the /ws message)
         public TextAsset flight;        // flight.json (GET /cad/flight), rocket only
+        public TextAsset motion;        // motion.json (GET /cad/motion), humanoid only
         public TextAsset drawing;       // drawing.png.bytes (GET /cad/drawing.png)
     }
 

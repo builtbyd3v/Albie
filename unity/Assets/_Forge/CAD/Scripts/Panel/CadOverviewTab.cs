@@ -46,7 +46,7 @@ public sealed class CadOverviewTab : CadPanelTab
         diffLine = CadUi.Text(card, "Diffs", 12f, CadUi.White(0.62f));
         hint = CadUi.Text(card, "Hint", CadUi.Body, CadUi.White(0.55f), wrap: true);
         hint.alignment = TextAlignmentOptions.TopLeft;
-        hint.text = "Drag a parameter, pick a preset, or ask Bit to change it.";
+        hint.text = "Drag a parameter, pick a preset, or ask Albie to change it.";
     }
 
     public override void Show(CadPanelState s)

@@ -75,7 +75,7 @@ public class DraftCard : MonoBehaviour
 
         body.text = d.text ?? "";
         ShowFiles(SlackText.Attachments(d.attachments));
-        status.text = d.edited ? "Edited by Bit" : "Bit wrote this";
+        status.text = d.edited ? "Edited by Albie" : "Albie wrote this";
         SetButtons(true);
     }
 

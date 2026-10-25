@@ -73,11 +73,11 @@ def test_send_with_files_opens_the_messenger_then_uploads_once(tmp_path: Path) -
     async def run() -> list[dict[str, Any]]:
         return [
             await mtools.call_tool("messages_send", {"text": "Here are the rocket files for the supplier",
-                                                     "channel": "Jane", "attach": ["all"]}, svc, attach, show),
+                                                     "channel": "Jane", "attach": ["all"]}, svc, attach=attach, show=show),
             {"uploads_before_confirm": list(client.uploads)},
             await mtools.call_tool("messages_edit_draft", {"text": "Jane, can you send these to the supplier today?"},
-                                   svc, attach, show),
-            await mtools.call_tool("messages_confirm", {"send": True}, svc, attach, show),
+                                   svc, attach=attach, show=show),
+            await mtools.call_tool("messages_confirm", {"send": True}, svc, attach=attach, show=show),
         ]
 
     drafted, before, edited, sent = asyncio.run(run())
@@ -116,11 +116,11 @@ def test_no_files_no_messenger_unless_asked(tmp_path: Path) -> None:
 
     async def run() -> list[dict[str, Any]]:
         return [
-            await mtools.call_tool("messages_send", {"text": "on it", "channel": "#forge-team"}, svc, attach, show),
+            await mtools.call_tool("messages_send", {"text": "on it", "channel": "#forge-team"}, svc, attach=attach, show=show),
             await mtools.call_tool("messages_send", {"text": "files", "channel": "#forge-team", "attach": ["step"],
-                                                     "open_messenger": False}, svc, attach, show),
+                                                     "open_messenger": False}, svc, attach=attach, show=show),
             await mtools.call_tool("messages_send", {"text": "look", "channel": "#forge-team", "open_messenger": True},
-                                   svc, attach, show),
+                                   svc, attach=attach, show=show),
         ]
 
     plain, quiet, asked = asyncio.run(run())
@@ -136,7 +136,7 @@ def test_attach_problems_are_errors_before_any_draft(tmp_path: Path) -> None:
         raise LookupError("v3 was built from an older part script")
 
     async def run() -> list[dict[str, Any]]:
-        return [await mtools.call_tool("messages_send", {"text": "x", "attach": ["all"]}, svc, broken),
+        return [await mtools.call_tool("messages_send", {"text": "x", "attach": ["all"]}, svc, attach=broken),
                 await mtools.call_tool("messages_send", {"text": "x", "attach": ["all"]}, svc)]
 
     failed, unavailable = asyncio.run(run())
