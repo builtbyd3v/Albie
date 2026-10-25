@@ -6,6 +6,9 @@ Library: every <id>.mp4 in the media folder (gitignored with the rest of .data).
 
 Unity streams GET /movie/files/<id>.mp4 (byte ranges, so it can seek) and keeps time; the hub keeps the state and
 where you stopped in each movie (.data/desk/movie.json), so it picks up there next time.
+
+Marks: spots saved under a name ("Bit, save minute 45 as Tony starts building the suit"), kept per movie in the same
+file. "Skip to where Tony builds the suit" finds the mark by its words and jumps there; Unity only sees the seek.
 """
 from __future__ import annotations
 
@@ -16,14 +19,26 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from events import MovieInfo, MovieState
 
 log = logging.getLogger("forge.desk")
 
 FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(mp4|srt)$")
 RESTART_NEAR_END_S = 120.0  # a movie stopped in its last two minutes starts over next time
+MARK_NOW_LEAD_S = 5.0  # "save this spot": the user spoke (and Bit answered) after it began, so step back a little
+STOP_WORDS = frozenset("a an and at back bit go in is it jump moment movie of on part point scene skip spot that the "
+                       "this to when where with".split())
 
 Publish = Callable[[MovieState], Awaitable[None]]
+
+
+class MovieMark(BaseModel):
+    """A spot in a movie saved under a name. Hub only (REST + Bit's tools); nothing on /ws."""
+    mark_id: str
+    label: str
+    position_s: float
 
 
 class MovieService:
@@ -34,6 +49,7 @@ class MovieService:
         self._state = MovieState()
         self._at = time.monotonic()  # when _state.position_s was true
         self._places: dict[str, float] = {}  # movie_id -> where it was stopped
+        self._marks: dict[str, list[MovieMark]] = {}  # movie_id -> its marks, by time
         self._load()
 
     # ------------------------------------------------------------------ library
@@ -148,7 +164,93 @@ class MovieService:
         self._save()
         return self.state()
 
+    # ------------------------------------------------------------------ marks
+    def marks(self, query: str | None = None) -> tuple[MovieInfo, list[MovieMark]]:
+        """A movie's marks by time (none = the current movie)."""
+        movie = self.find(query)
+        return movie, list(self._marks.get(movie.movie_id, []))
+
+    def add_mark(self, label: str, position_s: float | None = None,
+                 query: str | None = None) -> tuple[MovieInfo, MovieMark]:
+        """Save a spot at position_s, or (none) a few seconds before where the movie is now. A label that's there
+        already moves."""
+        label = " ".join(str(label).split())
+        if not label:
+            raise ValueError("say what happens there")
+        movie = self.find(query)
+        if position_s is None:
+            if not self._is_on(movie.movie_id):
+                raise ValueError(f"{movie.title} isn't on: say when in it")
+            position_s = self._position() - MARK_NOW_LEAD_S
+        duration = movie.duration_s or (self._state.movie.duration_s if self._is_on(movie.movie_id) else None)
+        pos = max(0.0, float(position_s))
+        if duration:
+            pos = min(pos, duration)
+        marks = self._marks.setdefault(movie.movie_id, [])
+        mark = next((m for m in marks if m.label.lower() == label.lower()), None)
+        if mark is None:
+            mark = MovieMark(mark_id=self._next_mark_id(), label=label, position_s=round(pos, 1))
+            marks.append(mark)
+        else:
+            mark.position_s = round(pos, 1)
+        marks.sort(key=lambda m: m.position_s)
+        self._save()
+        return movie, mark
+
+    def remove_mark(self, ref: str) -> MovieMark:
+        movie_id, mark = self.find_mark(ref)
+        self._marks[movie_id].remove(mark)
+        if not self._marks[movie_id]:
+            del self._marks[movie_id]
+        self._save()
+        return mark
+
+    def find_mark(self, ref: str) -> tuple[str, MovieMark]:
+        """By id, label, or the words of it ("where Tony builds the suit"). Ties go to the movie that's on."""
+        q = " ".join(str(ref).split()).lower()
+        if not self._marks:
+            raise LookupError("no saved spots yet")
+        on = self._state.movie.movie_id if self._state.movie and self._state.status != "closed" else None
+        ordered = sorted(self._marks.items(), key=lambda kv: kv[0] != on)
+        for movie_id, marks in ordered:
+            for m in marks:
+                if q in (m.mark_id, m.label.lower()):
+                    return movie_id, m
+        words = _words(q)
+        best: tuple[str, MovieMark] | None = None
+        best_score = (0, 0.0)
+        for movie_id, marks in ordered:
+            for m in marks:
+                label = _words(m.label)
+                shared = len(words & label)
+                score = (shared, shared / max(1, len(label)))
+                if shared and score > best_score:
+                    best, best_score = (movie_id, m), score
+        if best is None:
+            saved = ", ".join(f"{m.label} ({clock(m.position_s)})" for _, ms in ordered for m in ms)
+            raise LookupError(f"no saved spot like {ref!r}; saved: {saved}")
+        return best
+
+    async def goto_mark(self, ref: str) -> tuple[MovieMark, MovieState]:
+        """Jump to a mark and play. A mark in another movie (or with the screen closed) puts that movie on."""
+        movie_id, mark = self.find_mark(ref)
+        if not self._is_on(movie_id):
+            movie = self.find(movie_id)
+            self._remember()
+            self._state.movie = movie
+        self._jump(mark.position_s)
+        self._state.status = "playing"
+        return mark, await self._changed()
+
     # ------------------------------------------------------------------ internals
+    def _is_on(self, movie_id: str) -> bool:
+        movie = self._state.movie
+        return movie is not None and movie.movie_id == movie_id and self._state.status != "closed"
+
+    def _next_mark_id(self) -> str:
+        ids = [int(m.mark_id[1:]) for ms in self._marks.values() for m in ms if m.mark_id[1:].isdigit()]
+        return f"m{max(ids, default=0) + 1}"
+
     def _position(self) -> float:
         pos = self._state.position_s
         if self._state.status == "playing":
@@ -187,6 +289,7 @@ class MovieService:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             self._places = {str(k): float(v) for k, v in data.get("places", {}).items()}
             self._state.volume = float(data.get("volume", self._state.volume))
+            self._marks = {str(k): [MovieMark.model_validate(m) for m in v] for k, v in data.get("marks", {}).items()}
         except FileNotFoundError:
             pass
         except (OSError, ValueError, TypeError, AttributeError) as e:
@@ -196,8 +299,32 @@ class MovieService:
         self._remember()
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"places": self._places, "volume": self._state.volume}), encoding="utf-8")
+        marks = {k: [m.model_dump() for m in v] for k, v in self._marks.items()}
+        tmp.write_text(json.dumps({"places": self._places, "volume": self._state.volume, "marks": marks}),
+                       encoding="utf-8")
         tmp.replace(self.state_path)
+
+
+def clock(seconds: float) -> str:
+    """'1:02:30' / '45:00': a spot in a movie."""
+    s = max(0, round(seconds))
+    h, rest = divmod(s, 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def _words(text: str) -> set[str]:
+    """The words that tell marks apart, roughly stemmed ("builds", "building" -> "build")."""
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", text.lower()):
+        if len(w) < 2 or w in STOP_WORDS:
+            continue
+        for suffix in ("ing", "ed", "es", "s", "e"):
+            if w.endswith(suffix) and len(w) - len(suffix) >= 3:
+                w = w[: -len(suffix)]
+                break
+        out.add(w)
+    return out
 
 
 def _sidecar(path: Path) -> dict:

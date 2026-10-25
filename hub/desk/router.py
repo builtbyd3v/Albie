@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from events import MovieInfo, MovieState, Note, NotesUpdated, TimersUpdated, TimerState, UiWidgets, WidgetState
 
+from .movie import MovieMark
 from .service import DeskService
 
 router = APIRouter(tags=["desk"])
@@ -47,7 +48,14 @@ class MoviePlay(BaseModel):
 
 class MovieSeek(BaseModel):
     position_s: float | None = Field(None, ge=0)  # to here, or
-    delta_s: float | None = None                  # this far from where it is
+    delta_s: float | None = None                  # this far from where it is, or
+    mark: str | None = None                       # a saved spot (id, label or its words); plays its movie
+
+
+class MarkIn(BaseModel):
+    label: str
+    position_s: float | None = Field(None, ge=0)  # none = a few seconds before where the movie is now
+    movie_id: str | None = None                   # none = the current movie
 
 
 class MovieVolume(BaseModel):
@@ -72,6 +80,16 @@ async def _run(coro):
     except LookupError as e:
         raise HTTPException(404, str(e)) from None
     except ValueError as e:  # can't do that now: pause a timer that isn't running, an empty note, ...
+        raise HTTPException(422, str(e)) from None
+
+
+def _now(fn):
+    """_run for the calls that don't publish anything (movie marks)."""
+    try:
+        return fn()
+    except LookupError as e:
+        raise HTTPException(404, str(e)) from None
+    except ValueError as e:
         raise HTTPException(422, str(e)) from None
 
 
@@ -189,7 +207,25 @@ async def movie_seek(req: MovieSeek, d: DeskService = Depends(desk)) -> MovieSta
         return await _run(d.movie.seek(req.position_s))
     if req.delta_s is not None:
         return await _run(d.movie.skip(req.delta_s))
-    raise HTTPException(422, "give position_s or delta_s")
+    if req.mark:
+        return (await _run(d.movie.goto_mark(req.mark)))[1]
+    raise HTTPException(422, "give position_s, delta_s or mark")
+
+
+@router.get("/movie/marks", response_model=list[MovieMark])
+def movie_marks(movie_id: str | None = None, d: DeskService = Depends(desk)) -> list[MovieMark]:
+    """A movie's saved spots by time (no movie_id = the current movie)."""
+    return _now(lambda: d.movie.marks(movie_id)[1])
+
+
+@router.post("/movie/marks", response_model=MovieMark)
+def movie_mark_add(req: MarkIn, d: DeskService = Depends(desk)) -> MovieMark:
+    return _now(lambda: d.movie.add_mark(req.label, req.position_s, req.movie_id)[1])
+
+
+@router.post("/movie/marks/{mark_id}/remove", response_model=MovieMark)
+def movie_mark_remove(mark_id: str, d: DeskService = Depends(desk)) -> MovieMark:
+    return _now(lambda: d.movie.remove_mark(mark_id))
 
 
 @router.post("/movie/volume", response_model=MovieState)
