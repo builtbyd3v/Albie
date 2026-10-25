@@ -55,8 +55,13 @@ Horizon pills, one palette (right/wrong/warning, train/val, per-class colors).
   scatter points emit their sample id. The sandbox's local `MLVizCardMocks.json`
   exercises all seven kinds with Prev/Next.
 - **RegressionResults:** predicted-versus-actual scatter; selecting a point opens
-  a row card with actual, predicted, and residual values. It uses deterministic
-  local mock rows until the hub supplies the shared regression fixture.
+  a row card with actual, predicted, and residual values. It opens on "Waiting for
+  a regression run…" with no points. With the hub live it loads the latest finished
+  run (`GET /ml/runs`, then `GET /ml/results/{run}`: `y_true` / `y_pred` per row) and
+  reloads on `ml.results_ready`; a run that never evaluated, or a failed request,
+  shows a message instead of points. With the hub off, a player build (Quest) says
+  the hub isn't connected; only the editor (sandbox, desktop mode) draws 24
+  deterministic mock rows, labeled "Mock rows: hub offline (editor only)".
 
 ## Mock data and scope
 
