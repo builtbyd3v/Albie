@@ -15,9 +15,12 @@ import json
 import logging
 import os
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+
+from agent import events as ev
 
 from . import improve
 from .router import _stop_tail, service, start_run, start_setup
@@ -67,15 +70,37 @@ def _sentences(text: str, n: int) -> str:
     return " ".join(parts[:n])
 
 
+COUNT = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+def titles(plan: dict) -> list[str]:
+    return [t for t in (str(c.get("title") or "").strip().rstrip(".") for c in plan.get("changes") or []) if t]
+
+
 def spoken(plan: dict) -> str:
-    """What Albie says about a proposal: diagnosis, the changes, the expected score, the question. Capped, since
-    the model doesn't always keep it short and the user hears every word."""
-    changes = [c["title"].strip().rstrip(".") for c in plan["changes"]][:4]
-    changes = [c[0].lower() + c[1:] if not any(ch.isupper() for ch in c.split()[0][1:]) else c for c in changes]  # keep "AdamW", "LR"
-    listed = ", ".join(changes[:-1]) + f" and {changes[-1]}" if len(changes) > 1 else changes[0]
-    expected = re.sub(r"^(i expect|expect|expected:?)\s+", "", _sentences(plan["expected"], 1), flags=re.I).rstrip(".")
-    return (f"{_sentences(plan['diagnosis'], 2)} I'd change it to use {listed}. I expect {expected}. "
-            "The change is open in VS Code. Want me to apply it and retrain?")
+    """What Albie says about a proposal, about 20 words (the brevity rule): the diagnosis, the first change and
+    the question. The full list is on the card and the diff is in VS Code. Never raises: Albie always answers."""
+    try:
+        changes = titles(plan)
+        changes = [c[0].lower() + c[1:] if not any(ch.isupper() for ch in c.split()[0][1:]) else c for c in changes]  # keep "AdamW", "LR"
+        if len(changes) > 1:
+            what = f"I'd make {COUNT.get(len(changes), len(changes))} changes, starting with {changes[0]}."
+        elif changes:
+            what = f"I'd change one thing: {changes[0]}."
+        else:
+            what = "I have a change ready."
+        return f"{_sentences(str(plan.get('diagnosis') or ''), 1)} {what} Apply it and retrain?".strip()
+    except Exception:  # noqa: BLE001 - an odd proposal still gets a spoken line
+        log.exception("spoken ML line")
+        return "I have a change ready; it's on the card and in VS Code. Apply it and retrain?"
+
+
+def card(plan: dict, n: int) -> ev.Card:
+    """The proposal card over Albie: Apply runs the same path as a spoken yes (ml_apply), Not now drops it."""
+    changes = titles(plan)
+    return ev.Card(title=f"Apply {len(changes) or 'the'} change{'s' if len(changes) != 1 else ''} and retrain?",
+                   bullets=changes[:5], actions=[ev.CardAction(label="Apply", action_id=f"ml:apply:{n}"),
+                                                 ev.CardAction(label="Not now", action_id=f"ml:dismiss:{n}")])
 
 
 class MLTools:
@@ -85,6 +110,7 @@ class MLTools:
         self.state, self.speak, self.pet_id = state, speak, pet_id
         self.recent_path = Path(data_dir) / "ml" / "recent.json"
         self.jobs: set[asyncio.Task[None]] = set()
+        self.offer = 0  # the live proposal card's number; 0 = none (a tap on an older card does nothing)
 
     async def call(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Run one tool. Errors come back as {"error": ...} so the model can explain them."""
@@ -96,12 +122,14 @@ class MLTools:
             if name == "ml_improve":
                 return self.start_improve()
             if name == "ml_apply":
+                self.offer = 0  # the spoken yes: the card's Apply button is spent too
                 return await self.apply()
             if name == "ml_undo":
                 restored = await asyncio.to_thread(improve.undo, self.svc)
                 return {"restored": restored} if restored else {"note": "no improvement is applied; nothing to undo"}
             if name == "ml_train":
-                return self.train(int(args.get("epochs") or 10))
+                epochs = args.get("epochs")
+                return self.train(10 if epochs is None else int(epochs))
         except (improve.ImproveError, Conflict, NotFound, ValueError) as e:
             return {"error": str(e)}
         return {"error": f"Unknown ML tool {name!r}"}
@@ -210,7 +238,28 @@ class MLTools:
             await asyncio.to_thread(self._open_diff, plan)
         except Exception:  # noqa: BLE001 - no VS Code: the spoken summary still goes out
             log.info("no diff window for the improvement", exc_info=True)
-        await self.say(spoken(plan))
+        self.offer += 1
+        await self.say(spoken(plan), card(plan, self.offer))
+
+    async def card_action(self, action_id: str) -> bool:
+        """A tap on the proposal card ("ml:apply:N" / "ml:dismiss:N"). Apply is ml_apply; Not now discards the
+        proposal. A tap on an older card is ignored. True when the tap applied the change."""
+        _, kind, n = action_id.split(":", 2) if action_id.count(":") >= 2 else ("", "", "")
+        if not n.isdigit() or int(n) != self.offer:
+            return False
+        self.offer = 0
+        if kind != "apply":
+            if not improve.plan(self.svc).get("applied"):
+                shutil.rmtree(improve._dir(self.svc), ignore_errors=True)  # not now: the proposal is gone
+            await self.say("Okay, I'll leave it as it is.")
+            return False
+        try:
+            out = await self.apply()
+        except (improve.ImproveError, Conflict, NotFound) as e:
+            await self.say(f"I couldn't apply it: {e}")
+            return False
+        await self.say(f"Applied. Training {out['epochs']} epochs now; the curves are live.")
+        return True
 
     def _open_diff(self, plan: dict) -> None:
         import shutil
@@ -270,8 +319,11 @@ class MLTools:
         else:
             await self.say(f"Done! {improve.headline(d)}.")
 
-    async def say(self, text: str) -> None:
-        await self.state.bus.publish("pet.say", {"pet_id": self.pet_id, "text": text})
+    async def say(self, text: str, card: ev.Card | None = None) -> None:
+        payload: dict[str, Any] = {"pet_id": self.pet_id, "text": text}
+        if card is not None:
+            payload["card"] = card.model_dump(exclude_none=True)
+        await self.state.bus.publish("pet.say", payload)
         try:
             await self.speak(self.pet_id, text)
         except Exception:  # noqa: BLE001 - the caption already went out
