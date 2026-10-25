@@ -204,6 +204,18 @@ public class CadView
 {
     [JsonProperty("explode")] public bool? explode;
     [JsonProperty("focus_id")] public string focusId;
+    // proposed: several parts lit at once (all the fins); focusId is the first of them
+    [JsonProperty("focus_ids")] public List<string> focusIds;
+
+    public bool SameFocus(CadView other)
+    {
+        if (other == null || focusId != other.focusId) return false;
+        int n = focusIds?.Count ?? 0;
+        if (n != (other.focusIds?.Count ?? 0)) return false;
+        for (int i = 0; i < n; i++)
+            if (focusIds[i] != other.focusIds[i]) return false;
+        return true;
+    }
 }
 
 /// <summary>

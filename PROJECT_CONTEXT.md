@@ -319,6 +319,8 @@ Proposed ML additions (project setup, sample metadata, VizCard chart cards, live
 
 Proposed agent-control additions (Bit opens views and presses CAD buttons, drafts carry files: `ui.mode`, `workspace.mode.reason`, `cad.action`, `Draft.attachments`, `GET /cad/files`): `docs/PET_AGENT_CONTRACT.md` Addendum H.
 
+Proposed (Albie proactive, feat/albie-proactive): `cad.view.focus_ids: [id]` lights several parts at once (`cad_view focus_id: "FIN_*"` = every fin); `focus_id` stays the first of them, so older builds light one. Additive; `POST /cad/view` accepts it too.
+
 C# side: one `ForgeEvents.cs` with matching `[Serializable]` classes and a static event per type, owned by Hudson. Python side mirrors it in `hub/events.py`.
 
 ---

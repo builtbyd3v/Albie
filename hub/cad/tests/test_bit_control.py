@@ -99,12 +99,16 @@ def test_view_presses_unitys_buttons(client):
 
     bus = Bus()
     assert tool(client, "cad_view", bus=bus, show=Show(cad), explode=True, focus_id="fin_1")["ok"]
-    assert bus.of("cad.view") == [{"explode": True, "focus_id": "FIN_1"}] and bus.of("cad.action") == []
+    assert bus.of("cad.view") == [{"explode": True, "focus_id": "FIN_1", "focus_ids": ["FIN_1"]}]
+    assert bus.of("cad.action") == []
     assert tool(client, "cad_view", bus=bus, show=Show(cad), focus_id="")["ok"]
-    assert bus.of("cad.view")[-1] == {"explode": None, "focus_id": None}
+    assert bus.of("cad.view")[-1] == {"explode": None, "focus_id": None, "focus_ids": []}
     assert tool(client, "cad_view", bus=bus, show=Show(cad), explode=False)["shown"] == ["explode"]
-    assert bus.of("cad.view")[-1] == {"explode": False, "focus_id": None}
+    assert bus.of("cad.view")[-1] == {"explode": False, "focus_id": None, "focus_ids": []}
     assert [a["action"] for a in bus.of("cad.action")] == ["reassemble"]  # pulled-off parts go back too
+    fins = tool(client, "cad_view", bus=bus, show=Show(cad), focus_id="FIN_*")["focused"]
+    assert len(fins) > 1 and all(f.startswith("FIN_") for f in fins)
+    assert bus.of("cad.view")[-1] == {"explode": None, "focus_id": fins[0], "focus_ids": fins}
 
     bus = Bus()
     assert "error" in tool(client, "cad_view", bus=bus, show=Show(cad), focus_id="WING")
@@ -197,3 +201,13 @@ def test_every_design_packages(client):
         files = tool(client, "cad_export_files")["files"]
         assert [f["kind"] for f in files] == list(KINDS) and all(f["bytes"] > 0 for f in files)
     open_part(client, "rocket")
+
+
+def test_focus_names_a_part_a_list_or_a_group() -> None:
+    from cad.tools import focus_ids
+    ids = ["BODY_TUBE", "FIN_1", "FIN_2", "FIN_3", "NOSE_CONE"]
+    assert focus_ids("fin_2", ids) == ["FIN_2"]
+    assert focus_ids("FIN_*", ids) == focus_ids("fins", ids) == focus_ids("FIN", ids) == ["FIN_1", "FIN_2", "FIN_3"]
+    assert focus_ids("NOSE_CONE, fin_1", ids) == ["NOSE_CONE", "FIN_1"]
+    assert focus_ids("", ids) == []
+    assert focus_ids("FIN_1, WING", ids) is None

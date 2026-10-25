@@ -174,6 +174,8 @@ class CadRegenFailed(BaseModel):
 class CadView(BaseModel):
     explode: bool | None = None
     focus_id: str | None = None
+    focus_ids: list[str] = []         # proposed: several parts lit at once (all the fins); focus_id is the first of
+                                      # them, so a build without focus_ids still lights one
 
 
 class CadAction(BaseModel):

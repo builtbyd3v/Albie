@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
 from cad.part_api import ParamError, primary_metric
@@ -73,8 +73,8 @@ TOOLS: list[dict[str, Any]] = [
                     "user asked for. expand: true brings the model up big in front of the user, where they can pull "
                     "parts off and turn them ('expand it', 'let me look at it', 'bring it closer'); false puts it back "
                     "on the desk. explode: true spreads the parts out, false puts them back together (also snaps "
-                    "pulled-off parts back). focus_id: highlight one part (IDs from cad_get_params, e.g. NOSE_CONE, "
-                    "FIN_1); empty string clears it. markers: the center of gravity and other markers on the model. "
+                    "pulled-off parts back). focus_id: highlight a part (IDs from cad_get_params, e.g. NOSE_CONE, "
+                    "FIN_1), several (FIN_1,FIN_3) or a group by prefix (FIN_* is every fin); empty string clears it. markers: the center of gravity and other markers on the model. "
                     "dimensions: dimension callouts on the model. tab: the design panel's tab.",
      "parameters": {"type": "object", "properties": {
          "expand": {"type": "boolean"}, "explode": {"type": "boolean"}, "focus_id": {"type": "string"},
@@ -166,13 +166,33 @@ async def _press(bus: EventBus, cad: CadService, action: str, **fields: Any) -> 
     await bus.publish("cad.action", CadAction(action=action, part=r.part, version=r.version, seq=next(_seq), **fields))
 
 
+def focus_ids(spec: str, ids: Iterable[str]) -> list[str] | None:
+    """'FIN_1' / 'FIN_1, NOSE_CONE' / 'FIN_*' or 'FINS' (every FIN_ part) -> sorted part ids; None if any
+    name matches nothing. '' -> []."""
+    ids = sorted(ids)
+    found: list[str] = []
+    for name in filter(None, (n.strip().upper() for n in spec.split(","))):
+        if name in ids:
+            hits = [name]
+        else:
+            stem = name.rstrip("*").rstrip("_")
+            hits = [i for i in ids if i.startswith(stem + "_")] or \
+                [i for i in ids if stem.endswith("S") and i.startswith(stem[:-1] + "_")]  # "fins"
+        if not hits:
+            return None
+        found += [i for i in hits if i not in found]
+    return found
+
+
 async def _view(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show | None) -> dict[str, Any]:
     if not any(k in args for k in ("expand", "explode", "focus_id", "markers", "dimensions", "tab")):
         return {"error": "Nothing to change: pass expand, explode, focus_id, markers, dimensions or tab"}
+    focus: list[str] = []
     if "focus_id" in args:
-        focus = str(args["focus_id"] or "").strip().upper() or None
-        if focus is not None and focus not in cad.current.fingerprints:
-            return {"error": f"No part {focus!r}", "parts": sorted(cad.current.fingerprints)}
+        found = focus_ids(str(args["focus_id"] or ""), cad.current.fingerprints)
+        if found is None:
+            return {"error": f"No part {args['focus_id']!r}", "parts": sorted(cad.current.fingerprints)}
+        focus = found
     if "tab" in args and args["tab"] not in TABS:
         return {"error": f"No tab {args['tab']!r}; the tabs are {TABS}"}
     view = await _show(show)
@@ -180,8 +200,8 @@ async def _view(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show
         return {"error": view["view_error"]}  # everything below is only on screen
     done: list[str] = []
     if "explode" in args or "focus_id" in args:
-        await bus.publish("cad.view", CadView(explode=args.get("explode"),
-                                              focus_id=str(args.get("focus_id") or "").strip().upper() or None))
+        await bus.publish("cad.view", CadView(explode=args.get("explode"), focus_id=focus[0] if focus else None,
+                                              focus_ids=focus))
         done += [k for k in ("explode", "focus_id") if k in args]
         if args.get("explode") is False:
             await _press(bus, cad, "reassemble")  # "put it back together" also means parts pulled off in Expand
@@ -192,7 +212,7 @@ async def _view(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show
     if "tab" in args:
         await _press(bus, cad, "tab", tab=args["tab"])
         done.append("tab")
-    return {"ok": True, "shown": done}
+    return {"ok": True, "shown": done, **({"focused": focus} if focus else {})}
 
 
 async def _demo(args: dict[str, Any], cad: CadService, bus: EventBus, show: Show | None) -> dict[str, Any]:

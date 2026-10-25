@@ -247,6 +247,8 @@ public class CadViewer : MonoBehaviour
     float cgFrom, cgTo, cpFrom, cpTo, markerT = 1f;
     bool collarData;     // the version has the rocket's CG / CP (markers_gltf + a body diameter)
     string focusId, highlighted, highlightedParam;
+    CadView focusView = new CadView();  // the focus on screen: focusId plus the other lit parts (cad.view focus_ids)
+    readonly List<Transform> focusParts = new List<Transform>();
     int loadToken, shownGeneration = -1;
     bool goingHome, quitting;
     bool fitted;
@@ -954,13 +956,15 @@ public class CadViewer : MonoBehaviour
     {
         bool explode = view.explode == true;
         // A demo needs the model together and every part as it is: an explode or a focus ends it first.
-        if (player.Running && (explode || view.focusId != focusId)) player.Stop(instant: true);
+        bool sameFocus = view.SameFocus(focusView);
+        if (player.Running && (explode || !sameFocus)) player.Stop(instant: true);
         exploder.SetTarget(explode);
-        if (view.focusId == focusId) return;
+        if (sameFocus) return;
         reveal.Reset();  // the focus dims every other part with the same material swap
         EndGlow();
         ClearDim();
         focusId = view.focusId;
+        focusView = new CadView { focusId = view.focusId, focusIds = view.focusIds };
         ApplyFocus();
     }
 
@@ -976,19 +980,31 @@ public class CadViewer : MonoBehaviour
     void ApplyFocus()
     {
         if (current == null || string.IsNullOrEmpty(focusId) || ghostMaterial == null) return;
-        if (!current.objects.TryGetValue(focusId, out var focus)) return;
+        focusParts.Clear();
+        if (current.objects.TryGetValue(focusId, out var first)) focusParts.Add(first.transform);
+        if (focusView.focusIds != null)
+            foreach (var id in focusView.focusIds)
+                if (id != focusId && current.objects.TryGetValue(id, out var part)) focusParts.Add(part.transform);
+        if (focusParts.Count == 0) return;
         var c = ghostColor;
         c.a = focusDim;
         block.SetColor(ColorId, c);
         foreach (var r in current.Root.GetComponentsInChildren<Renderer>())
         {
-            if (r.transform.IsChildOf(focus.transform) || IsLayer(r)) continue;
+            if (InFocus(r.transform) || IsLayer(r)) continue;
             dimmed.Add(new Swapped { renderer = r, original = r.sharedMaterials });
             var materials = new Material[r.sharedMaterials.Length];
             for (int i = 0; i < materials.Length; i++) materials[i] = ghostMaterial;
             r.sharedMaterials = materials;
             r.SetPropertyBlock(block);
         }
+    }
+
+    bool InFocus(Transform t)
+    {
+        foreach (var f in focusParts)
+            if (t.IsChildOf(f)) return true;
+        return false;
     }
 
     void ClearDim()
