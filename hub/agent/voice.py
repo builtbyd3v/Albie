@@ -60,6 +60,7 @@ from typing import Any, Protocol
 from . import addressed
 from . import events as ev
 from . import tools
+from . import wake as wake_mod
 from .crew import TYPES, lead_rules
 from .bus import tidy_paths
 from .events import Event
@@ -91,11 +92,21 @@ PERSONA = (
 )
 # Last in the instructions, after the tool rules, so it wins over "tell me everything".
 BREVITY = (
-    " Most important rule: every reply is one or two short sentences, about 20 words at most. Lead with the "
-    "answer, no warm-up. Even if the user asks for everything or a long answer, give only the key point, "
-    "then offer to say more."
+    " Most important rule: every reply is one or two short sentences, 20 words at most, under eight seconds out "
+    "loud. Lead with the answer, no warm-up, no recap. Even if the user asks for everything or a long answer, give "
+    "only the key point, then offer to say more. For a why, how or in-depth question: two short sentences with the "
+    "main reason and its key numbers (which neuron, which class, how much accuracy), then ask 'Want the details?'; go deeper only after the user says yes, and even then keep it to "
+    "three sentences."
 )
-BREVITY_NOW = " Reply now in at most two short sentences."
+BREVITY_NOW = " Reply now in at most 20 words; for an in-depth question, the key point then 'Want the details?'."
+# Grok ignores max_output_tokens / max_response_output_tokens (probed 2026-10-24: 100 s answers either way), so the
+# hub cuts a reply after this much of its audio. Unity plays it 1.2x faster (pitch), and audio arrives in chunks
+# (a cut at 12 s landed at 13.4 s), so 10 s here is ~8.5-9.5 s heard. 0 = no cut (default since 2026-10-25: Dev
+# heard it cut answers mid-sentence; BREVITY keeps them short).
+MAX_REPLY_S = float(os.getenv("VOICE_MAX_REPLY_S", "0"))
+SAY_MAX = 150  # a verbatim line (runner answer, proactive line) is cut to whole sentences within this many characters
+# A wake turn's audio can start with room talk before the user said "Albie" (and grok-transcribe repeats the last turn).
+ADDRESSED_NOW = " Answer only what the user asked you after saying your name; ignore anything said before it."
 DELEGATE_RULES = (
     " Your delegate tool is for anything needing real analysis of the user's code, repository, files or project, "
     "and for any request to write, fix or change code or to create a new file (except ML training: the ml tools "
@@ -168,11 +179,14 @@ ROCKET_TERMS = ["Albie", "ML", "ML panel", "ML desk", "fins", "fin", "nose cone"
 DESIGN_TERMS = ["quadcopter", "gearbox", "pinion", "shaft", "props", "prop clearance", "hexacopter", "explode",
                 "STEP file", "STL", "Slack", "CAD"]
 # "Stop" over Albie should just stop him, not start a reply ("Okay, quiet!").
-STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind"}
+STOP_CORE = {"stop", "wait", "quiet", "shh", "shush", "hush", "enough", "nevermind", "shutup", "cancel"}  # "shut up" -> shutup
 STOP_FILLER = ALIASES["bit"] | {SPLIT_FIRST} | SPLIT_SECOND | {"okay", "ok", "please", "hey", "be", "that", "it", "never",
                                                                 "mind", "now", "right"}
-NO_REPLY_S = 4.0  # committed turn with no transcript and no response from Grok by then: treat it as empty
+HOLD_S = 6.0  # a held half-thought (addressed.unfinished) with no next segment by then is answered as it is
+NO_REPLY_S = 8.0  # committed turn with no transcript and no response from Grok by then: treat it as empty (4 s gave up on late replies on the hotspot, live 01:40)
 DRAIN_TIMEOUT_S = 20.0  # longest we wait for Grok to finish talking before speaking a delegate answer
+UNDOABLE_TOOLS = {"cad_set_params", "cad_apply_preset", "cad_restore_version", "cad_reset"}  # undone by cad_undo
+DUPLICATE_S = 20.0  # the same transcript again within this is the same turn (live 22:26: one sentence, three turns)
 WAKE_FINAL_TIMEOUT_S = 8.0  # a wake turn with no transcription.completed by then is decided on the last partial
 # (5 s decided on partials over the phone hotspot, live 19:29-19:30; Unity's PushToTalk finalTimeout is 10 s)
 GROK_PING_TIMEOUT_S = 60.0  # the hotspot delayed keepalive pongs past websockets' 20 s default: 4 drops in 11 min
@@ -243,6 +257,8 @@ class _Base:
         self._wake = False  # the open turn is a wake turn
         self._gated = False  # ...that Unity opened as a gated turn (require_name): a dropped one still needs a final
         self.last_reply, self.last_reply_t = "", 0.0  # Albie's last spoken line: context for addressed.judge
+        self._prev_raw = ""  # the last turn's transcript as Grok sent it (it shows up again at the start of the next)
+        self._partial_raw = ""
         self.workspace_mode: str | None = None  # workspace.mode from Unity; None = never told (ws.py keeps it current)
 
     def is_echo(self, text: str) -> bool:
@@ -257,14 +273,28 @@ class _Base:
         self._turn_seq += 1
         self._named = False
         self._partial = ""
+        self._partial_raw = ""
         self._final_sent = False
         self._committed = False
         self._cancelled = False
         self._wake = wake and self.wake_router is not None
         self._gated = False
 
+    def _fresh(self, text: str) -> str:
+        """This turn's words only. grok-transcribe starts a new item's transcript with the previous turn's text (probed
+        2026-10-24: after "Can you run the rocket file...", "Albie, what is two plus two?" came back as both), so one
+        "Albie" late in a turn made earlier room chatter count. The carried-over prefix is cut off."""
+        prev = _TOKENS.findall(self._prev_raw.lower())
+        words = list(_TOKENS.finditer(text))
+        if len(prev) >= 2 and len(words) > len(prev) and [w.group().lower() for w in words[:len(prev)]] == prev:
+            return text[words[len(prev) - 1].end():].lstrip(" ,.!?;:-")
+        return text
+
     async def _transcript(self, text: str) -> None:
-        if self._final_sent or not text or text == self._partial:
+        if self._final_sent or not text:
+            return
+        self._partial_raw, text = text, self._fresh(text)
+        if not text or text == self._partial:
             return
         self._partial = text
         self._named = self._named or has_name(text, last=False)  # a growing partial's last word isn't a vocative yet
@@ -303,6 +333,12 @@ class _Base:
             self.last_reply, self.last_reply_t = text.strip(), time.monotonic()
 
 
+def _just_the_name(text: str) -> bool:
+    words = [w.lower() for w in re.findall(r"[A-Za-z']+", text)]
+    return bool(words) and set(words) <= wake_mod.GREETINGS | wake_mod.ALIASES["bit"] and \
+        bool(set(words) & wake_mod.ALIASES["bit"])
+
+
 class GrokVoiceSession(_Base):
     provider = "grok"
 
@@ -326,6 +362,19 @@ class GrokVoiceSession(_Base):
         self._suppress_transcript = False  # next response speaks a delegate answer the runner already captioned
         self._drop_reply = False  # the turn was only "stop": cancel Grok's reply to it, play and run nothing
         self._dropping = False  # that reply is being cancelled (until its response.done)
+        # Replies the hub asked for (response.create, or a say() force_message) and hasn't seen start yet. Grok starts a
+        # reply on its own after every commit whatever turn_detection says (probed 2026-10-24: null, {"type": null}
+        # and server_vad + create_response false all did), so a response.created nobody asked for is cancelled.
+        self._expected = 0
+        self._dropped_items: list[str] = []  # output items of a cancelled reply, deleted at its response.done
+        self.on_stop: Callable[[], Awaitable[None]] | None = None  # ws.py: "Albie, stop" also cancels his running task
+        self._last_heard, self._last_heard_t = "", 0.0  # the same transcript twice within DUPLICATE_S is one turn
+        # After "Stopped. Undo, continue, or leave it?": until choice_until a bare "undo" / "continue" / "leave it"
+        # is the answer (ws.py on_choice runs it), no name needed.
+        self.choice_until = 0.0
+        self.on_choice: Callable[[str], Awaitable[None]] | None = None
+        self.last_change: tuple[str, float] | None = None  # (tool, when) of the last CAD change Grok made: Undo-able
+        self.last_ml: tuple[str, dict[str, Any]] | None = None  # the last training run Grok started (ml_apply / ml_train)
         self._response_suppressed = False
         self._response_requested = False  # response.create sent, response.created not seen yet
         self._idle_close_s = float(os.getenv("VOICE_IDLE_CLOSE_S", "120"))  # 20 s cost a reconnect (up to 6 s on the hotspot) after every quiet spell
@@ -345,6 +394,8 @@ class GrokVoiceSession(_Base):
         # current response
         self._utt: str | None = None
         self._audio_started = False
+        self._utt_s = 0.0  # audio seconds of the current reply (MAX_REPLY_S)
+        self._commit_t = 0.0  # when the open turn was committed (latency log)
         # Grok sends speech faster than real time, so Unity is often still playing after response.done.
         self._playing_utt: str | None = None
         self._play_until = 0.0  # monotonic time Unity's queued speech runs out
@@ -457,6 +508,7 @@ class GrokVoiceSession(_Base):
             await self._final("")
             return
         await self._send({"type": "input_audio_buffer.commit"})
+        self._commit_t = time.monotonic()
         r = self.wake_router
         flags = (r.target, bool(r.facing), bool(r.gated)) if self._wake else (None, False, False)
         self._commits.append(_Commit(self._turn_seq, self._wake, self._gated, flags))
@@ -512,7 +564,7 @@ class GrokVoiceSession(_Base):
         self._wake_answered = respond
         if respond:
             await self.stop_speech("barge_in")
-            await self._request_response()
+            await self._request_response(addressed=True)
             await self._emit(ev.thinking(self.pet_id))
         elif self._last_item:
             await self._send({"type": "conversation.item.delete", "item_id": self._last_item})
@@ -616,7 +668,15 @@ class GrokVoiceSession(_Base):
         elif t == "response.created":
             if self._partial:
                 await self._final()  # no .completed yet: the last cumulative transcript is final
-            if self._drop_reply:
+            unasked = self._expected == 0
+            # One reply per ask: a turn ended with no reply (NO_REPLY_S) left its ask counted, and the next turn's
+            # second response (Grok's own plus ours) then got through too: the same answer twice (live 01:40).
+            self._expected = 0
+            if self._drop_reply or unasked:
+                # Live 22:25-22:30: Grok's own replies to unaddressed turns ran delegate / cad_open_part, talked at
+                # length (no BREVITY_NOW) and ignored "Albie, stop". Cancel it; its tool calls are skipped (_dropping).
+                if unasked:
+                    log.info("grok started a reply nobody asked for: cancelled")
                 self._drop_reply = False
                 self._response_active, self._response_requested, self._forwarding = True, False, False
                 self._dropping = True
@@ -624,6 +684,7 @@ class GrokVoiceSession(_Base):
                 return
             self._utt = uuid.uuid4().hex[:12]
             self._audio_started = False
+            self._utt_s = 0.0
             self._answer, self._answer_done = "", False
             self._forwarding = self._response_active = True
             self._response_requested = False
@@ -640,12 +701,20 @@ class GrokVoiceSession(_Base):
         elif t in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
             if self._forwarding and not self._response_suppressed:
                 await self._answer_finished(msg.get("transcript") or self._answer)
+        elif t in ("response.output_item.added", "conversation.item.added") and self._dropping:
+            item = (msg.get("item") or {}).get("id")
+            if item:
+                self._dropped_items.append(item)  # its function call / message must not steer later turns
         elif t == "response.done" and self._dropping:
             self._dropping = self._response_active = False
             self._pending_outputs.clear()
+            items, self._dropped_items = self._dropped_items, []
+            for item in items:
+                await self._send({"type": "conversation.item.delete", "item_id": item})
         elif t == "response.done":
             if self._forwarding:
                 if self._audio_started and self._utt is not None:
+                    log.info("reply: %.1f s of audio", self._utt_s)  # how long-winded he was
                     await self._send_event(ev.tts_end(self.pet_id, self._utt))
                 if self._answer and not self._answer_done:
                     await self._answer_finished(self._answer)
@@ -664,7 +733,14 @@ class GrokVoiceSession(_Base):
             message = err.get("message") if isinstance(err, dict) else str(err)
             # A dropped turn's item.delete, or a cancel of a reply that just ended, raced Grok: nothing lost. Shown as
             # "Voice error: ..." these made Albie look broken (live 18:48 "Cancellation failed: no active response").
-            if any(m in (message or "").lower() for m in ("item not found", "no active response")):
+            low = (message or "").lower()
+            if any(m in low for m in ("item not found", "no active response")):
+                log.info("grok: %s (harmless)", message)
+                return
+            if "response" in low and ("active" in low or "in progress" in low):
+                # Our response.create landed while Grok's own reply to the commit was running: that one is the answer.
+                self._expected = max(0, self._expected - 1)
+                self._response_requested = False
                 log.info("grok: %s (harmless)", message)
                 return
             log.warning("grok error: %s", msg)
@@ -677,11 +753,13 @@ class GrokVoiceSession(_Base):
         else:
             log.debug("grok: unhandled %s", t)
 
-    async def _request_response(self) -> None:
+    async def _request_response(self, addressed: bool = False) -> None:
         self._response_requested = True
+        self._expected += 1
         # Per-response instructions (xAI: overrides the session prompt for this reply) restate the length rule
         # right before Grok answers; in the session prompt alone it ignored it for "tell me everything".
-        await self._send({"type": "response.create", "response": {"instructions": self._instructions() + BREVITY_NOW}})
+        extra = BREVITY_NOW + (ADDRESSED_NOW if addressed else "")
+        await self._send({"type": "response.create", "response": {"instructions": self._instructions() + extra}})
 
     # ------------------------------------------------------------ tools
     async def _on_function_call(self, name: str, call_id: str, arguments: str) -> None:
@@ -693,6 +771,10 @@ class GrokVoiceSession(_Base):
             args = {}
         await self._emit(ev.tool_call(self.pet_id, call_id, name, args))
         log.info("tool: %s %s", name, json.dumps(args)[:200])  # which tool a request was routed to (VS Code vs crew)
+        if name in UNDOABLE_TOOLS:
+            self.last_change = (name, time.monotonic())
+        if name in ("ml_apply", "ml_train"):
+            self.last_ml = (name, args)  # "Albie, stop" while that run trains: undo (ml_undo) or train again
         if name == "delegate" and self._delegate is not None and str(args.get("task", "")).strip():
             mode = args.get("mode") if args.get("mode") in ("qa", "code", "auto") else "auto"
             # Grok has no "pending" results: acknowledge now so it can say "on it", speak the answer later.
@@ -742,8 +824,10 @@ class GrokVoiceSession(_Base):
         await self.start()
         if context:
             await self._send(_note_item(context))
+        text = short_line(text)
         self._suppress_transcript = True
         self._spoke(text)
+        self._expected += 1  # a force_message also starts a response
         await self._send({"type": "conversation.item.create", "item": {
             "type": "force_message", "role": "assistant", "interruptible": True,
             "content": [{"type": "output_text", "text": text}]}})
@@ -751,7 +835,12 @@ class GrokVoiceSession(_Base):
     async def _final(self, text: str | None = None) -> None:
         if self._final_sent:
             return
-        final = (text if text is not None else self._partial).strip()
+        raw = text if text is not None else self._partial_raw
+        final = (self._fresh(text) if text is not None else self._partial).strip()
+        if raw.strip():
+            self._prev_raw = raw.strip()
+        if text is not None:
+            text = final  # the router and Unity get this turn's words only
         crew_pid = (self.wake_router.crew_target(final)
                     if not self._wake and self.wake_router is not None else None)
         if crew_pid is not None:
@@ -761,25 +850,71 @@ class GrokVoiceSession(_Base):
             await super()._final("")
             await self.wake_router.final(final)
             return
-        stop = is_stop(final)
+        if final and final == self._last_heard and time.monotonic() - self._last_heard_t < DUPLICATE_S \
+                and not (is_stop(final) or has_named_stop(final)):  # "Albie, stop" twice is meant twice
+            # Live 22:26: one sentence came back as three turns 3-14 s apart; act on it once.
+            self._drop_reply = True
+            log.info("turn: duplicate of the last transcript, ignored")
+            await super()._final("")
+            return
+        if final:
+            self._last_heard, self._last_heard_t = final, time.monotonic()
+        choice = stop_choice(final) if final and time.monotonic() < self.choice_until else None
+        if choice is not None and self.on_choice is not None:
+            self.choice_until = 0.0
+            self._drop_reply = True  # the hub answers it (undo / continue / leave), not Grok
+            log.info("turn: %r -> stop choice %s", final[:80], choice)
+            await super()._final("")
+            await self.on_choice(choice)
+            return
+        stop = is_stop(final) or has_named_stop(final)
         named = "partial" if self._named else "final" if has_name(final) else "no"
         drop = stop or (self._require_name and named == "no")
+        held = None
+        if not drop and not self._wake and not wake_mod.NAME_REQUIRED:
+            age = time.monotonic() - self.last_reply_t if self.last_reply_t else None
+            held = addressed.unfinished(final, self.last_reply or None, age, complete=text is not None)
+            if held and _just_the_name(final):
+                held = None  # "Hey Albie": he answers "yes?" now
+        if held:
+            # Not answered yet, but its audio item stays in Grok's conversation: the next segment's reply covers both.
+            drop = True
+            if self._response_active:
+                await self.stop_speech("cancel")  # Grok started before the transcript came in
+            if held == "partial":
+                job = asyncio.create_task(self._answer_held(self._turn_seq))
+                self._jobs.add(job)
+                job.add_done_callback(self._jobs.discard)
         if drop:
             self._drop_reply = True
             text = ""  # Unity treats an empty final as "nothing to answer" and goes back to idle
         wake = self._wake
         gated = self._gated or (wake and bool(self.wake_router.gated))  # read before the router resets it in final()
         facing = wake and bool(self.wake_router.facing)  # read before the router resets it in final()
-        if stop and wake and (named != "no" or facing):
+        if stop and (not wake or named != "no" or facing):
             # A wake / gated turn never barges in by itself (side talk must not cut Albie off): only "Albie, stop"
-            # or "stop" while looking at him does. A plain "stop" to a teammate leaves him talking.
+            # or "stop" while looking at him does. A plain "stop" to a teammate leaves him talking. A stop also ends
+            # the code task he is running (live 22:30: "Albie, stop" and the runner kept editing).
             await self.stop_speech("barge_in")
+            self._pending_outputs.clear()
+            if self.on_stop is not None:
+                await self.on_stop()
         await super()._final(text)
         answered = self._wake_answered if wake else bool(final)
         judged = self.wake_router.judged if wake else None
-        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s facing=%s gated=%s judged=%s %s", final[:120],
+        after = f" ({time.monotonic() - self._commit_t:.1f} s after commit)" if self._commit_t else ""
+        log.info("turn: %r require_name=%s named=%s stop=%s wake=%s facing=%s gated=%s judged=%s %s%s", final[:120],
                  self._require_name, named, stop, wake, facing, gated, judged,
-                 "answered" if answered and not drop else "dropped")
+                 f"held ({held})" if held else "answered" if answered and not drop else "dropped", after)
+
+    async def _answer_held(self, seq: int) -> None:
+        """Nobody finished the half-thought: answer it after all (unless a new turn began)."""
+        await asyncio.sleep(HOLD_S)
+        if seq == self._turn_seq and self._ws is not None and not self._response_active:
+            log.info("held turn: nothing followed in %.0f s, answering it", HOLD_S)
+            self._drop_reply = False  # the hold's own drop flag must not cancel this reply
+            await self._request_response()
+            await self._emit(ev.thinking(self.pet_id))
 
     async def _audio(self, pcm: bytes) -> None:
         if not self._forwarding or not pcm:
@@ -787,11 +922,22 @@ class GrokVoiceSession(_Base):
         await self._final()
         if not self._audio_started:
             self._audio_started = True
+            if self._commit_t:  # latency: end of speech (commit) to Albie's first audio
+                log.info("first audio %.1f s after commit", time.monotonic() - self._commit_t)
+                self._commit_t = 0.0
             self._utt = self._utt or uuid.uuid4().hex[:12]
             await self._send_event(ev.tts_start(self.pet_id, self._utt, self.sample_rate))
         await self._send_bytes(pcm)
         self._playing_utt = self._utt
         self._play_until = max(self._play_until, time.monotonic()) + len(pcm) / 2 / self.sample_rate
+        self._utt_s += len(pcm) / 2 / self.sample_rate
+        if MAX_REPLY_S and self._utt_s >= MAX_REPLY_S:  # long-winded: end it here (Unity plays what it has, then tts.end)
+            log.info("reply cut at %.0f s of audio", self._utt_s)
+            self._forwarding = False
+            await self._send({"type": "response.cancel"})
+            await self._send_event(ev.tts_end(self.pet_id, self._utt))
+            if self._answer and not self._answer_done:
+                await self._answer_finished(self._answer)
 
     async def _answer_finished(self, text: str) -> None:
         self._answer_done = True
@@ -924,9 +1070,56 @@ def make_voice(*, pet_id: str, client_rate: int | None, send_event: SendEvent, s
     return None
 
 
+_TOKENS = re.compile(r"[A-Za-z0-9']+")
+
+
+CHOICE_UNDO = {"undo", "revert", "reverse", "back"}
+CHOICE_GO = {"continue", "resume", "going", "finish"}  # "keep going", "go on" is matched below
+
+
+def stop_choice(text: str) -> str | None:
+    """The answer to "Undo, continue, or leave it?": "undo" / "continue" / "leave", else None."""
+    low = text.lower()
+    words = set(re.findall(r"[a-z]+", low))
+    if words & CHOICE_UNDO:
+        return "undo"
+    if words & CHOICE_GO or "go on" in low or "pick up" in low:
+        return "continue"
+    if "leave" in words or words & {"nothing", "nope"} or low.strip(" .!") in ("no", "never mind"):
+        return "leave"
+    return None
+
+
+def short_line(text: str) -> str:
+    """Whole sentences within SAY_MAX characters (at least the first, cut at a word): what Albie says verbatim."""
+    text = " ".join(text.split())
+    if len(text) <= SAY_MAX:
+        return text
+    out = ""
+    for sentence in re.findall(r"[^.!?]+[.!?]*", text):
+        if out and len(out) + len(sentence) > SAY_MAX:
+            break
+        out += sentence
+    out = out.strip()
+    return out if len(out) <= SAY_MAX else out[:SAY_MAX].rsplit(" ", 1)[0] + "..."
+
+
+def has_named_stop(text: str) -> bool:
+    """A short sentence with his name and a stop word anywhere in the turn: "No, no. Albie, stop. You ..." (live 22:27)."""
+    for sentence in re.split(r"[.?!]+(?=\s|$)", text.lower()):
+        words = _stop_words(sentence)
+        if 0 < len(words) <= 4 and set(words) & STOP_CORE and set(words) & NAME_WORDS:
+            return True
+    return False
+
+
+def _stop_words(text: str) -> list[str]:
+    return re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind").replace("shut up", "shutup"))
+
+
 def is_stop(text: str) -> bool:
     """Only stop words and filler ("Wait, stop, Albie.", "Never mind."): the user wants silence, not an answer."""
-    words = re.findall(r"[a-z]+", text.lower().replace("never mind", "nevermind"))
+    words = _stop_words(text)
     return bool(words) and set(words) <= STOP_CORE | STOP_FILLER and bool(set(words) & STOP_CORE)
 
 

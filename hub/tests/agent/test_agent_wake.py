@@ -434,6 +434,7 @@ def test_text_path_wake_turn_routes_to_the_crew(client: TestClient, monkeypatch:
         def finish(self) -> str: return "Scout, where does greet live?"
 
     monkeypatch.setenv("VOICE_PROVIDER", "none")
+    monkeypatch.setattr("agent.wake.NAME_REQUIRED", True)  # name only: Bit sends nothing at all
     monkeypatch.setattr("agent.ws.make_stt", lambda repo=None: Canned())
     assert stt_mod  # imported for the monkeypatch target's module
     with client.websocket_connect("/ws") as ws:
@@ -567,3 +568,23 @@ def test_parse_mishearings(text, pet, rest):
 ])
 def test_parse_split_names_only_where_a_name_can_stand(text, pet, rest):
     assert parse(text) == (pet, rest)
+
+
+def test_free_speech_unnamed_hands_free_turn_goes_to_bit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default (VOICE_NAME_REQUIRED unset): a hands-free segment with no name is a plain turn for Bit."""
+    class Canned:
+        def feed(self, pcm16: bytes) -> None: ...
+        def partial(self) -> None: return None
+        def finish(self) -> str: return "what is apogee"
+
+    monkeypatch.setenv("VOICE_PROVIDER", "none")
+    monkeypatch.setattr("agent.ws.make_stt", lambda repo=None: Canned())
+    with client.websocket_connect("/ws") as ws:
+        _hello(ws)
+        ws.send_json({"type": "stt.start", "payload": {"pet_id": "bit", "wake": True, "require_name": True}})
+        ws.send_bytes(b"\x00\x00" * 3200)
+        ws.send_json({"type": "stt.stop", "payload": {"pet_id": "bit"}})
+        m = ws.receive_json()
+        while m["type"] != "stt.final":
+            m = ws.receive_json()
+    assert m["payload"]["text"] == "what is apogee"

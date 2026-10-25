@@ -45,6 +45,7 @@ class IMessageService:
         self.draft_expiry_s = 120.0
         self.focused: SlackMessage | None = None
         self.channels_changed: Callable[[], None] | None = None
+        self.on_message: Callable[[SlackMessage], None] | None = None  # main.py: proactive Albie reads new texts out
         if getattr(bus, "make_sticky", None):
             bus.make_sticky("notify.channels")
 
@@ -341,6 +342,8 @@ class IMessageService:
             await self.bus.publish("notify.message", message)
             if self.channels_changed is not None:
                 self.channels_changed()
+            if self.on_message is not None and not message.is_me:  # allowlisted 1:1 chats only (db.py filters)
+                self.on_message(message)
 
     def _message(self, row: dict[str, Any], *, channel: str | None = None, chat_name: str | None = None) -> SlackMessage:
         chat_guid = str(row.get("chat_guid") or (channel or "").removeprefix("im:"))

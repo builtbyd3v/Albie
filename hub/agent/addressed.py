@@ -54,6 +54,32 @@ def is_answer(text: str) -> bool:
     return bool(words) and words <= ANSWER and bool(words & ANSWER_CORE)
 
 
+TRAILING = {"um", "uh", "er", "erm", "hmm"}  # "...clear the notes, um": a finished request with a trailing sound
+
+
+def unfinished(text: str, last_reply: str | None = None, age_s: float | None = None, *,
+               complete: bool = True) -> str | None:
+    """Free speech (nobody else in the room): a turn Albie should not answer yet, because people pause mid-thought.
+    "partial": it trails off ("can you open the, um") and the next segment finishes it; grok-transcribe ends a finished
+    sentence with . ? or ! and leaves a cut-off one bare ("Go to the", "How can I get": every bare turn on 2026-10-24
+    was a fragment; complete=False for a live partial, which has no end mark yet). "filler": only "yeah" / "um",
+    unless it answers the question Albie just asked. None: answer it."""
+    words = _words(text)
+    if not words:
+        return None
+    asked = bool(last_reply and last_reply.rstrip().endswith("?")) and age_s is not None and age_s <= REPLY_S
+    if set(words) <= NOISE | TRAILING | {"nah"}:
+        return None if asked else "filler"
+    if words[-1] in TRAILING:  # "...clear the notes, um" (live 01:39, no end mark): judged by the word before it
+        while words and words[-1] in TRAILING:
+            words.pop()
+    else:
+        end = text.rstrip(" \"')")
+        if end.endswith(("...", "…")) or (complete and not end.endswith((".", "?", "!"))):
+            return "partial"
+    return "partial" if words and words[-1] in DANGLING else None
+
+
 async def judge(text: str, last_reply: str | None = None, age_s: float | None = None, *, facing: bool = False) -> bool:
     """An unnamed turn. facing (VOICE_FACING=1 only): for Albie unless the rules rule it out. Otherwise only a bare
     answer within REPLY_S of a question he asked ("Want me to look?" "Yes please.")."""
