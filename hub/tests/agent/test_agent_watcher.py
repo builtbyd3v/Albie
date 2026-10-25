@@ -260,3 +260,32 @@ def test_card_tap_over_ws_runs_the_fix_as_a_code_ask(client: Any, monkeypatch: A
                 break
             time.sleep(0.02)
     assert asked == [("Fix line 3: boom", "code")]
+
+
+def test_overfit_alert_points_albie_at_the_results_panel() -> None:
+    line = line_for("ml.overfit_alert", {"run_id": "r1", "epoch": 6, "reason": "val loss up"}, None)
+    assert line is not None and line.panel == "ml-results" and line.key is None  # every run / replay alerts once
+    assert line.text == "Heads up, the model is overfitting since epoch 6. Want me to explain what's going on?"
+
+
+MENTION = {"channel": "C1", "channel_name": "forge-team", "user_name": "Hudson", "ts": "1.2", "is_dm": False,
+           "mentions_me": True, "is_me": False, "text": "hey <@UME> is the demo build ready?", "source": None}
+
+
+def test_a_slack_mention_or_dm_is_read_out_and_others_stay_quiet() -> None:
+    line = line_for("notify.message", MENTION, None)
+    assert line is not None and line.panel == "messages"
+    assert line.text == "Hudson mentioned you in forge-team: hey is the demo build ready? Want me to reply?"
+    assert line.context is not None and 'reply_to_ts "1.2"' in line.context  # "Albie, yes, ..." drafts the reply
+    dm = line_for("notify.message", {**MENTION, "is_dm": True, "text": "call me"}, None)
+    assert dm is not None and dm.text == "Hudson messaged you: call me Want me to reply?"
+    assert line_for("notify.message", {**MENTION, "mentions_me": False}, None) is None
+    assert line_for("notify.message", {**MENTION, "is_me": True}, None) is None
+
+
+def test_an_allowlisted_imessage_is_read_out_short() -> None:
+    text = {**MENTION, "source": "imessage", "mentions_me": False, "channel": "im:x", "channel_name": "Mom",
+            "text": "word " * 40}
+    line = line_for("notify.message", text, None)
+    assert line is not None and line.text.startswith("New text from Mom: word word") and "..." in line.text
+    assert line_for("notify.message", {**text, "is_me": True}, None) is None

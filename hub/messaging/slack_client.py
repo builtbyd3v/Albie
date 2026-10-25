@@ -265,6 +265,7 @@ class SlackService:
         self.bus = bus
         self.voice_speak = voice_speak
         self.voice_note = voice_note
+        self.on_mention: Callable[[SlackMessage], None] | None = None  # main.py: proactive Albie reads it out
         self.focused: SlackMessage | None = None   # "Reply with Bit": messages_send without a target answers this
         self.enabled = settings.configured
         self.connected = False
@@ -685,6 +686,8 @@ class SlackService:
         if publish:
             await self.bus.publish("notify.message", msg)
             self.channels_changed()
+            if self.on_mention is not None and msg.mentions_me and not msg.is_me:
+                self.on_mention(msg)
             log.info("slack #%s %s%s: %.80s", msg.channel_name, msg.user_name, " (you)" if msg.is_me else "", msg.text)
         return msg
 

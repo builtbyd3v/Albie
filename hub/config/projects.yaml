@@ -1,9 +1,10 @@
 # project_id -> repo the pet can read (qa) or edit on a pet/* branch (code).
 # Paths are expanded (~) server-side and never sent to clients.
 projects:
-  gatorhack:
-    path: "~/Documents/gatorhack-dubz"
-    default_mode: "qa"
+  gatorhack:  # demo build: the headset asks for "gatorhack", so it points at Albie's sandbox too
+    path: "~/Documents/GitHub/albie-sandbox"
+    default_mode: "auto"
+    edit_in_place: true
   # Albie's sandbox (sandbox/setup.sh): voice edits land here, live in VS Code, straight on its main branch.
   # Use it with DEFAULT_PROJECT=sandbox (setup.sh prints the hub/.env lines).
   sandbox:

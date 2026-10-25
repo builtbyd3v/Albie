@@ -282,6 +282,20 @@ class MLTools:
         return {"applied": list(plan["files"]), "run_id": run_id, "epochs": plan["epochs"],
                 "note": "Training now with the change. The curves are live on the Training panel."}
 
+    async def stop_training(self) -> bool:
+        """"Albie, stop" during a run he started: end the training process and skip its "done" line. True if one ran."""
+        svc = self.svc
+        if not svc.training_active():
+            return False
+        for job in list(self.jobs):
+            job.cancel()  # no "That run stopped without results" for a run the user stopped
+        svc.train_proc.terminate()
+        try:
+            await asyncio.to_thread(svc.train_proc.wait, 5)
+        except Exception:  # noqa: BLE001 - still running after 5 s: make sure
+            svc.train_proc.kill()
+        return True
+
     def train(self, epochs: int) -> dict[str, Any]:
         if not 1 <= epochs <= 100:
             raise ValueError("epochs must be between 1 and 100")

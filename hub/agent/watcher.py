@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -61,8 +62,41 @@ def fix_context(said: str, where: str, error: str) -> str:
             f"mode code and a task to fix exactly that, naming the file, the line and the error.")
 
 
+SAID_MAX = 100  # a message read out is cut to this many characters
+
+
+def _said(text: str) -> str:
+    """A message as Albie reads it: Slack mention markup out, one line, short."""
+    text = " ".join(re.sub(r"<[@#!][^>]*>", "", text or "").split())
+    return text if len(text) <= SAID_MAX else text[:SAID_MAX].rsplit(" ", 1)[0] + "..."
+
+
+def reply_context(said: str, ts: str) -> str:
+    return (f"You just told the user: \"{said}\" If they want to answer it, call messages_send with reply_to_ts "
+            f"\"{ts}\" and their words: it only writes a draft for them to send.")
+
+
 def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | None:
     """What Bit says about one event, or None to stay quiet."""
+    if type_ == "ml.overfit_alert":  # one per run (the SDK alerts once; each demo replay alerts once)
+        epoch = p.get("epoch")
+        since = f" since epoch {epoch}" if epoch is not None else ""
+        return Line(f"ml:{p.get('run_id')}", None,
+                    f"Heads up, the model is overfitting{since}. Want me to explain what's going on?", panel="ml-results")
+
+    if type_ == "notify.message":  # a Slack mention or DM, or an iMessage from the allowlisted contact
+        if p.get("is_me"):
+            return None
+        ts, text = str(p.get("ts")), _said(p.get("text", ""))
+        if p.get("source") == "imessage":
+            said = f"New text from {p.get('channel_name') or p.get('user_name') or 'someone'}: {text} Want me to reply?"
+            return Line(f"im:{p.get('channel')}", ts, said, panel="messages", context=reply_context(said, ts))
+        if not p.get("mentions_me"):
+            return None
+        who = p.get("user_name") or "Someone"
+        where = "messaged you" if p.get("is_dm") else f"mentioned you in {p.get('channel_name') or 'Slack'}"
+        said = f"{who} {where}: {text} Want me to reply?"
+        return Line(f"slack:{p.get('channel')}", ts, said, panel="messages", context=reply_context(said, ts))
     if type_ == "cad.regen_failed":
         if p.get("source") != "script":
             return None  # pet and slider changes: the caller already sees the error

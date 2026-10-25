@@ -40,6 +40,10 @@ log = logging.getLogger(__name__)
 # looking at him (live 19:29-19:33: angle 5-17 degrees either way) and side talk was answered. VOICE_FACING=1 brings
 # "looking at him counts as his name" back.
 FACING_COUNTS = os.getenv("VOICE_FACING", "0") == "1"
+# Dev, 2026-10-25 (solo demo, nobody else in the room): free speech. Every hands-free segment is a normal turn for
+# Albie (agent/ws.py), answered at commit with no wait for the transcript; "Tester, ..." still goes to the crew.
+# VOICE_NAME_REQUIRED=1 brings back name only.
+NAME_REQUIRED = os.getenv("VOICE_NAME_REQUIRED", "0") == "1"
 
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so", "yes", "yeah", "yep", "alright",
              "well", "and", "please"}  # "Yes, Albie. Find..." (live 19:54) was dropped with only the first set

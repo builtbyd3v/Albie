@@ -63,6 +63,7 @@ def test_crew_tools_answer_an_error_off_the_code_screen(monkeypatch: pytest.Monk
         s = _session(grok, sink)
         s.workspace_mode = mode
         await s.begin_turn()
+        s._expected = 1  # the reply the hub asked for (Grok's own, unasked replies are cancelled)
         grok.push(type="response.created")
         grok.push(type="response.function_call_arguments.done", name=name, call_id="c", arguments="{}")
         grok.push(type="response.done")

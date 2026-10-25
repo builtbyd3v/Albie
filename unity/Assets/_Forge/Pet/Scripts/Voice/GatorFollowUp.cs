@@ -67,7 +67,7 @@ namespace Forge.Pet
         HubSpeechToText _monitor;
         Renderer _body;
         bool _following, _subscribed, _speaking, _attending;
-        float _startAt = -1f, _speechFor, _loudFor, _attendUntil, _lastLookAt = -10f;
+        float _startAt = -1f, _speechFor, _loudFor, _attendUntil, _lastLookAt = -10f, _retryAt = -1f;
 
         /// <summary>Angle (degrees) to the gator's body at the last check, and the cone it had to fall in: for logs.</summary>
         public float LastLookAngle { get; private set; }
@@ -117,7 +117,9 @@ namespace Forge.Pet
                 _following = false;
                 pushToTalk.CancelSession();
             }
-            if (voiceBargeIn) StartMonitor();
+            // Live 2026-10-25 (5x): Microphone.Start right after the WakeListener let go failed with error 80, and
+            // that reply could not be stopped by voice. One retry a moment later.
+            if (voiceBargeIn && !StartMonitor()) _retryAt = Time.time + 0.3f;
         }
 
         void OnSpeechEnded()
@@ -133,6 +135,11 @@ namespace Forge.Pet
         void Update()
         {
             if (lookToTalk && FacingNow()) _lastLookAt = Time.time;
+            if (_retryAt >= 0f && Time.time >= _retryAt)
+            {
+                _retryAt = -1f;
+                if (_speaking && voiceBargeIn) StartMonitor();
+            }
             if (_monitor != null && _monitor.IsMonitoring && (_speaking || _attending)) CheckSpeech();
             if (_attending && Time.time >= _attendUntil)
             {

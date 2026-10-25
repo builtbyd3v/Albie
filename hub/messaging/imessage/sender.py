@@ -104,7 +104,7 @@ class IMessageSender:
             proc = await asyncio.create_subprocess_exec(self.path, "chats", "--limit", "1000", "--json",
                                                         stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE)
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)  # a 1000-chat listing takes ~11 s on a full Messages history
             if proc.returncode != 0:
                 return []
             parsed = []
