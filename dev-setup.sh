@@ -5,7 +5,10 @@
 set -eu
 repo=$(cd "$(dirname "$0")" && pwd)
 sandbox=${ALBIE_SANDBOX:-$HOME/Documents/GitHub/albie-sandbox}
-py=${PYTHON:-python3}
+py=${PYTHON:-}
+if [ -z "$py" ]; then  # the newest python3.1x on PATH; macOS's own python3 is often 3.9
+  for v in python3.13 python3.12 python3.11 python3; do command -v $v >/dev/null 2>&1 && { py=$v; break; }; done
+fi
 step() { printf '\n== %s\n' "$1"; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "MISSING: $1. $2"; exit 1; }; }
 
