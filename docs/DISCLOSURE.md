@@ -1,4 +1,4 @@
-# Disclosure (draft for the Devpost submission)
+# Disclosure
 
 - All project code was written during Gator Hack V (Fri Oct 23, 5:00 PM to Sun Oct 25, 5:00 PM ET). The first commit is Fri Oct 23, 6:20 PM ET.
 - The idea and planning doc (PROJECT_CONTEXT.md) were written by the team. No pre-written project code was used.
@@ -19,7 +19,9 @@
 - Python: FastAPI, build123d (CAD), mss + Pillow (JPEG screen fallback), matplotlib (CIFAR-10 example extra chart)
 - Python hub (hub/requirements.txt): uvicorn (BSD-3), pydantic (MIT), watchfiles (MIT), RocketPy (MIT, flight sim), PyYAML (MIT), python-dotenv (BSD-3), websockets (BSD-3), aiohttp (Apache-2.0), certifi (MPL-2.0); tests: pytest (MIT), httpx (BSD-3)
 - Slack: Bolt for Python (slack-bolt, MIT) and the Python Slack SDK (slack-sdk, MIT); the Slack CLI for app setup
-- Unity packages: Meta Interaction SDK (part of Meta XR All-in-One, Meta license), Input System, Newtonsoft Json (com.unity.nuget.newtonsoft-json), TextMesh Pro
+- Unity CLI and com.unity.pipeline (Unity, experimental), used to drive the Editor and build the APK during development; its agent skill is tracked in .claude/skills/unity-cli/
+- forge-sdk (forge-sdk/pyproject.toml): hatchling (MIT) build backend, httpx (BSD-3)
+- Unity packages: Meta Interaction SDK (part of Meta XR All-in-One, Meta license), Input System, Newtonsoft Json (com.unity.nuget.newtonsoft-json), TextMesh Pro; plus Unity's default editor packages (collab-proxy, IDE support, uGUI, XR Management)
 - cad-vision (github.com/BAAA-Hacks/cad-vision, MIT), copied unchanged into unity/Assets/_Forge/CAD/ThirdParty/CadVision/
 - Screen bridge: playwright-core (Apache-2.0) drives Google Chrome to share the VS Code window over WebRTC
 - Neural Net Lab: our own C# re-implementation of the TensorFlow Playground idea (datasets, features, init); no Playground code is copied
@@ -31,7 +33,7 @@
 - ML example (ml-examples/text-classification/, run in the user's own env, not the hub): PyTorch (BSD-3), NumPy (BSD-3), Pillow (MIT-CMU); text cards use Pillow's bundled default font
 
 ## APIs and services
-- TypeSafe Jev (repo-aware panel picking spike)
+- TypeSafe Jev (TypeSafe, hosted API at api.typesafe.ai, used under its terms of service): a model that answers typed questions with a confidence score. The ML desk asks it what kind of model a repo trains, which file trains it, and which panels to show (hub/ml/)
 - GitHub REST API through the GitHub CLI (`gh api`, MIT): Albie's ml_github finds a repo by name or search (hub/ml/github.py). Repos it clones are not committed and keep their own licenses
 - macOS Messages, optional and off by default (`IMESSAGE_ENABLED=1`): the hub reads the local `~/Library/Messages/chat.db` read-only
 - imsg CLI (github.com/steipete/imsg, Homebrew tap `steipete/tap/imsg`): sends confirmed iMessage drafts. Optional, never installed by the hub; the user installs it

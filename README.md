@@ -76,6 +76,8 @@ flowchart LR
 
 Full steps and gotchas: [docs/SETUP.md](docs/SETUP.md).
 
+Security note: the hub, the screen bridge and the agent runner have no authentication and listen on the local network. Run them only on a private network or hotspot you control.
+
 ## Team
 
 Built at Gator Hack V (UF AI Days 2026) by:

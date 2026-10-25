@@ -1,5 +1,7 @@
 # Forge (working name): Spatial Workspace for Engineers
 
+> The product is called **Albie**. "Forge" was the working name during the hackathon and stays in code names.
+
 > Single source of truth for the hackathon. Every human and every coding agent reads this first.
 > "Forge" (project) is a placeholder name. Rename freely.
 > The pet is called Albie (said AL-bee). Internal ids, files and events still use bit.
