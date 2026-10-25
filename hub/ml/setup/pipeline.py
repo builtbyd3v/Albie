@@ -16,7 +16,7 @@ from typing import Callable
 from pydantic import ValidationError
 
 from ..models import Profile
-from ..prescan import prescan, read_files
+from ..prescan import prescan, read_files, resolve_python
 from . import jev
 from .adapt import adapt, run_check
 from .classify import SetupError, classify, needs_confirmation
@@ -71,7 +71,7 @@ def _run(repo: Path, emit: Emit, force: bool, archetype: str | None, llm, check,
 
     existing = _load_profile(forge / "profile.json")
     if not force and archetype is None and existing and (forge / "adapter.py").exists():
-        if check(repo, existing.python or python).get("ok"):
+        if check(repo, resolve_python(repo, existing.python) if existing.python else python).get("ok"):
             emit("ready", archetype=existing.archetype, summary=existing.summary, profile=existing)
             return
 

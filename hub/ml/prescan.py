@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import sys
 from pathlib import Path
 
 SKIP_DIRS = {".git", ".forge", ".venv", "venv", "env", "__pycache__", "node_modules", "data", "datasets",
@@ -69,6 +71,17 @@ def find_python(repo: Path) -> str | None:
     if conda and (Path(conda) / "bin" / "python").exists():
         return str(Path(conda) / "bin" / "python")
     return None
+
+
+def resolve_python(repo: Path, configured: str | None) -> str:
+    """A profile's `python` as something runnable: a path inside the repo (a venv), else that name on PATH,
+    else the hub's own interpreter. A hand-written profile may just say "python", which a hub started
+    without that name on its PATH (no activated env) can't run."""
+    configured = configured or "python"
+    candidate = Path(repo) / configured
+    if candidate.exists():
+        return str(candidate)
+    return shutil.which(configured) or sys.executable
 
 
 def _priority(rel: str, text: str, entry_points: set[str]) -> int:
