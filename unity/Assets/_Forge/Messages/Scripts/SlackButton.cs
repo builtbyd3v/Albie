@@ -43,6 +43,45 @@ public class SlackButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         ink = SlackUi.TextColor, onInk = Color.white, boldOn = true,
     };
 
+    // ---- The Slack panel's buttons (SlackUi.Sk* colours) ----
+
+    /// <summary>A sidebar conversation: no fill until pointed at, aubergine-lit when open.</summary>
+    public static readonly Look SideRow = new Look
+    {
+        rest = SlackUi.Clear, hover = SlackUi.SkSideHover, on = SlackUi.SkSideOn, onHover = SlackUi.SkSideOnHover,
+        ink = SlackUi.SkSideText, onInk = Color.white,
+    };
+    /// <summary>An iMessage panel conversation: no fill until pointed at, Apple's blue when open.</summary>
+    public static readonly Look IMessageRow = new Look
+    {
+        rest = SlackUi.Clear, hover = SlackUi.White(0.07f), on = SlackUi.IMessageBlue, onHover = new Color(0.12f, 0.56f, 1f),
+        ink = SlackUi.SkSideText, onInk = Color.white,
+    };
+    /// <summary>A quiet text button in the conversation (Ask Albie, Cancel, Load earlier).</summary>
+    public static readonly Look Ghost = new Look
+    {
+        rest = SlackUi.Clear, hover = SlackUi.White(0.09f), on = SlackUi.White(0.14f), onHover = SlackUi.White(0.18f),
+        ink = SlackUi.SkMuted, onInk = Color.white,
+    };
+    /// <summary>The floating hover toolbar on a message.</summary>
+    public static readonly Look Toolbar = new Look
+    {
+        rest = new Color(0.17f, 0.18f, 0.20f), hover = new Color(0.23f, 0.24f, 0.26f), on = new Color(0.23f, 0.24f, 0.26f),
+        onHover = new Color(0.23f, 0.24f, 0.26f), ink = SlackUi.SkText, onInk = Color.white,
+    };
+    /// <summary>Send with something to send: Slack's green.</summary>
+    public static readonly Look SendOn = new Look
+    {
+        rest = SlackUi.SkGreen, hover = SlackUi.SkGreenHover, on = SlackUi.SkGreenHover, onHover = SlackUi.SkGreenHover,
+        ink = Color.white, onInk = Color.white,
+    };
+    /// <summary>Send with an empty field: no fill, a grey arrow.</summary>
+    public static readonly Look SendOff = new Look
+    {
+        rest = SlackUi.Clear, hover = SlackUi.Clear, on = SlackUi.Clear, onHover = SlackUi.Clear,
+        ink = SlackUi.SkMuted, onInk = SlackUi.SkMuted,
+    };
+
     public Button Button { get; private set; }
     public ForgeSurface Surface { get; private set; }
     public TextMeshProUGUI Label { get; private set; }
@@ -114,6 +153,13 @@ public class SlackButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         Label.text = text;
         Refresh();
         return Label;
+    }
+
+    /// <summary>Switch looks (Send on / off as the field fills and empties).</summary>
+    public void SetLook(Look l)
+    {
+        look = l;
+        Refresh();
     }
 
     /// <summary>New label text; a pill re-sizes to it.</summary>

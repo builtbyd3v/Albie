@@ -100,7 +100,9 @@ def test_send_with_files_opens_the_messenger_then_uploads_once(tmp_path: Path) -
     assert [(f["filename"], Path(f["file"]).name) for f in upload["file_uploads"]] == \
         [("rocket_v7.step", "rocket_v7.step"), ("rocket_v7_drawing.pdf", "rocket_v7_drawing.pdf")]
     assert "thread_ts" not in upload
-    assert [t for t, _ in bus.events] == ["notify.draft", "notify.draft", "notify.sent"]
+    # the post with its files shows in the panel at once (notify.message); the list push is debounced, left out
+    assert [t for t, _ in bus.events if t != "notify.channels"] == ["notify.draft", "notify.draft", "notify.message",
+                                                                     "notify.sent"]
 
 
 def test_no_files_no_messenger_unless_asked(tmp_path: Path) -> None:
@@ -159,7 +161,7 @@ def test_refused_upload_keeps_the_draft_for_a_retry(tmp_path: Path) -> None:
     draft, refused, retried = asyncio.run(run())
     assert FILES_SCOPE_HELP in refused["error"]
     assert retried["still"] == draft["id"] and retried["status"] == "sent"
-    assert [t for t, _ in bus.events] == ["notify.draft", "notify.sent"]  # no cancel in between
+    assert [t for t, _ in bus.events if t != "notify.channels"] == ["notify.draft", "notify.message", "notify.sent"]  # no cancel
 
 
 def test_only_a_clear_refusal_reopens_the_draft(tmp_path: Path) -> None:

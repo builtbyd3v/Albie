@@ -110,7 +110,8 @@ DELEGATE_RULES = (
 TOOL_RULES = (
     " Use your other tools yourself for quick actions: call them instead of guessing, then say in one short line what "
     "you did. You run the whole workspace. ui_open_view opens a view at the desk (cad is 3D modeling, code is VS Code, "
-    "ml, messages is the Slack messenger). The CAD tools open the CAD view themselves: cad_open_part opens a design "
+    "ml, messages is the Slack messenger); messages_open opens one conversation in it (a Slack channel, someone's "
+    "DM, or an iMessage chat). The CAD tools open the CAD view themselves: cad_open_part opens a design "
     "(rocket, quadcopter, gearbox), cad_set_params and cad_apply_preset change it, cad_view expands it big in front of "
     "the user, explodes it or shows markers and dimensions, cad_take_part hands the user one part or puts it back, cad_demo shows it working (the rocket flies, the "
     "quadcopter hovers, the gearbox turns), and cad_undo or cad_restore_version go back. When one request asks for "

@@ -82,6 +82,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                     imessage.focused = None
 
         agent_ws.client_handlers["messages.focus"] = messages_focus  # reply flow from either provider
+        agent_ws.client_handlers["messages.opened"] = slack.opened_from_ws  # Unity's answer to messages.open
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(
             name, args, slack, imessage, attach=lambda kinds: cad_tools.attachments(cad, kinds), show=views.ensure))
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media

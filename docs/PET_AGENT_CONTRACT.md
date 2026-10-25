@@ -369,6 +369,8 @@ is missing), `SCREEN_BRIDGE_DIR`. `GET /health` has `screen {enabled, state, sou
 |---|---|---|
 | client → hub | `workspace.mode` | `{pet_id, mode}`: the workspace view Unity shows, `"code"`, `"cad"`, `"ml"`, `"messages"`, or `""` when closed. Send on every change. |
 | client → hub | `messages.focus` | `{pet_id, channel, ts}`: "Reply with Albie" on a message card (also `POST /messages/focus {pet_id, channel, ts}` → the `SlackMessage`, 404 if it isn't one of the last 50). |
+| hub → clients | `messages.open` | `{pet_id, request_id, channel, channel_name, kind}`: Albie's `messages_open` ("open my chat with Adrian"): show that conversation on its provider's panel (Slack, or iMessage for `im:`), opening MSG mode if it is closed. `notify.channels` goes out first, so the list has a new DM. |
+| client → hub | `messages.opened` | `{pet_id, request_id, channel, ok, reason?}`: Unity's answer, sent at once; `reason` `not_at_desk` (the workspace only opens at a desk) or `no_workspace`. The tool waits 1.5 s for it and tells Albie what really happened. |
 | client → hub | `pet.card_action` | proposed: `{pet_id?, action_id}`: a button on a `pet.say` card. Albie's fix offers carry `Fix it` (`fix:N`, runs the code fix as `agent.ask` mode code) and `Not now` (`dismiss:N`). |
 | hub → clients | `screen.status` | `{state: "starting"\|"sharing"\|"stopped"\|"error", source?, detail?}`: the screen bridge. **Sticky**: replayed on connect like `cad.model_updated`. `source` is what Chrome shares, `detail` the last status line (`signaling: connected`, `video: connected h264`, the error when restarts are exhausted). |
 

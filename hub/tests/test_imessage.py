@@ -189,6 +189,44 @@ def test_focus_is_one_message_across_both_providers(tmp_path: Path) -> None:
     assert asyncio.run(reply()).get("source") == "imessage"
 
 
+class AnsweringBus(BusRecorder):
+    """Plays Unity: answers messages.open (Albie's messages_open) on the Slack service's waiter."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slack: SlackService | None = None
+
+    async def publish(self, type_: str, payload: Any) -> None:
+        await super().publish(type_, payload)
+        if type_ == "messages.open" and self.slack is not None:
+            reply = {"request_id": payload.request_id, "channel": payload.channel, "ok": True}
+            asyncio.get_running_loop().call_soon(lambda: asyncio.ensure_future(self.slack.opened_from_ws(None, reply)))
+
+
+def test_open_shows_an_imessage_chat(tmp_path: Path) -> None:
+    db = make_db(tmp_path / "chat.db")
+    add_text(db, 1, "dinner at 7?", ago_s=30)
+    bus = AnsweringBus()
+    store = MessageStore(tmp_path / "messages")
+    slack = bus.slack = _slack(tmp_path, store, bus)
+    svc, _ = make_service(tmp_path, store)
+    svc.available = True
+    slack.extra_channel_summaries = svc.channel_summaries  # as main.py wires it
+    asyncio.run(svc.history(f"im:{DM}", 5))  # the chat is in the shared store, so the list has it
+
+    async def run() -> list[dict[str, Any]]:
+        return [await mtools.call_tool("messages_open", {"channel": f"im:{DM}"}, slack, svc),
+                await mtools.call_tool("messages_open", {"channel": "+15550001", "via": "imessage"}, slack, svc)]
+
+    by_id, by_contact = asyncio.run(run())
+    assert by_id == {"ok": True, "channel": f"im:{DM}", "channel_name": "+15550001", "kind": "dm"}
+    assert by_contact["ok"] and by_contact["channel"] == f"im:{DM}"
+    opened = [p for t, p in bus.events if t == "messages.open"]
+    assert [o.channel for o in opened] == [f"im:{DM}", f"im:{DM}"]
+    channels = next(p for t, p in bus.events if t == "notify.channels")
+    assert f"im:{DM}" in {c.id for c in channels.channels}  # Unity's list has the chat before it opens it
+
+
 def _typedstream(text: str) -> bytes:
     """The start of a real attributedBody: NSAttributedString / NSString, then the text with its length prefix."""
     raw = text.encode("utf-8")

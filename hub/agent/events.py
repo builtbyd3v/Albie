@@ -108,6 +108,14 @@ class MessagesFocus(_Payload):  # client -> hub: "Reply with Bit" on a message c
     ts: str
 
 
+class MessagesOpened(_Payload):  # client -> hub: Unity's answer to messages.open (handled by hub/messaging)
+    pet_id: str | None = None
+    request_id: str
+    channel: str = ""
+    ok: bool = False
+    reason: str | None = None  # not_at_desk | no_workspace
+
+
 CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "hello": Hello,
     "agent.ask": AgentAsk,
@@ -119,6 +127,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "crew.roster": CrewRoster,
     "workspace.mode": WorkspaceMode,
     "messages.focus": MessagesFocus,
+    "messages.opened": MessagesOpened,
     "pet.card_action": PetCardAction,
 }
 

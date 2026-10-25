@@ -10,8 +10,11 @@ Inbound `message` / `app_mention` events (bot and user subscriptions, deduped) -
 notify.message on the EventBus. The user's own posts are kept too (`is_me`, so the open conversation stays live);
 the digest and the unread counts skip them. Sending is two steps: `create_draft` emits notify.draft and nothing
 leaves; `update_draft` (the composer's edit) re-emits it with `edited`; `send_draft` (the Send button or the
-messages_confirm tool) posts it and emits notify.sent. A draft may carry files (`Draft.attachments`, e.g. a CAD design's
+messages_confirm tool) posts it, stores the post and emits notify.message (is_me) then notify.sent, so the panel
+shows it at once whichever way it was sent. A draft may carry files (`Draft.attachments`, e.g. a CAD design's
 STEP / STL / drawing / parts list): they go up with the message in one files_upload_v2 (needs files:write).
+`open_conversation` is Albie's "open my chat with Adrian" (messages_open): Unity opens the MSG view on it
+(ws `messages.open`, answered by `messages.opened`).
 `digest` is the sit-down summary across every conversation: notify.digest, pet.say and the spoken greeting.
 `focus` is "Reply with Bit" on a message (ws `messages.focus` / POST /messages/focus).
 
@@ -43,8 +46,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent.events import DISPLAY_NAME, MessagesFocus
-from events import (Attachment, ChannelSummary, Draft, EventBus, NotifyChannels, NotifyDigest, NotifyDraftCancelled,
+from agent.events import DISPLAY_NAME, MessagesFocus, MessagesOpened
+from events import (Attachment, ChannelSummary, Draft, EventBus, MessagesOpen, NotifyChannels, NotifyDigest,
+                    NotifyDraftCancelled,
                     NotifySent, SlackMessage)
 
 from .settings import SlackSettings
@@ -69,10 +73,20 @@ BACKFILL_WINDOW_S = 2 * 3600  # with no seen mark: this far back
 CHANNELS_REFRESH_S = 60.0
 CHANNELS_DEBOUNCE_S = 0.3
 HISTORY_MAX = 100
+OPEN_ACK_S = 1.5             # Unity answers messages.open in the same frame; this covers a slow Quest Wi-Fi round trip
+OPEN_REFUSAL_GRACE_S = 0.3   # a refusal waits this long for another client's ok (desktop rig "not_at_desk", Quest "ok")
+OPEN_REASONS = {
+    "not_at_desk": "The user isn't at their desk, so the MSG view can't open; ask them to sit down first.",
+    "no_workspace": "This scene has no workspace to open the MSG view in.",
+}
 
 
 class DraftError(LookupError):
     """No open draft with that id (never existed, already sent, cancelled or expired)."""
+
+
+class AmbiguousName(LookupError):
+    """Several people match a name; the caller asks which one instead of guessing."""
 
 
 class RateLimited(RuntimeError):
@@ -257,6 +271,7 @@ class SlackService:
         self.bot_user_id: str | None = None
         self.user_id: str = settings.user_id        # the human; derived from the user token when we have one
         self.user_name: str | None = None
+        self.team_name: str = ""                    # the workspace's name (the panel's sidebar header)
         self._client: Any = None                    # bot AsyncWebClient (or a test stub)
         self._user_client: Any = None               # user AsyncWebClient when SLACK_USER_TOKEN is set
         self._handler: Any = None                   # AsyncSocketModeHandler
@@ -284,6 +299,9 @@ class SlackService:
         self.draft_expiry_s = DRAFT_EXPIRY_S
         self.share_poll_s = SHARE_POLL_S
         self._expiry: asyncio.Task[None] | None = None
+        self.open_ack_s = OPEN_ACK_S
+        self.open_refusal_grace_s = OPEN_REFUSAL_GRACE_S
+        self._open_waiters: dict[str, asyncio.Future[MessagesOpened]] = {}  # messages.open request_id -> Unity's answer
         self._sending: Draft | None = None          # the draft send_draft is posting right now
         make_sticky = getattr(bus, "make_sticky", None)
         if make_sticky is not None:
@@ -334,6 +352,7 @@ class SlackService:
                 if self.bot_user_id is None:
                     auth = await self._client.auth_test()
                     self.bot_user_id = auth["user_id"]
+                    self.team_name = auth.get("team") or ""
                     log.info("Slack bot %s (%s) in team %s", auth.get("user"), self.bot_user_id, auth.get("team"))
                 if self._user_client is not None and self.user_name is None:
                     me = await self._user_client.auth_test()
@@ -467,16 +486,16 @@ class SlackService:
         self._users_loaded = True
         log.info("Slack users: %d cached", len(rows))
 
-    async def find_user(self, text: str) -> UserRecord | None:
-        """The person called `text` ("Hudson", "@hudson", "Hudson M"), from the cache, after one users.list if needed."""
+    async def find_users(self, text: str) -> list[UserRecord]:
+        """Everyone called `text` ("Hudson", "@hudson", "Hudson M"), from the cache, after one users.list if needed."""
         wanted = text.strip().lstrip("@")
         if not wanted:
-            return None
-        hit = next((u for u in self._users.values() if u.matches(wanted)), None)
-        if hit is None and not self._users_loaded:
+            return []
+        hits = [u for u in self._users.values() if u.matches(wanted)]
+        if not hits and not self._users_loaded:
             await self._load_users()
-            hit = next((u for u in self._users.values() if u.matches(wanted)), None)
-        return hit
+            hits = [u for u in self._users.values() if u.matches(wanted)]
+        return hits
 
     # ------------------------------------------------------------------ channels
     async def _register(self, rec: ChannelRecord) -> ChannelRecord:
@@ -609,23 +628,33 @@ class SlackService:
         return cid
 
     async def me(self) -> dict[str, str]:
-        """Who the hub posts as: the user (with a user token) or Bit."""
+        """Who the hub posts as: the user (with a user token) or Bit; `team` is the workspace's name."""
         if self.as_user and self.user_id:
             u = await self.user(self.user_id)
-            return {"user_id": self.user_id, "name": self.user_name or u.name or self.user_id, "display_name": u.label}
-        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": DISPLAY_NAME}
+            return {"user_id": self.user_id, "name": self.user_name or u.name or self.user_id, "display_name": u.label,
+                    "team": self.team_name}
+        return {"user_id": self.bot_user_id or "", "name": "bit", "display_name": DISPLAY_NAME, "team": self.team_name}
 
     # ------------------------------------------------------------------ inbound
     def accepts(self, event: dict[str, Any], live: bool = True) -> bool:
         if event.get("subtype") not in ACCEPTED_SUBTYPES:
             return False
-        if event.get("bot_id") or not event.get("user") or not event.get("text") or not event.get("ts"):
+        if not event.get("user") or not event.get("text") or not event.get("ts"):
+            return False
+        if not live and not self.as_user and self.bot_user_id and event["user"] == self.bot_user_id:
+            return True  # bot fallback: the hub posts as Bit, so Bit's posts in history are the user's sends
+        if event.get("bot_id") and not self._own_post(event):
             return False
         if self.bot_user_id and event["user"] == self.bot_user_id:
             return False
         if live and (event.get("channel", ""), event.get("ts", "")) in self._recent:
             return False  # bot + user subscriptions, or app_mention + message, deliver the same post twice
         return True
+
+    def _own_post(self, event: dict[str, Any]) -> bool:
+        """The user's own post made by an app with their token (this hub's sends among them). Slack can tag those with
+        the app's bot_id, but they are the user's messages and belong in their history."""
+        return self.as_user and bool(self.user_id) and event.get("user") == self.user_id
 
     async def to_message(self, event: dict[str, Any]) -> SlackMessage:
         """One Slack message dict (a live event or a conversations.history row with `channel` added) -> SlackMessage."""
@@ -634,7 +663,7 @@ class SlackService:
         uid = event["user"]
         who = await self.user(uid)
         text = event["text"]
-        is_me = bool(self.user_id) and uid == self.user_id
+        is_me = (bool(self.user_id) and uid == self.user_id) or (not self.as_user and uid == self.bot_user_id)
         return SlackMessage(
             channel=channel, channel_name=name, is_dm=is_dm, user=uid, user_name=who.label, text=text,
             ts=event["ts"], thread_ts=event.get("thread_ts"),
@@ -652,15 +681,19 @@ class SlackService:
         msg = await self.to_message(event)
         if not self.store.add(msg):
             return None  # a history fetch got there first
-        if _is_reply(msg):
-            parent = self.store.get(msg.channel, msg.thread_ts or "")
-            if parent is not None:
-                self.store.add(parent.model_copy(update={"reply_count": (parent.reply_count or 0) + 1}))
+        self._count_reply(msg)
         if publish:
             await self.bus.publish("notify.message", msg)
             self.channels_changed()
             log.info("slack #%s %s%s: %.80s", msg.channel_name, msg.user_name, " (you)" if msg.is_me else "", msg.text)
         return msg
+
+    def _count_reply(self, msg: SlackMessage) -> None:
+        """A new thread reply bumps its parent's reply_count."""
+        if _is_reply(msg):
+            parent = self.store.get(msg.channel, msg.thread_ts or "")
+            if parent is not None:
+                self.store.add(parent.model_copy(update={"reply_count": (parent.reply_count or 0) + 1}))
 
     # ------------------------------------------------------------------ history
     async def history(self, channel: str, limit: int = 50, before: str | None = None
@@ -757,9 +790,12 @@ class SlackService:
         if rec is not None:
             return rec.id
         if not value.startswith("#"):
-            person = await self.find_user(value)
-            if person is not None:
-                return await self.dm_with(person.id)
+            people = await self.find_users(value)
+            if len(people) > 1:  # two Adrians: ask, never guess who gets the DM
+                raise AmbiguousName(f"{len(people)} people match {value!r}: {', '.join(p.label for p in people)}; "
+                                  "ask which one")
+            if people:
+                return await self.dm_with(people[0].id)
         who = "you are" if self.as_user else f"{DISPLAY_NAME} is"
         raise LookupError(f"No Slack channel named #{name} (is it one {who} in?) and nobody called {value.lstrip('#')!r}")
 
@@ -865,6 +901,10 @@ class SlackService:
             ts = await self._share_ts(self._user_client or self._client, file_ids[0], draft.channel)
         if self.focused is not None and draft.reply_to is not None and draft.reply_to.ts == self.focused.ts:
             self.focused = None  # answered
+        try:
+            await self._record_sent(draft, ts)
+        except Exception:  # noqa: BLE001 - it is posted; the panel just misses the row until the next history load
+            log.exception("recording sent draft %s failed", draft.draft_id)
         await self.bus.publish("notify.sent", NotifySent(draft_id=draft.draft_id, channel=draft.channel,
                                                          channel_name=draft.channel_name, text=draft.text, ts=ts))
         log.info("sent draft %s as %s, ts=%s%s", draft.draft_id, "you" if self.as_user else DISPLAY_NAME, ts,
@@ -910,6 +950,27 @@ class SlackService:
         log.info("files.info %s: not shared in %s yet; sent without a ts", file_id, channel)
         return ""
 
+    async def _record_sent(self, draft: Draft, ts: str) -> None:
+        """A post the hub just made: into the store and out as notify.message (is_me), so the open conversation shows
+        it at once. Slack's own echo of it, if a subscription delivers one, is then a duplicate and dropped. A post with
+        files whose share ts never came back (files.info) is left to that echo or the next history load."""
+        if not ts:
+            return
+        if self.as_user and self.user_id:
+            uid, who = self.user_id, (await self.user(self.user_id)).label
+        else:  # bot fallback: the hub posts as Bit, which is "me" for /messages/users/me
+            uid, who = self.bot_user_id or "", DISPLAY_NAME
+        name, is_dm = await self.channel_info(draft.channel)
+        msg = SlackMessage(channel=draft.channel, channel_name=name, is_dm=is_dm, user=uid, user_name=who,
+                           text=draft.text, ts=ts, thread_ts=draft.thread_ts, edited=False, is_me=True,
+                           user_initials=_initials(who))
+        self._recent.append((draft.channel, ts))
+        if not self.store.add(msg):
+            return  # the echo got here first and was already published
+        self._count_reply(msg)
+        await self.bus.publish("notify.message", msg)
+        self.channels_changed()
+
     async def cancel_draft(self, draft_id: str | None = None) -> Draft:
         draft = self._take(draft_id)
         await self.bus.publish("notify.draft_cancelled", NotifyDraftCancelled(draft_id=draft.draft_id, reason="cancelled"))
@@ -945,6 +1006,54 @@ class SlackService:
 
     def find(self, channel: str, ts: str) -> SlackMessage | None:
         return self.store.get(channel, ts)
+
+    # ------------------------------------------------------------------ open a conversation (messages_open)
+    async def open_conversation(self, channel: str, pet_id: str = "bit") -> dict[str, Any]:
+        """Show a conversation on the Slack panel: "#general", a channel id, or a person (their DM, opened with
+        conversations.open if there is none yet; nothing is posted). Unity's list gets it first (notify.channels, not
+        debounced), then `messages.open`; Unity opens the MSG view on it and answers `messages.opened`, so the result
+        says what really happened. Returns {ok, channel, channel_name, kind} or {error, ...}."""
+        if not self.enabled:
+            return {"error": "Slack is not configured on this hub"}
+        cid = await self.resolve_channel(channel)
+        rec = await self.record(cid)
+        return await self.show_conversation(cid, rec.label or rec.short_name, rec.kind, pet_id)
+
+    async def show_conversation(self, cid: str, label: str, kind: str, pet_id: str = "bit") -> dict[str, Any]:
+        """The Unity half of open_conversation, for any provider (an iMessage chat is `im:<guid>`): the list first, then
+        `messages.open`, then wait for `messages.opened`. Works with Slack itself disabled (an iMessage-only hub)."""
+        await self.bus.publish(NOTIFY_CHANNELS, NotifyChannels(channels=self.channel_summaries()))
+        request_id = uuid.uuid4().hex[:8]
+        fut: asyncio.Future[MessagesOpened] = asyncio.get_running_loop().create_future()
+        self._open_waiters[request_id] = fut
+        try:
+            await self.bus.publish("messages.open", MessagesOpen(pet_id=pet_id, request_id=request_id, channel=cid,
+                                                                 channel_name=label, kind=kind))  # type: ignore[arg-type]
+            ack = await asyncio.wait_for(fut, self.open_ack_s)
+        except asyncio.TimeoutError:
+            log.warning("messages.open %s (%s): no answer from Unity", cid, label)
+            return {"error": "The headset didn't answer; is Unity running and connected to the hub?",
+                    "channel": cid, "channel_name": label}
+        finally:
+            self._open_waiters.pop(request_id, None)
+        log.info("messages.open %s (%s): %s", cid, label, "open" if ack.ok else ack.reason)
+        if not ack.ok:
+            return {"error": OPEN_REASONS.get(ack.reason or "", ack.reason or "Unity couldn't open it"),
+                    "channel": cid, "channel_name": label}
+        return {"ok": True, "channel": cid, "channel_name": label, "kind": kind}
+
+    async def opened_from_ws(self, session: Any, payload: dict[str, Any]) -> None:
+        """ws `messages.opened {request_id, channel, ok, reason?}`: Unity's answer to messages.open. With several clients
+        connected, an ok wins: a refusal only lands if no ok follows within `open_refusal_grace_s`."""
+        ack = MessagesOpened.model_validate(payload)
+        fut = self._open_waiters.get(ack.request_id)
+        if fut is None or fut.done():
+            return
+        if ack.ok:
+            fut.set_result(ack)
+        else:
+            asyncio.get_running_loop().call_later(self.open_refusal_grace_s,
+                                                  lambda: fut.done() or fut.set_result(ack))
 
     # ------------------------------------------------------------------ focus ("Reply with Bit")
     async def focus(self, channel: str, ts: str, pet_id: str = "bit") -> SlackMessage | None:
