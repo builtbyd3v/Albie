@@ -28,7 +28,7 @@ MonoBehaviour:
   boundaryVisibilitySupport: 0
   disableBackups: 1
   enableNSCConfig: 1
-  securityXmlPath: /Users/dev/Documents/GitHub/gatorhack-dubz-combo/unity/Assets/_Forge/Desk/Android/network_sec_config.xml
+  securityXmlPath: Assets/_Forge/Desk/Android/network_sec_config.xml
   horizonOsSdkDisabled: 0
   minHorizonOsSdkVersion: 60
   targetHorizonOsSdkVersion: 207
