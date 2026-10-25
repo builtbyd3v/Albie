@@ -67,7 +67,7 @@ Thumbs.db
 unity/[Aa]ssets/_Recovery/
 unity/[Aa]ssets/_Recovery.meta
 
-# Unity Asset Store pack: its EULA forbids redistribution, so each machine imports it (SETUP.md step 9)
+# Unity Asset Store pack: its EULA forbids redistribution, so each machine imports it (docs/SETUP.md step 9)
 unity/Assets/_Forge/Pet/ThirdParty/Quirky Series/
 unity/Assets/_Forge/Pet/ThirdParty/Quirky Series.meta
 # Made from the pack's mesh, so kept out of git too (Gator_Model.fbx.meta stays: it holds the GUID and clip settings)
