@@ -44,6 +44,16 @@ FACING_COUNTS = os.getenv("VOICE_FACING", "0") == "1"
 # Albie (agent/ws.py), answered at commit with no wait for the transcript; "Tester, ..." still goes to the crew.
 # VOICE_NAME_REQUIRED=1 brings back name only.
 NAME_REQUIRED = os.getenv("VOICE_NAME_REQUIRED", "0") == "1"
+# main.py: True while the movie plays. Its soundtrack reaches the headset mic, so free speech would answer the film:
+# while it plays an unnamed turn counts only if it is a desk request ("pause it", "how long is left on my timer?";
+# voice.py addressed). Film lines ("I am Iron Man", "I need a suit, now") carry none of these words.
+name_needed: Callable[[], bool] = lambda: False
+DESK_REQUEST = re.compile(
+    r"\b(?:pause|stop|close|resume|unpause|play|volume|louder|quieter|softer|skip|rewind|mute|unmute|jump|go back|"
+    r"save|mark|spot|timer|minutes?|notes?|to-?do|list|cross|check (?:off|it)|open|show|pull up|bring up|set|add|"
+    r"switch|turn (?:it|that|the movie|the volume|them)|what'?s|what is|how (?:much|long|is|are|many)|how'?s|can you|"
+    r"could you|albie|rocket|drone|quadcopter|gearbox|robot|humanoid|design|model|training|train|lab|neuron|code|"
+    r"messages?|slack|text|undo|reset|fly|launch|demo|explode|expand|hand me|highlight)\b", re.I)
 
 GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "so", "yes", "yeah", "yep", "alright",
              "well", "and", "please"}  # "Yes, Albie. Find..." (live 19:54) was dropped with only the first set
@@ -51,7 +61,7 @@ GREETINGS = {"hey", "hi", "hello", "ok", "okay", "yo", "oi", "oh", "um", "uh", "
 # A name only counts at the start of a sentence (after a greeting) or after a comma, so "Scott" here means a
 # sentence addressed to someone called Scott goes to the Scout; drop an alias if that bites in your room.
 ALIASES: dict[str, set[str]] = {
-    "bit": {"albie", "albee", "alby", "albi", "elbie", "abby"},  # "abby", "albi": live grok-transcribe for "Albie"
+    "bit": {"albie", "albee", "alby", "albi", "elbie", "abby", "obi", "olby", "albany", "elby"},  # all heard for "Albie" (live and lab)
     "scout": {"scout", "scouts", "scott", "scoot", "skout"},
     "builder": {"builder", "builders", "bilder"},
     "fixer": {"fixer", "fixers", "fixa", "fixor", "fisher"},

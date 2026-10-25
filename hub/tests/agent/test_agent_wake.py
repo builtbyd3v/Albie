@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from agent.crew import crew
 from agent.events import Event
 from agent.wake import WakeRouter, parse
+from agent import voice as voice_mod
 
 from .test_agent_voice import MockGrok, Sink, _session, _settle
 
@@ -230,7 +231,8 @@ def test_grok_wake_turn_answers_only_when_named() -> None:
         grok.push(type=f"{T}.completed", transcript="lunch at noon?")
         await _settle()
         assert "response.create" not in grok.types()
-        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-2] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-1]["item"]["content"][0]["text"] == voice_mod.IGNORED_NOTE
         assert sink.log == [] and r.events == []
 
         # Named: Albie's stt.final goes out, then Grok is asked to respond.
@@ -275,7 +277,8 @@ def test_grok_gated_reply_waits_for_the_judge_and_a_dropped_one_still_ends_the_t
         grok.push(type=f"{T}.completed", transcript="I don't know.")
         await _settle()
         assert "response.create" not in grok.types()
-        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-2] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-1]["item"]["content"][0]["text"] == voice_mod.IGNORED_NOTE
         assert [(k, v.type, v.payload["text"]) for k, v in sink.log if k == "emit"] == [("emit", "stt.final", "")]
 
         await s.begin_turn(require_name=True)
@@ -306,7 +309,8 @@ def test_grok_unnamed_turn_after_albie_spoke_still_needs_his_name() -> None:
         grok.push(type=f"{T}.completed", transcript="It would be cool if you could control the screen.")
         await _settle()
         assert "response.create" not in grok.types()
-        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-2] == {"type": "conversation.item.delete", "item_id": "item_1"}
+        assert grok.sent[-1]["item"]["content"][0]["text"] == voice_mod.IGNORED_NOTE
         await s.close()
 
     asyncio.run(run())
@@ -369,7 +373,8 @@ def test_back_to_back_segments_keep_their_own_transcripts(monkeypatch: pytest.Mo
         grok.push(type=f"{T}.completed", item_id="item_2", transcript="lunch at noon?")
         await _settle()
         await asyncio.sleep(0.1)  # segment 1's timer has run out: it must not end anything now
-        assert grok.sent[-1] == {"type": "conversation.item.delete", "item_id": "item_2"}  # segment 2: room chatter
+        assert grok.sent[-2] == {"type": "conversation.item.delete", "item_id": "item_2"}  # segment 2: room chatter
+        assert grok.sent[-1]["item"]["content"][0]["text"] == voice_mod.IGNORED_NOTE
         await s.close()
 
     asyncio.run(run())

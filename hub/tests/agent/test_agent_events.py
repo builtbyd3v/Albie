@@ -96,3 +96,22 @@ def test_emitter_without_companions_sends_only_the_event() -> None:
     asyncio.run(emit(ev.stt_partial("bit", "hey bit")))
     asyncio.run(emit(ev.pet_state("bit", "listening")))
     assert [e.type for e in target.sent] == ["stt.partial", "pet.state"]
+
+
+def test_a_voice_transcript_after_the_commit_keeps_him_thinking() -> None:
+    """Lab 2026-10-25: thinking (commit) -> listening (late stt.final) -> thinking flickered on every voice turn."""
+    import asyncio
+
+    from agent.bus import Emitter
+
+    target = _Target()
+    emit = Emitter("bit", target=target)
+
+    async def go() -> None:
+        await emit(ev.stt_partial("bit", "pause the"))
+        await emit(ev.thinking("bit"))
+        await emit(ev.stt_final("bit", "Pause the movie.", voice=True))
+
+    asyncio.run(go())
+    assert [(e.type, e.payload.get("mode")) for e in target.sent if e.type == "pet.state"] == [
+        ("pet.state", "listening"), ("pet.state", "thinking")]
