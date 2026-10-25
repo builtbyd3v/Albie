@@ -97,6 +97,11 @@ class WorkspaceMode(_Payload):  # client -> hub: which workspace view is open ("
     reason: str | None = None  # proposed (Addendum H): answering ui.mode, why `mode` isn't the view asked for ("not_at_desk")
 
 
+class PetCardAction(_Payload):  # client -> hub, proposed: a button on a pet.say card ("Fix it", "Not now")
+    pet_id: str | None = None
+    action_id: str
+
+
 class MessagesFocus(_Payload):  # client -> hub: "Reply with Bit" on a message card (handled by hub/messaging)
     pet_id: str | None = None
     channel: str
@@ -114,6 +119,7 @@ CLIENT_MESSAGES: dict[str, type[_Payload]] = {
     "crew.roster": CrewRoster,
     "workspace.mode": WorkspaceMode,
     "messages.focus": MessagesFocus,
+    "pet.card_action": PetCardAction,
 }
 
 

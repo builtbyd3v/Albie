@@ -17,8 +17,8 @@ public class ScreenSurface : MonoBehaviour
     [Tooltip("Keep the panel's height and set its width from the stream's aspect ratio.")]
     public bool fitAspect = true;
 
-    [Tooltip("Copies per second of the stream into the mipmapped texture (the stream itself is 15 to 30 fps).")]
-    public float copyRate = 30f;
+    [Tooltip("Copies per second of the stream into the mipmapped texture (the stream itself is up to 60 fps).")]
+    public float copyRate = 60f;
 
     Texture source;
     RenderTexture mipped;
@@ -28,12 +28,15 @@ public class ScreenSurface : MonoBehaviour
     {
         // Resizing the panel by hand keeps the stream's shape too.
         if (image != null && fitAspect && TryGetComponent(out ForgePanel panel)) panel.KeepAspect = true;
+        // A RawImage with no texture draws solid white: the panel flashed white until the first frame came in.
+        if (image != null && image.texture == null) image.texture = Texture2D.blackTexture;
     }
 
     // Called on the first frame and whenever the stream changes size.
     public void Show(Texture texture)
     {
         source = texture;
+        Debug.Log($"[ScreenSurface] Showing {texture.GetType().Name} {texture.width}x{texture.height}");
         if (mipped != null) Destroy(mipped);
         // RGBA8 either way (a JPEG loads as RGB24, which can't be rendered into), sRGB-ness as the source's so colors match.
         var format = GraphicsFormatUtility.IsSRGBFormat(texture.graphicsFormat) ? GraphicsFormat.R8G8B8A8_SRGB : GraphicsFormat.R8G8B8A8_UNorm;
@@ -43,6 +46,7 @@ public class ScreenSurface : MonoBehaviour
             autoGenerateMips = true,
             filterMode = FilterMode.Trilinear,
             anisoLevel = 8,
+            mipMapBias = -0.5f,  // the panel minifies about 2x: lean to the sharper mip, text stays crisp without crawling
         };
         nextCopy = 0f;
         LateUpdate();

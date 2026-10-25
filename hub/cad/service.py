@@ -121,6 +121,7 @@ class CadService:
         self._versions: dict[int, VersionRecord] = {}
         self.heads: dict[str, int] = {}
         self.on_regen_failed: Callable[[CadRegenFailed], None] | None = None  # main.py: proactive Bit
+        self.on_built: Callable[[VersionRecord], None] | None = None  # main.py: proactive Bit says a fix worked
 
     # lifecycle
 
@@ -379,6 +380,8 @@ class CadService:
         self._save_index()
         log.info("CAD %s v%d (%s) built in %s", part, version, source, result["timings_ms"])
         await self._announce(record, parent, source)
+        if self.on_built:
+            self.on_built(record)
         return record
 
     async def _announce(self, record: VersionRecord, previous: int | None, source: str) -> None:

@@ -5,7 +5,7 @@
 //
 //   PetRuntime
 //   ├─ GatorAssistant      nested GatorAssistant.prefab instance + the in-scene additions PetMain.unity used to carry:
-//   │   │                  WakeListener, GatorTalkAnimator, GatorSummon, GatorFollowUp
+//   │   │                  WakeListener, GatorTalkAnimator, GatorSummon, GatorFollowUp, GatorFixCard
 //   │   └─ Voice           AudioSource + StreamedPcmTextToSpeech, wired into GatorAgentBridge.tts
 //   ├─ WhistleButton       desk puck (+ Interaction SDK poke / ray), the GatorMrukAdapter's whistleTemplate (one per table)
 //   ├─ GatorCrew           lead = GatorAssistant, crewPrefab = GatorAssistant.prefab
@@ -84,6 +84,9 @@ namespace Forge.Pet.Editor
                 StreamedPcmTextToSpeech voice = WhistleSetup.AddVoice(gator);
                 WhistleSetup.AddTalkAnimator(gator, voice);
                 if (gator.GetComponent<WakeListener>() == null) gator.AddComponent<WakeListener>();
+                var fixCard = gator.GetComponent<GatorFixCard>();  // Fix it / Not now on Albie's fix offers
+                if (fixCard == null) fixCard = gator.AddComponent<GatorFixCard>();
+                WhistleSetup.SetRef(fixCard, "panelPrefab", AssetDatabase.LoadAssetAtPath<ForgePanel>(ForgePrefabBuilder.PanelPath));
 
                 // ---- Whistle ----
                 WhistleButton button = WhistleSetup.CreateButton(controller, root.transform);

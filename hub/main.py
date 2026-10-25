@@ -94,6 +94,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         await screens.start()
         proactive.cad_script = str(cad_script)  # proactive Bit, after start: nobody hears a boot failure
         cad.on_regen_failed = lambda failure: proactive.notify("cad.regen_failed", failure)
+        cad.on_built = lambda record: proactive.notify("cad.built", record)
         watcher = asyncio.create_task(watch_script(cad)) if watch else None
         try:
             yield

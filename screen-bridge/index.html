@@ -112,6 +112,7 @@
       <div class="sub">Shares one window into the Forge workspace</div>
     </div>
     <span class="pill" id="fps"></span>
+    <span hidden id="encoder"></span>
     <span class="pill" id="statusPill" data-state="wait"><span class="dot"></span><span id="status">signaling: connecting...</span></span>
     <button class="pill primary" id="share">Share window</button>
   </header>
@@ -148,7 +149,8 @@
   document.getElementById("share").onclick = async () => {
     // ponytail: 1920 cap keeps the Quest texture under its 2048 limit
     stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { width: { max: 1920 }, height: { max: 1920 }, frameRate: 30 },
+      // 60 fps: at 30 a scrolling page jumps a few lines per frame and the text smears and judders on the headset.
+      video: { width: { max: 1920 }, height: { max: 1920 }, frameRate: 60 },
       audio: false,
     });
     stream.getVideoTracks()[0].contentHint = "text"; // favor sharp text over frame rate
@@ -157,11 +159,19 @@
     call();
   };
 
+  // Bitrate actually sent and what holds quality back (start.js logs it), so smearing can be told apart:
+  // "bandwidth" = the network, "cpu" = the encoder, "none" with a low rate = Chrome is still ramping up.
+  const encoder = document.getElementById("encoder");
+  let lastBytes = 0, lastTime = 0;
   setInterval(async () => {
-    if (pc?.connectionState !== "connected") return (fps.textContent = "");
-    (await pc.getStats()).forEach(
-      (s) => s.type === "outbound-rtp" && (fps.textContent = `${s.framesPerSecond ?? 0} fps, ${s.frameWidth}x${s.frameHeight}`),
-    );
+    if (pc?.connectionState !== "connected") return (fps.textContent = encoder.textContent = "");
+    (await pc.getStats()).forEach((s) => {
+      if (s.type !== "outbound-rtp") return;
+      fps.textContent = `${s.framesPerSecond ?? 0} fps, ${s.frameWidth}x${s.frameHeight}`;
+      const mbps = lastTime ? ((s.bytesSent - lastBytes) * 8) / ((s.timestamp - lastTime) * 1000) : 0;
+      [lastBytes, lastTime] = [s.bytesSent, s.timestamp];
+      encoder.textContent = `encoder: ${mbps.toFixed(1)} Mbps, limited by ${s.qualityLimitationReason}, ${s.encoderImplementation}`;
+    });
   }, 1000);
 
   // One fresh connection per call, so a restarted Unity just sends "ready" again.
@@ -176,10 +186,10 @@
         : ["failed", "disconnected", "closed"].includes(pc.connectionState) ? "off" : "wait";
       setStatus(`video: ${pc.connectionState}${codec}`, state);
     };
-    // Chrome's default screen-share bitrate smears small text; 12 Mbps is easy on a local network.
+    // Chrome's default screen-share bitrate smears small text; 20 Mbps (for 60 fps) is easy on a local network.
     const transceiver = pc.addTransceiver(stream.getVideoTracks()[0], {
       direction: "sendonly",
-      sendEncodings: [{ maxBitrate: 12_000_000, maxFramerate: 30 }],
+      sendEncodings: [{ maxBitrate: 20_000_000, maxFramerate: 60 }],
     });
     // H.264 first: the Quest decodes it in hardware.
     const codecs = RTCRtpSender.getCapabilities("video").codecs;
