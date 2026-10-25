@@ -4,9 +4,12 @@ workspace.mode) lives in agent/workspace.py.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from events import UiHighlight
+
+if TYPE_CHECKING:
+    from events import EventBus
 
 PANEL_IDS = ("screen-main", "ml-datastack", "ml-model3d", "ml-results", "ml-training", "cad-viewer", "messages",
              "messages-mentions")  # PROJECT_CONTEXT section 7
@@ -23,7 +26,7 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-async def call_tool(name: str, args: dict[str, Any], bus: Any) -> dict[str, Any]:
+async def call_tool(name: str, args: dict[str, Any], bus: EventBus) -> dict[str, Any]:
     if name == "ui_highlight":
         panel, item_ids, class_idx = args.get("panel"), args.get("item_ids"), args.get("class_idx")
         if panel not in PANEL_IDS:

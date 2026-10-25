@@ -9,9 +9,11 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
+from starlette.datastructures import State
 
 from .models import (Atlas, Confusion, DatasetItem, Graph, IngestRequest, PatchRequest, ProjectRequest,
                      GitHubImportRequest, GitHubImportResponse, GitHubTrainRequest, RelabelRequest, ReplayRequest,
@@ -228,7 +230,7 @@ async def ingest(req: IngestRequest, request: Request) -> dict:
     return {"ok": True, "count": len(req.events)}
 
 
-def _tell_albie(state, type_: str, payload) -> None:
+def _tell_albie(state: State, type_: str, payload: Any) -> None:
     """Proactive Albie (main.py sets state.proactive): an ml.overfit_alert makes him speak up; other events: nothing."""
     proactive = getattr(state, "proactive", None)
     if proactive is not None:
