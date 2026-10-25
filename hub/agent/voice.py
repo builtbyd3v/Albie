@@ -101,7 +101,9 @@ DELEGATE_RULES = (
     "for those, and the brain edits the files open in VS Code right where the user sees them. Never guess those "
     "details yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
-    "ready. Answer everything else yourself."
+    "ready. Answer everything else yourself. When a system note says what broke and you just offered to fix it or "
+    "look at it, a yes means call delegate with mode code at once, with the file, line and error from that note; a "
+    "no means say okay and drop it."
 )
 TOOL_RULES = (
     " Use your other tools yourself for quick actions: read or change the rocket design, open, highlight "

@@ -182,3 +182,23 @@ def test_closed_socket_cancels_queued_speech() -> None:
         assert voice.said == [] and asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(run())
+
+
+def test_fixed_it_only_after_a_spoken_break() -> None:
+    async def run() -> None:
+        w, sent, _ = _watcher(gap_s=0)
+        built = {"source": "script", "version": 3}
+        w.notify("cad.built", built)  # a normal save: nothing broke, nothing to say
+        await w.idle()
+        assert _says(sent) == []
+        w.notify("cad.regen_failed", {"source": "script", "kind": "build", "error": "bad", "error_line": 9,
+                                      "kept_version": 3})
+        await w.idle()
+        w.notify("cad.built", {"source": "pet", "version": 4})  # a slider change is not the fix
+        w.notify("cad.built", {**built, "version": 5})
+        await w.idle()
+        w.notify("cad.built", {**built, "version": 6})  # said once
+        await w.idle()
+        assert _says(sent)[1:] == ["Fixed it. The rocket builds again."]
+
+    asyncio.run(run())

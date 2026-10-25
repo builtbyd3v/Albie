@@ -1,7 +1,7 @@
 """Proactive Bit: when something breaks under the user, Bit speaks first. Once, never over anyone, never acting.
 
 Callers hand events over directly (no bus listener, so no contract change):
-vscode/router.py on POST /vscode/event, and cad/service.py on cad.regen_failed (wired in main.py).
+vscode/router.py on POST /vscode/event, and cad/service.py on cad.regen_failed and every good build (main.py).
 
 Per event Bit moves to the panel (pet.state working + target_panel), says one line (pet.say bubble, and
 voice when a Grok session is live) and makes the broken line glow in VS Code. It never edits code: Grok gets the
@@ -68,6 +68,10 @@ def line_for(type_: str, p: dict[str, Any], cad_script: str | None) -> Line | No
         return Line("cad", key, text, cad_script, n, p["error"][:80],
                     context=fix_context(text, where, p["error"][:ERROR_MAX]))
 
+    if type_ == "cad.built":
+        # Bit only says it once a broken rocket he spoke about builds again (Watcher.notify checks that)
+        return Line("cad", "fixed", "Fixed it. The rocket builds again.") if p.get("source") == "script" else None
+
     if type_ != "vscode.event":
         return None
     if p["kind"] == "command_finished":
@@ -121,6 +125,9 @@ class Watcher:
         body = payload.model_dump() if isinstance(payload, BaseModel) else payload
         line = line_for(type_, body, self.cad_script)
         if line is None:
+            return
+        if type_ == "cad.built" and self._said.get("cad") in (None, "fixed"):
+            self._pending.pop("cad", None)  # nothing said about a break (or it was queued only): stay quiet
             return
         if line.key is not None and self._said.get(line.slot) == line.key:
             self._pending.pop(line.slot, None)  # back to what Bit last said: the queued change is stale
