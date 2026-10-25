@@ -36,7 +36,7 @@ def test_digest_line(count: int, mentions: int, line: str) -> None:
 def test_slack_message_keys_match_section_7() -> None:
     dumped = _msg("1700000000.000100").model_dump()
     assert list(dumped) == ["channel", "channel_name", "is_dm", "user", "user_name", "text", "ts", "thread_ts", "mentions_me",
-                            "reply_count", "edited", "is_me", "user_initials"]
+                            "reply_count", "edited", "is_me", "user_initials", "source"]
     assert dumped["thread_ts"] is None and dumped["mentions_me"] is False
     assert all(dumped[k] is None for k in ("reply_count", "edited", "is_me", "user_initials"))  # optional: null unless known
     assert NotifyMessage is SlackMessage
@@ -44,21 +44,30 @@ def test_slack_message_keys_match_section_7() -> None:
 
 def test_notify_sent_keys() -> None:
     dumped = NotifySent(channel="C01", channel_name="forge-team", text="on it", ts="1.2").model_dump()
-    assert list(dumped) == ["draft_id", "channel", "channel_name", "text", "ts"]
-    assert dumped["draft_id"] is None
+    assert list(dumped) == ["draft_id", "channel", "channel_name", "text", "ts", "source"]
+    assert dumped["draft_id"] is None and dumped["source"] == "slack"
 
 
 def test_draft_and_cancelled_keys() -> None:
     from events import Draft, NotifyDraftCancelled
 
     d = Draft(draft_id="d1", channel="C01", channel_name="forge-team", text="yes, by 3").model_dump()
-    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited"]
-    assert d["edited"] is False
+    assert list(d) == ["draft_id", "channel", "channel_name", "text", "thread_ts", "reply_to", "edited", "attachments",
+                       "source"]
+    assert d["edited"] is False and d["attachments"] == [] and d["source"] == "slack"
+
+    from events import Attachment
+
+    a = Attachment(id="rocket-v7-step", name="rocket_v7.step", kind="step", bytes=10, path="C:/hub/.data/x.step")
+    assert a.model_dump() == {"id": "rocket-v7-step", "name": "rocket_v7.step", "title": "", "kind": "step",
+                              "bytes": 10, "source": ""}  # the hub's path never leaves it
+    assert "x.step" not in Draft(draft_id="d2", channel="C01", channel_name="x", text="t",
+                                 attachments=[a]).model_dump_json()
 
     from events import ChannelSummary, NotifyChannels
 
     row = ChannelSummary(id="D01", name="hudson", kind="dm").model_dump()
-    assert list(row) == ["id", "name", "kind", "unread", "mentions", "last_ts", "last_text", "topic", "is_default"]
+    assert list(row) == ["id", "name", "kind", "unread", "mentions", "last_ts", "last_text", "topic", "is_default", "source"]
     assert (row["unread"], row["mentions"], row["last_ts"], row["is_default"]) == (0, 0, None, False)
     assert NotifyChannels().model_dump() == {"channels": []}
     assert NotifyDraftCancelled(draft_id="d1").model_dump() == {"draft_id": "d1", "reason": "cancelled"}

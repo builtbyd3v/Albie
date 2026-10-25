@@ -8,7 +8,7 @@ the view.
 |---|---|---|
 | **Timers** (`TimerStack.prefab`) | pills just above the main panel (above ML's Training panel), growing upward | one pill per named timer, soonest at the bottom: name, time left, a rim of light draining; pause / resume, stop. Ringing: widens, pulses, chimes (`DeskChime`), +5 min / Stop. The − beside the bottom pill minimizes the stack into one dot: the soonest timer's minutes, its rim draining, a count when there are several |
 | **Notes** (`NotesPanel.prefab`) | beside the open panels on the right | newest first; check ring, age, × (Undo for 5 s). Added by voice ("Ask Bit to add a note"). The header's − (with Face me / Straight) shrinks it into a dot with the open count |
-| **Movie** (`MoviePanel.prefab`) | high over the desk, further back, tilted down at you | streams `GET /movie/files/<id>.mp4` from the hub. Point at it: title and × at the top; play / pause, ∓10 s, the scrubber, CC (subtitles), volume at the bottom. Quieter while Bit talks. Move bar above it, resize corners like any panel |
+| **Movie** (`MoviePanel.prefab`) | high over the desk, further back, tilted down at you | streams `GET /movie/files/<id>.mp4` from the hub. Point at it: title and × at the top; play / pause, ∓10 s, the scrubber, CC (subtitles), volume at the bottom. Quieter while Albie's voice plays. Move bar above it, resize corners like any panel |
 
 **Dots** (`DeskOrb.prefab`, Core `PanelOrb`): tap to open the panel there again; hold (0.3 s, or start moving) to
 carry it on the end of the pointer (scroll / thumbstick / reach pushes it back or pulls it in). The panel then opens

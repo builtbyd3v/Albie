@@ -20,6 +20,7 @@ namespace Forge.Pet
     /// 0.3 m right of the gator's spawn. Lies flat like the dock (canvas +Z into the desk); only the light floats.
     /// </summary>
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(50)]   // LateUpdate after DeskDock's (it moves the dock there), so it never lags the dock a frame
     public class WhistleButton : MonoBehaviour
     {
         public enum Visual { Idle, Active, Busy }
@@ -71,6 +72,8 @@ namespace Forge.Pet
         Vector3 _spawnPos, _spawnRight = Vector3.right;
         bool _hasSpawn, _placedFallback, _byDock;
         DeskDock _dock;
+        Vector3 _dockPoint, _dockAway;
+        float _dockHalf;
         float _lastPress = -10f, _startTime, _nextPlaceCheck;
         Vector3 _tableTop;
         Quaternion _tableRot = Quaternion.identity;
@@ -194,10 +197,23 @@ namespace Forge.Pet
 
         void Update()
         {
-            if (autoPlace && !FollowDock() && !_byDock && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
+            if (autoPlace && !_byDock && Time.time >= _nextPlaceCheck) { _nextPlaceCheck = Time.time + 0.5f; UpdatePlacement(); }
             if (ring != null) ring.Viewer = PetUser.Head;
 
             if (whistleAction != null && whistleAction.WasPressedThisFrame() && !TypedSpeechToText.AnyListening) Press();   // sandbox text box open: F is a letter
+        }
+
+        void LateUpdate()
+        {
+            if (autoPlace) FollowDock();
+        }
+
+        /// <summary>While it sits by the dock: the desk-top point under its centre, the direction along the edge away from
+        /// the dock, and its half width (m). Props beside it (GatorHatchery) ask every LateUpdate to slide with it.</summary>
+        public bool TryGetDockSpot(out Vector3 deskPoint, out Vector3 away, out float halfWidth)
+        {
+            deskPoint = _dockPoint; away = _dockAway; halfWidth = _dockHalf;
+            return _byDock && isActiveAndEnabled;
         }
 
         // Throttled (0.5 s). First placement as soon as a table / desk and a head exist; afterwards only when the user is
@@ -214,7 +230,7 @@ namespace Forge.Pet
                 transform.SetPositionAndRotation(pos, r);
         }
 
-        // Every frame while the dock shows on this table: just past its right end, level with its row, so it slides with
+        // Every frame (LateUpdate) while the dock shows on this table: just past its right end, level with its row, so it slides with
         // the dock. Kept on the table top. Sets _byDock: from then on it stays at the dock's spot while the dock is away
         // instead of going back to the corner.
         bool FollowDock()
@@ -228,7 +244,9 @@ namespace Forge.Pet
             float radius = RingRadius();
             Vector3 pos = side + Vector3.Cross(Vector3.up, inward) * radius;
             if (hasRect) pos = DeskCorner.ClampInside(top, rot, size, pos, radius);
-            pos.y = (hasRect ? top.y : side.y) + Hover;
+            pos.y = hasRect ? top.y : side.y;
+            _dockPoint = pos; _dockAway = Vector3.Cross(Vector3.up, inward); _dockHalf = radius;
+            pos.y += Hover;
             Quaternion r = FlatPose(inward);
             if ((pos - transform.position).sqrMagnitude > 0.0005f * 0.0005f || Quaternion.Angle(r, transform.rotation) > 0.1f)
                 transform.SetPositionAndRotation(pos, r);

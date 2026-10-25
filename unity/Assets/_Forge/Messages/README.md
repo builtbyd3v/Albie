@@ -33,7 +33,8 @@ without a hub the panels show "Hub offline" and connect by themselves when it ap
 - **Send / Cancel card** (`DraftCard.prefab`). With the Slack panel closed, `notify.draft` pops a `DraftCard` beside Albie
   (or in front of the camera without a desk): recipient, what it answers, the exact text, Send and Cancel. With the panel
   open, `DraftPresenter` hands the draft to the composer instead (and a floating card moves into the composer when the
-  panel opens).
+  panel opens). A draft with files (`NotifyDraft.attachments`, e.g. a CAD design's STEP / STL / drawing / parts list) shows
+  them as one line on the card and above the composer's field; the hub uploads them with the text on Send.
 
 ## Look
 
@@ -62,7 +63,8 @@ fallback. Hover: Inbox cards lift 1 cm and go opaque; list rows and buttons brig
 | `Scripts/DraftCard.cs` | The Send / Cancel card. |
 | `Scripts/MessagesDeskZone.cs` | Marker + desk-frame `Footprint` the pet keeps clear of while cards float (unchanged). |
 | `Editor/MessagesPrefabBuilder.cs` | **Forge > Messages > Build Prefabs** builds the four prefabs below (and deletes the old MessagesPanel.prefab). |
-| `Resources/SlackPanel.prefab`, `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Resources/SlackPanel.prefab`, `IMessagePanel.prefab` (panel id `messages-imessage`), `MentionsPanel.prefab`, `MessageCard.prefab`, `DraftCard.prefab` | Built, not hand-edited; commit them with their `.meta`s. |
+| `Scripts/MessagesLayout.cs` | Adds the iMessage panel to MSG mode at runtime (center, Slack moves right) only when the hub's `/health` reports `imessage.available`; otherwise MSG is unchanged. No scene edit. |
 
 ## Slotting it into Main (Hudson)
 

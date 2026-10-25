@@ -14,6 +14,10 @@
 //   command_finished  a command in the "Albie" terminal ended, with its exit code
 //
 // An "Albie" item in the status bar says what Albie is doing in this window, so it shows on the streamed screen too.
+//
+// Command "Forge: Open this repo in the ML desk" tells the hub which repo is open (POST <hubUrl>/ml/project) and
+// follows its setup here: Show diff / Accept / Skip for the training patch, a type picker when the classifier
+// isn't sure. The headset's ML desk unfolds from the same hub events.
 const http = require("http");
 const path = require("path");
 const vscode = require("vscode");
@@ -138,10 +142,11 @@ function train() {
 
 // screen-bridge/start.js calls this once VS Code is up. On the headset the editor is what Bit points at and the
 // terminal is where training shows, so the side bar and Copilot chat only cost columns.
-// Zoom is per window (not saved to settings): level 2 = 144%, big enough on the panel at 1 m once the full-screen
-// window is shrunk to the stream's 1920 px. There is no command to set the panel's height, so: editor to its
-// tallest, then 2 steps back, which leaves Bit's terminal a few lines under the code.
-async function layout({ zoom = 2 }) {
+// Zoom is per window (not saved to settings): level 3 = 173%. The panel is about 1000 headset pixels across, and the
+// full-screen window at 144% was about 1250 px of UI, so 13 px code text got under a headset pixel per pixel; at 173%
+// it is about 1040 px, one to one. There is no command to set the panel's height, so: editor to its tallest, then
+// 2 steps back, which leaves Albie's terminal a few lines under the code.
+async function layout({ zoom = 3 }) {
   const run = (id, times = 1) =>
     Array.from({ length: times }).reduce((p) => p.then(() => vscode.commands.executeCommand(id)), Promise.resolve());
   await run("workbench.action.closeSidebar");
@@ -171,8 +176,17 @@ function idle(text = `$(sparkle) ${TERMINAL}`) {
 const routes = {
   "GET /context": () => context(),
   "GET /errors": (_, query) => errors(query.get("path")),
-  "POST /open": (b) => show(b.path, b.line).then(() => (status(`opened ${path.basename(b.path)}`), null)),
-  "POST /highlight": (b) => highlight(b).then(() => (status(b.note ?? `looking at line ${b.start}`, b.ms), null)),
+  // Where Albie is, readable on the headset: file:line in the status bar, and the line itself glows with a tag.
+  "POST /open": (b) =>
+    (b.line ? highlight({ path: b.path, start: b.line, note: `${TERMINAL} is here`, ms: 3000 }) : show(b.path))
+      .then(() => (status(`${path.basename(b.path)}${b.line ? ":" + b.line : ""}`), null)),
+  "POST /highlight": (b) =>
+    highlight(b).then(() => {
+      const file = path.basename(vscode.window.activeTextEditor?.document.fileName ?? b.path ?? "");
+      const lines = b.end && b.end !== b.start ? `${b.start}-${b.end}` : `${b.start}`;
+      status(`${file}:${lines}${b.note ? " · " + b.note : ""}`, b.ms);
+      return null;
+    }),
   "POST /run": (b) => run(b).then((result) => (status(`ran ${b.command.split(".").pop()}`), { result })),
   "POST /train": () => (train(), status("started training", 6000)),
   "POST /layout": (b) => layout(b).then(() => null),
@@ -222,6 +236,78 @@ function errorsOnSave(doc) {
   }, 1500);
 }
 
+function hub(method, route, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(new URL(route, config().get("hubUrl")), {
+      method,
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000,
+    }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => {
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+        if (res.statusCode >= 400) reject(new Error(data.detail || `hub answered ${res.statusCode}`));
+        else resolve(data);
+      });
+    });
+    req.on("error", (e) => reject(new Error(`can't reach the Forge hub at ${config().get("hubUrl")} (${e.message})`)));
+    req.on("timeout", () => req.destroy(new Error("the Forge hub didn't answer")));
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Poll GET /ml/project until setup stops: ready, failed, needs_approval or confirm_type (about a minute or two).
+async function setupResult() {
+  for (let i = 0; i < 150; i++) {
+    const state = await hub("GET", "/ml/project");
+    if (["ready", "failed", "needs_approval", "confirm_type"].includes(state.status)) return state;
+    status(`$(sync~spin) ML desk: ${state.status}…`, 5000);
+    await sleep(2000);
+  }
+  throw new Error("setup is taking over 5 minutes; check the hub");
+}
+
+async function openInMlDesk() {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return vscode.window.showWarningMessage("Forge: open a folder first.");
+  try {
+    status(`$(beaker) ML desk: opening ${path.basename(root)}`, 5000);
+    await hub("POST", "/ml/project", { path: root });
+    let state = await setupResult();
+    if (state.status === "confirm_type") {
+      const pick = await vscode.window.showQuickPick(state.candidates || [], {
+        placeHolder: `Forge isn't sure what ${path.basename(root)} is. Which type is it?`,
+      });
+      if (!pick) return;
+      await hub("POST", "/ml/project/type", { archetype: pick });
+      state = await setupResult();
+    }
+    if (state.status === "needs_approval") {
+      const files = (state.patch?.files || []).map((f) => f.path || f).join(", ");
+      for (;;) {
+        const choice = await vscode.window.showInformationMessage(
+          `${state.summary || "Forge"}: hook up training with a few lines in ${files || "the training script"}?`,
+          "Show diff", "Accept", "Skip");
+        if (choice === "Show diff") { await hub("POST", "/ml/project/diff", {}); continue; }
+        if (!choice) return;
+        await hub("POST", "/ml/project/patch", { accept: choice === "Accept" });
+        state = await hub("GET", "/ml/project");
+        break;
+      }
+    }
+    if (state.status === "failed") throw new Error(state.error || "setup failed");
+    status(`$(check) ML desk: ${state.summary || "ready"}`, 8000);
+    vscode.window.showInformationMessage(`Forge ML desk ready: ${state.summary || path.basename(root)}`);
+  } catch (e) {
+    idle();
+    vscode.window.showErrorMessage(`Forge ML desk: ${e.message}`);
+  }
+}
+
 function watch(ctx) {
   ctx.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(errorsOnSave),
@@ -253,13 +339,17 @@ function activate(ctx) {
       send(400, { error: e.message });
     }
   });
-  // ponytail: a second VS Code window just logs the port clash; Bit drives the first window.
+  // Another window (or the one being reloaded) still has the port: say so and keep trying, so the window that's left
+  // takes over by itself and the hub's /vscode/* comes back without a manual reload.
   server.on("error", (e) => {
     console.error(`[forge-bit] ${e.message}`);
     idle(`$(circle-slash) ${TERMINAL}: busy in another window`);
+    if (e.code === "EADDRINUSE") setTimeout(() => server.listening || server.listen(port, "127.0.0.1"), 5000);
   });
+  server.on("listening", () => idle());
   server.listen(port, "127.0.0.1");
-  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() });
+  ctx.subscriptions.push(glow, noteStyle, statusItem, { dispose: () => server.close() },
+    vscode.commands.registerCommand("forgeBit.openInMlDesk", openInMlDesk));
 }
 
 function deactivate() {

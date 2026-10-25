@@ -8,8 +8,8 @@ no model call; the word rules below only drop what is never a request even then:
 * talk to a person ("dude", "bruh", "guys");
 * filler alone ("Yeah.", "Whoa."), unless Albie just asked a question.
 
-A gated turn (stt.start {require_name}: Unity's follow-up window while you look elsewhere) needs the name: an
-unnamed one is never for him.
+Name only (default): an unnamed turn is never for him, except a bare answer ("yes", "sure", "no thanks") within
+REPLY_S of a question he asked, so "Want me to look?" can be answered without his name.
 """
 
 from __future__ import annotations
@@ -42,8 +42,22 @@ def rules(text: str, last_reply: str | None = None) -> bool | None:
     return None
 
 
-async def judge(text: str, last_reply: str | None = None, *, gated: bool = False) -> bool:
-    """An unnamed turn: for Albie if you looked at him and the rules don't rule it out. Gated turns need his name."""
-    if gated:
-        return False
-    return rules(text, last_reply) is not False
+REPLY_S = 10.0  # after Albie asks a question, a bare "yes" / "sure" / "no" this soon is the answer, no name needed
+ANSWER = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "no", "nope", "nah", "please", "do", "it", "go", "ahead",
+          "thanks", "thank", "you", "sounds", "good", "great", "alright", "right", "not", "now", "fix", "look"}
+ANSWER_CORE = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "no", "nope", "nah", "go", "do", "fix"}
+
+
+def is_answer(text: str) -> bool:
+    """Only answer words: "yes please", "sure, go ahead", "no thanks", "do it"."""
+    words = set(_words(text))
+    return bool(words) and words <= ANSWER and bool(words & ANSWER_CORE)
+
+
+async def judge(text: str, last_reply: str | None = None, age_s: float | None = None, *, facing: bool = False) -> bool:
+    """An unnamed turn. facing (VOICE_FACING=1 only): for Albie unless the rules rule it out. Otherwise only a bare
+    answer within REPLY_S of a question he asked ("Want me to look?" "Yes please.")."""
+    if facing:
+        return rules(text, last_reply) is not False
+    asked = bool(last_reply and last_reply.rstrip().endswith("?"))
+    return asked and age_s is not None and age_s <= REPLY_S and is_answer(text)

@@ -71,6 +71,12 @@ public class CadSession : MonoBehaviour
     public int PartsOff { get; private set; }
     public event Action InspectChanged;  // Inspecting or PartsOff changed
     public event Action ReassembleRequested;
+    // Albie handing you a part (cad.action take_off / put_back). CadTakeApart does it; the Requested events are for it.
+    public event Action<string> TakeOffRequested, PutBackRequested;
+    // CadTakeApart took a part off for Albie (the pet fetches it) or put it back. Ids are real part ids.
+    public event Action<string> PartTaken, PartPutBack;
+    /// <summary>Who carries a part Albie takes off: the pet sets its jaw. Null: the part floats to you by itself.</summary>
+    public Transform PartCarrier { get; set; }
 
     // View only, like Inspecting (the hub doesn't know): what CadViewer draws over the model and its demo. Any panel sets
     // them here; the viewer, wherever Workspace spawned it, reacts.
@@ -86,6 +92,24 @@ public class CadSession : MonoBehaviour
     public event Action<bool> DemoRequested;     // a panel asks the viewer to start (true) or stop (false) the demo
     public event Action DemoChanged;             // DemoRunning changed
     public event Action<CadDemoFrame> DemoFrame; // every frame while a demo runs: phase and live readouts
+
+    /// <summary>The version the viewer has on screen (CadViewer reports every swap); null until one shows.</summary>
+    public CadModelUpdated ShownInfo { get; private set; }
+    /// <summary>Bit picked a tab of the design panel: an index into Overview, Parameters, Analysis, History.</summary>
+    public event Action<int> TabRequested;
+
+    // Bit's buttons (cad.action, docs/PET_AGENT_CONTRACT.md Addendum H). Each is for a version of a design: it waits until
+    // the viewer shows that version (a demo started on the old model would stop at the swap), keeps the order they came
+    // in, and is dropped after ActionTimeout if that version never shows. Overlays are session state and apply at once.
+    const float ActionTimeout = 15f, LateActionSeconds = 4f;
+    static readonly string[] TabIds = { "overview", "parameters", "analysis", "history" };  // CadParamsPanel's tabs, in order
+    readonly List<CadAction> pendingActions = new List<CadAction>();
+    readonly List<float> pendingSince = new List<float>();
+    CadAction handledAction;
+    // Bit can open the CAD view and press a button in one breath: the press may land before this session exists (the CAD
+    // prefabs create it as the view unfolds). A static listener keeps the last one so StartHub can still apply it.
+    static CadAction lastAction;
+    static float lastActionAt = -100f;
 
     int mockPart = -1, mockIndex = -1;
     readonly Dictionary<int, CadFlight> flights = new Dictionary<int, CadFlight>();  // by version, the last few
@@ -132,6 +156,7 @@ public class CadSession : MonoBehaviour
         ForgeEvents.OnCadModelUpdated += OnModelUpdated;
         ForgeEvents.OnCadView += OnViewEvent;
         ForgeEvents.OnCadRegenFailed += OnRegenFailed;
+        ForgeEvents.OnCadAction += OnCadAction;
         ForgeNet.StatusChanged += OnNetStatus;
     }
 
@@ -140,7 +165,24 @@ public class CadSession : MonoBehaviour
         ForgeEvents.OnCadModelUpdated -= OnModelUpdated;
         ForgeEvents.OnCadView -= OnViewEvent;
         ForgeEvents.OnCadRegenFailed -= OnRegenFailed;
+        ForgeEvents.OnCadAction -= OnCadAction;
         ForgeNet.StatusChanged -= OnNetStatus;
+    }
+
+    // This project enters Play mode without a domain reload: statics, and static subscriptions, outlive a session.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ListenForActions()
+    {
+        ForgeEvents.OnCadAction -= RememberAction;
+        ForgeEvents.OnCadAction += RememberAction;
+        lastAction = null;
+        lastActionAt = -100f;
+    }
+
+    static void RememberAction(CadAction a)
+    {
+        lastAction = a;
+        lastActionAt = Time.realtimeSinceStartup;
     }
 
     IEnumerator Start()
@@ -181,6 +223,7 @@ public class CadSession : MonoBehaviour
         if (ForgeNet.TryGetLast<CadView>(ForgeEvents.CadViewType, out var view) && view != null) ApplyView(view);
         if (ForgeNet.TryGetLast<CadModelUpdated>(ForgeEvents.CadModelUpdatedType, out var info) && info != null) OnModelUpdated(info);
         else StartCoroutine(FetchLatest());
+        if (lastAction != null && Time.realtimeSinceStartup - lastActionAt < LateActionSeconds) OnCadAction(lastAction);
     }
 
     // Commands (the same ones Bit's tools call on the hub)
@@ -320,7 +363,8 @@ public class CadSession : MonoBehaviour
 
     public void SetView(bool explode, string focusId)
     {
-        var view = new CadView { explode = explode, focusId = focusId };
+        // the same focus keeps its other parts (explode toggled while every fin is lit)
+        var view = new CadView { explode = explode, focusId = focusId, focusIds = focusId == View.focusId ? View.focusIds : null };
         ApplyView(view);
         if (!IsMock) StartCoroutine(Post("/cad/view", JsonConvert.SerializeObject(view), refresh: false));
     }
@@ -347,6 +391,20 @@ public class CadSession : MonoBehaviour
 
     /// <summary>Put every part taken off in the Inspect view back (CadTakeApart).</summary>
     public void Reassemble() => ReassembleRequested?.Invoke();
+
+    /// <summary>Albie takes <paramref name="partId"/> off (a group's next one if it is off already) and hands it to you.
+    /// Parts come off on the stage only, so the model goes up first.</summary>
+    public void TakeOff(string partId)
+    {
+        SetInspecting(true);
+        TakeOffRequested?.Invoke(partId);
+    }
+
+    /// <summary>Put <paramref name="partId"/> back; null: the last part Albie took off.</summary>
+    public void PutBack(string partId) => PutBackRequested?.Invoke(partId);
+
+    public void ReportPartTaken(string partId) => PartTaken?.Invoke(partId);
+    public void ReportPartPutBack(string partId) => PartPutBack?.Invoke(partId);
 
     public void SetPartsOff(int count)
     {
@@ -389,6 +447,62 @@ public class CadSession : MonoBehaviour
 
     /// <summary>CadViewer: this frame of the running demo.</summary>
     public void PublishDemoFrame(CadDemoFrame frame) => DemoFrame?.Invoke(frame);
+
+    /// <summary>CadViewer: <paramref name="info"/> is on screen now, swapped in for <paramref name="shownGeneration"/>.</summary>
+    public void ReportShown(CadModelUpdated info, int shownGeneration)
+    {
+        ShownInfo = shownGeneration == generation ? info : null;  // a mock model doesn't count for the hub's versions
+        FlushActions();
+    }
+
+    void OnCadAction(CadAction a)
+    {
+        if (a == null || ReferenceEquals(a, handledAction)) return;  // the static listener's copy, seen already
+        handledAction = a;
+        switch (a.action)
+        {
+            case "markers": SetMarkersShown(a.on ?? true); return;
+            case "dimensions": SetMeasuring(a.on ?? true); return;
+        }
+        pendingActions.Add(a);
+        pendingSince.Add(Time.unscaledTime);
+        FlushActions();
+    }
+
+    void FlushActions()
+    {
+        while (pendingActions.Count > 0)
+        {
+            var a = pendingActions[0];
+            if (Time.unscaledTime - pendingSince[0] > ActionTimeout)
+                Debug.LogWarning($"[CadSession] Bit's '{a.action}' for {a.part} v{a.version} never had its model on screen; dropped.");
+            else if (!Shows(a)) return;  // the ones behind it wait too: they came later
+            else ApplyAction(a);
+            pendingActions.RemoveAt(0);
+            pendingSince.RemoveAt(0);
+        }
+    }
+
+    bool Shows(CadAction a) =>
+        ShownInfo != null && (string.IsNullOrEmpty(a.part) || ShownInfo.part == a.part)
+        && (!a.version.HasValue || ShownInfo.version >= a.version.Value);
+
+    void ApplyAction(CadAction a)
+    {
+        switch (a.action)
+        {
+            case "expand": SetInspecting(a.on ?? true); break;
+            case "demo": RequestDemo(a.on ?? true); break;
+            case "reassemble": Reassemble(); break;
+            case "take_off": TakeOff(a.partId); break;
+            case "put_back": PutBack(a.partId); break;
+            case "tab":
+                int index = Array.IndexOf(TabIds, (a.tab ?? "").ToLowerInvariant());
+                if (index >= 0) TabRequested?.Invoke(index);
+                break;
+            default: Debug.LogWarning($"[CadSession] Unknown cad.action '{a.action}'."); break;
+        }
+    }
 
     public void RequestFlight()
     {
@@ -596,7 +710,7 @@ public class CadSession : MonoBehaviour
 
     void OnViewEvent(CadView view)
     {
-        if (IsMock || view == null || (view.explode == View.explode && view.focusId == View.focusId)) return;
+        if (IsMock || view == null || (view.explode == View.explode && view.SameFocus(View))) return;
         ApplyView(view);
     }
 
@@ -941,6 +1055,7 @@ public class CadSession : MonoBehaviour
             awaitVersion = -1;
             UpdateBuilding();
         }
+        if (pendingActions.Count > 0) FlushActions();  // times out the ones whose model never came
     }
 
     void Publish(CadUpdate update)

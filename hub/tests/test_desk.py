@@ -289,6 +289,42 @@ def test_movie_place_and_volume_survive_a_restart_and_the_end_starts_over(tmp_pa
     asyncio.run(later())
 
 
+def test_movie_marks_save_find_jump_and_survive_a_restart(tmp_path: Path) -> None:
+    desk, bus, _ = make_desk(tmp_path)
+
+    async def run() -> None:
+        with pytest.raises(ValueError):
+            desk.movie.add_mark("the cave", query="obsession")  # not on, no time given
+        _, suit = desk.movie.add_mark("Tony Stark starts building Iron Man", 2700, "obsession")
+        desk.movie.add_mark("The cave escape", 1500, "obsession")
+        desk.movie.add_mark("Opening", 10, "spring")
+        assert [m.label for m in desk.movie.marks("obsession")[1]] == ["The cave escape", "Tony Stark starts building Iron Man"]
+        assert desk.movie.find_mark("the point where Tony builds the suit")[1] == suit
+        with pytest.raises(LookupError, match="saved: "):
+            desk.movie.find_mark("the dance number")
+
+        mark, s = await desk.movie.goto_mark("where Tony starts building Iron Man")  # screen closed: puts it on
+        assert mark == suit and s.status == "playing" and s.movie.movie_id == "obsession"
+        assert s.position_s == 2700 and bus.last("movie.state")["seek_rev"] == s.seek_rev
+        await desk.movie.pause()
+        mark, s = await desk.movie.goto_mark("opening")  # another movie's spot: switches and plays
+        assert s.movie.movie_id == "spring" and s.position_s == 10 and s.status == "playing"
+
+        await desk.movie.play("obsession")
+        await desk.movie.seek(3600)
+        _, now = desk.movie.add_mark("Suit test flight")  # where it is now, a few seconds back
+        assert 3590 < now.position_s < 3600
+        _, moved = desk.movie.add_mark("the cave escape", 1550)  # same label: moves it
+        assert moved.position_s == 1550 and len(desk.movie.marks()[1]) == 3
+        assert desk.movie.remove_mark("flight").label == "Suit test flight"
+
+    asyncio.run(run())
+    again = DeskService(tmp_path, Recorder(), desk.speak)
+    assert [(m.label, m.position_s) for m in again.movie.marks("obsession")[1]] == [
+        ("The cave escape", 1550), ("Tony Stark starts building Iron Man", 2700)]
+    assert again.movie.find_mark("opening")[0] == "spring"
+
+
 # ---------------------------------------------------------------------- sticky replay
 class FakeSocket:
     def __init__(self) -> None:
@@ -344,7 +380,19 @@ def test_tools(tmp_path: Path) -> None:
 
         out = await dtools.call_tool("movie_play", {"title": "obsession"}, desk)
         assert out["status"] == "playing" and out["title"] == "Obsession" and "left" in out
-        assert (await dtools.call_tool("movie_control", {"action": "volume", "volume": 0.5}, desk))["volume"] == 0.5
+        assert (await dtools.call_tool("movie_control", {"action": "volume", "volume": 0.5}, desk))["volume"] == "50%"
+        assert (await dtools.call_tool("movie_control", {"action": "volume", "volume": 20}, desk))["volume"] == "20%"
+        assert (await dtools.call_tool("movie_control", {"action": "volume", "by": 0.15}, desk))["volume"] == "35%"
+        assert (await dtools.call_tool("movie_control", {"action": "volume", "by": -1}, desk))["volume"] == "0%"
+        out = await dtools.call_tool("movie_marks", {"action": "save", "label": "Tony builds the suit", "seconds": 2700}, desk)
+        assert out == {"saved": {"label": "Tony builds the suit", "at": "45:00"}, "movie": "Obsession"}
+        await dtools.call_tool("movie_marks", {"action": "save", "label": "Finale", "seconds": 6000}, desk)
+        assert (await dtools.call_tool("movie_status", {}, desk))["marks"][1] == {"label": "Finale", "at": "1:40:00"}
+        out = await dtools.call_tool("movie_control", {"action": "seek", "mark": "where he builds the suit"}, desk)
+        assert out["mark"] == "Tony builds the suit" and out["at"] == "45 minutes"
+        assert "error" in await dtools.call_tool("movie_control", {"action": "seek", "mark": "the dance"}, desk)
+        assert (await dtools.call_tool("movie_marks", {"action": "remove", "label": "finale"}, desk))["removed"]["label"] == "Finale"
+        assert len((await dtools.call_tool("movie_marks", {"action": "list"}, desk))["marks"]) == 1
         assert (await dtools.call_tool("movie_control", {"action": "close"}, desk))["status"] == "closed"
         assert set((await dtools.call_tool("movie_status", {}, desk))["library"]) == {"Obsession", "Spring"}
         assert "error" in await dtools.call_tool("movie_play", {"title": "titanic"}, desk)
@@ -353,7 +401,7 @@ def test_tools(tmp_path: Path) -> None:
     asyncio.run(run())
     assert {t["name"] for t in dtools.TOOLS} == {
         "timer_start", "timer_control", "timer_status", "notes_add", "notes_list", "notes_edit", "notes_remove",
-        "notes_view", "movie_play", "movie_control", "movie_status"}
+        "notes_view", "movie_play", "movie_control", "movie_marks", "movie_status"}
 
 
 # ---------------------------------------------------------------------- REST
@@ -410,3 +458,13 @@ def test_rest_movie_and_byte_ranges(client: TestClient) -> None:
     assert client.get("/movie/files/obsession.json").status_code == 404
     assert client.post("/movie/close").json()["status"] == "closed"
     assert client.post("/movie/pause").status_code == 422
+
+    assert client.post("/movie/marks", json={"label": "Suit up"}).status_code == 422  # closed: needs a time
+    m = client.post("/movie/marks", json={"label": "Suit up", "position_s": 2700, "movie_id": "obsession"}).json()
+    assert m["label"] == "Suit up" and m["position_s"] == 2700
+    assert [x["mark_id"] for x in client.get("/movie/marks", params={"movie_id": "obsession"}).json()] == [m["mark_id"]]
+    s = client.post("/movie/seek", json={"mark": "suit"}).json()
+    assert s["status"] == "playing" and s["position_s"] == 2700
+    assert client.post("/movie/seek", json={"mark": "nothing like it"}).status_code == 404
+    assert client.post(f"/movie/marks/{m['mark_id']}/remove").json()["label"] == "Suit up"
+    assert client.get("/movie/marks").json() == []

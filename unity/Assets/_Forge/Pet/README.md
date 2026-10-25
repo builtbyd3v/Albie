@@ -11,7 +11,7 @@ Specs: `PROJECT_CONTEXT.md` 8.6 / 8.7 / 8.8, `docs/PET_AGENT_CONTRACT.md`, test 
 PetRuntime
 ├─ GatorAssistant        nested Prefabs/GatorAssistant.prefab: GatorController, GatorExpressions, GatorInteraction,
 │   │                    GatorCaption, GatorAgentBridge, PushToTalk, HubSpeechToText, AgentClient, GatorMrukAdapter
-│   │                    + WakeListener, GatorTalkAnimator, GatorSummon, GatorFollowUp
+│   │                    + WakeListener, GatorTalkAnimator, GatorSummon, GatorFollowUp, GatorFetch, GatorFixCard
 │   └─ Voice             AudioSource + StreamedPcmTextToSpeech (the hub's streamed speech), wired into GatorAgentBridge.tts
 ├─ WhistleButton         floating dock ring with a whistle icon, beside the dock (ray / poke / mouse / F / B); cloned onto every table
 ├─ GatorCrew             lead = GatorAssistant, crewPrefab = GatorAssistant.prefab

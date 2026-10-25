@@ -1,0 +1,2 @@
+# hub/ml extras on top of hub/requirements.txt (ask Person 5 to merge them in)
+anthropic>=2.3

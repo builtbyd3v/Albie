@@ -33,13 +33,13 @@ namespace Forge.Pet
         [SerializeField, Tooltip("Hard cap (s) from the first speech: stop listening and send what was said.")]
         float maxUtterance = 20f;
         [SerializeField, Tooltip("Silence (s) after speech that ends the utterance.")]
-        float endSilence = 0.9f;
+        float endSilence = 2.0f;   // Dev, 2026-10-24: a mid-sentence pause must not end the turn
         [SerializeField, Tooltip("Mic RMS (0..1) that counts as speech.")]
         float speechLevel = 0.03f;
         [SerializeField, Tooltip("Seconds above speechLevel before it counts as speech (ignores clicks / bumps).")]
         float minSpeechSeconds = 0.25f;
         [SerializeField, Tooltip("After the mic stops, the hub's stt.final must arrive within this many seconds; otherwise the turn counts as empty (so he never hangs in Listening).")]
-        float finalTimeout = 6f;
+        float finalTimeout = 10f;   // 6 dropped turns whose transcript came late over the phone hotspot (live 19:31)
 
         ISpeechToText _stt;
         bool _warnedNoStt;

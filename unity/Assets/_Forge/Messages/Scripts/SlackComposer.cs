@@ -19,13 +19,14 @@ using UnityEngine.UI;
 public class SlackComposer
 {
     public const float Height = 96f;
-    const float FieldH = 54f, PillRow = 30f, Gap = 8f, StatusSeconds = 2.5f;
+    const float FieldH = 54f, PillRow = 30f, Gap = 8f, StatusSeconds = 2.5f, FilesH = 22f;
 
     readonly SlackPanel owner;
     readonly RectTransform root, fieldRect;
     readonly ForgeSurface fieldFill;
     readonly TMP_InputField field;
-    readonly TextMeshProUGUI text, placeholder, caption;
+    readonly TextMeshProUGUI text, placeholder, caption, files;
+    string filesLine = "";                     // the Bit draft's attachments in one line (above the field), "" for none
     readonly SlackButton send, askBit, cancel;
     BaseEventData updateEvent;
 
@@ -39,6 +40,8 @@ public class SlackComposer
 
     public bool HasDraft => draftId != null;
     public RectTransform Root => root;
+    /// <summary><see cref="Height"/>, plus the files line while Bit's draft carries attachments.</summary>
+    public float CurrentHeight => Height + (filesLine.Length > 0 ? FilesH : 0f);
 
     public SlackComposer(Transform parent, SlackPanel owner)
     {
@@ -46,7 +49,8 @@ public class SlackComposer
         root = SlackUi.Rect(parent, "Composer");
 
         fieldRect = SlackUi.Rect(root, "Field");
-        fieldFill = SlackUi.Card(fieldRect, SlackUi.RowCorner, raycast: true);
+        fieldFill = SlackUi.Card(fieldRect, owner.IsIMessagePanel ? 24f : SlackUi.RowCorner, raycast: true);
+        if (owner.IsIMessagePanel) fieldFill.color = SlackUi.IMessageComposer;
         var area = SlackUi.Rect(fieldRect, "TextArea");
         SlackUi.Stretch(area, 12f, 8f, 12f, 8f);
         area.gameObject.AddComponent<RectMask2D>();
@@ -54,7 +58,7 @@ public class SlackComposer
         text.richText = false;
         SlackUi.Stretch(text.rectTransform, 0f, 0f, 0f, 0f);
         placeholder = SlackUi.Text(area, "Placeholder", SlackUi.Body, SlackUi.Subtext, align: TextAlignmentOptions.TopLeft, wrap: true);
-        placeholder.text = "Message";
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : "Message";
         SlackUi.Stretch(placeholder.rectTransform, 0f, 0f, 0f, 0f);
 
         field = fieldRect.gameObject.AddComponent<TMP_InputField>();
@@ -79,19 +83,28 @@ public class SlackComposer
 
         caption = SlackUi.Text(root, "Caption", SlackUi.Small, SlackUi.Subtext);
         caption.overflowMode = TextOverflowModes.Ellipsis;
+        files = SlackUi.Text(root, "Files", SlackUi.Small, SlackUi.AccentA(0.95f));
+        files.overflowMode = TextOverflowModes.Ellipsis;
+        files.gameObject.SetActive(false);
         cancel = SlackButton.CreatePill(root, "Cancel", SlackButton.Pill, Cancel);
         askBit = SlackButton.CreatePill(root, "Ask Albie", SlackButton.Pill, AskBit);
-        send = SlackButton.CreatePill(root, "Send", SlackButton.Primary, Send);
+        send = SlackButton.CreatePill(root, "Send", owner.IsIMessagePanel ? SlackButton.IMessagePrimary : SlackButton.Primary, Send);
         SlackUi.Show(cancel, false);
         RefreshButtons();
     }
 
-    /// <summary>Place the composer at (x, y) in its parent, <paramref name="w"/> wide, <see cref="Height"/> tall.</summary>
+    /// <summary>Place the composer at (x, y) in its parent, <paramref name="w"/> wide, <see cref="CurrentHeight"/> tall.</summary>
     public void Layout(float x, float y, float w)
     {
-        SlackUi.Place(root, x, y, w, Height);
-        SlackUi.Place(fieldRect, 0f, 0f, w, FieldH);
-        float py = FieldH + Gap, right = 0f;
+        SlackUi.Place(root, x, y, w, CurrentHeight);
+        float top = 0f;
+        if (filesLine.Length > 0)
+        {
+            SlackUi.Place(files.rectTransform, 4f, 0f, Mathf.Max(20f, w - 8f), FilesH - 4f);
+            top = FilesH;
+        }
+        SlackUi.Place(fieldRect, 0f, top, w, FieldH);
+        float py = top + FieldH + Gap, right = 0f;
         Vector2 s = send.Rect.sizeDelta;
         SlackUi.PlaceRight(send.Rect, right, py, s.x, PillRow);
         right += s.x + 8f;
@@ -111,7 +124,7 @@ public class SlackComposer
     public void SetChannel(SlackChannel c)
     {
         channel = c;
-        placeholder.text = c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
+        placeholder.text = owner.IsIMessagePanel ? "iMessage" : c == null ? "Pick a conversation" : "Message " + SlackText.DisplayName(c);
         RefreshButtons();
     }
 
@@ -235,7 +248,16 @@ public class SlackComposer
         if (d == null || string.IsNullOrEmpty(d.draftId)) return;
         if (d.draftId == draftId)
         {
-            if (d.edited) draftText = d.text;  // our PATCH echoed back
+            if (!d.edited) return;
+            // Our own PATCH echoed back (the field already says it), or Bit reworded it ("rephrase this",
+            // messages_edit_draft): then the field takes his words. Mid-send the field is locked and the echo is ours.
+            if (!sending && d.text != null && d.text != (field.text ?? ""))
+            {
+                field.SetTextWithoutNotify(d.text);
+                Status("Albie reworded it");
+            }
+            draftText = d.text;
+            SetFiles(d);
             return;
         }
         if (d.draftId == closedDraftId) return;  // a late echo of a draft already sent or cancelled here
@@ -245,6 +267,7 @@ public class SlackComposer
         draftChannel = d.channel;
         sending = false;
         field.SetTextWithoutNotify(draftText);
+        SetFiles(d);
         SlackUi.Show(cancel, true);
         statusText = null;
         RefreshCaption();
@@ -274,10 +297,22 @@ public class SlackComposer
 
     // ---- View ----
 
+    /// <summary>The files line for Bit's draft (its attachments go up with the text on Send); hidden without any.</summary>
+    void SetFiles(NotifyDraft d)
+    {
+        string line = d != null ? SlackText.Attachments(d.attachments) : "";
+        if (line == filesLine) return;
+        filesLine = line;
+        files.text = line;
+        files.gameObject.SetActive(line.Length > 0);
+        owner.MarkLayoutDirty();  // the composer grows or shrinks by the line
+    }
+
     void ClearDraft()
     {
         if (draftId != null) closedDraftId = draftId;
         draftId = draftText = draftChannel = null;
+        SetFiles(null);
         SlackUi.Show(cancel, false);
         RefreshCaption();
         owner.MarkLayoutDirty();

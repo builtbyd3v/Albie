@@ -42,7 +42,7 @@ def test_switch_between_designs(lib):
         assert ws.receive_json()["payload"]["part"] == "rocket"  # sticky state names the design
         opened = client.post("/cad/part", json={"part": "quadcopter"})
         assert opened.status_code == 200 and opened.json()["part"] == "quadcopter" and opened.json()["version"] == 2
-        assert next_of(ws, "cad.view") == {"explode": False, "focus_id": None}  # part IDs differ per design
+        assert next_of(ws, "cad.view") == {"explode": False, "focus_id": None, "focus_ids": []}  # part IDs differ per design
         event = next_of(ws, "cad.model_updated")
         assert event["part"] == "quadcopter" and event["title"] == "Quadcopter" and event["previous_version"] is None
         assert {"clearance", "twr", "mass", "size", "parts"} <= {m["id"] for m in event["analysis"]["metrics"]}

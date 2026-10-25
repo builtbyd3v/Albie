@@ -1,5 +1,7 @@
 # Whistle to summon, then listen (plan)
 
+> **2026-10-24:** Space/A push-to-talk is gone and the whistle is now a floating dock ring beside the desk dock (`WhistleButton`, Core `DockRing`). The flow below is otherwise how it works; read "PTT takes over" as history.
+
 Owner: Adrian (pet). Status: plan, nothing built yet. Companion to `PROJECT_CONTEXT.md` §2 (demo step 4, "Ask the pet"), §8.6, §8.7, §12 and `docs/PET_AGENT_CONTRACT.md` Addendum A.
 
 **What changes:** the user sits at the desk while the gator wanders on it. They press a whistle button, hear a whistle, and the gator trots over. It walks around the laptop/keyboard zone, never across it, and stops at the side of the laptop nearest the user. It turns to face them and starts listening on its own, with no held button. The STT provider decides when the user has stopped talking (server VAD). After that the usual Thinking/Answering flow runs. Poking the gator now only plays "Clicked". Push-to-talk (Space / A) stays as a second way in, mainly for the simulator.
