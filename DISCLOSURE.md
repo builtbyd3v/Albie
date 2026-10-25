@@ -30,6 +30,7 @@
 
 ## APIs and services
 - TypeSafe Jev (repo-aware panel picking spike)
+- GitHub REST API through the GitHub CLI (`gh api`, MIT): Albie's ml_github finds a repo by name or search (hub/ml/github.py). Repos it clones are not committed and keep their own licenses
 - macOS Messages, optional and off by default (`IMESSAGE_ENABLED=1`): the hub reads the local `~/Library/Messages/chat.db` read-only
 - imsg CLI (github.com/steipete/imsg, Homebrew tap `steipete/tap/imsg`): sends confirmed iMessage drafts. Optional, never installed by the hub; the user installs it
 - [TEAM: Grok Voice Agent API, WhatsApp Cloud API, cloudflared/ngrok, if used]
