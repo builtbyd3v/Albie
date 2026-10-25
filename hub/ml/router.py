@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -20,7 +21,20 @@ from .service import Conflict, MLService, NotFound
 from .setup import pipeline
 
 router = APIRouter(prefix="/ml", tags=["ml"])
-DEFAULT_HUB_URL = os.environ.get("FORGE_HUB_SELF", "http://127.0.0.1:8000")
+
+
+def hub_url() -> str:
+    """Where a training run posts back: FORGE_HUB_SELF, else this machine on uvicorn's --port, else :8000.
+    The run is a child process on the hub's machine, so localhost always reaches it, request or not."""
+    if os.environ.get("FORGE_HUB_SELF"):
+        return os.environ["FORGE_HUB_SELF"]
+    port, argv = os.environ.get("UVICORN_PORT", "8000"), sys.argv
+    for i, arg in enumerate(argv):
+        if arg == "--port" and i + 1 < len(argv):
+            port = argv[i + 1]
+        elif arg.startswith("--port="):
+            port = arg.split("=", 1)[1]
+    return f"http://127.0.0.1:{port}"
 
 
 def service(state) -> MLService:
@@ -31,9 +45,6 @@ def service(state) -> MLService:
 
 
 def _svc(request: Request) -> MLService:
-    # Training runs post back to the hub: remember the address the headset / VS Code reached it on, so a run
-    # Albie starts (no request of its own) uses it too.
-    request.app.state.ml_hub_url = str(request.base_url)
     return service(request.app.state)
 
 
@@ -188,7 +199,7 @@ async def replay(req: ReplayRequest, request: Request) -> dict:
 def start_run(state, epochs: int) -> str:
     """Start the profile's train_cmd. Raises Conflict while a run is still training."""
     svc = service(state)
-    run_id = svc.start_training(epochs, getattr(state, "ml_hub_url", None) or DEFAULT_HUB_URL)
+    run_id = svc.start_training(epochs, hub_url())
     # A6: if the script doesn't call forge, its own logs (TensorBoard / Lightning / HF) become the live curves.
     # A script that does use forge writes the run's run.json first, and the tail stands down.
     _start_tail(state, logtail.LogTail(svc.repo, svc.runs_dir, run_id, total_epochs=epochs), svc.train_proc)
