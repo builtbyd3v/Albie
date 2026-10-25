@@ -82,6 +82,7 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
                     imessage.focused = None
 
         agent_ws.client_handlers["messages.focus"] = messages_focus  # reply flow from either provider
+        agent_ws.client_handlers["messages.opened"] = slack.opened_from_ws  # Unity's answer to messages.open
         agent_tools.register(messaging_tools.TOOLS, lambda name, args: messaging_tools.call_tool(
             name, args, slack, imessage, attach=lambda kinds: cad_tools.attachments(cad, kinds), show=views.ensure))
         desk = DeskService(data_dir, bus, speech.speak)  # timer, notes, movie: .data/desk, .data/media
@@ -89,6 +90,14 @@ def create_app(*, data_dir: Path | None = None, cad_script: Path | None = None, 
         agent_tools.register(desk_tools.TOOLS, lambda name, args: desk_tools.call_tool(name, args, desk))
         ml_tools = MLTools(app.state, data_dir, speech.speak)  # "Albie, open my ML project / what can I do better?"
         agent_tools.register(ML_TOOLS, ml_tools.call)
+
+        async def ml_card(session, action_id):
+            if await ml_tools.card_action(action_id):
+                note = getattr(session.voice, "note", None)  # Grok asked the question: it must not apply it again
+                if note is not None:
+                    await note("The user tapped Apply on your ML proposal; it's applied and training. Don't call ml_apply.")
+
+        agent_ws.card_handlers["ml"] = ml_card  # Apply / Not now on Albie's ML proposal card
         await cad.start()
         await slack.start()
         # In the background: the first read of chat.db and the imsg checks never hold up Slack, screens or /health.

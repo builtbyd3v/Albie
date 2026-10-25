@@ -97,8 +97,9 @@ BREVITY = (
 )
 BREVITY_NOW = " Reply now in at most two short sentences."
 DELEGATE_RULES = (
-    " Your delegate tool is for anything needing real analysis of the user's code, repository, files, project "
-    "or training runs, and for any request to write, fix or change code or to create a new file; use mode code "
+    " Your delegate tool is for anything needing real analysis of the user's code, repository, files or project, "
+    "and for any request to write, fix or change code or to create a new file (except ML training: the ml tools "
+    "handle that, never delegate it); use mode code "
     "for those, and the brain edits the files open in VS Code right where the user sees them. Never guess those "
     "details yourself. Give it a self-contained task that includes what the user asked and any context from the "
     "conversation. After calling it, say only a tiny 'on it' line: the answer is spoken for you when it's "
@@ -109,7 +110,8 @@ DELEGATE_RULES = (
 TOOL_RULES = (
     " Use your other tools yourself for quick actions: call them instead of guessing, then say in one short line what "
     "you did. You run the whole workspace. ui_open_view opens a view at the desk (cad is 3D modeling, code is VS Code, "
-    "ml, messages is the Slack messenger). The CAD tools open the CAD view themselves: cad_open_part opens a design "
+    "ml, messages is the Slack messenger); messages_open opens one conversation in it (a Slack channel, someone's "
+    "DM, or an iMessage chat). The CAD tools open the CAD view themselves: cad_open_part opens a design "
     "(rocket, quadcopter, gearbox), cad_set_params and cad_apply_preset change it, cad_view expands it big in front of "
     "the user, explodes it or shows markers and dimensions, cad_take_part hands the user one part or puts it back, cad_demo shows it working (the rocket flies, the "
     "quadcopter hovers, the gearbox turns), and cad_undo or cad_restore_version go back. When one request asks for "
@@ -120,6 +122,10 @@ TOOL_RULES = (
     "the crew (spawn_agent, assign_task) to open, show, create or edit a file: the crew works on its own branch, "
     "which the user can't see in VS Code. Use the crew only when the user names a crew member or asks for help in "
     "parallel. "
+    "ML (machine learning) requests always go to your ml tools, never to delegate: opening the ML project or 'the "
+    "ML stuff' is ml_open (not ui_open_view), 'how is my model doing' or the last score is ml_status, 'what can I do "
+    "better' or 'improve it' is ml_improve, a yes or 'apply it' after an ml_improve suggestion is ml_apply, 'undo "
+    "that' is ml_undo, and 'train it again' is ml_train. "
     "Set the focus timer, keep the user's notes, and play the movie on the big screen with your desk tools. "
     "Slack and iMessage replies go out under the user's own account and are never sent directly: messages_send only "
     "writes a draft that pops up for them to confirm, and its attach option puts the open design's files on a Slack "

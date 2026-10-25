@@ -288,8 +288,9 @@ public class NotifyMessage
     [JsonProperty("mentions_me")] public bool mentionsMe;     // a DM, or the text mentions the user
     // Slack panel additions (PROJECT_CONTEXT 8.8); the hub may leave them out, so they default to "not sent".
     [JsonProperty("reply_count")] public int? replyCount;     // thread replies under this message
-    [JsonProperty("edited")] public bool edited;
-    [JsonProperty("is_me")] public bool isMe;                 // the user's own message (notify.message now carries those too)
+    // edited / is_me are optional in the contract (null unless known): a null reads as false instead of dropping the message.
+    [JsonProperty("edited", NullValueHandling = NullValueHandling.Ignore)] public bool edited;
+    [JsonProperty("is_me", NullValueHandling = NullValueHandling.Ignore)] public bool isMe;  // the user's own message
     [JsonProperty("user_initials")] public string userInitials;
 }
 

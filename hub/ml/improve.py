@@ -41,7 +41,7 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "diagnosis": {"type": "string"},
-        "changes": {"type": "array", "items": {
+        "changes": {"type": "array", "minItems": 1, "items": {
             "type": "object", "properties": {"title": {"type": "string"}, "why": {"type": "string"}},
             "required": ["title", "why"], "additionalProperties": False}},
         "patches": {"type": "array", "items": {

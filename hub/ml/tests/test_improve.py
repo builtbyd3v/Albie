@@ -170,7 +170,7 @@ def test_albie_trains_improves_applies_and_says_the_new_score(tmp_path, monkeypa
 
         assert (await tools.call("ml_improve", {}))["status"] == "started"
         await until(lambda: len(said) == 2)
-        assert said[1].startswith("It plateaus early. I'd change it to use a wider model and longer warmup. I expect about 85%.")
+        assert said[1] == "It plateaus early. I'd make two changes, starting with a wider model. Apply it and retrain?"
         assert "0.3 if" not in (repo / "train.py").read_text()  # proposed, not applied
 
         applied = await tools.call("ml_apply", {})
@@ -202,6 +202,90 @@ def test_the_spoken_summary_stays_short_even_when_the_reply_rambles():
     plan = {"diagnosis": "It's overfitting: 76% vs 58%. Cat is weak. Dog too. And deer.",
             "changes": [{"title": "AdamW with weight decay", "why": ""}, {"title": "Random crops and flips.", "why": ""}],
             "expected": "I expect around 75%, up from 58%. Each epoch takes 10 s."}
-    assert spoken(plan) == ("It's overfitting: 76% vs 58%. Cat is weak. I'd change it to use AdamW with weight decay and "
-                            "random crops and flips. I expect around 75%, up from 58%. The change is open in VS Code. "
-                            "Want me to apply it and retrain?")
+    assert spoken(plan) == ("It's overfitting: 76% vs 58%. I'd make two changes, starting with AdamW with weight decay. "
+                            "Apply it and retrain?")
+    assert len(spoken(plan).split()) <= 22  # the brevity rule; the full list is on the card
+
+
+def test_the_spoken_summary_survives_an_empty_or_odd_proposal():
+    assert spoken({"diagnosis": "It plateaus.", "changes": [], "expected": ""}) == (
+        "It plateaus. I have a change ready. Apply it and retrain?")
+    assert "Apply it and retrain?" in spoken({"changes": [{"title": None}]})
+
+
+def card_flow_setup(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / ".forge").mkdir(parents=True)
+    (repo / ".forge" / "profile.json").write_text(json.dumps(
+        {"archetype": "generic", "python": sys.executable, "train_cmd": "python train.py --epochs 3"}))
+    (repo / "train.py").write_text(TRAIN.replace("BASE", "0.5"))
+    write_run(repo, "base0001", val=[0.5, 0.55, 0.6], train=[0.5, 0.6, 0.7])
+
+    def llm(system, messages, schema, **_):
+        return reply({"diagnosis": "It plateaus early.", "changes": [{"title": "A wider model", "why": "capacity"}],
+                      "patches": [{"path": "train.py", "content": TRAIN.replace("BASE", "0.8")}], "train_args": [],
+                      "epochs": 2, "expected": "about 85%"})
+
+    said: list[str] = []
+
+    async def speak(pet_id, text):
+        said.append(text)
+        return True
+
+    tools = MLTools(SimpleNamespace(bus=EventBus(), ml=MLService(repo), ml_llm=llm), tmp_path / "data", speak)
+    tools._open_diff = lambda plan: None
+    published: list[dict] = []
+    real = tools.state.bus.publish
+
+    async def publish(type_, payload):
+        published.append(payload)
+        return await real(type_, payload)
+
+    tools.state.bus.publish = publish
+    return repo, tools, said, published
+
+
+async def _until(cond, timeout=30.0):
+    end = time.monotonic() + timeout
+    while not cond():
+        assert time.monotonic() < end
+        await asyncio.sleep(0.05)
+
+
+def test_the_proposal_card_apply_button_applies_and_retrains(tmp_path, monkeypatch):
+    monkeypatch.setattr(logtail, "POLL_S", 0.05)
+    repo, tools, said, published = card_flow_setup(tmp_path)
+
+    async def flow():
+        await tools.call("ml_improve", {})
+        await _until(lambda: said)
+        card = published[-1]["card"]
+        assert card["title"] == "Apply 1 change and retrain?" and card["bullets"] == ["A wider model"]
+        apply_id, later_id = (a["action_id"] for a in card["actions"])
+        assert later_id == "ml:dismiss:1"
+        assert await tools.card_action(apply_id) is True
+        assert said[-1] == "Applied. Training 2 epochs now; the curves are live."
+        assert "0.8" in (repo / "train.py").read_text()
+        assert await tools.card_action(apply_id) is False  # a second tap does nothing
+        await _until(lambda: said[-1].startswith("Done!"))
+
+    asyncio.run(flow())
+
+
+def test_the_proposal_card_not_now_button_drops_the_proposal(tmp_path):
+    repo, tools, said, published = card_flow_setup(tmp_path)
+
+    async def flow():
+        await tools.call("ml_improve", {})
+        await _until(lambda: said)
+        assert await tools.card_action(published[-1]["card"]["actions"][1]["action_id"]) is False
+        assert said[-1] == "Okay, I'll leave it as it is."
+        assert improve.plan(tools.svc) == {} and "0.8" not in (repo / "train.py").read_text()
+        assert "error" in await tools.call("ml_apply", {})  # nothing left to apply
+
+    asyncio.run(flow())
+
+
+def test_train_with_zero_epochs_is_an_error_not_ten(tmp_path):
+    _, tools, _, _ = card_flow_setup(tmp_path)
+    assert "error" in asyncio.run(tools.call("ml_train", {"epochs": 0}))

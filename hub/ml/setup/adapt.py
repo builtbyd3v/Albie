@@ -74,11 +74,18 @@ def golden_example() -> str:
     return "\n\n".join(parts)
 
 
+SKIP_PATCH_DIRS = (".forge", ".venv", "venv", ".git", "site-packages")  # never patched, at any depth
+
+
 def safe_patch_path(repo: Path, rel: str) -> Path:
     p = PurePosixPath(rel.replace("\\", "/"))
-    if p.is_absolute() or ".." in p.parts or not p.parts or p.parts[0] == ".forge" or p.suffix != ".py":
-        raise GuardrailError(f"patch path {rel!r} must be a relative .py path inside the repo, outside .forge/")
+    if (p.is_absolute() or ".." in p.parts or not p.parts or set(p.parts) & set(SKIP_PATCH_DIRS)
+            or p.suffix != ".py"):
+        raise GuardrailError(f"patch path {rel!r} must be a relative .py path inside the repo, outside "
+                             f"{', '.join(SKIP_PATCH_DIRS)}")
     target = repo / Path(*p.parts)
+    if not target.resolve().is_relative_to(Path(repo).resolve()):  # a symlink pointing out of the repo
+        raise GuardrailError(f"patch path {rel!r} resolves outside the repo")
     if not target.is_file():
         raise GuardrailError(f"patch path {rel!r} is not an existing file; only existing files can be patched")
     return target

@@ -1,7 +1,8 @@
 """Bit's messaging tools (voice model + Claude runner), registered through agent/tools.py like the CAD tools.
 
 Reading: messages_read_latest (the inbox, newest first), messages_list_channels (every conversation with its unread
-count), messages_read_channel (the last n in one conversation). Sending is two tools on purpose: messages_send only
+count), messages_read_channel (the last n in one conversation). Showing: messages_open puts a conversation on the
+Slack panel (opens the MSG view). Sending is two tools on purpose: messages_send only
 WRITES a draft (Unity shows it in the composer with Send / Cancel); messages_confirm is the spoken "send it" /
 "never mind". Nothing reaches Slack or iMessage without one of those two confirmations. messages_edit_draft rewords the
 open Slack draft in place (same draft, same files). messages_send can attach the open CAD design's files to a Slack draft
@@ -17,7 +18,7 @@ from agent.events import DISPLAY_NAME
 
 from events import Attachment
 
-from .slack_client import SlackService
+from .slack_client import AmbiguousName, SlackService
 
 Attach = Callable[[list[str]], Awaitable[list[Attachment]]]  # ["all"] / ["step", "drawing"] -> files on the hub's disk
 Show = Callable[[str], Awaitable[dict[str, Any]]]
@@ -43,6 +44,17 @@ TOOLS: list[dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "channel": {"type": "string", "description": "#name, id, or a person's name (their DM)"},
          "n": {"type": "integer", "minimum": 1, "maximum": 50, "description": "how many (default 10)"}},
+         "required": ["channel"]}},
+    {"name": "messages_open",
+     "description": "Open a conversation in the MSG view (it opens if it isn't already): a Slack channel ('#general'), a "
+                    "person's name for the user's Slack DM with them ('Adrian'), or an iMessage chat (an im: id from "
+                    "messages_list_channels, or via='imessage' with the contact's name). Use it for 'open my chat with "
+                    "Adrian', 'pull up #general', 'show me my texts with Mom'. It only shows it; nothing is sent. The "
+                    "user has to be at their desk. Then say in a few words what you opened.",
+     "parameters": {"type": "object", "properties": {
+         "channel": {"type": "string", "description": "#name, channel id, a person's name (their DM), or im:<chat-guid>"},
+         "via": {"type": "string", "enum": ["slack", "imessage"],
+                 "description": "optional; which messenger when a name could be either (default: Slack, then iMessage)"}},
          "required": ["channel"]}},
     {"name": "messages_send",
      "description": "Write a Slack or iMessage reply on the user's behalf. This only WRITES A DRAFT: nothing is sent. The "
@@ -132,6 +144,27 @@ async def call_tool(name: str, args: dict[str, Any], svc: SlackService, imessage
                         "messages": [_row(m) for m in messages]}
             rec, messages, _ = await svc.history(channel, n)
             return {"channel": rec.id, "channel_name": rec.label, "kind": rec.kind, "messages": [_row(m) for m in messages]}
+        if name == "messages_open":
+            channel = str(args.get("channel") or "").strip()
+            if not channel:
+                return {"error": "channel is empty"}
+            has_imessage = imessage is not None and imessage.available
+            use_imessage = channel.startswith("im:") or args.get("via") == "imessage" or not svc.enabled
+            if not use_imessage:
+                try:
+                    return await svc.open_conversation(channel)
+                except AmbiguousName:
+                    raise
+                except LookupError:
+                    if not has_imessage:
+                        raise
+                    use_imessage = True  # not a Slack channel or person: maybe an iMessage contact
+            if imessage is None or not imessage.available:
+                return {"error": "iMessage is unavailable on this hub"}
+            guid = await imessage.resolve_channel(channel)
+            cid = f"im:{guid}"
+            row = next((c for c in imessage.channel_summaries() if c.id == cid), None)
+            return await svc.show_conversation(cid, imessage.chat_name(guid), row.kind if row else "dm")
         if name == "messages_send":
             text = str(args.get("text") or "").strip()
             if not text:
